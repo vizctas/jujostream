@@ -1,0 +1,4 @@
+storePassword=Pad..13131991
+keyPassword=Pad.13131991
+keyAlias=upload
+storeFile=../keystores/jujostream-upload.jks

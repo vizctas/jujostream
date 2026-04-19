@@ -1,0 +1,1195 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 54;
+	objects = {
+
+/* Begin PBXAggregateTarget section */
+		33CC111A2044C6BA0003C045 /* Flutter Assemble */ = {
+			isa = PBXAggregateTarget;
+			buildConfigurationList = 33CC111B2044C6BA0003C045 /* Build configuration list for PBXAggregateTarget "Flutter Assemble" */;
+			buildPhases = (
+				33CC111E2044C6BF0003C045 /* ShellScript */,
+			);
+			dependencies = (
+			);
+			name = "Flutter Assemble";
+			productName = FLX;
+		};
+/* End PBXAggregateTarget section */
+
+/* Begin PBXBuildFile section */
+		0582438298E87AD6ABA85C25 /* LinkedBlockingQueue.c in Sources */ = {isa = PBXBuildFile; fileRef = 399C46AF964C6989D9AE3B3D /* LinkedBlockingQueue.c */; };
+		07404966806D233C58DA5460 /* Misc.c in Sources */ = {isa = PBXBuildFile; fileRef = AD894086BC395FA6BA5416F7 /* Misc.c */; };
+		0AEA49FE8B869CCE38902B34 /* AudioRendererMac.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E6A4C698D2F1665AE96C9AF /* AudioRendererMac.swift */; };
+		0D5E46D3BB01A6DD8EC27C0D /* SimpleStun.c in Sources */ = {isa = PBXBuildFile; fileRef = 62EA4350A1A377FFA03D6337 /* SimpleStun.c */; };
+		140B4843926299F11F798102 /* VideoStream.c in Sources */ = {isa = PBXBuildFile; fileRef = EFCD4CE9B022563C28154B0F /* VideoStream.c */; };
+		1C464D23AEA7A99F8927A247 /* unix.c in Sources */ = {isa = PBXBuildFile; fileRef = 425B4E6AA19B8B4A1B2EFB22 /* unix.c */; };
+		1C9241C3825BCB0AFF7ACFFB /* peer.c in Sources */ = {isa = PBXBuildFile; fileRef = D2E34033A3BD5EF084A786AB /* peer.c */; };
+		1C9647AB8DF539E2E2CB287F /* PlatformCrypto.c in Sources */ = {isa = PBXBuildFile; fileRef = 02E54C3F9BF4D45317246294 /* PlatformCrypto.c */; };
+		1E1249FCBD5FC35046500EBD /* protocol.c in Sources */ = {isa = PBXBuildFile; fileRef = 43E84BEC85CBBD9B26A8AC8C /* protocol.c */; };
+		2CCF4E7D9F941C84A6A0BE17 /* CoreAudioRenderer.c in Sources */ = {isa = PBXBuildFile; fileRef = AA6443C08CE9F61974B3847D /* CoreAudioRenderer.c */; };
+		2D9045BDB26933052AB297E1 /* Platform.c in Sources */ = {isa = PBXBuildFile; fileRef = 11A74FBAB32D3602D46D8069 /* Platform.c */; };
+		331C80D8294CF71000263BE5 /* RunnerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 331C80D7294CF71000263BE5 /* RunnerTests.swift */; };
+		335BBD1B22A9A15E00E9071D /* GeneratedPluginRegistrant.swift in Sources */ = {isa = PBXBuildFile; fileRef = 335BBD1A22A9A15E00E9071D /* GeneratedPluginRegistrant.swift */; };
+		33CC10F12044A3C60003C045 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33CC10F02044A3C60003C045 /* AppDelegate.swift */; };
+		33CC10F32044A3C60003C045 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 33CC10F22044A3C60003C045 /* Assets.xcassets */; };
+		33CC10F62044A3C60003C045 /* MainMenu.xib in Resources */ = {isa = PBXBuildFile; fileRef = 33CC10F42044A3C60003C045 /* MainMenu.xib */; };
+		33CC11132044BFA00003C045 /* MainFlutterWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33CC11122044BFA00003C045 /* MainFlutterWindow.swift */; };
+		3B84439CA4ED8A9BEEF42A0D /* VideoDepacketizer.c in Sources */ = {isa = PBXBuildFile; fileRef = B19D402D857308AD5D574C2C /* VideoDepacketizer.c */; };
+		3CCD489EB1D51E66CBF816CC /* packet.c in Sources */ = {isa = PBXBuildFile; fileRef = 65ED48129903F916D87EBF4B /* packet.c */; };
+		4A51472D92CFCD37C93BAB32 /* RecorderCallbacks.c in Sources */ = {isa = PBXBuildFile; fileRef = 614D44AD88349F35C05527EB /* RecorderCallbacks.c */; };
+		4D0945E0A94DA94CB895E3DD /* RtspParser.c in Sources */ = {isa = PBXBuildFile; fileRef = 08804EB4A4876D3BB23D2DE7 /* RtspParser.c */; };
+		534D4724977568AAB3112963 /* StreamingBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00B48D2B24CADFC87CD915E /* StreamingBridge.swift */; };
+		59DC4CD9A5F81E12EF3AA4CD /* Connection.c in Sources */ = {isa = PBXBuildFile; fileRef = 4790403E8B1A54F5BD886F8A /* Connection.c */; };
+		61CD4A959235E7237133EA9B /* ByteBuffer.c in Sources */ = {isa = PBXBuildFile; fileRef = 01014B858FDAF12DC5A57F28 /* ByteBuffer.c */; };
+		62C3A2B3C05A04949956187C /* Pods_Runner.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A1BE46597AEF84E0459AE771 /* Pods_Runner.framework */; };
+		6FCF40E79039F411A455584E /* PlatformSockets.c in Sources */ = {isa = PBXBuildFile; fileRef = 019641699D35960F948356D9 /* PlatformSockets.c */; };
+		73F74BE1A475D293EE178BEB /* compress.c in Sources */ = {isa = PBXBuildFile; fileRef = 6FC54C96A25E4DA6509B99AF /* compress.c */; };
+		7C004F3FB27DF4F28891BF53 /* moonlight_bridge_mac.c in Sources */ = {isa = PBXBuildFile; fileRef = 942941278F64D44AA9F5CDF9 /* moonlight_bridge_mac.c */; };
+		842346F1B1898B39B5E141A9 /* SdpGenerator.c in Sources */ = {isa = PBXBuildFile; fileRef = F64C4808AE41B3FBA22ED44E /* SdpGenerator.c */; };
+		8A314412A560D0C0A4519980 /* VideoDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71034C8CB5123EDE89D9859B /* VideoDecoder.swift */; };
+		9C9D4484B55DDAEB33AD46AB /* RtpVideoQueue.c in Sources */ = {isa = PBXBuildFile; fileRef = C250463B9ED611EE21464456 /* RtpVideoQueue.c */; };
+		AA02457A9C4943A57EC087B3 /* callbacks_mac.c in Sources */ = {isa = PBXBuildFile; fileRef = 744545EAAC31F1182389A28F /* callbacks_mac.c */; };
+		AA734F71A4BF7F4FD099A0AC /* host.c in Sources */ = {isa = PBXBuildFile; fileRef = 6B7B473ABDA54033DD5BA579 /* host.c */; };
+		BB1D46D2816C9A8783E5C1B2 /* ConnectionTester.c in Sources */ = {isa = PBXBuildFile; fileRef = 7410418EBC6E6832F2DF632A /* ConnectionTester.c */; };
+		C01D4355B07494A82EA1A643 /* callbacks.c in Sources */ = {isa = PBXBuildFile; fileRef = 922248719F3F8BD1015B2ABE /* callbacks.c */; };
+		C1CE4C92A92231B3CC444B84 /* StreamingPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B9E4266B90E5ACF36279F4E /* StreamingPlugin.swift */; };
+		C70549A5B035EEFABF1836CE /* FakeCallbacks.c in Sources */ = {isa = PBXBuildFile; fileRef = 13D240E4BE7A4614AFF493CC /* FakeCallbacks.c */; };
+		D3914265868938E3E34EA6FD /* AudioStream.c in Sources */ = {isa = PBXBuildFile; fileRef = 3F914D39B2FA0DFA90E8D778 /* AudioStream.c */; };
+		DFD446B4896D69D762DD97C9 /* RtpAudioQueue.c in Sources */ = {isa = PBXBuildFile; fileRef = E3024F4586E4BBC8794D1761 /* RtpAudioQueue.c */; };
+		E01C4E11A7ABA280754A6360 /* ControlStream.c in Sources */ = {isa = PBXBuildFile; fileRef = 5C964F0FBC15AB07496C0C5C /* ControlStream.c */; };
+		E74A459F96D13602063DAE32 /* RtspConnection.c in Sources */ = {isa = PBXBuildFile; fileRef = D8CA4235A0DE26A1B1A8B21A /* RtspConnection.c */; };
+		F91640E7B8B96596FC2B88FA /* rswrapper.c in Sources */ = {isa = PBXBuildFile; fileRef = 116A4CD8A4DAC42430A893A5 /* rswrapper.c */; };
+		FA334AD2B644D0F37EAE57B5 /* InputStream.c in Sources */ = {isa = PBXBuildFile; fileRef = 1A134619BB37573951EBEE09 /* InputStream.c */; };
+		FEA043B6B1070D6669197E23 /* list.c in Sources */ = {isa = PBXBuildFile; fileRef = 2E304ADAADD6625A6B9394B1 /* list.c */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		331C80D9294CF71000263BE5 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 33CC10E52044A3C60003C045 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 33CC10EC2044A3C60003C045;
+			remoteInfo = Runner;
+		};
+		33CC111F2044C79F0003C045 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 33CC10E52044A3C60003C045 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 33CC111A2044C6BA0003C045;
+			remoteInfo = FLX;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		33CC110E2044A8840003C045 /* Bundle Framework */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+			);
+			name = "Bundle Framework";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		01014B858FDAF12DC5A57F28 /* ByteBuffer.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = ByteBuffer.c; path = "Runner/native_bridge/moonlight-common-c/src/ByteBuffer.c"; sourceTree = SOURCE_ROOT; };
+		019641699D35960F948356D9 /* PlatformSockets.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = PlatformSockets.c; path = "Runner/native_bridge/moonlight-common-c/src/PlatformSockets.c"; sourceTree = SOURCE_ROOT; };
+		02E54C3F9BF4D45317246294 /* PlatformCrypto.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = PlatformCrypto.c; path = "Runner/native_bridge/moonlight-common-c/src/PlatformCrypto.c"; sourceTree = SOURCE_ROOT; };
+		0739C4C38DE023D0F4631CFC /* Pods-Runner.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Runner.release.xcconfig"; path = "Target Support Files/Pods-Runner/Pods-Runner.release.xcconfig"; sourceTree = "<group>"; };
+		08804EB4A4876D3BB23D2DE7 /* RtspParser.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = RtspParser.c; path = "Runner/native_bridge/moonlight-common-c/src/RtspParser.c"; sourceTree = SOURCE_ROOT; };
+		116A4CD8A4DAC42430A893A5 /* rswrapper.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = rswrapper.c; path = "Runner/native_bridge/moonlight-common-c/src/rswrapper.c"; sourceTree = SOURCE_ROOT; };
+		11A74FBAB32D3602D46D8069 /* Platform.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = Platform.c; path = "Runner/native_bridge/moonlight-common-c/src/Platform.c"; sourceTree = SOURCE_ROOT; };
+		13D240E4BE7A4614AFF493CC /* FakeCallbacks.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = FakeCallbacks.c; path = "Runner/native_bridge/moonlight-common-c/src/FakeCallbacks.c"; sourceTree = SOURCE_ROOT; };
+		1A134619BB37573951EBEE09 /* InputStream.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = InputStream.c; path = "Runner/native_bridge/moonlight-common-c/src/InputStream.c"; sourceTree = SOURCE_ROOT; };
+		1B9E4266B90E5ACF36279F4E /* StreamingPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = StreamingPlugin.swift; path = Runner/StreamingPlugin.swift; sourceTree = SOURCE_ROOT; };
+		2E304ADAADD6625A6B9394B1 /* list.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = list.c; path = "Runner/native_bridge/moonlight-common-c/enet/list.c"; sourceTree = SOURCE_ROOT; };
+		331C80D5294CF71000263BE5 /* RunnerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RunnerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		331C80D7294CF71000263BE5 /* RunnerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunnerTests.swift; sourceTree = "<group>"; };
+		333000ED22D3DE5D00554162 /* Warnings.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Warnings.xcconfig; sourceTree = "<group>"; };
+		335BBD1A22A9A15E00E9071D /* GeneratedPluginRegistrant.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = GeneratedPluginRegistrant.swift; sourceTree = "<group>"; };
+		33CC10ED2044A3C60003C045 /* jujostream.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = jujostream.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		33CC10F02044A3C60003C045 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		33CC10F22044A3C60003C045 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Assets.xcassets; path = Runner/Assets.xcassets; sourceTree = "<group>"; };
+		33CC10F52044A3C60003C045 /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.xib; name = Base; path = Base.lproj/MainMenu.xib; sourceTree = "<group>"; };
+		33CC10F72044A3C60003C045 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; name = Info.plist; path = Runner/Info.plist; sourceTree = "<group>"; };
+		33CC11122044BFA00003C045 /* MainFlutterWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainFlutterWindow.swift; sourceTree = "<group>"; };
+		33CEB47222A05771004F2AC0 /* Flutter-Debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = "Flutter-Debug.xcconfig"; sourceTree = "<group>"; };
+		33CEB47422A05771004F2AC0 /* Flutter-Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = "Flutter-Release.xcconfig"; sourceTree = "<group>"; };
+		33CEB47722A0578A004F2AC0 /* Flutter-Generated.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = "Flutter-Generated.xcconfig"; path = "ephemeral/Flutter-Generated.xcconfig"; sourceTree = "<group>"; };
+		33E51913231747F40026EE4D /* DebugProfile.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = DebugProfile.entitlements; sourceTree = "<group>"; };
+		33E51914231749380026EE4D /* Release.entitlements */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.entitlements; path = Release.entitlements; sourceTree = "<group>"; };
+		33E5194F232828860026EE4D /* AppInfo.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = AppInfo.xcconfig; sourceTree = "<group>"; };
+		399C46AF964C6989D9AE3B3D /* LinkedBlockingQueue.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = LinkedBlockingQueue.c; path = "Runner/native_bridge/moonlight-common-c/src/LinkedBlockingQueue.c"; sourceTree = SOURCE_ROOT; };
+		3F914D39B2FA0DFA90E8D778 /* AudioStream.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = AudioStream.c; path = "Runner/native_bridge/moonlight-common-c/src/AudioStream.c"; sourceTree = SOURCE_ROOT; };
+		41DDDC68C43EDF9C677C5F2F /* Pods-Runner.profile.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Runner.profile.xcconfig"; path = "Target Support Files/Pods-Runner/Pods-Runner.profile.xcconfig"; sourceTree = "<group>"; };
+		425B4E6AA19B8B4A1B2EFB22 /* unix.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = unix.c; path = "Runner/native_bridge/moonlight-common-c/enet/unix.c"; sourceTree = SOURCE_ROOT; };
+		43E84BEC85CBBD9B26A8AC8C /* protocol.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = protocol.c; path = "Runner/native_bridge/moonlight-common-c/enet/protocol.c"; sourceTree = SOURCE_ROOT; };
+		4790403E8B1A54F5BD886F8A /* Connection.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = Connection.c; path = "Runner/native_bridge/moonlight-common-c/src/Connection.c"; sourceTree = SOURCE_ROOT; };
+		5C964F0FBC15AB07496C0C5C /* ControlStream.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = ControlStream.c; path = "Runner/native_bridge/moonlight-common-c/src/ControlStream.c"; sourceTree = SOURCE_ROOT; };
+		614D44AD88349F35C05527EB /* RecorderCallbacks.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = RecorderCallbacks.c; path = "Runner/native_bridge/moonlight-common-c/src/RecorderCallbacks.c"; sourceTree = SOURCE_ROOT; };
+		62EA4350A1A377FFA03D6337 /* SimpleStun.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = SimpleStun.c; path = "Runner/native_bridge/moonlight-common-c/src/SimpleStun.c"; sourceTree = SOURCE_ROOT; };
+		65ED48129903F916D87EBF4B /* packet.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = packet.c; path = "Runner/native_bridge/moonlight-common-c/enet/packet.c"; sourceTree = SOURCE_ROOT; };
+		6B7B473ABDA54033DD5BA579 /* host.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = host.c; path = "Runner/native_bridge/moonlight-common-c/enet/host.c"; sourceTree = SOURCE_ROOT; };
+		6FC54C96A25E4DA6509B99AF /* compress.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = compress.c; path = "Runner/native_bridge/moonlight-common-c/enet/compress.c"; sourceTree = SOURCE_ROOT; };
+		71034C8CB5123EDE89D9859B /* VideoDecoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VideoDecoder.swift; path = Runner/VideoDecoder.swift; sourceTree = SOURCE_ROOT; };
+		7410418EBC6E6832F2DF632A /* ConnectionTester.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = ConnectionTester.c; path = "Runner/native_bridge/moonlight-common-c/src/ConnectionTester.c"; sourceTree = SOURCE_ROOT; };
+		744545EAAC31F1182389A28F /* callbacks_mac.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = callbacks_mac.c; path = Runner/native_bridge/callbacks_mac.c; sourceTree = SOURCE_ROOT; };
+		79C56F91755CE4C146503138 /* Pods-Runner.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Runner.debug.xcconfig"; path = "Target Support Files/Pods-Runner/Pods-Runner.debug.xcconfig"; sourceTree = "<group>"; };
+		7AFA3C8E1D35360C0083082E /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Release.xcconfig; sourceTree = "<group>"; };
+		8E6A4C698D2F1665AE96C9AF /* AudioRendererMac.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AudioRendererMac.swift; path = Runner/AudioRendererMac.swift; sourceTree = SOURCE_ROOT; };
+		922248719F3F8BD1015B2ABE /* callbacks.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = callbacks.c; path = "Runner/native_bridge/moonlight-common-c/enet/callbacks.c"; sourceTree = SOURCE_ROOT; };
+		942941278F64D44AA9F5CDF9 /* moonlight_bridge_mac.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = moonlight_bridge_mac.c; path = Runner/native_bridge/moonlight_bridge_mac.c; sourceTree = SOURCE_ROOT; };
+		9740EEB21CF90195004384FC /* Debug.xcconfig */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.xcconfig; path = Debug.xcconfig; sourceTree = "<group>"; };
+		A00B48D2B24CADFC87CD915E /* StreamingBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = StreamingBridge.swift; path = Runner/StreamingBridge.swift; sourceTree = SOURCE_ROOT; };
+		A1BE46597AEF84E0459AE771 /* Pods_Runner.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_Runner.framework; sourceTree = BUILT_PRODUCTS_DIR; };
+		AA6443C08CE9F61974B3847D /* CoreAudioRenderer.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = CoreAudioRenderer.c; path = Runner/native_bridge/CoreAudioRenderer.c; sourceTree = SOURCE_ROOT; };
+		AD894086BC395FA6BA5416F7 /* Misc.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = Misc.c; path = "Runner/native_bridge/moonlight-common-c/src/Misc.c"; sourceTree = SOURCE_ROOT; };
+		B19D402D857308AD5D574C2C /* VideoDepacketizer.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = VideoDepacketizer.c; path = "Runner/native_bridge/moonlight-common-c/src/VideoDepacketizer.c"; sourceTree = SOURCE_ROOT; };
+		C250463B9ED611EE21464456 /* RtpVideoQueue.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = RtpVideoQueue.c; path = "Runner/native_bridge/moonlight-common-c/src/RtpVideoQueue.c"; sourceTree = SOURCE_ROOT; };
+		D2E34033A3BD5EF084A786AB /* peer.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = peer.c; path = "Runner/native_bridge/moonlight-common-c/enet/peer.c"; sourceTree = SOURCE_ROOT; };
+		D8CA4235A0DE26A1B1A8B21A /* RtspConnection.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = RtspConnection.c; path = "Runner/native_bridge/moonlight-common-c/src/RtspConnection.c"; sourceTree = SOURCE_ROOT; };
+		E3024F4586E4BBC8794D1761 /* RtpAudioQueue.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = RtpAudioQueue.c; path = "Runner/native_bridge/moonlight-common-c/src/RtpAudioQueue.c"; sourceTree = SOURCE_ROOT; };
+		EFCD4CE9B022563C28154B0F /* VideoStream.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = VideoStream.c; path = "Runner/native_bridge/moonlight-common-c/src/VideoStream.c"; sourceTree = SOURCE_ROOT; };
+		F64C4808AE41B3FBA22ED44E /* SdpGenerator.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = SdpGenerator.c; path = "Runner/native_bridge/moonlight-common-c/src/SdpGenerator.c"; sourceTree = SOURCE_ROOT; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		331C80D2294CF70F00263BE5 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		33CC10EA2044A3C60003C045 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				62C3A2B3C05A04949956187C /* Pods_Runner.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		0965BD623DC8CCBE2816E4E2 /* Pods */ = {
+			isa = PBXGroup;
+			children = (
+				79C56F91755CE4C146503138 /* Pods-Runner.debug.xcconfig */,
+				0739C4C38DE023D0F4631CFC /* Pods-Runner.release.xcconfig */,
+				41DDDC68C43EDF9C677C5F2F /* Pods-Runner.profile.xcconfig */,
+			);
+			name = Pods;
+			path = Pods;
+			sourceTree = "<group>";
+		};
+		331C80D6294CF71000263BE5 /* RunnerTests */ = {
+			isa = PBXGroup;
+			children = (
+				331C80D7294CF71000263BE5 /* RunnerTests.swift */,
+			);
+			path = RunnerTests;
+			sourceTree = "<group>";
+		};
+		33BA886A226E78AF003329D5 /* Configs */ = {
+			isa = PBXGroup;
+			children = (
+				33E5194F232828860026EE4D /* AppInfo.xcconfig */,
+				9740EEB21CF90195004384FC /* Debug.xcconfig */,
+				7AFA3C8E1D35360C0083082E /* Release.xcconfig */,
+				333000ED22D3DE5D00554162 /* Warnings.xcconfig */,
+			);
+			path = Configs;
+			sourceTree = "<group>";
+		};
+		33CC10E42044A3C60003C045 = {
+			isa = PBXGroup;
+			children = (
+				33FAB671232836740065AC1E /* Runner */,
+				33CEB47122A05771004F2AC0 /* Flutter */,
+				331C80D6294CF71000263BE5 /* RunnerTests */,
+				33CC10EE2044A3C60003C045 /* Products */,
+				D73912EC22F37F3D000D13A0 /* Frameworks */,
+				744545EAAC31F1182389A28F /* callbacks_mac.c */,
+				922248719F3F8BD1015B2ABE /* callbacks.c */,
+				6FC54C96A25E4DA6509B99AF /* compress.c */,
+				6B7B473ABDA54033DD5BA579 /* host.c */,
+				2E304ADAADD6625A6B9394B1 /* list.c */,
+				65ED48129903F916D87EBF4B /* packet.c */,
+				D2E34033A3BD5EF084A786AB /* peer.c */,
+				43E84BEC85CBBD9B26A8AC8C /* protocol.c */,
+				425B4E6AA19B8B4A1B2EFB22 /* unix.c */,
+				3F914D39B2FA0DFA90E8D778 /* AudioStream.c */,
+				01014B858FDAF12DC5A57F28 /* ByteBuffer.c */,
+				4790403E8B1A54F5BD886F8A /* Connection.c */,
+				7410418EBC6E6832F2DF632A /* ConnectionTester.c */,
+				5C964F0FBC15AB07496C0C5C /* ControlStream.c */,
+				13D240E4BE7A4614AFF493CC /* FakeCallbacks.c */,
+				1A134619BB37573951EBEE09 /* InputStream.c */,
+				399C46AF964C6989D9AE3B3D /* LinkedBlockingQueue.c */,
+				AD894086BC395FA6BA5416F7 /* Misc.c */,
+				11A74FBAB32D3602D46D8069 /* Platform.c */,
+				02E54C3F9BF4D45317246294 /* PlatformCrypto.c */,
+				019641699D35960F948356D9 /* PlatformSockets.c */,
+				614D44AD88349F35C05527EB /* RecorderCallbacks.c */,
+				E3024F4586E4BBC8794D1761 /* RtpAudioQueue.c */,
+				C250463B9ED611EE21464456 /* RtpVideoQueue.c */,
+				D8CA4235A0DE26A1B1A8B21A /* RtspConnection.c */,
+				08804EB4A4876D3BB23D2DE7 /* RtspParser.c */,
+				F64C4808AE41B3FBA22ED44E /* SdpGenerator.c */,
+				62EA4350A1A377FFA03D6337 /* SimpleStun.c */,
+				B19D402D857308AD5D574C2C /* VideoDepacketizer.c */,
+				EFCD4CE9B022563C28154B0F /* VideoStream.c */,
+				116A4CD8A4DAC42430A893A5 /* rswrapper.c */,
+				942941278F64D44AA9F5CDF9 /* moonlight_bridge_mac.c */,
+				0965BD623DC8CCBE2816E4E2 /* Pods */,
+				1B9E4266B90E5ACF36279F4E /* StreamingPlugin.swift */,
+				A00B48D2B24CADFC87CD915E /* StreamingBridge.swift */,
+				8E6A4C698D2F1665AE96C9AF /* AudioRendererMac.swift */,
+				71034C8CB5123EDE89D9859B /* VideoDecoder.swift */,
+				AA6443C08CE9F61974B3847D /* CoreAudioRenderer.c */,
+			);
+			sourceTree = "<group>";
+		};
+		33CC10EE2044A3C60003C045 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				33CC10ED2044A3C60003C045 /* jujostream.app */,
+				331C80D5294CF71000263BE5 /* RunnerTests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		33CC11242044D66E0003C045 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				33CC10F22044A3C60003C045 /* Assets.xcassets */,
+				33CC10F42044A3C60003C045 /* MainMenu.xib */,
+				33CC10F72044A3C60003C045 /* Info.plist */,
+			);
+			name = Resources;
+			path = ..;
+			sourceTree = "<group>";
+		};
+		33CEB47122A05771004F2AC0 /* Flutter */ = {
+			isa = PBXGroup;
+			children = (
+				335BBD1A22A9A15E00E9071D /* GeneratedPluginRegistrant.swift */,
+				33CEB47222A05771004F2AC0 /* Flutter-Debug.xcconfig */,
+				33CEB47422A05771004F2AC0 /* Flutter-Release.xcconfig */,
+				33CEB47722A0578A004F2AC0 /* Flutter-Generated.xcconfig */,
+			);
+			path = Flutter;
+			sourceTree = "<group>";
+		};
+		33FAB671232836740065AC1E /* Runner */ = {
+			isa = PBXGroup;
+			children = (
+				33CC10F02044A3C60003C045 /* AppDelegate.swift */,
+				33CC11122044BFA00003C045 /* MainFlutterWindow.swift */,
+				33E51913231747F40026EE4D /* DebugProfile.entitlements */,
+				33E51914231749380026EE4D /* Release.entitlements */,
+				33CC11242044D66E0003C045 /* Resources */,
+				33BA886A226E78AF003329D5 /* Configs */,
+			);
+			path = Runner;
+			sourceTree = "<group>";
+		};
+		D73912EC22F37F3D000D13A0 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				A1BE46597AEF84E0459AE771 /* Pods_Runner.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		331C80D4294CF70F00263BE5 /* RunnerTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 331C80DE294CF71000263BE5 /* Build configuration list for PBXNativeTarget "RunnerTests" */;
+			buildPhases = (
+				331C80D1294CF70F00263BE5 /* Sources */,
+				331C80D2294CF70F00263BE5 /* Frameworks */,
+				331C80D3294CF70F00263BE5 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				331C80DA294CF71000263BE5 /* PBXTargetDependency */,
+			);
+			name = RunnerTests;
+			productName = RunnerTests;
+			productReference = 331C80D5294CF71000263BE5 /* RunnerTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		33CC10EC2044A3C60003C045 /* Runner */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 33CC10FB2044A3C60003C045 /* Build configuration list for PBXNativeTarget "Runner" */;
+			buildPhases = (
+				06C1C0DF1887299F1E434F9A /* [CP] Check Pods Manifest.lock */,
+				33CC10E92044A3C60003C045 /* Sources */,
+				33CC10EA2044A3C60003C045 /* Frameworks */,
+				33CC10EB2044A3C60003C045 /* Resources */,
+				33CC110E2044A8840003C045 /* Bundle Framework */,
+				3399D490228B24CF009A79C7 /* ShellScript */,
+				D17F2651DC54A3BD2F905935 /* [CP] Embed Pods Frameworks */,
+				829AB2B6CE17092F780C6998 /* [CP] Copy Pods Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				33CC11202044C79F0003C045 /* PBXTargetDependency */,
+			);
+			name = Runner;
+			productName = Runner;
+			productReference = 33CC10ED2044A3C60003C045 /* jujostream.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		33CC10E52044A3C60003C045 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastSwiftUpdateCheck = 0920;
+				LastUpgradeCheck = 1510;
+				ORGANIZATIONNAME = "";
+				TargetAttributes = {
+					331C80D4294CF70F00263BE5 = {
+						CreatedOnToolsVersion = 14.0;
+						TestTargetID = 33CC10EC2044A3C60003C045;
+					};
+					33CC10EC2044A3C60003C045 = {
+						CreatedOnToolsVersion = 9.2;
+						LastSwiftMigration = 1100;
+						ProvisioningStyle = Automatic;
+						SystemCapabilities = {
+							com.apple.Sandbox = {
+								enabled = 1;
+							};
+						};
+					};
+					33CC111A2044C6BA0003C045 = {
+						CreatedOnToolsVersion = 9.2;
+						ProvisioningStyle = Manual;
+					};
+				};
+			};
+			buildConfigurationList = 33CC10E82044A3C60003C045 /* Build configuration list for PBXProject "Runner" */;
+			compatibilityVersion = "Xcode 9.3";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 33CC10E42044A3C60003C045;
+			productRefGroup = 33CC10EE2044A3C60003C045 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				33CC10EC2044A3C60003C045 /* Runner */,
+				331C80D4294CF70F00263BE5 /* RunnerTests */,
+				33CC111A2044C6BA0003C045 /* Flutter Assemble */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		331C80D3294CF70F00263BE5 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		33CC10EB2044A3C60003C045 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				33CC10F32044A3C60003C045 /* Assets.xcassets in Resources */,
+				33CC10F62044A3C60003C045 /* MainMenu.xib in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		06C1C0DF1887299F1E434F9A /* [CP] Check Pods Manifest.lock */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"${PODS_PODFILE_DIR_PATH}/Podfile.lock",
+				"${PODS_ROOT}/Manifest.lock",
+			);
+			name = "[CP] Check Pods Manifest.lock";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(DERIVED_FILE_DIR)/Pods-Runner-checkManifestLockResult.txt",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "diff \"${PODS_PODFILE_DIR_PATH}/Podfile.lock\" \"${PODS_ROOT}/Manifest.lock\" > /dev/null\nif [ $? != 0 ] ; then\n    # print error to STDERR\n    echo \"error: The sandbox is not in sync with the Podfile.lock. Run 'pod install' or update your CocoaPods installation.\" >&2\n    exit 1\nfi\n# This output is used by Xcode 'outputs' to avoid re-running this script phase.\necho \"SUCCESS\" > \"${SCRIPT_OUTPUT_FILE_0}\"\n";
+			showEnvVarsInLog = 0;
+		};
+		3399D490228B24CF009A79C7 /* ShellScript */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "echo \"$PRODUCT_NAME.app\" > \"$PROJECT_DIR\"/Flutter/ephemeral/.app_filename && \"$FLUTTER_ROOT\"/packages/flutter_tools/bin/macos_assemble.sh embed\n";
+		};
+		33CC111E2044C6BF0003C045 /* ShellScript */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+				Flutter/ephemeral/FlutterInputs.xcfilelist,
+			);
+			inputPaths = (
+				Flutter/ephemeral/tripwire,
+			);
+			outputFileListPaths = (
+				Flutter/ephemeral/FlutterOutputs.xcfilelist,
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"$FLUTTER_ROOT\"/packages/flutter_tools/bin/macos_assemble.sh && touch Flutter/ephemeral/tripwire";
+		};
+		829AB2B6CE17092F780C6998 /* [CP] Copy Pods Resources */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+				"${PODS_ROOT}/Target Support Files/Pods-Runner/Pods-Runner-resources-${CONFIGURATION}-input-files.xcfilelist",
+			);
+			name = "[CP] Copy Pods Resources";
+			outputFileListPaths = (
+				"${PODS_ROOT}/Target Support Files/Pods-Runner/Pods-Runner-resources-${CONFIGURATION}-output-files.xcfilelist",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-Runner/Pods-Runner-resources.sh\"\n";
+			showEnvVarsInLog = 0;
+		};
+		D17F2651DC54A3BD2F905935 /* [CP] Embed Pods Frameworks */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+				"${PODS_ROOT}/Target Support Files/Pods-Runner/Pods-Runner-frameworks-${CONFIGURATION}-input-files.xcfilelist",
+			);
+			name = "[CP] Embed Pods Frameworks";
+			outputFileListPaths = (
+				"${PODS_ROOT}/Target Support Files/Pods-Runner/Pods-Runner-frameworks-${CONFIGURATION}-output-files.xcfilelist",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-Runner/Pods-Runner-frameworks.sh\"\n";
+			showEnvVarsInLog = 0;
+		};
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		331C80D1294CF70F00263BE5 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				331C80D8294CF71000263BE5 /* RunnerTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		33CC10E92044A3C60003C045 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				33CC11132044BFA00003C045 /* MainFlutterWindow.swift in Sources */,
+				33CC10F12044A3C60003C045 /* AppDelegate.swift in Sources */,
+				335BBD1B22A9A15E00E9071D /* GeneratedPluginRegistrant.swift in Sources */,
+				AA02457A9C4943A57EC087B3 /* callbacks_mac.c in Sources */,
+				C01D4355B07494A82EA1A643 /* callbacks.c in Sources */,
+				73F74BE1A475D293EE178BEB /* compress.c in Sources */,
+				AA734F71A4BF7F4FD099A0AC /* host.c in Sources */,
+				FEA043B6B1070D6669197E23 /* list.c in Sources */,
+				3CCD489EB1D51E66CBF816CC /* packet.c in Sources */,
+				1C9241C3825BCB0AFF7ACFFB /* peer.c in Sources */,
+				1E1249FCBD5FC35046500EBD /* protocol.c in Sources */,
+				1C464D23AEA7A99F8927A247 /* unix.c in Sources */,
+				D3914265868938E3E34EA6FD /* AudioStream.c in Sources */,
+				61CD4A959235E7237133EA9B /* ByteBuffer.c in Sources */,
+				59DC4CD9A5F81E12EF3AA4CD /* Connection.c in Sources */,
+				BB1D46D2816C9A8783E5C1B2 /* ConnectionTester.c in Sources */,
+				E01C4E11A7ABA280754A6360 /* ControlStream.c in Sources */,
+				C70549A5B035EEFABF1836CE /* FakeCallbacks.c in Sources */,
+				FA334AD2B644D0F37EAE57B5 /* InputStream.c in Sources */,
+				0582438298E87AD6ABA85C25 /* LinkedBlockingQueue.c in Sources */,
+				07404966806D233C58DA5460 /* Misc.c in Sources */,
+				2D9045BDB26933052AB297E1 /* Platform.c in Sources */,
+				1C9647AB8DF539E2E2CB287F /* PlatformCrypto.c in Sources */,
+				6FCF40E79039F411A455584E /* PlatformSockets.c in Sources */,
+				4A51472D92CFCD37C93BAB32 /* RecorderCallbacks.c in Sources */,
+				DFD446B4896D69D762DD97C9 /* RtpAudioQueue.c in Sources */,
+				9C9D4484B55DDAEB33AD46AB /* RtpVideoQueue.c in Sources */,
+				E74A459F96D13602063DAE32 /* RtspConnection.c in Sources */,
+				4D0945E0A94DA94CB895E3DD /* RtspParser.c in Sources */,
+				842346F1B1898B39B5E141A9 /* SdpGenerator.c in Sources */,
+				0D5E46D3BB01A6DD8EC27C0D /* SimpleStun.c in Sources */,
+				3B84439CA4ED8A9BEEF42A0D /* VideoDepacketizer.c in Sources */,
+				140B4843926299F11F798102 /* VideoStream.c in Sources */,
+				F91640E7B8B96596FC2B88FA /* rswrapper.c in Sources */,
+				7C004F3FB27DF4F28891BF53 /* moonlight_bridge_mac.c in Sources */,
+				C1CE4C92A92231B3CC444B84 /* StreamingPlugin.swift in Sources */,
+				534D4724977568AAB3112963 /* StreamingBridge.swift in Sources */,
+				0AEA49FE8B869CCE38902B34 /* AudioRendererMac.swift in Sources */,
+				8A314412A560D0C0A4519980 /* VideoDecoder.swift in Sources */,
+				2CCF4E7D9F941C84A6A0BE17 /* CoreAudioRenderer.c in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		331C80DA294CF71000263BE5 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 33CC10EC2044A3C60003C045 /* Runner */;
+			targetProxy = 331C80D9294CF71000263BE5 /* PBXContainerItemProxy */;
+		};
+		33CC11202044C79F0003C045 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 33CC111A2044C6BA0003C045 /* Flutter Assemble */;
+			targetProxy = 33CC111F2044C79F0003C045 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin PBXVariantGroup section */
+		33CC10F42044A3C60003C045 /* MainMenu.xib */ = {
+			isa = PBXVariantGroup;
+			children = (
+				33CC10F52044A3C60003C045 /* Base */,
+			);
+			name = MainMenu.xib;
+			path = Runner;
+			sourceTree = "<group>";
+		};
+/* End PBXVariantGroup section */
+
+/* Begin XCBuildConfiguration section */
+		331C80DB294CF71000263BE5 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				HEADER_SEARCH_PATHS = (
+					"$(SRCROOT)/Runner/native_bridge/moonlight-common-c/src",
+					"$(SRCROOT)/Runner/native_bridge/moonlight-common-c/enet/include",
+					"$(SRCROOT)/Runner/native_bridge/moonlight-common-c/reedsolomon",
+					"$(SRCROOT)/Runner/native_bridge/deps/openssl/include",
+					"$(SRCROOT)/Runner/native_bridge/deps/opus/include",
+					"$(SRCROOT)/Runner/native_bridge",
+					"$(SRCROOT)/Runner/native_bridge/moonlight-common-c/nanors/deps/obl",
+					"$(SRCROOT)/Runner/native_bridge/moonlight-common-c/nanors/deps",
+					"$(SRCROOT)/Runner/native_bridge/deps/opus/include/opus",
+				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(SRCROOT)/Runner/native_bridge/deps/openssl/lib",
+					"$(SRCROOT)/Runner/native_bridge/deps/opus/lib",
+				);
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-lssl",
+					"-lcrypto",
+					"-lopus",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.vizcorp.jujostream.RunnerTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_OBJC_BRIDGING_HEADER = "Runner/Runner-Bridging-Header.h";
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/jujostream.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/jujostream";
+			};
+			name = Debug;
+		};
+		331C80DC294CF71000263BE5 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				HEADER_SEARCH_PATHS = (
+					"$(SRCROOT)/Runner/native_bridge/moonlight-common-c/src",
+					"$(SRCROOT)/Runner/native_bridge/moonlight-common-c/enet/include",
+					"$(SRCROOT)/Runner/native_bridge/moonlight-common-c/reedsolomon",
+					"$(SRCROOT)/Runner/native_bridge/deps/openssl/include",
+					"$(SRCROOT)/Runner/native_bridge/deps/opus/include",
+					"$(SRCROOT)/Runner/native_bridge",
+					"$(SRCROOT)/Runner/native_bridge/moonlight-common-c/nanors/deps/obl",
+					"$(SRCROOT)/Runner/native_bridge/moonlight-common-c/nanors/deps",
+					"$(SRCROOT)/Runner/native_bridge/deps/opus/include/opus",
+				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(SRCROOT)/Runner/native_bridge/deps/openssl/lib",
+					"$(SRCROOT)/Runner/native_bridge/deps/opus/lib",
+				);
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-lssl",
+					"-lcrypto",
+					"-lopus",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.vizcorp.jujostream.RunnerTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_OBJC_BRIDGING_HEADER = "Runner/Runner-Bridging-Header.h";
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/jujostream.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/jujostream";
+			};
+			name = Release;
+		};
+		331C80DD294CF71000263BE5 /* Profile */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				HEADER_SEARCH_PATHS = (
+					"$(SRCROOT)/Runner/native_bridge/moonlight-common-c/src",
+					"$(SRCROOT)/Runner/native_bridge/moonlight-common-c/enet/include",
+					"$(SRCROOT)/Runner/native_bridge/moonlight-common-c/reedsolomon",
+					"$(SRCROOT)/Runner/native_bridge/deps/openssl/include",
+					"$(SRCROOT)/Runner/native_bridge/deps/opus/include",
+					"$(SRCROOT)/Runner/native_bridge",
+					"$(SRCROOT)/Runner/native_bridge/moonlight-common-c/nanors/deps/obl",
+					"$(SRCROOT)/Runner/native_bridge/moonlight-common-c/nanors/deps",
+					"$(SRCROOT)/Runner/native_bridge/deps/opus/include/opus",
+				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(SRCROOT)/Runner/native_bridge/deps/openssl/lib",
+					"$(SRCROOT)/Runner/native_bridge/deps/opus/lib",
+				);
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-lssl",
+					"-lcrypto",
+					"-lopus",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.vizcorp.jujostream.RunnerTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_OBJC_BRIDGING_HEADER = "Runner/Runner-Bridging-Header.h";
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/jujostream.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/jujostream";
+			};
+			name = Profile;
+		};
+		338D0CE9231458BD00FA5F75 /* Profile */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 7AFA3C8E1D35360C0083082E /* Release.xcconfig */;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CODE_SIGN_IDENTITY = "-";
+				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				HEADER_SEARCH_PATHS = (
+					"$(SRCROOT)/Runner/native_bridge/moonlight-common-c/src",
+					"$(SRCROOT)/Runner/native_bridge/moonlight-common-c/enet/include",
+					"$(SRCROOT)/Runner/native_bridge/moonlight-common-c/reedsolomon",
+					"$(SRCROOT)/Runner/native_bridge/deps/openssl/include",
+					"$(SRCROOT)/Runner/native_bridge/deps/opus/include",
+					"$(SRCROOT)/Runner/native_bridge",
+					"$(SRCROOT)/Runner/native_bridge/moonlight-common-c/nanors/deps/obl",
+					"$(SRCROOT)/Runner/native_bridge/moonlight-common-c/nanors/deps",
+					"$(SRCROOT)/Runner/native_bridge/deps/opus/include/opus",
+				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(SRCROOT)/Runner/native_bridge/deps/openssl/lib",
+					"$(SRCROOT)/Runner/native_bridge/deps/opus/lib",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 12.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-lssl",
+					"-lcrypto",
+					"-lopus",
+				);
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OBJC_BRIDGING_HEADER = "Runner/Runner-Bridging-Header.h";
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+			};
+			name = Profile;
+		};
+		338D0CEA231458BD00FA5F75 /* Profile */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 33E5194F232828860026EE4D /* AppInfo.xcconfig */;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_ENTITLEMENTS = Runner/DebugProfile.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				HEADER_SEARCH_PATHS = (
+					"$(SRCROOT)/Runner/native_bridge/moonlight-common-c/src",
+					"$(SRCROOT)/Runner/native_bridge/moonlight-common-c/enet/include",
+					"$(SRCROOT)/Runner/native_bridge/moonlight-common-c/reedsolomon",
+					"$(SRCROOT)/Runner/native_bridge/deps/openssl/include",
+					"$(SRCROOT)/Runner/native_bridge/deps/opus/include",
+					"$(SRCROOT)/Runner/native_bridge",
+					"$(SRCROOT)/Runner/native_bridge/moonlight-common-c/nanors/deps/obl",
+					"$(SRCROOT)/Runner/native_bridge/moonlight-common-c/nanors/deps",
+					"$(SRCROOT)/Runner/native_bridge/deps/opus/include/opus",
+				);
+				INFOPLIST_FILE = Runner/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(SRCROOT)/Runner/native_bridge/deps/openssl/lib",
+					"$(SRCROOT)/Runner/native_bridge/deps/opus/lib",
+				);
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-lssl",
+					"-lcrypto",
+					"-lopus",
+				);
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				SWIFT_OBJC_BRIDGING_HEADER = "Runner/Runner-Bridging-Header.h";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Profile;
+		};
+		338D0CEB231458BD00FA5F75 /* Profile */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Manual;
+				HEADER_SEARCH_PATHS = (
+					"$(SRCROOT)/Runner/native_bridge/moonlight-common-c/src",
+					"$(SRCROOT)/Runner/native_bridge/moonlight-common-c/enet/include",
+					"$(SRCROOT)/Runner/native_bridge/moonlight-common-c/reedsolomon",
+					"$(SRCROOT)/Runner/native_bridge/deps/openssl/include",
+					"$(SRCROOT)/Runner/native_bridge/deps/opus/include",
+					"$(SRCROOT)/Runner/native_bridge",
+					"$(SRCROOT)/Runner/native_bridge/moonlight-common-c/nanors/deps/obl",
+					"$(SRCROOT)/Runner/native_bridge/moonlight-common-c/nanors/deps",
+					"$(SRCROOT)/Runner/native_bridge/deps/opus/include/opus",
+				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(SRCROOT)/Runner/native_bridge/deps/openssl/lib",
+					"$(SRCROOT)/Runner/native_bridge/deps/opus/lib",
+				);
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-lssl",
+					"-lcrypto",
+					"-lopus",
+				);
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_OBJC_BRIDGING_HEADER = "Runner/Runner-Bridging-Header.h";
+			};
+			name = Profile;
+		};
+		33CC10F92044A3C60003C045 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 9740EEB21CF90195004384FC /* Debug.xcconfig */;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CODE_SIGN_IDENTITY = "-";
+				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				HEADER_SEARCH_PATHS = (
+					"$(SRCROOT)/Runner/native_bridge/moonlight-common-c/src",
+					"$(SRCROOT)/Runner/native_bridge/moonlight-common-c/enet/include",
+					"$(SRCROOT)/Runner/native_bridge/moonlight-common-c/reedsolomon",
+					"$(SRCROOT)/Runner/native_bridge/deps/openssl/include",
+					"$(SRCROOT)/Runner/native_bridge/deps/opus/include",
+					"$(SRCROOT)/Runner/native_bridge",
+					"$(SRCROOT)/Runner/native_bridge/moonlight-common-c/nanors/deps/obl",
+					"$(SRCROOT)/Runner/native_bridge/moonlight-common-c/nanors/deps",
+					"$(SRCROOT)/Runner/native_bridge/deps/opus/include/opus",
+				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(SRCROOT)/Runner/native_bridge/deps/openssl/lib",
+					"$(SRCROOT)/Runner/native_bridge/deps/opus/lib",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 12.0;
+				MTL_ENABLE_DEBUG_INFO = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-lssl",
+					"-lcrypto",
+					"-lopus",
+				);
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OBJC_BRIDGING_HEADER = "Runner/Runner-Bridging-Header.h";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		33CC10FA2044A3C60003C045 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 7AFA3C8E1D35360C0083082E /* Release.xcconfig */;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CODE_SIGN_IDENTITY = "-";
+				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				HEADER_SEARCH_PATHS = (
+					"$(SRCROOT)/Runner/native_bridge/moonlight-common-c/src",
+					"$(SRCROOT)/Runner/native_bridge/moonlight-common-c/enet/include",
+					"$(SRCROOT)/Runner/native_bridge/moonlight-common-c/reedsolomon",
+					"$(SRCROOT)/Runner/native_bridge/deps/openssl/include",
+					"$(SRCROOT)/Runner/native_bridge/deps/opus/include",
+					"$(SRCROOT)/Runner/native_bridge",
+					"$(SRCROOT)/Runner/native_bridge/moonlight-common-c/nanors/deps/obl",
+					"$(SRCROOT)/Runner/native_bridge/moonlight-common-c/nanors/deps",
+					"$(SRCROOT)/Runner/native_bridge/deps/opus/include/opus",
+				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(SRCROOT)/Runner/native_bridge/deps/openssl/lib",
+					"$(SRCROOT)/Runner/native_bridge/deps/opus/lib",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 12.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-lssl",
+					"-lcrypto",
+					"-lopus",
+				);
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OBJC_BRIDGING_HEADER = "Runner/Runner-Bridging-Header.h";
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+			};
+			name = Release;
+		};
+		33CC10FC2044A3C60003C045 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 33E5194F232828860026EE4D /* AppInfo.xcconfig */;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_ENTITLEMENTS = Runner/DebugProfile.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				HEADER_SEARCH_PATHS = (
+					"$(SRCROOT)/Runner/native_bridge/moonlight-common-c/src",
+					"$(SRCROOT)/Runner/native_bridge/moonlight-common-c/enet/include",
+					"$(SRCROOT)/Runner/native_bridge/moonlight-common-c/reedsolomon",
+					"$(SRCROOT)/Runner/native_bridge/deps/openssl/include",
+					"$(SRCROOT)/Runner/native_bridge/deps/opus/include",
+					"$(SRCROOT)/Runner/native_bridge",
+					"$(SRCROOT)/Runner/native_bridge/moonlight-common-c/nanors/deps/obl",
+					"$(SRCROOT)/Runner/native_bridge/moonlight-common-c/nanors/deps",
+					"$(SRCROOT)/Runner/native_bridge/deps/opus/include/opus",
+				);
+				INFOPLIST_FILE = Runner/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(SRCROOT)/Runner/native_bridge/deps/openssl/lib",
+					"$(SRCROOT)/Runner/native_bridge/deps/opus/lib",
+				);
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-lssl",
+					"-lcrypto",
+					"-lopus",
+				);
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				SWIFT_OBJC_BRIDGING_HEADER = "Runner/Runner-Bridging-Header.h";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		33CC10FD2044A3C60003C045 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 33E5194F232828860026EE4D /* AppInfo.xcconfig */;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_ENTITLEMENTS = Runner/Release.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				HEADER_SEARCH_PATHS = (
+					"$(SRCROOT)/Runner/native_bridge/moonlight-common-c/src",
+					"$(SRCROOT)/Runner/native_bridge/moonlight-common-c/enet/include",
+					"$(SRCROOT)/Runner/native_bridge/moonlight-common-c/reedsolomon",
+					"$(SRCROOT)/Runner/native_bridge/deps/openssl/include",
+					"$(SRCROOT)/Runner/native_bridge/deps/opus/include",
+					"$(SRCROOT)/Runner/native_bridge",
+					"$(SRCROOT)/Runner/native_bridge/moonlight-common-c/nanors/deps/obl",
+					"$(SRCROOT)/Runner/native_bridge/moonlight-common-c/nanors/deps",
+					"$(SRCROOT)/Runner/native_bridge/deps/opus/include/opus",
+				);
+				INFOPLIST_FILE = Runner/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(SRCROOT)/Runner/native_bridge/deps/openssl/lib",
+					"$(SRCROOT)/Runner/native_bridge/deps/opus/lib",
+				);
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-lssl",
+					"-lcrypto",
+					"-lopus",
+				);
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				SWIFT_OBJC_BRIDGING_HEADER = "Runner/Runner-Bridging-Header.h";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		33CC111C2044C6BA0003C045 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Manual;
+				HEADER_SEARCH_PATHS = (
+					"$(SRCROOT)/Runner/native_bridge/moonlight-common-c/src",
+					"$(SRCROOT)/Runner/native_bridge/moonlight-common-c/enet/include",
+					"$(SRCROOT)/Runner/native_bridge/moonlight-common-c/reedsolomon",
+					"$(SRCROOT)/Runner/native_bridge/deps/openssl/include",
+					"$(SRCROOT)/Runner/native_bridge/deps/opus/include",
+					"$(SRCROOT)/Runner/native_bridge",
+					"$(SRCROOT)/Runner/native_bridge/moonlight-common-c/nanors/deps/obl",
+					"$(SRCROOT)/Runner/native_bridge/moonlight-common-c/nanors/deps",
+					"$(SRCROOT)/Runner/native_bridge/deps/opus/include/opus",
+				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(SRCROOT)/Runner/native_bridge/deps/openssl/lib",
+					"$(SRCROOT)/Runner/native_bridge/deps/opus/lib",
+				);
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-lssl",
+					"-lcrypto",
+					"-lopus",
+				);
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_OBJC_BRIDGING_HEADER = "Runner/Runner-Bridging-Header.h";
+			};
+			name = Debug;
+		};
+		33CC111D2044C6BA0003C045 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				HEADER_SEARCH_PATHS = (
+					"$(SRCROOT)/Runner/native_bridge/moonlight-common-c/src",
+					"$(SRCROOT)/Runner/native_bridge/moonlight-common-c/enet/include",
+					"$(SRCROOT)/Runner/native_bridge/moonlight-common-c/reedsolomon",
+					"$(SRCROOT)/Runner/native_bridge/deps/openssl/include",
+					"$(SRCROOT)/Runner/native_bridge/deps/opus/include",
+					"$(SRCROOT)/Runner/native_bridge",
+					"$(SRCROOT)/Runner/native_bridge/moonlight-common-c/nanors/deps/obl",
+					"$(SRCROOT)/Runner/native_bridge/moonlight-common-c/nanors/deps",
+					"$(SRCROOT)/Runner/native_bridge/deps/opus/include/opus",
+				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(SRCROOT)/Runner/native_bridge/deps/openssl/lib",
+					"$(SRCROOT)/Runner/native_bridge/deps/opus/lib",
+				);
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-lssl",
+					"-lcrypto",
+					"-lopus",
+				);
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_OBJC_BRIDGING_HEADER = "Runner/Runner-Bridging-Header.h";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		331C80DE294CF71000263BE5 /* Build configuration list for PBXNativeTarget "RunnerTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				331C80DB294CF71000263BE5 /* Debug */,
+				331C80DC294CF71000263BE5 /* Release */,
+				331C80DD294CF71000263BE5 /* Profile */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		33CC10E82044A3C60003C045 /* Build configuration list for PBXProject "Runner" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				33CC10F92044A3C60003C045 /* Debug */,
+				33CC10FA2044A3C60003C045 /* Release */,
+				338D0CE9231458BD00FA5F75 /* Profile */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		33CC10FB2044A3C60003C045 /* Build configuration list for PBXNativeTarget "Runner" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				33CC10FC2044A3C60003C045 /* Debug */,
+				33CC10FD2044A3C60003C045 /* Release */,
+				338D0CEA231458BD00FA5F75 /* Profile */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		33CC111B2044C6BA0003C045 /* Build configuration list for PBXAggregateTarget "Flutter Assemble" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				33CC111C2044C6BA0003C045 /* Debug */,
+				33CC111D2044C6BA0003C045 /* Release */,
+				338D0CEB231458BD00FA5F75 /* Profile */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 33CC10E52044A3C60003C045 /* Project object */;
+}

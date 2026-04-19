@@ -1,0 +1,11 @@
+[submodule "android/app/src/main/cpp/moonlight-common-c"]
+	path = android/app/src/main/cpp/moonlight-common-c
+	url = https://github.com/moonlight-stream/moonlight-common-c.git
+
+[submodule "macos/Runner/native_bridge/moonlight-common-c"]
+	path = macos/Runner/native_bridge/moonlight-common-c
+	url = https://github.com/moonlight-stream/moonlight-common-c.git
+
+[submodule "windows/native_streaming/moonlight-common-c"]
+	path = windows/native_streaming/moonlight-common-c
+	url = https://github.com/moonlight-stream/moonlight-common-c.git

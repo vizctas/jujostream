@@ -1,0 +1,75 @@
+# Flutter/Dart ignores
+.dart_tool/
+.github/
+.codacy/
+.agents/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+build/
+ios/Flutter/flutter_export_environment.sh
+ios/Runner/GeneratedPluginRegistrant.*
+lib/generated_plugin_registrant.dart
+
+# Android ignores
+android/.gradle
+android/app/build
+android/app/release
+android/app/debug
+android/local.properties
+android/key.properties
+*.iml
+*.apk
+*.ap_
+*.dex
+*.class
+*.dex
+*.so
+*.aar
+*.jar
+*.keystore
+captures/
+gradle/
+gradlew
+gradlew.bat
+GEMINI.md
+
+# Native build ignores
+android/app/src/main/cpp/deps/
+android/app/src/main/cpp/moonlight-common-c/.git/
+android/app/src/main/cpp/moonlight-common-c/enet/.git/
+
+# Logs and temp files
+*.log
+*.tmp
+build_log*.txt
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# AI tooling & agent configs
+.agents/
+.qodo/
+.github/agents/
+.github/prompts/
+.github/instructions/
+.codacy/
+
+
+# Internal dev docs (keep local, not tracked)
+docs/planning.md
+docs/WORKFLOW.md
+.private/
+.private/
+.windsurf/
+.github/
+.idea/
+
+# One-shot scripts (already applied, not reusable) Just in case gonna need it later on. 
+_fix_headers.py
+
+# Build artifacts at root 
+Jujostream.apk

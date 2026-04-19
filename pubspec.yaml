@@ -1,0 +1,108 @@
+name: jujostream
+description: "JujoStream - GameStream client for Flutter (FORK from Moonlight/Artemis Android)"
+publish_to: 'none'
+
+version: 1.0.2+4
+
+environment:
+  sdk: ^3.8.1
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.8
+
+  # URL launching (About screen Ko-fi / GitHub links) Careful when you fork my repo. 
+  url_launcher: ^6.3.0
+
+  # Android share system
+  share_plus: ^12.0.2
+
+  # State management
+  provider: ^6.1.2
+
+  # Networking (equivalent to OkHttp in original)
+  http: ^1.2.2
+  dio: ^5.7.0
+
+  # mDNS discovery (equivalent to jmdns in original)
+  multicast_dns: ^0.3.2+7
+  nsd: ^5.0.1
+
+  # Crypto (equivalent to BouncyCastle in original)
+  pointycastle: ^4.0.0
+  cryptography: ^2.7.0
+
+  # JSON serialization (equivalent to Gson in original)
+  json_annotation: ^4.9.0
+
+  # Local storage for preferences/profiles
+  shared_preferences: ^2.3.3
+  sqflite: ^2.4.1
+  path: ^1.9.1
+  path_provider: ^2.1.0
+  image_picker: ^1.1.2
+
+  # Image caching for game posters
+  cached_network_image: ^3.4.1
+
+  # Palette extraction for dynamic accent color from game posters
+  palette_generator: ^0.3.3+7
+
+  # UUID generation
+  uuid: ^4.5.1
+
+  # Logging
+  logger: ^2.5.0
+
+  # Platform channels for native streaming
+  plugin_platform_interface: ^2.1.8
+  video_player: ^2.11.1
+  audioplayers: ^6.6.0
+  flutter_local_notifications: ^21.0.0
+  webview_flutter: ^4.10.0
+  file_picker: ^11.0.2
+  qr_flutter: ^4.1.0
+
+  # Google Sign-In + Drive API for cloud config sync
+  google_sign_in: ^7.2.0
+  googleapis: ^16.0.0
+  googleapis_auth: ^2.0.0
+
+  # Google Play Billing for premium purchase / This wont affect anything. All free. This going to be remove due to GPL 3.0 compliance. Thanks to Reddit users suggestion. Sorry for the inconvenience.
+  in_app_purchase: ^3.2.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  json_serializable: ^6.8.0
+  build_runner: ^2.4.13
+  flutter_launcher_icons: ^0.14.4
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/images/app_icon.png"
+  adaptive_icon_background: "#2D2D3A"
+  adaptive_icon_foreground: "assets/images/app_icon.png"
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/images/
+    - assets/images/avatar/
+    - assets/images/focus/
+    - assets/images/UI/
+    - assets/images/UI/logo/
+    - assets/images/UI/logo/circular_dialog/
+    - assets/images/UI/logo/google_logo/
+    - assets/images/UI/xbox/
+    - assets/images/UI/ps/
+    - assets/images/UI/directional/
+    - assets/sound/ambience/
+    - assets/sound/ui/

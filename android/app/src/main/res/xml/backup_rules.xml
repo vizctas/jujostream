@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android Auto Backup exclusion rules (API 21–30).
+  Referenced by android:fullBackupContent in AndroidManifest.xml.
+
+  Pairing state (saved_computers in FlutterSharedPreferences) is device-bound:
+  each installation's pair token is registered on the Sunshine/Apollo server by
+  the client certificate. Restoring this data to a different device or after a
+  fresh install causes a split-brain: the app shows "PAIRED" locally but the
+  server does not recognise the installation.
+
+  Excluding shared_preferences forces re-verification via HTTPS on first launch,
+  preventing the "says PAIRED but server doesn't know" failure mode.
+-->
+<full-backup-content>
+    <!-- Exclude all Flutter shared preferences (includes saved_computers + pair state) -->
+    <exclude domain="sharedpref" path="FlutterSharedPreferences.xml" />
+</full-backup-content>
