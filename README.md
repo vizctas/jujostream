@@ -57,35 +57,37 @@ Everything is free. No purchases, no tiers, no subscriptions.
 
 Four launcher layouts to choose from: **Classic**, **Backbone**, **Hero**, and **PS5-style**. Each one changes the layout, card style, and overall feel of the main library screen. Pick what fits your setup.
 
+ <img src="https://github.com/vizctas/jujostream/blob/feature/r1/assets/ss/ps5_theme.jpg"  alt="PS5 theme"/>
+
 ### *Disclaimer for Android TV* 
 
 The design is very heavy for android tv. Tried to do my best and with the support with claude + gemini tried to reduce as many lag issues with the navigation. This doesn't happens with powerful android devices or MAC OS. 
 
 First boot will probably cause problem with the streaming. Give around 1 minute depending your internet connection, to fully load all posters, metadata and more. 
 
-### Color Schemes
-
-5+ Color schemes tailored for the launcher best fit. You'll make me happy if you choose to use "Debossy", "ShioryPan" or "Lazy Ankui". Based on my cats colors. 
-
- <img src="https://github.com/vizctas/jujostream/blob/main/assets/ss/color_schemes.jpg.jpg"  alt="colours"/>
-
 ### Focus Mode
 
 A dedicated screen built for a calmer, more focused streaming experience. Each server can have its own background image and ambient audio  it strips away the noise and gives you a quiet space to settle into before a session. Think of it as the difference between a busy dashboard and a clean TV interface.
 
- <img src="https://github.com/vizctas/jujostream/blob/main/assets/ss/common_filters.jpg"  alt="filters common"/>
+ <img src="https://github.com/vizctas/jujostream/blob/feature/r1/assets/ss/focus_mode.jpg"  alt="filters common"/>
+
+### Color Schemes
+
+5+ Color schemes tailored for the launcher best fit. You'll make me happy if you choose to use "Debossy", "ShioryPan" or "Lazy Ankui". Based on my cats colors. 
+
+ <img src="https://github.com/vizctas/jujostream/blob/feature/r1/assets/ss/color_schemes.jpg"  alt="colours"/>
 
 ### Session Metrics
 
 After each session you get a summary of how the stream performed: frame data, bitrate, latency, and decoder info. Handy for fine-tuning your setup over time.
 
- <img src="https://github.com/vizctas/jujostream/blob/main/assets/ss/metrics_card.jpg"  alt="Metrics card"/>
+ <img src="https://github.com/vizctas/jujostream/blob/feature/r1/assets/ss/metrics_card.jpg"  alt="Metrics card"/>
 
 ### Custom Combos
 
 Map button combinations of most used shorcuts while streaming. Some client limits you to just SELECT + START + R1 + R2 to call menu. Now you can configure that and the hold time. 
 
- <img src="https://github.com/vizctas/jujostream/blob/main/assets/ss/cfg_combos.jpg.jpg"  alt="combos cfg"/>
+ <img src="https://github.com/vizctas/jujostream/blob/feature/r1/assets/ss/cfg_combos.jpg"  alt="combos cfg"/>
 
 ### Everything Else
 
@@ -97,6 +99,10 @@ Map button combinations of most used shorcuts while streaming. Some client limit
 - Collections and smart filters
 - PiP mode to minimize the stream into a floating window
 - *Companion app via QR code for remote configuration*
+
+ <img src="https://github.com/vizctas/jujostream/blob/feature/r1/assets/ss/ragio_autofilters.jpg"  alt="auto filters"/>
+
+ <img src="https://github.com/vizctas/jujostream/blob/feature/r1/assets/ss/common_filters.jpg"  alt="common filters"/>
 
 ---
 
