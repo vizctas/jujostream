@@ -1043,6 +1043,18 @@ class SettingsScreen extends StatelessWidget {
                         c.copyWith(enableDirectSubmit: v),
                       ),
                     ),
+                    _toggle(
+                      _tr(context, 'Force Skia Renderer', 'Forzar Skia Renderer'),
+                      _tr(
+                        context,
+                        'Disable Impeller and use Skia/OpenGL. Fixes black screen on some GPUs (requires restart)',
+                        'Desactiva Impeller y usa Skia/OpenGL. Corrige pantalla negra en algunas GPUs (requiere reinicio)',
+                      ),
+                      c.forceSkiaRenderer,
+                      (v) => settings.updateConfig(
+                        c.copyWith(forceSkiaRenderer: v),
+                      ),
+                    ),
                     _sliderTile(
                       _tr(
                         context,

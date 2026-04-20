@@ -1516,11 +1516,30 @@ class _GameStreamScreenState extends State<GameStreamScreen>
   }
 
   Widget _buildInputLayer() {
+    // ── Determine the touch/mouse child widget ──────────────────────────
+    //
+    // Input mode priority:
+    //   1. Gamepad mouse emulation active → trackpad (relative deltas via stick)
+    //   2. directTouch mode:
+    //      a. multiTouchGestures ON → absolute multi-touch passthrough
+    //      b. multiTouchGestures OFF → point-and-click emulation
+    //   3. trackpad / mouse mode → relative trackpad handler
+    //
+    // The `multiTouchGestures` flag is a SUB-BEHAVIOR of directTouch, not a
+    // top-level mode override. This ensures touch mode selection always works.
     Widget child;
-    if (_config.multiTouchGestures) {
-      child = _directTouchHandler.buildAbsoluteTouchInputLayer();
+    if (_gamepadMouseActive) {
+      // Gamepad stick → mouse: use trackpad handler for relative deltas
+      child = _trackpadHandler.buildInputLayer(
+        sensitivityX: _config.trackpadSensitivityX.toDouble(),
+        sensitivityY: _config.trackpadSensitivityY.toDouble(),
+      );
     } else if (_touchMode == MouseMode.directTouch) {
-      child = _directTouchHandler.buildDirectTouchInputLayer();
+      if (_config.multiTouchGestures) {
+        child = _directTouchHandler.buildAbsoluteTouchInputLayer();
+      } else {
+        child = _directTouchHandler.buildDirectTouchInputLayer();
+      }
     } else {
       child = _trackpadHandler.buildInputLayer(
         sensitivityX: _config.trackpadSensitivityX.toDouble(),
@@ -1528,25 +1547,38 @@ class _GameStreamScreenState extends State<GameStreamScreen>
       );
     }
 
-    // Only hide the OS cursor when gamepad-mouse emulation is active.
-    // When a real mouse or touch is used, the OS cursor must remain visible
-    // so it stays in sync with the server cursor (no flicker, no desync).
+    // ── Cursor visibility ───────────────────────────────────────────────
+    // Hide OS cursor ONLY when gamepad-mouse emulation is active.
+    // Physical mouse / touch → OS cursor stays visible for server sync.
     final cursorStyle = _gamepadMouseActive
         ? SystemMouseCursors.none
         : SystemMouseCursors.basic;
 
+    // ── MouseRegion: physical mouse hover → absolute position ───────────
+    // Only send absolute mouse position when in directTouch mode (point &
+    // click). In trackpad/mouse mode the child handler already sends
+    // relative deltas — sending absolute position simultaneously causes
+    // dual-cursor desync on the server.
+    //
+    // When gamepad-mouse emulation is active the native GamepadHandler
+    // drives the cursor via nativeSendMouseMove — Flutter must NOT also
+    // send absolute position or the two fight each other.
     return MouseRegion(
       cursor: cursorStyle,
       onHover: (event) {
         if (!_isConnected) return;
-        final coords = _touchToStreamCoords(event.localPosition);
-        StreamingPlatformChannel.sendMousePosition(
-          coords.$1,
-          coords.$2,
-          _config.width,
-          _config.height,
-        );
-        _updateLocalCursor(event.localPosition.dx, event.localPosition.dy);
+        // Only forward hover as absolute position in directTouch mode
+        // (point-and-click). All other modes use relative deltas.
+        if (_touchMode == MouseMode.directTouch && !_gamepadMouseActive) {
+          final coords = _touchToStreamCoords(event.localPosition);
+          StreamingPlatformChannel.sendMousePosition(
+            coords.$1,
+            coords.$2,
+            _config.width,
+            _config.height,
+          );
+          _updateLocalCursor(event.localPosition.dx, event.localPosition.dy);
+        }
       },
       child: child,
     );

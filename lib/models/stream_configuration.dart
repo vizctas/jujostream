@@ -95,6 +95,7 @@ class StreamConfiguration {
   final bool choreographerVsync;
   final bool enableVrr;
   final bool enableDirectSubmit;
+  final bool forceSkiaRenderer;
   final bool hostPresetOverrideEnabled;
   final String hostPresetOverrideId;
 
@@ -173,6 +174,7 @@ class StreamConfiguration {
     this.choreographerVsync = false,
     this.enableVrr = false,
     this.enableDirectSubmit = false,
+    this.forceSkiaRenderer = false,
     this.hostPresetOverrideEnabled = false,
     this.hostPresetOverrideId = '',
   });
@@ -252,6 +254,7 @@ class StreamConfiguration {
     bool? choreographerVsync,
     bool? enableVrr,
     bool? enableDirectSubmit,
+    bool? forceSkiaRenderer,
     bool? hostPresetOverrideEnabled,
     String? hostPresetOverrideId,
   }) {
@@ -338,6 +341,7 @@ class StreamConfiguration {
       choreographerVsync: choreographerVsync ?? this.choreographerVsync,
       enableVrr: enableVrr ?? this.enableVrr,
       enableDirectSubmit: enableDirectSubmit ?? this.enableDirectSubmit,
+      forceSkiaRenderer: forceSkiaRenderer ?? this.forceSkiaRenderer,
       hostPresetOverrideEnabled:
           hostPresetOverrideEnabled ?? this.hostPresetOverrideEnabled,
       hostPresetOverrideId: hostPresetOverrideId ?? this.hostPresetOverrideId,
@@ -421,6 +425,7 @@ class StreamConfiguration {
     'choreographerVsync': choreographerVsync,
     'enableVrr': enableVrr,
     'enableDirectSubmit': enableDirectSubmit,
+    'forceSkiaRenderer': forceSkiaRenderer,
     'hostPresetOverrideEnabled': hostPresetOverrideEnabled,
     'hostPresetOverrideId': hostPresetOverrideId,
   };
@@ -525,6 +530,7 @@ class StreamConfiguration {
       choreographerVsync: json['choreographerVsync'] ?? false,
       enableVrr: json['enableVrr'] ?? false,
       enableDirectSubmit: json['enableDirectSubmit'] ?? false,
+      forceSkiaRenderer: json['forceSkiaRenderer'] ?? false,
       hostPresetOverrideEnabled: json['hostPresetOverrideEnabled'] ?? false,
       hostPresetOverrideId: json['hostPresetOverrideId'] ?? '',
     );

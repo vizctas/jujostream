@@ -8,6 +8,7 @@ import 'package:pointycastle/export.dart';
 import 'package:logger/logger.dart';
 import '../../models/computer_details.dart';
 import '../crypto/client_identity.dart';
+import '../errors/error_codes.dart';
 
 class PairingService {
   final Logger _log = Logger();
@@ -340,8 +341,10 @@ class PairingService {
       _log.i('Pairing successful!');
       return PairingResult.success(serverCertHex);
     } catch (e) {
-      _log.e('Pairing error: $e');
-      return PairingResult.failed('Pairing error: $e');
+      _log.e('Pairing error (raw): $e');
+      final classified = classifyError('PAIR', e);
+      _log.e('Pairing error (code): ${classified.code}');
+      return PairingResult.failed(classified.userMessage);
     }
   }
 

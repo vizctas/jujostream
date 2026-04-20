@@ -152,67 +152,79 @@ class DirectTouchHandler {
   // ── Public: build absolute touch layer (multi-touch passthrough) ───────
 
   /// Returns a [Listener] widget that forwards raw multi-touch events.
+  ///
+  /// Coordinates are normalized from screen-space to stream-space using
+  /// [touchToStreamCoords] so the server receives positions relative to
+  /// the stream resolution, not the device display.
   Widget buildAbsoluteTouchInputLayer() {
     return Listener(
       behavior: HitTestBehavior.translucent,
       onPointerDown: (event) {
-        final screenSize = getScreenSize();
+        final (sx, sy) = touchToStreamCoords(event.localPosition);
+        final sw = getStreamWidth().toDouble();
+        final sh = getStreamHeight().toDouble();
         onTouchEvent(
           eventType: 0x01, // ACTION_DOWN / POINTER_DOWN
           pointerId: event.pointer,
-          x: event.localPosition.dx,
-          y: event.localPosition.dy,
+          x: sx.toDouble(),
+          y: sy.toDouble(),
           pressure: event.pressure,
           contactMajor: event.size,
           contactMinor: event.size,
           orientation: event.orientation.toInt(),
-          refWidth: screenSize.width,
-          refHeight: screenSize.height,
+          refWidth: sw,
+          refHeight: sh,
         );
       },
       onPointerMove: (event) {
-        final screenSize = getScreenSize();
+        final (sx, sy) = touchToStreamCoords(event.localPosition);
+        final sw = getStreamWidth().toDouble();
+        final sh = getStreamHeight().toDouble();
         onTouchEvent(
           eventType: 0x02, // ACTION_MOVE
           pointerId: event.pointer,
-          x: event.localPosition.dx,
-          y: event.localPosition.dy,
+          x: sx.toDouble(),
+          y: sy.toDouble(),
           pressure: event.pressure,
           contactMajor: event.size,
           contactMinor: event.size,
           orientation: event.orientation.toInt(),
-          refWidth: screenSize.width,
-          refHeight: screenSize.height,
+          refWidth: sw,
+          refHeight: sh,
         );
       },
       onPointerUp: (event) {
-        final screenSize = getScreenSize();
+        final (sx, sy) = touchToStreamCoords(event.localPosition);
+        final sw = getStreamWidth().toDouble();
+        final sh = getStreamHeight().toDouble();
         onTouchEvent(
           eventType: 0x03, // ACTION_UP / POINTER_UP
           pointerId: event.pointer,
-          x: event.localPosition.dx,
-          y: event.localPosition.dy,
+          x: sx.toDouble(),
+          y: sy.toDouble(),
           pressure: event.pressure,
           contactMajor: event.size,
           contactMinor: event.size,
           orientation: event.orientation.toInt(),
-          refWidth: screenSize.width,
-          refHeight: screenSize.height,
+          refWidth: sw,
+          refHeight: sh,
         );
       },
       onPointerCancel: (event) {
-        final screenSize = getScreenSize();
+        final (sx, sy) = touchToStreamCoords(event.localPosition);
+        final sw = getStreamWidth().toDouble();
+        final sh = getStreamHeight().toDouble();
         onTouchEvent(
           eventType: 0x04, // ACTION_CANCEL
           pointerId: event.pointer,
-          x: event.localPosition.dx,
-          y: event.localPosition.dy,
+          x: sx.toDouble(),
+          y: sy.toDouble(),
           pressure: event.pressure,
           contactMajor: event.size,
           contactMinor: event.size,
           orientation: event.orientation.toInt(),
-          refWidth: screenSize.width,
-          refHeight: screenSize.height,
+          refWidth: sw,
+          refHeight: sh,
         );
       },
     );
