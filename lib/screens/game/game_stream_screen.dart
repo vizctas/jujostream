@@ -1528,9 +1528,15 @@ class _GameStreamScreenState extends State<GameStreamScreen>
       );
     }
 
+    // Only hide the OS cursor when gamepad-mouse emulation is active.
+    // When a real mouse or touch is used, the OS cursor must remain visible
+    // so it stays in sync with the server cursor (no flicker, no desync).
+    final cursorStyle = _gamepadMouseActive
+        ? SystemMouseCursors.none
+        : SystemMouseCursors.basic;
+
     return MouseRegion(
-      cursor:
-          SystemMouseCursors.none, // hide OS cursor — server cursor takes over
+      cursor: cursorStyle,
       onHover: (event) {
         if (!_isConnected) return;
         final coords = _touchToStreamCoords(event.localPosition);

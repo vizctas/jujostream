@@ -28,7 +28,6 @@ import 'screens/pc_view/pc_view_screen.dart';
 import 'widgets/tour_overlay.dart';
 import 'services/notifications/notification_service.dart';
 import 'services/pro/pro_service.dart';
-import 'services/pro/billing_service.dart';
 import 'services/crash/crash_service.dart';
 
 class _AppHttpOverrides extends io.HttpOverrides {
@@ -62,7 +61,6 @@ void main() async {
   unawaited(NotificationService.init());
   unawaited(UiSoundService.ensureInitialized());
   unawaited(ProService().initialize());
-  unawaited(BillingService().initialize());
   unawaited(CrashService.initialize());
 
   await TvDetector.instance.init();

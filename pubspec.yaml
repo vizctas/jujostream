@@ -72,9 +72,6 @@ dependencies:
   googleapis: ^16.0.0
   googleapis_auth: ^2.0.0
 
-  # Google Play Billing for premium purchase / This wont affect anything. All free. This going to be remove due to GPL 3.0 compliance. Thanks to Reddit users suggestion. Sorry for the inconvenience.
-  in_app_purchase: ^3.2.0
-
 dev_dependencies:
   flutter_test:
     sdk: flutter

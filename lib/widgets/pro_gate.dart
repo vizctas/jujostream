@@ -3,7 +3,6 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../providers/theme_provider.dart';
 import '../services/pro/pro_service.dart';
-import '../services/pro/billing_service.dart';
 
 class ProGate extends StatelessWidget {
   final Widget child;
@@ -132,13 +131,7 @@ class _ProUpsellDialogState extends State<ProUpsellDialog> {
   }
 
   void _launchPurchase() {
-    final billing = BillingService();
-    if (!billing.buyPro()) {
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Store not available. Try again later.')),
-      );
-    }
+    // Billing removed — all features are free.
     Navigator.of(context).pop();
   }
 
@@ -146,11 +139,10 @@ class _ProUpsellDialogState extends State<ProUpsellDialog> {
   Widget build(BuildContext context) {
 
     final isEs = Localizations.localeOf(context).languageCode == 'es';
-    final billing = BillingService();
-    final title = isEs ? 'Mejora a Pro' : 'Upgrade to Pro';
+    final title = isEs ? 'Todo es gratis' : 'Everything is Free';
     final subtitle = isEs
-        ? 'Desbloquea la experiencia completa de JUJO Stream'
-        : 'Unlock the full JUJO Stream experience';
+        ? 'Todas las funciones de JUJO Stream están desbloqueadas'
+        : 'All JUJO Stream features are unlocked';
     final benefits = [
       isEs ? 'Todos los esquemas de color y temas del launcher' : 'All color schemes & launcher themes',
       isEs ? 'Favoritos y colecciones ilimitados' : 'Unlimited favorites & collections',
@@ -159,11 +151,8 @@ class _ProUpsellDialogState extends State<ProUpsellDialog> {
       isEs ? 'Arte en alta calidad, historial completo de sesiones y más' : 'High quality art, full session history & more',
       isEs ? 'Futuros temas y funcionalidades incluidos' : 'Future themes & features included',
     ];
-    final price = billing.product?.price;
-    final ctaLabel = price != null
-        ? (isEs ? 'Obtener Pro — $price' : 'Get Pro — $price')
-        : (isEs ? 'Obtener Pro' : 'Get Pro');
-    final laterLabel = isEs ? 'Quizás después' : 'Maybe later';
+    final ctaLabel = isEs ? 'Entendido' : 'Got it';
+    final laterLabel = isEs ? 'Cerrar' : 'Close';
 
     return Focus(
       focusNode: _focusNode,

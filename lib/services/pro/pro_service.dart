@@ -4,8 +4,6 @@ import 'package:flutter/foundation.dart';
 import 'package:pointycastle/export.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'billing_service.dart';
-
 enum ProFeature {
 
   gameStreaming,
@@ -56,12 +54,7 @@ class ProService extends ChangeNotifier {
 
   static final ProService _instance = ProService._internal();
   factory ProService() => _instance;
-  ProService._internal() {
-
-    BillingService().addListener(_onBillingChanged);
-  }
-
-  void _onBillingChanged() => notifyListeners();
+  ProService._internal();
 
   bool _licenseValidated = false;
 

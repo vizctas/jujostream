@@ -5,9 +5,6 @@
     <!-- Android TV: declare Leanback support (optional so phone installs too) -->
     <uses-feature android:name="android.software.leanback" android:required="false" />
 
-    <!-- Google Play Billing -->
-    <uses-permission android:name="com.android.vending.BILLING" />
-
     <!-- Network permissions for streaming -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
