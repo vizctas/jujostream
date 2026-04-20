@@ -663,7 +663,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
             setState(() {
               _isConnected = false;
               _isConnecting = true;
-              _reconnectMessage = 'Reconectando…';
+              _reconnectMessage = AppLocalizations.of(context).reconnectingLabel;
             });
             // Must stop the existing native session before starting a new one;
             // skipping this guarantees GS_WRONG_STATE (104) from the server.
@@ -755,7 +755,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
         _isConnected = false;
         _isConnecting = true;
         _textureId = null;
-        _reconnectMessage = 'Optimizando calidad…';
+        _reconnectMessage = AppLocalizations.of(context).applyingQuality;
       });
     }
     await _stopStreaming();
@@ -2344,9 +2344,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
     setState(() {
       _isConnected = false;
       _isConnecting = true;
-      _reconnectMessage = Localizations.localeOf(context).languageCode == 'es'
-          ? 'Aplicando preset…'
-          : 'Applying preset…';
+      _reconnectMessage = AppLocalizations.of(context).applyingPreset;
       _textureId = null;
     });
     await _stopStreaming();

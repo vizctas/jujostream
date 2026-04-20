@@ -432,6 +432,24 @@ class AppLocalizations {
       'es':
           'Todavia no hay generos clasificados. Lanza una actualizacion de metadata para poblar los filtros.',
     },
+    // ── Smart Filter genre labels ──────────────────────────────────────
+    'genreAction': {'en': 'Action', 'es': 'Acción'},
+    'genreAdventure': {'en': 'Adventure', 'es': 'Aventura'},
+    'genreFighting': {'en': 'Fighting', 'es': 'Pelea'},
+    'genrePlatform': {'en': 'Platform', 'es': 'Plataforma'},
+    'genreCards': {'en': 'Cards', 'es': 'Cartas'},
+    'genreRogue': {'en': 'Rogue', 'es': 'Rogue'},
+    'genreRpg': {'en': 'RPG', 'es': 'RPG'},
+    'genreStrategy': {'en': 'Strategy', 'es': 'Estrategia'},
+    'genreSimulation': {'en': 'Simulation', 'es': 'Simulación'},
+    'genreRacing': {'en': 'Racing', 'es': 'Carreras'},
+    'genreSports': {'en': 'Sports', 'es': 'Deportes'},
+    'genrePuzzle': {'en': 'Puzzle', 'es': 'Puzzle'},
+    'genreHorror': {'en': 'Horror', 'es': 'Horror'},
+    'genreStealth': {'en': 'Stealth', 'es': 'Stealth'},
+    // ── Filter labels ──────────────────────────────────────────────────
+    'mostPlayed': {'en': 'Most played', 'es': 'Más jugados'},
+    'collectionFallback': {'en': 'Collection', 'es': 'Colección'},
     'noDescription': {
       'en':
           'No description available. Enable the Metadata addon to get game info.',
@@ -598,6 +616,7 @@ class AppLocalizations {
     'launcherAppearanceTitle': {'en': 'Launcher Appearance', 'es': 'Apariencia del Launcher'},
 
     'applyingQuality': {'en': 'Applying quality…', 'es': 'Aplicando calidad…'},
+    'applyingPreset': {'en': 'Applying preset…', 'es': 'Aplicando preset…'},
     'reconnecting': {'en': 'Reconnecting…', 'es': 'Reconectando…'},
 
     'smartBitrate': {'en': 'Smart Bitrate', 'es': 'Bitrate Inteligente'},
@@ -1053,6 +1072,23 @@ class AppLocalizations {
   String get enableMetadataHint => _s('enableMetadataHint');
   String get smartFiltersExplain => _s('smartFiltersExplain');
   String get noGenresYet => _s('noGenresYet');
+  // ── Smart Filter genre getters ─────────────────────────────────────
+  String get genreAction => _s('genreAction');
+  String get genreAdventure => _s('genreAdventure');
+  String get genreFighting => _s('genreFighting');
+  String get genrePlatform => _s('genrePlatform');
+  String get genreCards => _s('genreCards');
+  String get genreRogue => _s('genreRogue');
+  String get genreRpg => _s('genreRpg');
+  String get genreStrategy => _s('genreStrategy');
+  String get genreSimulation => _s('genreSimulation');
+  String get genreRacing => _s('genreRacing');
+  String get genreSports => _s('genreSports');
+  String get genrePuzzle => _s('genrePuzzle');
+  String get genreHorror => _s('genreHorror');
+  String get genreStealth => _s('genreStealth');
+  String get mostPlayed => _s('mostPlayed');
+  String get collectionFallback => _s('collectionFallback');
   String get noDescription => _s('noDescription');
   String get steamApiKeyHint => _s('steamApiKeyHint');
   String get accountLabel => _s('accountLabel');
@@ -1142,6 +1178,7 @@ class AppLocalizations {
   String get launcherAppearanceTitle => _s('launcherAppearanceTitle');
 
   String get applyingQuality => _s('applyingQuality');
+  String get applyingPreset => _s('applyingPreset');
   String get reconnectingLabel => _s('reconnecting');
 
   String get smartBitrate => _s('smartBitrate');

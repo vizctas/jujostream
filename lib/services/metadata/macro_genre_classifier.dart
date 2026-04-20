@@ -1,20 +1,23 @@
+import '../../l10n/app_localizations.dart';
+
 class MacroGenreClassifier {
   MacroGenreClassifier._();
 
-  static const String action = 'Accion';
-  static const String adventure = 'Aventura';
-  static const String fighting = 'Pelea';
-  static const String platform = 'Plataforma';
-  static const String cards = 'Cartas';
-  static const String rogue = 'Rogue';
-  static const String rpg = 'RPG';
-  static const String strategy = 'Estrategia';
-  static const String simulation = 'Simulacion';
-  static const String racing = 'Carreras';
-  static const String sports = 'Deportes';
-  static const String puzzle = 'Puzzle';
-  static const String horror = 'Horror';
-  static const String stealth = 'Stealth';
+  // ── Locale-neutral internal IDs (used for matching & persistence) ─────
+  static const String action = 'action';
+  static const String adventure = 'adventure';
+  static const String fighting = 'fighting';
+  static const String platform = 'platform';
+  static const String cards = 'cards';
+  static const String rogue = 'rogue';
+  static const String rpg = 'rpg';
+  static const String strategy = 'strategy';
+  static const String simulation = 'simulation';
+  static const String racing = 'racing';
+  static const String sports = 'sports';
+  static const String puzzle = 'puzzle';
+  static const String horror = 'horror';
+  static const String stealth = 'stealth';
 
   static const List<String> displayOrder = [
     action,
@@ -32,6 +35,28 @@ class MacroGenreClassifier {
     horror,
     stealth,
   ];
+
+  /// Returns the localized display label for a genre ID.
+  /// Falls back to the raw ID if no localization is available.
+  static String localizedLabel(String genreId, AppLocalizations l) {
+    return switch (genreId) {
+      action => l.genreAction,
+      adventure => l.genreAdventure,
+      fighting => l.genreFighting,
+      platform => l.genrePlatform,
+      cards => l.genreCards,
+      rogue => l.genreRogue,
+      rpg => l.genreRpg,
+      strategy => l.genreStrategy,
+      simulation => l.genreSimulation,
+      racing => l.genreRacing,
+      sports => l.genreSports,
+      puzzle => l.genrePuzzle,
+      horror => l.genreHorror,
+      stealth => l.genreStealth,
+      _ => genreId,
+    };
+  }
 
   static const Map<String, List<String>> _keywords = {
     action: [

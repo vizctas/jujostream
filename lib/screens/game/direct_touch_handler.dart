@@ -153,78 +153,74 @@ class DirectTouchHandler {
 
   /// Returns a [Listener] widget that forwards raw multi-touch events.
   ///
-  /// Coordinates are normalized from screen-space to stream-space using
-  /// [touchToStreamCoords] so the server receives positions relative to
-  /// the stream resolution, not the device display.
+  /// Coordinates are sent as **raw screen pixels** (view-relative), matching
+  /// the behavior of the native Android `GamepadHandler.handleTouchEvent()`
+  /// which sends `event.getX(i)` / `event.getY(i)` directly. The Sunshine
+  /// server normalizes these based on the client's reported resolution.
+  ///
+  /// **Do NOT normalize to stream resolution here** — the native JNI
+  /// `nativeSendTouchEvent` expects view pixels, not stream-space coords.
   Widget buildAbsoluteTouchInputLayer() {
     return Listener(
       behavior: HitTestBehavior.translucent,
       onPointerDown: (event) {
-        final (sx, sy) = touchToStreamCoords(event.localPosition);
-        final sw = getStreamWidth().toDouble();
-        final sh = getStreamHeight().toDouble();
+        final screenSize = getScreenSize();
         onTouchEvent(
           eventType: 0x01, // ACTION_DOWN / POINTER_DOWN
           pointerId: event.pointer,
-          x: sx.toDouble(),
-          y: sy.toDouble(),
+          x: event.localPosition.dx,
+          y: event.localPosition.dy,
           pressure: event.pressure,
           contactMajor: event.size,
           contactMinor: event.size,
           orientation: event.orientation.toInt(),
-          refWidth: sw,
-          refHeight: sh,
+          refWidth: screenSize.width,
+          refHeight: screenSize.height,
         );
       },
       onPointerMove: (event) {
-        final (sx, sy) = touchToStreamCoords(event.localPosition);
-        final sw = getStreamWidth().toDouble();
-        final sh = getStreamHeight().toDouble();
+        final screenSize = getScreenSize();
         onTouchEvent(
           eventType: 0x02, // ACTION_MOVE
           pointerId: event.pointer,
-          x: sx.toDouble(),
-          y: sy.toDouble(),
+          x: event.localPosition.dx,
+          y: event.localPosition.dy,
           pressure: event.pressure,
           contactMajor: event.size,
           contactMinor: event.size,
           orientation: event.orientation.toInt(),
-          refWidth: sw,
-          refHeight: sh,
+          refWidth: screenSize.width,
+          refHeight: screenSize.height,
         );
       },
       onPointerUp: (event) {
-        final (sx, sy) = touchToStreamCoords(event.localPosition);
-        final sw = getStreamWidth().toDouble();
-        final sh = getStreamHeight().toDouble();
+        final screenSize = getScreenSize();
         onTouchEvent(
           eventType: 0x03, // ACTION_UP / POINTER_UP
           pointerId: event.pointer,
-          x: sx.toDouble(),
-          y: sy.toDouble(),
+          x: event.localPosition.dx,
+          y: event.localPosition.dy,
           pressure: event.pressure,
           contactMajor: event.size,
           contactMinor: event.size,
           orientation: event.orientation.toInt(),
-          refWidth: sw,
-          refHeight: sh,
+          refWidth: screenSize.width,
+          refHeight: screenSize.height,
         );
       },
       onPointerCancel: (event) {
-        final (sx, sy) = touchToStreamCoords(event.localPosition);
-        final sw = getStreamWidth().toDouble();
-        final sh = getStreamHeight().toDouble();
+        final screenSize = getScreenSize();
         onTouchEvent(
           eventType: 0x04, // ACTION_CANCEL
           pointerId: event.pointer,
-          x: sx.toDouble(),
-          y: sy.toDouble(),
+          x: event.localPosition.dx,
+          y: event.localPosition.dy,
           pressure: event.pressure,
           contactMajor: event.size,
           contactMinor: event.size,
           orientation: event.orientation.toInt(),
-          refWidth: sw,
-          refHeight: sh,
+          refWidth: screenSize.width,
+          refHeight: screenSize.height,
         );
       },
     );

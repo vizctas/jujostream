@@ -299,7 +299,7 @@ mixin _AppViewFiltersMixin on _AppViewScreenBase {
                       (col) => _FilterFocusableTile(
                         title: col.name,
                         leading: Icon(Icons.folder_outlined, color: Color(col.colorValue), size: 20),
-                        subtitle: '${col.appIds.length} juegos',
+                        subtitle: '${col.appIds.length} ${AppLocalizations.of(ctx).gamesCount}',
                         onTap: () {
                           Navigator.pop(ctx);
                           _applyFilter(_AppFilter.collection, collectionId: col.id);
@@ -423,7 +423,7 @@ mixin _AppViewFiltersMixin on _AppViewScreenBase {
                             ),
                             ...orderedGenres.map(
                               (label) => _genreFilterChip(
-                                label: label,
+                                label: MacroGenreClassifier.localizedLabel(label, AppLocalizations.of(ctx)),
                                 count: counts[label] ?? 0,
                                 active:
                                     _activeFilter == _AppFilter.macroGenre &&
@@ -573,15 +573,17 @@ mixin _AppViewFiltersMixin on _AppViewScreenBase {
       case _AppFilter.favorites:
         return AppLocalizations.of(context).favorites;
       case _AppFilter.mostPlayed:
-        return 'Más jugados';
+        return AppLocalizations.of(context).mostPlayed;
       case _AppFilter.collection:
         final col = _collections.where((c) => c.id == _activeCollectionId).firstOrNull;
-        return col?.name ?? 'Colección';
+        return col?.name ?? AppLocalizations.of(context).collectionFallback;
       case _AppFilter.playniteCategory:
         return _activePlayniteCategory ??
             AppLocalizations.of(context).categoryLabel;
       case _AppFilter.macroGenre:
-        return _activeMacroGenre ?? AppLocalizations.of(context).genreLabel;
+        return _activeMacroGenre != null
+            ? MacroGenreClassifier.localizedLabel(_activeMacroGenre!, AppLocalizations.of(context))
+            : AppLocalizations.of(context).genreLabel;
       case _AppFilter.achievements100:
         return AppLocalizations.of(context).achievements100;
       case _AppFilter.achievementsPending:

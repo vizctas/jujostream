@@ -40,7 +40,7 @@ mixin _AppViewCarouselMixin on _AppViewScreenBase {
                 ),
               );
             }),
-            _hintChip('R3', 'Smart Filter', onTap: () {
+            _hintChip('R3', AppLocalizations.of(context).smartFilters, onTap: () {
               _feedbackAction();
               _openSmartGenreFilters();
             }),

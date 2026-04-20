@@ -457,7 +457,7 @@ mixin _AppViewGridMixin on _AppViewScreenBase {
             _hintChip('Y', AppLocalizations.of(context).details),
             _hintChip('START', AppLocalizations.of(context).play),
             _hintChip('SELECT', AppLocalizations.of(context).settingsLabel),
-            _hintChip('R3', 'Smart Filter'),
+            _hintChip('R3', AppLocalizations.of(context).smartFilters),
             _hintChip('RB', AppLocalizations.of(context).fav),
           ],
         ),
