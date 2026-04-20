@@ -16,13 +16,11 @@ import '../providers/theme_provider.dart';
 String _tr(BuildContext context, String en, String es) =>
     AppLocalizations.of(context).locale.languageCode == 'es' ? es : en;
 
-// Semantic chart colours — calm tones, not neon
 const _kFpsClr = Color(0xFF30D158); // Apple system green
 const _kDecodeClr = Color(0xFFFF9F0A); // Apple system orange
 const _kBitrateClr = Color(0xFF0A84FF); // Apple system blue
 const _kDropClr = Color(0xFFFF453A); // Apple system red
 
-// White palette literals (avoids theme helpers for readability guarantee)
 const _kW0 = Colors.white; // primary  100%
 const _kW2 = Color(0x99FFFFFF); // muted     60%
 const _kW3 = Color(0x66FFFFFF); // faint     40%
@@ -66,6 +64,7 @@ class _SessionMetricsDialogState extends State<SessionMetricsDialog>
     with SingleTickerProviderStateMixin {
   final ScrollController _scrollCtrl = ScrollController();
   final GlobalKey _repaintKey = GlobalKey();
+  final FocusNode _focusNode = FocusNode();
   late final AnimationController _animCtrl;
   late final Animation<double> _cardAnim;
   late final Animation<double> _chartAnim;
@@ -90,6 +89,7 @@ class _SessionMetricsDialogState extends State<SessionMetricsDialog>
 
   @override
   void dispose() {
+    _focusNode.dispose();
     _animCtrl.dispose();
     _scrollCtrl.dispose();
     super.dispose();
@@ -134,7 +134,11 @@ class _SessionMetricsDialogState extends State<SessionMetricsDialog>
       );
     } catch (_) {
       // graceful fallback to text
-      SharePlus.instance.share(ShareParams(text: _buildSummary(context)));
+      await SharePlus.instance.share(ShareParams(text: _buildSummary(context)));
+    } finally {
+      if (mounted) {
+        _focusNode.requestFocus();
+      }
     }
   }
 
@@ -166,6 +170,7 @@ class _SessionMetricsDialogState extends State<SessionMetricsDialog>
       child: Align(
         alignment: Alignment.center,
         child: Focus(
+          focusNode: _focusNode,
           autofocus: true,
           onKeyEvent: (_, event) {
             if (event is! KeyDownEvent) return KeyEventResult.ignored;

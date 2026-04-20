@@ -425,6 +425,10 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
     );
     if (serverInfo != null) {
       serverInfo.manualAddress = computer.manualAddress;
+      if (serverInfo.name.isEmpty ||
+          serverInfo.name.toLowerCase() == 'unknown') {
+        serverInfo.name = computer.name;
+      }
       _addOrUpdateComputer(serverInfo);
     } else {
       _addOrUpdateComputer(computer);
@@ -434,13 +438,17 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
   void _addOrUpdateComputer(ComputerDetails computer) {
     // Match by UUID first (most reliable), then by localAddress or activeAddress.
     // On macOS, mDNS may discover the same server via different addresses
-    // (e.g., hostname.local vs raw IP), so we also check activeAddress.
+    // (e.g., hostname.local vs raw IP), so we also check cross-address matches.
     final existingIndex = _computers.indexWhere(
       (c) =>
           (c.uuid.isNotEmpty && c.uuid == computer.uuid) ||
           c.localAddress == computer.localAddress ||
           (c.activeAddress.isNotEmpty &&
-              c.activeAddress == computer.activeAddress),
+              c.activeAddress == computer.activeAddress) ||
+          (c.localAddress.isNotEmpty &&
+              c.localAddress == computer.activeAddress) ||
+          (c.activeAddress.isNotEmpty &&
+              c.activeAddress == computer.localAddress),
     );
 
     if (existingIndex >= 0) {
@@ -449,7 +457,9 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
       if (computer.serverCert.isEmpty && existing.serverCert.isNotEmpty) {
         computer.serverCert = existing.serverCert;
       }
-      if (computer.name.isEmpty && existing.name.isNotEmpty) {
+      if ((computer.name.isEmpty || computer.name.toLowerCase() == 'unknown') &&
+          existing.name.isNotEmpty &&
+          existing.name.toLowerCase() != 'unknown') {
         computer.name = existing.name;
       }
       if (computer.manualAddress.isEmpty && existing.manualAddress.isNotEmpty) {
