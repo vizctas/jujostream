@@ -9,6 +9,10 @@
 </p>
 
 <p align="center">
+  <a href="#"><img src="https://img.shields.io/badge/GET_IT_ON-Google_Play-34A853?style=for-the-badge&logo=google-play&logoColor=white" alt="Get it on Google Play"/></a>
+</p>
+
+<p align="center">
   <img src="https://img.shields.io/badge/license-GPL--3.0-blue?style=flat-square" alt="License GPL-3.0"/>
   <img src="https://img.shields.io/badge/free-100%25-brightgreen?style=flat-square" alt="Free"/>
   <img src="https://img.shields.io/badge/built_with-Flutter-54C5F8?style=flat-square&logo=flutter&logoColor=white" alt="Flutter"/>
@@ -51,7 +55,17 @@ For game library detection: [Playnite](https://playnite.link/) with the Playnite
 
 ## Features
 
-Everything is free. No purchases, no tiers, no subscriptions.
+Everything is free. No purchases, no tiers, no subscriptions. GPL v3.0 Licence.
+
+### Focus Mode
+
+A dedicated screen built for a calmer, more focused streaming experience. Each server can have its own background image and ambient audio  it strips away the noise and gives you a quiet space to settle into before a session. Think of it as the difference between a busy dashboard and a clean TV interface.
+
+It's not the main screen. You have to activated it, by going to app options (three dots at top bar). Once you activate it, you will be redirect to this screen everytime you open the app. (Can disabled it to return to classic view).
+
+ <img src="https://github.com/vizctas/jujostream/blob/feature/r1/assets/ss/focus_mode.jpg"  alt="filters common"/>
+
+ More interesting functions and personalization will be added in future updates.
 
 ### Launcher Styles
 
@@ -64,12 +78,6 @@ Four launcher layouts to choose from: **Classic**, **Backbone**, **Hero**, and *
 The design is very heavy for android tv. Tried to do my best and with the support with claude + gemini tried to reduce as many lag issues with the navigation. This doesn't happens with powerful android devices or MAC OS. 
 
 First boot will probably cause problem with the streaming. Give around 1 minute depending your internet connection, to fully load all posters, metadata and more. 
-
-### Focus Mode
-
-A dedicated screen built for a calmer, more focused streaming experience. Each server can have its own background image and ambient audio  it strips away the noise and gives you a quiet space to settle into before a session. Think of it as the difference between a busy dashboard and a clean TV interface.
-
- <img src="https://github.com/vizctas/jujostream/blob/feature/r1/assets/ss/focus_mode.jpg"  alt="filters common"/>
 
 ### Color Schemes
 
@@ -100,7 +108,11 @@ Map button combinations of most used shorcuts while streaming. Some client limit
 - PiP mode to minimize the stream into a floating window
 - *Companion app via QR code for remote configuration*
 
+ Some more features:
+
  <img src="https://github.com/vizctas/jujostream/blob/feature/r1/assets/ss/ragio_autofilters.jpg"  alt="auto filters"/>
+
+ Need fix - No EN Location added yet. 
 
  <img src="https://github.com/vizctas/jujostream/blob/feature/r1/assets/ss/common_filters.jpg"  alt="common filters"/>
 
