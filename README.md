@@ -67,17 +67,25 @@ First boot will probably cause problem with the streaming. Give around 1 minute 
 
 5+ Color schemes tailored for the launcher best fit. You'll make me happy if you choose to use "Debossy", "ShioryPan" or "Lazy Ankui". Based on my cats colors. 
 
+ <img src="https://github.com/vizctas/jujostream/blob/main/assets/ss/color_schemes.jpg.jpg"  alt="colours"/>
+
 ### Focus Mode
 
 A dedicated screen built for a calmer, more focused streaming experience. Each server can have its own background image and ambient audio  it strips away the noise and gives you a quiet space to settle into before a session. Think of it as the difference between a busy dashboard and a clean TV interface.
+
+ <img src="https://github.com/vizctas/jujostream/blob/main/assets/ss/common_filters.jpg"  alt="filters common"/>
 
 ### Session Metrics
 
 After each session you get a summary of how the stream performed: frame data, bitrate, latency, and decoder info. Handy for fine-tuning your setup over time.
 
+ <img src="https://github.com/vizctas/jujostream/blob/main/assets/ss/metrics_card.jpg"  alt="Metrics card"/>
+
 ### Custom Combos
 
 Map button combinations of most used shorcuts while streaming. Some client limits you to just SELECT + START + R1 + R2 to call menu. Now you can configure that and the hold time. 
+
+ <img src="https://github.com/vizctas/jujostream/blob/main/assets/ss/cfg_combos.jpg.jpg"  alt="combos cfg"/>
 
 ### Everything Else
 
