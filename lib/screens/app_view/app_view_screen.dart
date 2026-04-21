@@ -14,6 +14,8 @@ import '../../models/computer_details.dart';
 import '../../models/game_collection.dart';
 import '../../models/nv_app.dart';
 import '../../providers/app_list_provider.dart';
+import '../../providers/computer_provider.dart';
+
 import '../../providers/plugins_provider.dart';
 import '../../providers/settings_provider.dart';
 import '../../providers/theme_provider.dart';
@@ -260,7 +262,9 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
     } else if (state == AppLifecycleState.resumed) {
       _startAutoRefreshTimer();
       _videoController?.play();
-      context.read<AppListProvider>().refresh();
+      if (!context.read<ComputerProvider>().isPairing) {
+        context.read<AppListProvider>().refresh();
+      }
     }
   }
 

@@ -12,7 +12,7 @@ import '../errors/error_codes.dart';
 
 class PairingService {
   final Logger _log = Logger();
-  static const Duration _pairPhaseTimeout = Duration(seconds: 20);
+  static const Duration _pairPhaseTimeout = Duration(seconds: 60);
 
   static const Duration _phase5Timeout = Duration(seconds: 5);
 

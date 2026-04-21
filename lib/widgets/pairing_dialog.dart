@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
+
 import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 
@@ -97,20 +99,73 @@ class _PairingDialogState extends State<PairingDialog> {
             const SizedBox(height: 12),
             Container(
               width: double.infinity,
-              padding:
-                  const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
               decoration: BoxDecoration(
                 color: const Color(0xFF0F3460),
                 borderRadius: BorderRadius.circular(8),
               ),
-              child: Text(
-                widget.pin,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 28,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 6,
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  Text(
+                    widget.pin,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 28,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 6,
+                    ),
+                  ),
+                  Positioned(
+                    right: 0,
+                    child: IconButton(
+                      icon: const Icon(Icons.copy_rounded, color: Colors.white70, size: 20),
+                      onPressed: () {
+                        Clipboard.setData(ClipboardData(text: widget.pin));
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('PIN copied to clipboard'),
+                              duration: Duration(seconds: 2),
+                              behavior: SnackBarBehavior.floating,
+                            ),
+                          );
+                        }
+                      },
+                      tooltip: 'Copy PIN',
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () async {
+                  final addr = widget.computer.activeAddress.isNotEmpty
+                      ? widget.computer.activeAddress
+                      : widget.computer.localAddress;
+                  final port = widget.computer.externalPort > 0 
+                      ? widget.computer.externalPort + 1 
+                      : 47990;
+                  final url = Uri.parse('https://$addr:$port');
+                  if (await canLaunchUrl(url)) {
+                    await launchUrl(url, mode: LaunchMode.externalApplication);
+                  }
+                },
+                icon: const Icon(Icons.open_in_browser_rounded, size: 20),
+                label: const Text('Open Server Dashboard'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.white,
+                  side: const BorderSide(color: Colors.white24),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  padding: const EdgeInsets.symmetric(vertical: 12),
                 ),
               ),
             ),

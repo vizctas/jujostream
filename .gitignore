@@ -71,3 +71,4 @@ _fix_headers.py
 
 # Build artifacts at root 
 Jujostream.apk
+build_releases.sh

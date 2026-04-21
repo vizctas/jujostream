@@ -73,6 +73,8 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
 
   List<ComputerDetails> get computers => List.unmodifiable(_computers);
   bool get isDiscovering => _isDiscovering;
+  bool get isPairing => _isPairing;
+
   String? get error => _error;
 
   String? get primaryServerUuid => _primaryServerUuid;
