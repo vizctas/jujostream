@@ -204,8 +204,8 @@ class ComputerOptionsDialog {
                                       ? computer.activeAddress
                                       : computer.localAddress;
                                   final cfgPort = computer.externalPort > 0
-                                      ? computer.externalPort + 5
-                                      : 47994;
+                                      ? computer.externalPort + 1
+                                      : 47990;
                                   launchUrl(
                                     Uri.parse('https://$addr:$cfgPort'),
                                     mode: LaunchMode.externalApplication,
