@@ -123,7 +123,7 @@ class VideoDecoderRenderer(
             } else {
                 Log.i(TAG, "Using SurfaceTexture path")
                 activeRenderPath = if (useChoreographerVsync) "texture-vsync" else "texture"
-                Surface(textureEntry!!.surfaceTexture())
+                Surface(textureEntry!!.surfaceTexture().apply { setDefaultBufferSize(width, height) })
             }
 
             // VRR: hint compositor about ideal cadence
@@ -642,7 +642,7 @@ class VideoDecoderRenderer(
             data.limit(length)
             inputBuffer.put(data)
 
-            val flags = if (frameType == FRAME_TYPE_IDR) MediaCodec.BUFFER_FLAG_SYNC_FRAME else 0
+            val flags = if (frameType == FRAME_TYPE_IDR && bufferType == BUFFER_TYPE_PICDATA) MediaCodec.BUFFER_FLAG_SYNC_FRAME else 0
             val timestampUs = enqueueTimeMs * 1000L
 
             synchronized(queueTimestampNs) {

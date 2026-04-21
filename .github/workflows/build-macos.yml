@@ -20,6 +20,12 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
+      - name: Disable Swift Package Manager (use CocoaPods)
+        run: flutter config --no-enable-swift-package-manager
+
+      - name: Install CocoaPods dependencies
+        run: cd macos && pod install --repo-update
+
       - name: Build macOS app
         run: flutter build macos --release
 
