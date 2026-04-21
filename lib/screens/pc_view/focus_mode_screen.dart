@@ -201,6 +201,19 @@ class _FocusModeScreenState extends State<FocusModeScreen>
       final ok = await showPairingDialog(context, computer);
       if (!mounted || !ok) return;
     }
+
+    // ── Entry gate: verify pairing is still valid on the server ─────
+    final provider = context.read<ComputerProvider>();
+    final stillPaired = await provider.verifyPairing(computer);
+    if (!mounted) return;
+    if (!stillPaired) {
+      final l = AppLocalizations.of(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(l.serverUnpaired)),
+      );
+      return;
+    }
+
     if (!mounted) return;
 
     // Play server enter sound + strong haptic, then stop ambience

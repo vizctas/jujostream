@@ -380,6 +380,11 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
 
         computer.pairStatusFromHttps = true;
 
+        // Persist immediately so the paired state survives even if
+        // the subsequent pollComputer() call fails or times out.
+        _persistComputers();
+        notifyListeners();
+
         unawaited(AchievementService.instance.unlock('first_connection'));
         await pollComputer(computer);
       } else {
@@ -395,6 +400,56 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
       if (wasDiscovering) {
         await startDiscovery();
       }
+    }
+  }
+
+  /// Verifies that [computer] is still paired by performing a fresh HTTPS
+  /// `/serverinfo` request. Returns `true` if the server confirms pairing,
+  /// `false` if the server says "not paired" or the check fails.
+  ///
+  /// When the server reports "not paired", the local state is updated
+  /// immediately (pairState → notPaired, serverCert cleared, persisted).
+  ///
+  /// This is used as an entry gate before navigating into a server's app
+  /// list, preventing the user from entering a server that revoked pairing.
+  Future<bool> verifyPairing(ComputerDetails computer) async {
+    if (!computer.isPaired) return false;
+
+    final address = computer.activeAddress.isNotEmpty
+        ? computer.activeAddress
+        : computer.localAddress;
+    final httpsPort = computer.httpsPort > 0
+        ? computer.httpsPort
+        : NvHttpClient.defaultHttpsPort;
+    final httpPort = computer.externalPort > 0
+        ? computer.externalPort
+        : NvHttpClient.defaultHttpPort;
+
+    try {
+      final info = await _httpClient.getServerInfoHttps(
+        address,
+        httpsPort: httpsPort,
+        httpPort: httpPort,
+        timeout: const Duration(seconds: 3),
+      );
+      if (info == null) {
+        // Server unreachable — can't verify. Allow entry optimistically
+        // (the stream will fail with a clear error if truly unpaired).
+        return true;
+      }
+      if (info.pairState == PairState.paired) {
+        return true;
+      }
+      // Server confirmed: NOT paired. Update local state.
+      computer.pairState = PairState.notPaired;
+      computer.serverCert = '';
+      computer.pairStatusFromHttps = false;
+      _persistComputers();
+      notifyListeners();
+      return false;
+    } catch (_) {
+      // Network error — allow entry optimistically.
+      return true;
     }
   }
 
@@ -472,11 +527,30 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
         computer.externalPort = existing.externalPort;
       }
 
-      if (computer.pairState == PairState.notPaired &&
+      // ── Pairing state reconciliation ──────────────────────────────────
+      // Trust the server's PairStatus when the response came via HTTPS
+      // (authenticated channel). If HTTPS says "not paired", the server
+      // revoked pairing — clear local state immediately.
+      //
+      // Only preserve the local "paired" cache when the incoming data came
+      // from an HTTP-only fallback (pairStatusFromHttps == false) AND the
+      // existing record was confirmed via HTTPS previously. This prevents
+      // a plain-HTTP poll (which can't verify pairing) from flipping a
+      // legitimately paired server to unpaired.
+      if (computer.pairStatusFromHttps) {
+        // HTTPS is authoritative — if server says notPaired, trust it.
+        if (computer.pairState == PairState.notPaired &&
+            existing.pairState == PairState.paired) {
+          // Server revoked pairing. Clear cached cert so the UI shows
+          // "Not Paired" and blocks entry until re-paired.
+          computer.serverCert = '';
+        }
+      } else if (computer.pairState == PairState.notPaired &&
           existing.pairState == PairState.paired &&
           existing.serverCert.isNotEmpty &&
-          !computer.pairStatusFromHttps &&
           existing.pairStatusFromHttps) {
+        // HTTP-only fallback — can't verify pairing. Preserve the cached
+        // HTTPS-confirmed state to avoid false negatives from plain HTTP.
         computer.pairState = PairState.paired;
         computer.pairStatusFromHttps = true;
       }

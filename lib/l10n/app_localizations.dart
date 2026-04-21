@@ -48,6 +48,14 @@ class AppLocalizations {
       'en': 'Server is offline',
       'es': 'Servidor fuera de línea',
     },
+    'serverUnpaired': {
+      'en': 'Server removed pairing. Please pair again.',
+      'es': 'El servidor eliminó el emparejamiento. Vincule de nuevo.',
+    },
+    'verifyingPairing': {
+      'en': 'Verifying pairing…',
+      'es': 'Verificando vinculación…',
+    },
     'noServersFound': {
       'en': 'No servers found',
       'es': 'No se encontraron servidores',
@@ -830,6 +838,8 @@ class AppLocalizations {
   String get scanNetwork => _s('scanNetwork');
   String get discoveringServers => _s('discoveringServers');
   String get serverOffline => _s('serverOffline');
+  String get serverUnpaired => _s('serverUnpaired');
+  String get verifyingPairing => _s('verifyingPairing');
   String get noServersFound => _s('noServersFound');
   String get tapToAdd => _s('tapToAdd');
   String get online => _s('online');

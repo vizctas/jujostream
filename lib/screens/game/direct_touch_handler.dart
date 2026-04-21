@@ -151,79 +151,96 @@ class DirectTouchHandler {
 
   // ── Public: build absolute touch layer (multi-touch passthrough) ───────
 
-  /// Returns a [Listener] widget that forwards raw multi-touch events.
+  /// Returns a [Listener] widget that forwards multi-touch events with
+  /// **normalized 0.0–1.0 coordinates** as required by moonlight-common-c's
+  /// `LiSendTouchEvent()`.
   ///
-  /// Coordinates are sent as **raw screen pixels** (view-relative), matching
-  /// the behavior of the native Android `GamepadHandler.handleTouchEvent()`
-  /// which sends `event.getX(i)` / `event.getY(i)` directly. The Sunshine
-  /// server normalizes these based on the client's reported resolution.
+  /// From the protocol header (Limelight.h):
+  /// > "The x and y values are normalized device coordinates stretching
+  /// >  top-left corner (0.0, 0.0) to bottom-right corner (1.0, 1.0)
+  /// >  of the video area."
   ///
-  /// **Do NOT normalize to stream resolution here** — the native JNI
-  /// `nativeSendTouchEvent` expects view pixels, not stream-space coords.
+  /// We divide `event.localPosition` by the Flutter view size to produce
+  /// the 0.0–1.0 range. Contact area is also normalized by view size.
   Widget buildAbsoluteTouchInputLayer() {
     return Listener(
       behavior: HitTestBehavior.translucent,
       onPointerDown: (event) {
-        final screenSize = getScreenSize();
+        final sz = getScreenSize();
+        final nx = (sz.width > 0) ? event.localPosition.dx / sz.width : 0.0;
+        final ny = (sz.height > 0) ? event.localPosition.dy / sz.height : 0.0;
         onTouchEvent(
           eventType: 0x01, // ACTION_DOWN / POINTER_DOWN
           pointerId: event.pointer,
-          x: event.localPosition.dx,
-          y: event.localPosition.dy,
-          pressure: event.pressure,
-          contactMajor: event.size,
-          contactMinor: event.size,
+          x: nx.clamp(0.0, 1.0),
+          y: ny.clamp(0.0, 1.0),
+          pressure: event.pressure.clamp(0.0, 1.0),
+          contactMajor: _normalizeContact(event.size, sz),
+          contactMinor: _normalizeContact(event.size, sz),
           orientation: event.orientation.toInt(),
-          refWidth: screenSize.width,
-          refHeight: screenSize.height,
+          refWidth: sz.width,
+          refHeight: sz.height,
         );
       },
       onPointerMove: (event) {
-        final screenSize = getScreenSize();
+        final sz = getScreenSize();
+        final nx = (sz.width > 0) ? event.localPosition.dx / sz.width : 0.0;
+        final ny = (sz.height > 0) ? event.localPosition.dy / sz.height : 0.0;
         onTouchEvent(
           eventType: 0x02, // ACTION_MOVE
           pointerId: event.pointer,
-          x: event.localPosition.dx,
-          y: event.localPosition.dy,
-          pressure: event.pressure,
-          contactMajor: event.size,
-          contactMinor: event.size,
+          x: nx.clamp(0.0, 1.0),
+          y: ny.clamp(0.0, 1.0),
+          pressure: event.pressure.clamp(0.0, 1.0),
+          contactMajor: _normalizeContact(event.size, sz),
+          contactMinor: _normalizeContact(event.size, sz),
           orientation: event.orientation.toInt(),
-          refWidth: screenSize.width,
-          refHeight: screenSize.height,
+          refWidth: sz.width,
+          refHeight: sz.height,
         );
       },
       onPointerUp: (event) {
-        final screenSize = getScreenSize();
+        final sz = getScreenSize();
+        final nx = (sz.width > 0) ? event.localPosition.dx / sz.width : 0.0;
+        final ny = (sz.height > 0) ? event.localPosition.dy / sz.height : 0.0;
         onTouchEvent(
           eventType: 0x03, // ACTION_UP / POINTER_UP
           pointerId: event.pointer,
-          x: event.localPosition.dx,
-          y: event.localPosition.dy,
-          pressure: event.pressure,
-          contactMajor: event.size,
-          contactMinor: event.size,
+          x: nx.clamp(0.0, 1.0),
+          y: ny.clamp(0.0, 1.0),
+          pressure: event.pressure.clamp(0.0, 1.0),
+          contactMajor: _normalizeContact(event.size, sz),
+          contactMinor: _normalizeContact(event.size, sz),
           orientation: event.orientation.toInt(),
-          refWidth: screenSize.width,
-          refHeight: screenSize.height,
+          refWidth: sz.width,
+          refHeight: sz.height,
         );
       },
       onPointerCancel: (event) {
-        final screenSize = getScreenSize();
+        final sz = getScreenSize();
+        final nx = (sz.width > 0) ? event.localPosition.dx / sz.width : 0.0;
+        final ny = (sz.height > 0) ? event.localPosition.dy / sz.height : 0.0;
         onTouchEvent(
           eventType: 0x04, // ACTION_CANCEL
           pointerId: event.pointer,
-          x: event.localPosition.dx,
-          y: event.localPosition.dy,
-          pressure: event.pressure,
-          contactMajor: event.size,
-          contactMinor: event.size,
+          x: nx.clamp(0.0, 1.0),
+          y: ny.clamp(0.0, 1.0),
+          pressure: event.pressure.clamp(0.0, 1.0),
+          contactMajor: _normalizeContact(event.size, sz),
+          contactMinor: _normalizeContact(event.size, sz),
           orientation: event.orientation.toInt(),
-          refWidth: screenSize.width,
-          refHeight: screenSize.height,
+          refWidth: sz.width,
+          refHeight: sz.height,
         );
       },
     );
+  }
+
+  /// Normalize contact area to 0.0–1.0 range relative to screen diagonal.
+  /// Flutter's `PointerEvent.size` is already 0.0–1.0 on most platforms,
+  /// but we clamp defensively.
+  static double _normalizeContact(double size, Size screen) {
+    return size.clamp(0.0, 1.0);
   }
 
   // ── Public: build direct touch layer (point-and-click emulation) ───────

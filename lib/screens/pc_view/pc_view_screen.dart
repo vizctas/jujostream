@@ -672,6 +672,20 @@ class _PcViewScreenState extends State<PcViewScreen>
       }
     }
 
+    // ── Entry gate: verify pairing is still valid on the server ─────
+    // Prevents entering a server that revoked pairing server-side while
+    // the client still had a stale "paired" cache.
+    final provider = context.read<ComputerProvider>();
+    final stillPaired = await provider.verifyPairing(computer);
+    if (!mounted) return;
+    if (!stillPaired) {
+      final l = AppLocalizations.of(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(l.serverUnpaired)),
+      );
+      return;
+    }
+
     final prefs = await SharedPreferences.getInstance();
     final introEnabled =
         prefs.getBool('plugin_enabled_startup_intro_video') ?? false;

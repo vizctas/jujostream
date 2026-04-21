@@ -1145,11 +1145,22 @@ class GamepadHandler(
                 else -> return false
             }
 
+            // LiSendTouchEvent expects normalized 0.0–1.0 coordinates.
+            // Touchpad coords are in the device's raw axis range (e.g.
+            // 0–1920 for DualSense). Normalize using the axis max values.
+            val tpDevice = event.device
+            val xRange = tpDevice?.getMotionRange(MotionEvent.AXIS_X, event.source)
+            val yRange = tpDevice?.getMotionRange(MotionEvent.AXIS_Y, event.source)
+            val xMax = xRange?.max?.coerceAtLeast(1f) ?: 1f
+            val yMax = yRange?.max?.coerceAtLeast(1f) ?: 1f
+
             for (i in 0 until event.pointerCount) {
+                val nx = (event.getX(i) / xMax).coerceIn(0f, 1f)
+                val ny = (event.getY(i) / yMax).coerceIn(0f, 1f)
                 StreamingBridge.nativeSendTouchEvent(
                     eventType,
                     event.getPointerId(i),
-                    event.getX(i), event.getY(i),
+                    nx, ny,
                     event.getPressure(i),
                     event.getTouchMajor(i), event.getTouchMinor(i),
                     event.getOrientation(i).toInt().toShort()

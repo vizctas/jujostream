@@ -169,6 +169,11 @@ class SettingsScreen extends StatelessWidget {
                       _resLabel(c),
                       () => _pickResolution(context, settings, c),
                     ),
+                    _CustomResolutionRow(
+                      currentWidth: c.width,
+                      currentHeight: c.height,
+                      onApply: (w, h) => settings.setResolution(w, h),
+                    ),
                     _choiceTile(
                       context,
                       _tr(context, 'Frame Rate', 'Frecuencia de cuadros'),
@@ -4118,6 +4123,204 @@ class _OverlayTriggerDialogState extends State<_OverlayTriggerDialog> {
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Custom Resolution Override ─────────────────────────────────────────────
+/// Two side-by-side numeric input boxes for custom width × height.
+/// When both fields contain valid numbers (320–7680), the resolution is
+/// applied immediately via [onApply]. Empty fields = use the preset from
+/// the resolution picker dialog.
+class _CustomResolutionRow extends StatefulWidget {
+  final int currentWidth;
+  final int currentHeight;
+  final void Function(int width, int height) onApply;
+
+  const _CustomResolutionRow({
+    required this.currentWidth,
+    required this.currentHeight,
+    required this.onApply,
+  });
+
+  @override
+  State<_CustomResolutionRow> createState() => _CustomResolutionRowState();
+}
+
+class _CustomResolutionRowState extends State<_CustomResolutionRow> {
+  late final TextEditingController _wCtrl;
+  late final TextEditingController _hCtrl;
+  final FocusNode _wFocus = FocusNode();
+  final FocusNode _hFocus = FocusNode();
+
+  /// Standard presets — if the current resolution matches one of these,
+  /// we leave the custom fields empty (the preset is already selected).
+  static const _presets = {
+    (1280, 720),
+    (1920, 1080),
+    (2560, 1440),
+    (3840, 2160),
+  };
+
+  @override
+  void initState() {
+    super.initState();
+    final isPreset = _presets.contains((widget.currentWidth, widget.currentHeight));
+    _wCtrl = TextEditingController(
+      text: isPreset ? '' : widget.currentWidth.toString(),
+    );
+    _hCtrl = TextEditingController(
+      text: isPreset ? '' : widget.currentHeight.toString(),
+    );
+  }
+
+  @override
+  void didUpdateWidget(covariant _CustomResolutionRow old) {
+    super.didUpdateWidget(old);
+    // If the preset picker changed the resolution externally, clear custom
+    // fields so they don't show stale values.
+    if (old.currentWidth != widget.currentWidth ||
+        old.currentHeight != widget.currentHeight) {
+      final isPreset = _presets.contains((widget.currentWidth, widget.currentHeight));
+      if (isPreset) {
+        _wCtrl.clear();
+        _hCtrl.clear();
+      } else {
+        // Another source set a custom resolution — reflect it.
+        _wCtrl.text = widget.currentWidth.toString();
+        _hCtrl.text = widget.currentHeight.toString();
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _wCtrl.dispose();
+    _hCtrl.dispose();
+    _wFocus.dispose();
+    _hFocus.dispose();
+    super.dispose();
+  }
+
+  void _tryApply() {
+    final w = int.tryParse(_wCtrl.text.trim());
+    final h = int.tryParse(_hCtrl.text.trim());
+    if (w == null || h == null) return;
+    if (w < 320 || w > 7680 || h < 240 || h > 4320) return;
+    // Only apply if actually different to avoid redundant writes.
+    if (w == widget.currentWidth && h == widget.currentHeight) return;
+    widget.onApply(w, h);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isEs =
+        AppLocalizations.of(context).locale.languageCode == 'es';
+    final accent =
+        context.read<ThemeProvider>().colors.accentLight;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      child: Row(
+        children: [
+          const SizedBox(width: 16),
+          Text(
+            isEs ? 'Resolución custom' : 'Custom resolution',
+            style: const TextStyle(color: Colors.white54, fontSize: 12),
+          ),
+          const SizedBox(width: 12),
+          _buildField(_wCtrl, _wFocus, isEs ? 'Ancho' : 'Width', accent),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 6),
+            child: Text(
+              '×',
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.4),
+                fontSize: 16,
+                fontWeight: FontWeight.w300,
+              ),
+            ),
+          ),
+          _buildField(_hCtrl, _hFocus, isEs ? 'Alto' : 'Height', accent),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildField(
+    TextEditingController ctrl,
+    FocusNode focusNode,
+    String hint,
+    Color accent,
+  ) {
+    return SizedBox(
+      width: 80,
+      height: 36,
+      child: Focus(
+        // Outer Focus for gamepad navigation — when focused via D-pad,
+        // pressing A/Enter transfers focus to the inner TextField.
+        onKeyEvent: (node, event) {
+          if (event is! KeyDownEvent) return KeyEventResult.ignored;
+          final key = event.logicalKey;
+          if (key == LogicalKeyboardKey.enter ||
+              key == LogicalKeyboardKey.select ||
+              key == LogicalKeyboardKey.gameButtonA) {
+            focusNode.requestFocus();
+            return KeyEventResult.handled;
+          }
+          return KeyEventResult.ignored;
+        },
+        child: Builder(
+          builder: (ctx) {
+            final outerFocused = Focus.of(ctx).hasFocus;
+            return AnimatedContainer(
+              duration: const Duration(milliseconds: 150),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: outerFocused
+                      ? accent.withValues(alpha: 0.6)
+                      : Colors.white.withValues(alpha: 0.1),
+                  width: outerFocused ? 1.5 : 1,
+                ),
+                color: outerFocused
+                    ? Colors.white.withValues(alpha: 0.06)
+                    : Colors.white.withValues(alpha: 0.03),
+              ),
+              child: TextField(
+                controller: ctrl,
+                focusNode: focusNode,
+                keyboardType: TextInputType.number,
+                inputFormatters: [
+                  FilteringTextInputFormatter.digitsOnly,
+                  LengthLimitingTextInputFormatter(5),
+                ],
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                ),
+                decoration: InputDecoration(
+                  hintText: hint,
+                  hintStyle: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.2),
+                    fontSize: 12,
+                  ),
+                  border: InputBorder.none,
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 8,
+                  ),
+                  isDense: true,
+                ),
+                onChanged: (_) => _tryApply(),
+                onSubmitted: (_) => _tryApply(),
+              ),
+            );
+          },
         ),
       ),
     );
