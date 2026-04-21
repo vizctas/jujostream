@@ -718,7 +718,7 @@ class _ChartPainter extends CustomPainter {
     if (sec < 60) return '${sec}s';
     final m = sec ~/ 60;
     final s = sec % 60;
-    return s == 0 ? '${m}m' : '${m}:${s.toString().padLeft(2, '0')}';
+    return s == 0 ? '${m}m' : '$m:${s.toString().padLeft(2, '0')}';
   }
 
   static const _kLabelStyle = TextStyle(

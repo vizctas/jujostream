@@ -1,6 +1,5 @@
 # Flutter/Dart ignores
 .dart_tool/
-.github/
 .codacy/
 .agents/
 .flutter-plugins
@@ -65,7 +64,6 @@ docs/WORKFLOW.md
 .private/
 .private/
 .windsurf/
-.github/
 .idea/
 
 # One-shot scripts (already applied, not reusable) Just in case gonna need it later on. 
