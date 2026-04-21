@@ -99,28 +99,49 @@ class _PairingDialogState extends State<PairingDialog> {
             const SizedBox(height: 12),
             Container(
               width: double.infinity,
-              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+              padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
               decoration: BoxDecoration(
-                color: const Color(0xFF0F3460),
-                borderRadius: BorderRadius.circular(8),
+                color: const Color(0xFF0F3460).withValues(alpha: 0.4),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFF0F3460)),
               ),
               child: Stack(
                 alignment: Alignment.center,
                 children: [
-                  Text(
-                    widget.pin,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 28,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 6,
-                    ),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: widget.pin.split('').map((digit) {
+                      return Container(
+                        margin: const EdgeInsets.symmetric(horizontal: 6),
+                        width: 46,
+                        height: 56,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF0F3460),
+                          borderRadius: BorderRadius.circular(8),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.2),
+                              blurRadius: 4,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        alignment: Alignment.center,
+                        child: Text(
+                          digit,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 32,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      );
+                    }).toList(),
                   ),
                   Positioned(
                     right: 0,
                     child: IconButton(
-                      icon: const Icon(Icons.copy_rounded, color: Colors.white70, size: 20),
+                      icon: const Icon(Icons.copy_rounded, color: Colors.white70, size: 22),
                       onPressed: () {
                         Clipboard.setData(ClipboardData(text: widget.pin));
                         if (context.mounted) {
