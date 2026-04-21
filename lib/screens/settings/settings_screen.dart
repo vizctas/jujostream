@@ -169,7 +169,7 @@ class SettingsScreen extends StatelessWidget {
                       _resLabel(c),
                       () => _pickResolution(context, settings, c),
                     ),
-                    _CustomResolutionRow(
+                    _CustomResolutionTile(
                       currentWidth: c.width,
                       currentHeight: c.height,
                       onApply: (w, h) => settings.setResolution(w, h),
@@ -1873,12 +1873,69 @@ class SettingsScreen extends StatelessWidget {
     SettingsProvider s,
     StreamConfiguration c,
   ) {
-    _showPicker(ctx, _tr(ctx, 'Resolution', 'Resolución'), [
-      ('720p (1280×720)', () => s.setResolution(1280, 720)),
-      ('1080p (1920×1080)', () => s.setResolution(1920, 1080)),
-      ('1440p (2560×1440)', () => s.setResolution(2560, 1440)),
-      ('4K (3840×2160)', () => s.setResolution(3840, 2160)),
-    ]);
+    _showResolutionPicker(ctx, s);
+  }
+
+  static const _resolutionPresets = <(String, int, int)>[
+    ('720p',        1280,  720),
+    ('900p',        1600,  900),
+    ('1080p',       1920, 1080),
+    ('1200p',       1920, 1200),
+    ('1440p (2K)',  2560, 1440),
+    ('1600p',       2560, 1600),
+    ('4K (UHD)',    3840, 2160),
+    ('5K',          5120, 2880),
+    ('8K',          7680, 4320),
+    // Ultrawide
+    ('UW 1080p',    2560, 1080),
+    ('UW 1440p',    3440, 1440),
+    ('UW 1600p',    3840, 1600),
+    ('Super UW',    5120, 1440),
+    // Portrait / vertical
+    ('720×1280',     720, 1280),
+    ('1080×1920',   1080, 1920),
+    ('1440×2560',   1440, 2560),
+    // Retro / low
+    ('480p',         854,  480),
+    ('576p',        1024,  576),
+    ('540p',         960,  540),
+    // Steam Deck / handheld
+    ('Steam Deck',  1280,  800),
+    ('ROG Ally',    1920, 1080),
+    ('Legion Go',   2560, 1600),
+  ];
+
+  void _showResolutionPicker(BuildContext ctx, SettingsProvider s) {
+    final tp = ctx.read<ThemeProvider>();
+    final size = MediaQuery.sizeOf(ctx);
+    final dialogWidth = size.width > 600 ? 380.0 : size.width - 48;
+    showGeneralDialog(
+      context: ctx,
+      barrierDismissible: true,
+      barrierLabel: MaterialLocalizations.of(ctx).modalBarrierDismissLabel,
+      barrierColor: Colors.black.withValues(alpha: 0.55),
+      transitionDuration: const Duration(milliseconds: 230),
+      transitionBuilder: (dCtx, anim, _, child) {
+        final scale = CurvedAnimation(parent: anim, curve: Curves.easeOutBack);
+        final fade = CurvedAnimation(parent: anim, curve: Curves.easeOut);
+        return ScaleTransition(
+          scale: Tween<double>(begin: 0.90, end: 1).animate(scale),
+          child: FadeTransition(opacity: fade, child: child),
+        );
+      },
+      pageBuilder: (dCtx, _, _) => _ResolutionPickerDialog(
+        dialogWidth: dialogWidth,
+        maxHeight: size.height * 0.65,
+        surface: tp.surface,
+        surfaceVariant: tp.surfaceVariant,
+        presets: _resolutionPresets,
+        onSelect: (w, h) {
+          s.setResolution(w, h);
+          Navigator.pop(dCtx);
+        },
+        onDismiss: () => Navigator.pop(dCtx),
+      ),
+    );
   }
 
   void _pickFps(BuildContext ctx, SettingsProvider s, StreamConfiguration c) {
@@ -2173,8 +2230,10 @@ class SettingsScreen extends StatelessWidget {
   }
 
   String _resLabel(StreamConfiguration c) {
-    const labels = {1280: '720p', 1920: '1080p', 2560: '1440p', 3840: '4K'};
-    return labels[c.width] ?? '${c.width}×${c.height}';
+    for (final p in _resolutionPresets) {
+      if (p.$2 == c.width && p.$3 == c.height) return '${p.$1} (${c.width}×${c.height})';
+    }
+    return '${c.width}×${c.height}';
   }
 
   String _codecLabel(BuildContext context, VideoCodec v) =>
@@ -4129,66 +4188,53 @@ class _OverlayTriggerDialogState extends State<_OverlayTriggerDialog> {
   }
 }
 
-// ─── Custom Resolution Override ─────────────────────────────────────────────
-/// Two side-by-side numeric input boxes for custom width × height.
-/// When both fields contain valid numbers (320–7680), the resolution is
-/// applied immediately via [onApply]. Empty fields = use the preset from
-/// the resolution picker dialog.
-class _CustomResolutionRow extends StatefulWidget {
+// -- Custom Resolution Tile (matches _FocusableChoiceTile style) ----------
+
+class _CustomResolutionTile extends StatefulWidget {
   final int currentWidth;
   final int currentHeight;
   final void Function(int width, int height) onApply;
 
-  const _CustomResolutionRow({
+  const _CustomResolutionTile({
     required this.currentWidth,
     required this.currentHeight,
     required this.onApply,
   });
 
   @override
-  State<_CustomResolutionRow> createState() => _CustomResolutionRowState();
+  State<_CustomResolutionTile> createState() => _CustomResolutionTileState();
 }
 
-class _CustomResolutionRowState extends State<_CustomResolutionRow> {
+class _CustomResolutionTileState extends State<_CustomResolutionTile> {
   late final TextEditingController _wCtrl;
   late final TextEditingController _hCtrl;
   final FocusNode _wFocus = FocusNode();
   final FocusNode _hFocus = FocusNode();
+  bool _focused = false;
 
-  /// Standard presets — if the current resolution matches one of these,
-  /// we leave the custom fields empty (the preset is already selected).
-  static const _presets = {
-    (1280, 720),
-    (1920, 1080),
-    (2560, 1440),
-    (3840, 2160),
-  };
+  bool _isPreset(int w, int h) {
+    for (final p in SettingsScreen._resolutionPresets) {
+      if (p.$2 == w && p.$3 == h) return true;
+    }
+    return false;
+  }
 
   @override
   void initState() {
     super.initState();
-    final isPreset = _presets.contains((widget.currentWidth, widget.currentHeight));
-    _wCtrl = TextEditingController(
-      text: isPreset ? '' : widget.currentWidth.toString(),
-    );
-    _hCtrl = TextEditingController(
-      text: isPreset ? '' : widget.currentHeight.toString(),
-    );
+    final preset = _isPreset(widget.currentWidth, widget.currentHeight);
+    _wCtrl = TextEditingController(text: preset ? '' : widget.currentWidth.toString());
+    _hCtrl = TextEditingController(text: preset ? '' : widget.currentHeight.toString());
   }
 
   @override
-  void didUpdateWidget(covariant _CustomResolutionRow old) {
+  void didUpdateWidget(covariant _CustomResolutionTile old) {
     super.didUpdateWidget(old);
-    // If the preset picker changed the resolution externally, clear custom
-    // fields so they don't show stale values.
-    if (old.currentWidth != widget.currentWidth ||
-        old.currentHeight != widget.currentHeight) {
-      final isPreset = _presets.contains((widget.currentWidth, widget.currentHeight));
-      if (isPreset) {
+    if (old.currentWidth != widget.currentWidth || old.currentHeight != widget.currentHeight) {
+      if (_isPreset(widget.currentWidth, widget.currentHeight)) {
         _wCtrl.clear();
         _hCtrl.clear();
       } else {
-        // Another source set a custom resolution — reflect it.
         _wCtrl.text = widget.currentWidth.toString();
         _hCtrl.text = widget.currentHeight.toString();
       }
@@ -4209,118 +4255,261 @@ class _CustomResolutionRowState extends State<_CustomResolutionRow> {
     final h = int.tryParse(_hCtrl.text.trim());
     if (w == null || h == null) return;
     if (w < 320 || w > 7680 || h < 240 || h > 4320) return;
-    // Only apply if actually different to avoid redundant writes.
     if (w == widget.currentWidth && h == widget.currentHeight) return;
     widget.onApply(w, h);
   }
 
   @override
   Widget build(BuildContext context) {
-    final isEs =
-        AppLocalizations.of(context).locale.languageCode == 'es';
-    final accent =
-        context.read<ThemeProvider>().colors.accentLight;
+    final isEs = AppLocalizations.of(context).locale.languageCode == 'es';
+    final accent = context.read<ThemeProvider>().colors.accentLight;
+    final hasCustom = _wCtrl.text.isNotEmpty && _hCtrl.text.isNotEmpty;
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      child: Row(
-        children: [
-          const SizedBox(width: 16),
-          Text(
-            isEs ? 'Resolución custom' : 'Custom resolution',
-            style: const TextStyle(color: Colors.white54, fontSize: 12),
+    return Focus(
+      onFocusChange: (f) => setState(() => _focused = f),
+      onKeyEvent: (_, event) {
+        if (event is! KeyDownEvent) return KeyEventResult.ignored;
+        final key = event.logicalKey;
+        if (key == LogicalKeyboardKey.enter ||
+            key == LogicalKeyboardKey.select ||
+            key == LogicalKeyboardKey.gameButtonA) {
+          _wFocus.requestFocus();
+          return KeyEventResult.handled;
+        }
+        return KeyEventResult.ignored;
+      },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        decoration: BoxDecoration(
+          color: _focused ? Colors.white.withValues(alpha: 0.05) : Colors.transparent,
+          border: Border.all(
+            color: _focused ? accent.withValues(alpha: 0.3) : Colors.transparent,
+            width: 1,
           ),
-          const SizedBox(width: 12),
-          _buildField(_wCtrl, _wFocus, isEs ? 'Ancho' : 'Width', accent),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 6),
-            child: Text(
-              '×',
-              style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.4),
-                fontSize: 16,
-                fontWeight: FontWeight.w300,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      isEs ? 'Resolucion personalizada' : 'Custom Resolution',
+                      style: const TextStyle(color: Colors.white, fontSize: 14),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      hasCustom
+                          ? (isEs ? 'Sobreescribe el preset seleccionado' : 'Overrides the selected preset')
+                          : (isEs ? 'Vacio = usa el preset de arriba' : 'Empty = uses preset above'),
+                      style: TextStyle(
+                        color: hasCustom ? accent.withValues(alpha: 0.8) : Colors.white38,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
+              _buildField(_wCtrl, _wFocus, isEs ? 'Ancho' : 'Width', accent),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 6),
+                child: Text(
+                  'x',
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.4),
+                    fontSize: 16,
+                    fontWeight: FontWeight.w300,
+                  ),
+                ),
+              ),
+              _buildField(_hCtrl, _hFocus, isEs ? 'Alto' : 'Height', accent),
+            ],
           ),
-          _buildField(_hCtrl, _hFocus, isEs ? 'Alto' : 'Height', accent),
-        ],
+        ),
       ),
     );
   }
 
-  Widget _buildField(
-    TextEditingController ctrl,
-    FocusNode focusNode,
-    String hint,
-    Color accent,
-  ) {
+  Widget _buildField(TextEditingController ctrl, FocusNode focusNode, String hint, Color accent) {
     return SizedBox(
-      width: 80,
-      height: 36,
-      child: Focus(
-        // Outer Focus for gamepad navigation — when focused via D-pad,
-        // pressing A/Enter transfers focus to the inner TextField.
-        onKeyEvent: (node, event) {
-          if (event is! KeyDownEvent) return KeyEventResult.ignored;
-          final key = event.logicalKey;
-          if (key == LogicalKeyboardKey.enter ||
-              key == LogicalKeyboardKey.select ||
-              key == LogicalKeyboardKey.gameButtonA) {
-            focusNode.requestFocus();
-            return KeyEventResult.handled;
-          }
-          return KeyEventResult.ignored;
-        },
-        child: Builder(
-          builder: (ctx) {
-            final outerFocused = Focus.of(ctx).hasFocus;
-            return AnimatedContainer(
-              duration: const Duration(milliseconds: 150),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(
-                  color: outerFocused
-                      ? accent.withValues(alpha: 0.6)
-                      : Colors.white.withValues(alpha: 0.1),
-                  width: outerFocused ? 1.5 : 1,
+      width: 72,
+      height: 34,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: focusNode.hasFocus ? accent.withValues(alpha: 0.6) : Colors.white.withValues(alpha: 0.1),
+            width: focusNode.hasFocus ? 1.5 : 1,
+          ),
+          color: focusNode.hasFocus ? Colors.white.withValues(alpha: 0.06) : Colors.white.withValues(alpha: 0.03),
+        ),
+        child: TextField(
+          controller: ctrl,
+          focusNode: focusNode,
+          keyboardType: TextInputType.number,
+          inputFormatters: [FilteringTextInputFormatter.digitsOnly, LengthLimitingTextInputFormatter(5)],
+          textAlign: TextAlign.center,
+          style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w500),
+          decoration: InputDecoration(
+            hintText: hint,
+            hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.2), fontSize: 12),
+            border: InputBorder.none,
+            contentPadding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+            isDense: true,
+          ),
+          onChanged: (_) { setState(() {}); _tryApply(); },
+          onSubmitted: (_) { _tryApply(); if (focusNode == _wFocus) _hFocus.requestFocus(); },
+        ),
+      ),
+    );
+  }
+}
+
+// -- Resolution Picker Dialog (scrollable + search) -----------------------
+
+class _ResolutionPickerDialog extends StatefulWidget {
+  final double dialogWidth;
+  final double maxHeight;
+  final Color surface;
+  final Color surfaceVariant;
+  final List<(String, int, int)> presets;
+  final void Function(int w, int h) onSelect;
+  final VoidCallback onDismiss;
+
+  const _ResolutionPickerDialog({
+    required this.dialogWidth,
+    required this.maxHeight,
+    required this.surface,
+    required this.surfaceVariant,
+    required this.presets,
+    required this.onSelect,
+    required this.onDismiss,
+  });
+
+  @override
+  State<_ResolutionPickerDialog> createState() => _ResolutionPickerDialogState();
+}
+
+class _ResolutionPickerDialogState extends State<_ResolutionPickerDialog> {
+  final _searchCtrl = TextEditingController();
+  String _query = '';
+
+  List<(String, int, int)> get _filtered {
+    if (_query.isEmpty) return widget.presets;
+    final q = _query.toLowerCase();
+    return widget.presets.where((p) {
+      final label = '${p.$1} ${p.$2}x${p.$3}'.toLowerCase();
+      return label.contains(q);
+    }).toList();
+  }
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isEs = AppLocalizations.of(context).locale.languageCode == 'es';
+    final filtered = _filtered;
+
+    return Focus(
+      skipTraversal: true,
+      onKeyEvent: (_, event) {
+        if (event is! KeyDownEvent) return KeyEventResult.ignored;
+        final key = event.logicalKey;
+        if (key == LogicalKeyboardKey.gameButtonB ||
+            key == LogicalKeyboardKey.escape ||
+            key == LogicalKeyboardKey.goBack) {
+          widget.onDismiss();
+          return KeyEventResult.handled;
+        }
+        return KeyEventResult.ignored;
+      },
+      child: Center(
+        child: Material(
+          color: Colors.transparent,
+          child: Container(
+            width: widget.dialogWidth,
+            margin: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+            constraints: BoxConstraints(maxHeight: widget.maxHeight),
+            decoration: BoxDecoration(
+              color: widget.surface,
+              borderRadius: BorderRadius.circular(22),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.45),
+                  blurRadius: 28,
+                  offset: const Offset(0, 10),
                 ),
-                color: outerFocused
-                    ? Colors.white.withValues(alpha: 0.06)
-                    : Colors.white.withValues(alpha: 0.03),
-              ),
-              child: TextField(
-                controller: ctrl,
-                focusNode: focusNode,
-                keyboardType: TextInputType.number,
-                inputFormatters: [
-                  FilteringTextInputFormatter.digitsOnly,
-                  LengthLimitingTextInputFormatter(5),
+              ],
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(22),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const SizedBox(height: 18),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: Text(
+                      isEs ? 'Resolucion' : 'Resolution',
+                      style: const TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w700),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: SizedBox(
+                      height: 38,
+                      child: TextField(
+                        controller: _searchCtrl,
+                        style: const TextStyle(color: Colors.white, fontSize: 13),
+                        decoration: InputDecoration(
+                          hintText: isEs ? 'Buscar resolucion...' : 'Search resolution...',
+                          hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.3), fontSize: 13),
+                          prefixIcon: Icon(Icons.search, color: Colors.white.withValues(alpha: 0.3), size: 18),
+                          filled: true,
+                          fillColor: Colors.white.withValues(alpha: 0.06),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
+                          isDense: true,
+                        ),
+                        onChanged: (v) => setState(() => _query = v.trim()),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Divider(height: 1, color: widget.surfaceVariant),
+                  Flexible(
+                    child: FocusTraversalGroup(
+                      policy: WidgetOrderTraversalPolicy(),
+                      child: ListView.builder(
+                        shrinkWrap: true,
+                        padding: const EdgeInsets.only(bottom: 8),
+                        itemCount: filtered.length,
+                        itemBuilder: (ctx, i) {
+                          final p = filtered[i];
+                          return _FocusablePickerOption(
+                            label: '${p.$1}  (${p.$2}x${p.$3})',
+                            autofocus: i == 0,
+                            enabled: true,
+                            onTap: () => widget.onSelect(p.$2, p.$3),
+                          );
+                        },
+                      ),
+                    ),
+                  ),
                 ],
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w500,
-                ),
-                decoration: InputDecoration(
-                  hintText: hint,
-                  hintStyle: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.2),
-                    fontSize: 12,
-                  ),
-                  border: InputBorder.none,
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 8,
-                  ),
-                  isDense: true,
-                ),
-                onChanged: (_) => _tryApply(),
-                onSubmitted: (_) => _tryApply(),
               ),
-            );
-          },
+            ),
+          ),
         ),
       ),
     );

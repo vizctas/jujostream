@@ -647,7 +647,9 @@ class _FocusModeScreenState extends State<FocusModeScreen>
         physics: const BouncingScrollPhysics(),
         itemBuilder: (context, index) {
           final computer = computers[index];
-          final bgPath = _bgPaths[computer.uuid];
+          // Only show custom background when server is paired — avoids
+          // flicker when server revokes pairing and poll toggles state.
+          final bgPath = computer.isPaired ? _bgPaths[computer.uuid] : null;
           final layout = tp.ambienceLayout;
           if (layout == 'circular') {
             return _FocusServerCircle(

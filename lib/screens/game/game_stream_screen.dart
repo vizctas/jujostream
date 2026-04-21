@@ -1548,11 +1548,12 @@ class _GameStreamScreenState extends State<GameStreamScreen>
     }
 
     // ── Cursor visibility ───────────────────────────────────────────────
-    // Hide OS cursor ONLY when gamepad-mouse emulation is active.
-    // Physical mouse / touch → OS cursor stays visible for server sync.
-    final cursorStyle = _gamepadMouseActive
-        ? SystemMouseCursors.none
-        : SystemMouseCursors.basic;
+    // Always hide the OS cursor during streaming. The server renders its
+    // own cursor inside the video feed — showing the Flutter OS cursor on
+    // top creates a visible "dual cursor" artifact. Mouse movement is
+    // still forwarded to the server via onHover / native bridge; only the
+    // local OS pointer graphic is suppressed.
+    const cursorStyle = SystemMouseCursors.none;
 
     // ── MouseRegion: physical mouse hover → absolute position ───────────
     // Only send absolute mouse position when in directTouch mode (point &

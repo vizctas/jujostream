@@ -150,9 +150,10 @@ fi
 # Validate keystore file exists (read storeFile from key.properties)
 STORE_FILE=$(grep -E '^\s*storeFile\s*=' "$KEY_PROPS" | sed 's/.*=\s*//' | tr -d '[:space:]')
 if [[ -n "$STORE_FILE" ]]; then
-    # Resolve relative path from android/ directory
+    # Resolve relative path from android/app/ directory (matches Gradle's
+    # file() resolution context in app/build.gradle.kts)
     if [[ "$STORE_FILE" != /* ]] && [[ "$STORE_FILE" != [A-Z]:* ]]; then
-        STORE_FILE_ABS="$SCRIPT_DIR/android/$STORE_FILE"
+        STORE_FILE_ABS="$SCRIPT_DIR/android/app/$STORE_FILE"
     else
         STORE_FILE_ABS="$STORE_FILE"
     fi

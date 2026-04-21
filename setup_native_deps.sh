@@ -152,11 +152,17 @@ else
             make -j"$CPU_COUNT"
             cp libssl.a "$OPENSSL_DIR/$ABI/"
             cp libcrypto.a "$OPENSSL_DIR/$ABI/"
+
+            # Copy generated headers BEFORE make clean destroys them.
+            # OpenSSL 3.x generates .h from .h.in templates during make
+            # (opensslv.h, configuration.h, etc.). These are essential.
+            if [ ! -f "$OPENSSL_DIR/include/openssl/opensslv.h" ]; then
+                cp -r include/openssl "$OPENSSL_DIR/include/"
+                echo "  Headers copied from $ABI build"
+            fi
+
             make clean
         done
-
-        # Copy headers
-        cp -r include/openssl "$OPENSSL_DIR/include/"
 
         cd "$TMP_WORK_DIR"
         rm -rf "openssl-${OPENSSL_VERSION}" "openssl-${OPENSSL_VERSION}.tar.gz"

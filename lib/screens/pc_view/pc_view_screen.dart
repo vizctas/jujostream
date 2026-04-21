@@ -645,7 +645,9 @@ class _PcViewScreenState extends State<PcViewScreen>
             onNav: (dir) => _handleGridNav(index, dir, crossAxisCount),
             child: _ComputerCard(
               computer: provider.computers[index],
-              customBgPath: _computerBgPaths[provider.computers[index].uuid],
+              customBgPath: provider.computers[index].isPaired
+                  ? _computerBgPaths[provider.computers[index].uuid]
+                  : null,
               index: index,
               onTap: () => _onComputerTapped(provider.computers[index]),
               onLongPress: () =>
