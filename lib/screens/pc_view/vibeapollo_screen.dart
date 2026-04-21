@@ -226,10 +226,10 @@ class _VibeApolloScreenState extends State<VibeApolloScreen> {
     final addr = widget.computer.activeAddress.isNotEmpty
         ? widget.computer.activeAddress
         : widget.computer.localAddress;
-    // derive config port from the external port (+1); default 47990
+    // derive web UI port from the external port (+5); default 47994
     final cfgPort = widget.computer.externalPort > 0
-        ? widget.computer.externalPort + 1
-        : 47990;
+        ? widget.computer.externalPort + 5
+        : 47994;
     return 'https://$addr:$cfgPort';
   }
 

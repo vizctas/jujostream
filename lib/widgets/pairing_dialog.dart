@@ -86,83 +86,79 @@ class _PairingDialogState extends State<PairingDialog> {
       },
       child: AlertDialog(
         backgroundColor: tp.surface,
-        title: const Text('Pairing Required',
-            style: TextStyle(color: Colors.white)),
+        title: Text('Pairing Required',
+            style: TextStyle(color: tp.colors.isLight ? Colors.black87 : Colors.white)),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
+            Text(
               'Enter this PIN in Sunshine/Apollo to authorize JUJO:',
-              style: TextStyle(color: Colors.white70),
+              style: TextStyle(color: tp.colors.isLight ? Colors.black54 : Colors.white70),
             ),
             const SizedBox(height: 12),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
-              decoration: BoxDecoration(
-                color: const Color(0xFF0F3460).withValues(alpha: 0.4),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: const Color(0xFF0F3460)),
-              ),
-              child: Stack(
-                alignment: Alignment.center,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: widget.pin.split('').map((digit) {
-                      return Container(
-                        margin: const EdgeInsets.symmetric(horizontal: 6),
-                        width: 46,
-                        height: 56,
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF0F3460),
-                          borderRadius: BorderRadius.circular(8),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.2),
-                              blurRadius: 4,
-                              offset: const Offset(0, 2),
-                            ),
-                          ],
-                        ),
-                        alignment: Alignment.center,
-                        child: Text(
-                          digit,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 32,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      );
-                    }).toList(),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: widget.pin.split('').map((digit) {
+                return Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 6),
+                  width: 46,
+                  height: 56,
+                  decoration: BoxDecoration(
+                    color: tp.surfaceVariant,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: tp.accent.withValues(alpha: 0.4),
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.15),
+                        blurRadius: 4,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
                   ),
-                  Positioned(
-                    right: 0,
-                    child: IconButton(
-                      icon: const Icon(Icons.copy_rounded, color: Colors.white70, size: 22),
-                      onPressed: () {
-                        Clipboard.setData(ClipboardData(text: widget.pin));
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('PIN copied to clipboard'),
-                              duration: Duration(seconds: 2),
-                              behavior: SnackBarBehavior.floating,
-                            ),
-                          );
-                        }
-                      },
-                      tooltip: 'Copy PIN',
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(),
+                  alignment: Alignment.center,
+                  child: Text(
+                    digit,
+                    style: TextStyle(
+                      color: tp.colors.isLight ? Colors.black87 : Colors.white,
+                      fontSize: 32,
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
-                ],
-              ),
+                );
+              }).toList(),
             ),
             const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () {
+                  Clipboard.setData(ClipboardData(text: widget.pin));
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('PIN copied to clipboard'),
+                        duration: Duration(seconds: 2),
+                        behavior: SnackBarBehavior.floating,
+                      ),
+                    );
+                  }
+                },
+                icon: const Icon(Icons.copy_rounded, size: 20),
+                label: const Text('Copy PIN'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: tp.colors.isLight ? Colors.black87 : Colors.white,
+                  side: BorderSide(color: tp.colors.isLight ? Colors.black26 : Colors.white24),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
             SizedBox(
               width: double.infinity,
               child: OutlinedButton.icon(
@@ -171,8 +167,8 @@ class _PairingDialogState extends State<PairingDialog> {
                       ? widget.computer.activeAddress
                       : widget.computer.localAddress;
                   final port = widget.computer.externalPort > 0 
-                      ? widget.computer.externalPort + 1 
-                      : 47990;
+                      ? widget.computer.externalPort + 5 
+                      : 47994;
                   final url = Uri.parse('https://$addr:$port');
                   if (await canLaunchUrl(url)) {
                     await launchUrl(url, mode: LaunchMode.externalApplication);
@@ -181,8 +177,8 @@ class _PairingDialogState extends State<PairingDialog> {
                 icon: const Icon(Icons.open_in_browser_rounded, size: 20),
                 label: const Text('Open Server Dashboard'),
                 style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.white,
-                  side: const BorderSide(color: Colors.white24),
+                  foregroundColor: tp.colors.isLight ? Colors.black87 : Colors.white,
+                  side: BorderSide(color: tp.colors.isLight ? Colors.black26 : Colors.white24),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(8),
                   ),
