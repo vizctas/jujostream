@@ -314,7 +314,11 @@ class _PairingDialogState extends State<PairingDialog> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _pair());
+    // Delay pairing by the total duration of the flip animation plus a small buffer
+    // Initial delay + (3 staggers * 250) + flip animation (500)
+    Future.delayed(const Duration(milliseconds: 2500), () {
+      if (mounted) _pair();
+    });
   }
 
   void _abort() {
