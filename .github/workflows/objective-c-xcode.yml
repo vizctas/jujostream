@@ -11,8 +11,10 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.41.4'
+      - run: flutter pub get
+      - run: flutter config --no-enable-swift-package-manager
+      - run: cd macos && pod install --repo-update
       - run: ./setup_macos_native_deps.sh
-      - run: python3 setup_macos_xcode.py
       - run: flutter build macos --release
       - uses: actions/upload-artifact@v4
         with:
