@@ -466,7 +466,7 @@ class _PairingDialogState extends State<PairingDialog> {
                       ? widget.computer.activeAddress
                       : widget.computer.localAddress;
                   final url = Uri.parse('https://$addr:$_webUiPort');
-                  launchUrl(url, mode: LaunchMode.externalApplication);
+                  launchUrl(url, mode: LaunchMode.inAppBrowserView);
                 },
                 icon: const Icon(Icons.open_in_browser_rounded, size: 20),
                 label: const Text('Open Server Dashboard'),
