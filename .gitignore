@@ -75,3 +75,4 @@ build_releases.sh
 
 # Local dev scripts (not tracked)
 dev_tools.ps1
+devtools_options.yaml
