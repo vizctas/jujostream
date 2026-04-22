@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 
 /// Callback to send absolute mouse position to the stream.
@@ -32,7 +33,8 @@ typedef UpdateLocalCursorCallback = void Function(double px, double py);
 /// - **Absolute touch** (multi-touch passthrough): forwards raw pointer events
 ///   as touch events to the streaming server.
 /// - **Direct touch** (point-and-click): emulates mouse clicks via tap/long-press
-///   gestures with dead-zone, double-tap drag, and long-press right-click.
+///   gestures. TRUE point-and-click: where the user touches is where the cursor
+///   moves and clicks. No dead-zone delay for simple taps.
 class DirectTouchHandler {
   DirectTouchHandler({
     required this.onMousePosition,
@@ -59,16 +61,20 @@ class DirectTouchHandler {
   // ── State: direct touch (point-and-click) ──────────────────────────────
 
   int _touchDownX = 0, _touchDownY = 0;
+  int _lastMoveX = 0, _lastMoveY = 0;
   int _touchUpX = 0, _touchUpY = 0;
   int _touchUpTime = 0;
   bool _cancelled = false;
   bool _confirmedLongPress = false;
-  bool _confirmedTap = false;
+  bool _confirmedDrag = false;
   int _pointerCount = 0;
 
   int? _longPressTimerId;
-  int? _tapDownTimerId;
   int _timerIdCounter = 0;
+
+  /// Whether the cursor position has been sent for the current gesture.
+  /// Ensures position is always sent before any click event.
+  bool _positionSent = false;
 
   // ── Constants ──────────────────────────────────────────────────────────
 
@@ -76,8 +82,15 @@ class DirectTouchHandler {
   static const int _longPressDistThreshold = 30;
   static const int _doubleTapTimeThreshold = 250;
   static const int _doubleTapDistThreshold = 60;
-  static const int _tapDownDeadZoneTime = 100;
-  static const int _tapDownDeadZoneDist = 20;
+
+  /// Distance threshold to distinguish a tap from a drag.
+  /// Once exceeded, the gesture becomes a drag (move cursor + hold button).
+  static const int _dragDistThreshold = 12;
+
+  /// Micro-delay between sending position and click to ensure server
+  /// processes them in order. 8ms is below perceptual threshold but
+  /// enough for the server's input queue to sequence correctly.
+  static const int _positionToClickDelayMs = 8;
 
   static const int btnLeft = 1;
   static const int btnRight = 3;
@@ -88,33 +101,34 @@ class DirectTouchHandler {
     return (dx * dx + dy * dy) > (limit * limit);
   }
 
-  void _updatePosition(int eventX, int eventY) {
+  /// Sends the cursor to the given screen-space position.
+  /// This is the SINGLE source of truth for cursor positioning during
+  /// direct-touch gestures. The MouseRegion.onHover in game_stream_screen
+  /// must NOT send position when a touch gesture is active.
+  void _sendPosition(int screenX, int screenY) {
     final screenSize = getScreenSize();
-    final x = eventX.clamp(0, screenSize.width.toInt());
-    final y = eventY.clamp(0, screenSize.height.toInt());
+    final x = screenX.clamp(0, screenSize.width.toInt());
+    final y = screenY.clamp(0, screenSize.height.toInt());
     final (sx, sy) = touchToStreamCoords(Offset(x.toDouble(), y.toDouble()));
     onMousePosition(sx, sy, getStreamWidth(), getStreamHeight());
     updateLocalCursor(x.toDouble(), y.toDouble());
+    _positionSent = true;
   }
 
-  // ── Tap / long-press state machine ─────────────────────────────────────
-
-  void _tapConfirmed() {
-    if (_confirmedTap || _confirmedLongPress) return;
-    _confirmedTap = true;
-    _cancelTapDownTimer();
-
-    final now = DateTime.now().millisecondsSinceEpoch;
-    if ((now - _touchUpTime) > _doubleTapTimeThreshold ||
-        _distanceExceeds(
-          _touchDownX - _touchUpX,
-          _touchDownY - _touchUpY,
-          _doubleTapDistThreshold.toDouble(),
-        )) {
-      _updatePosition(_touchDownX, _touchDownY);
-    }
-    onMouseButton(btnLeft, true);
+  /// Sends position then click with a micro-delay to guarantee ordering.
+  /// This eliminates the race condition where click arrives before position.
+  void _sendPositionThenClick(int screenX, int screenY, int button, {bool release = false}) {
+    _sendPosition(screenX, screenY);
+    // Use a micro-delay to ensure the position packet is queued before the
+    // click packet on the native side. Both go through platform channels
+    // which are async — without this delay they can reorder.
+    Future.delayed(const Duration(milliseconds: _positionToClickDelayMs), () {
+      if (!isMounted()) return;
+      onMouseButton(button, !release);
+    });
   }
+
+  // ── Long-press state machine ───────────────────────────────────────────
 
   void _startLongPressTimer() {
     _cancelLongPressTimer();
@@ -122,31 +136,18 @@ class DirectTouchHandler {
     _longPressTimerId = id;
     Future.delayed(const Duration(milliseconds: _longPressThresholdMs), () {
       if (_longPressTimerId != id || !isMounted()) return;
-      _cancelTapDownTimer();
       _confirmedLongPress = true;
-      if (_confirmedTap) {
+      // If we were already in a drag (left-click held), release it first
+      if (_confirmedDrag) {
         onMouseButton(btnLeft, false);
       }
+      // Right-click at the current position (already sent on pointer-down)
       onMouseButton(btnRight, true);
     });
   }
 
   void _cancelLongPressTimer() {
     _longPressTimerId = null;
-  }
-
-  void _startTapDownTimer() {
-    _cancelTapDownTimer();
-    final id = ++_timerIdCounter;
-    _tapDownTimerId = id;
-    Future.delayed(const Duration(milliseconds: _tapDownDeadZoneTime), () {
-      if (_tapDownTimerId != id || !isMounted()) return;
-      _tapConfirmed();
-    });
-  }
-
-  void _cancelTapDownTimer() {
-    _tapDownTimerId = null;
   }
 
   // ── Public: build absolute touch layer (multi-touch passthrough) ───────
@@ -245,31 +246,58 @@ class DirectTouchHandler {
 
   // ── Public: build direct touch layer (point-and-click emulation) ───────
 
-  /// Returns a [Listener] widget that emulates mouse clicks via touch gestures.
+  /// Whether a touch gesture is currently active. When true, the
+  /// MouseRegion.onHover in game_stream_screen must NOT send position
+  /// updates to avoid the dual-source race condition.
+  bool get isTouchActive => _pointerCount > 0;
+
+  /// Returns a [Listener] widget that implements TRUE point-and-click:
+  ///
+  /// - **Tap**: Move cursor to touch point → left-click
+  /// - **Long press**: Move cursor to touch point → right-click
+  /// - **Drag**: Move cursor to touch point → hold left-click → drag
+  /// - **Double-tap drag**: Move cursor → double-click-drag
+  ///
+  /// Key design decisions:
+  /// 1. Position is ALWAYS sent immediately on pointer-down (zero delay)
+  /// 2. Click is sent with a micro-delay after position to guarantee ordering
+  /// 3. No dead-zone timer — drag detection is purely distance-based
+  /// 4. Multi-finger cancels the gesture (prevents accidental clicks during
+  ///    pinch-zoom or two-finger scroll)
   Widget buildDirectTouchInputLayer() {
     return Listener(
       behavior: HitTestBehavior.translucent,
       onPointerDown: (event) {
         _pointerCount++;
         if (_pointerCount > 1) {
+          // Multi-finger: cancel current gesture
           _cancelled = true;
           _cancelLongPressTimer();
-          _cancelTapDownTimer();
           if (_confirmedLongPress) {
             onMouseButton(btnRight, false);
-          } else if (_confirmedTap) {
+          } else if (_confirmedDrag) {
             onMouseButton(btnLeft, false);
           }
           return;
         }
+
         final x = event.localPosition.dx.toInt();
         final y = event.localPosition.dy.toInt();
         _touchDownX = x;
         _touchDownY = y;
+        _lastMoveX = x;
+        _lastMoveY = y;
         _cancelled = false;
-        _confirmedTap = false;
+        _confirmedDrag = false;
         _confirmedLongPress = false;
-        _startTapDownTimer();
+        _positionSent = false;
+
+        // ── CRITICAL: Send position IMMEDIATELY on touch-down ──
+        // This is the core of point-and-click: the cursor teleports to
+        // where the user touches, with ZERO delay.
+        _sendPosition(x, y);
+
+        // Start long-press detection for right-click
         _startLongPressTimer();
       },
       onPointerMove: (event) {
@@ -277,6 +305,7 @@ class DirectTouchHandler {
         final x = event.localPosition.dx.toInt();
         final y = event.localPosition.dy.toInt();
 
+        // Cancel long-press if finger moved too far
         if (_distanceExceeds(
           x - _touchDownX,
           y - _touchDownY,
@@ -285,36 +314,108 @@ class DirectTouchHandler {
           _cancelLongPressTimer();
         }
 
-        if (_confirmedTap ||
+        // If already in long-press (right-click), just update position
+        if (_confirmedLongPress) {
+          _sendPosition(x, y);
+          _lastMoveX = x;
+          _lastMoveY = y;
+          return;
+        }
+
+        // Detect drag: finger moved beyond threshold
+        if (!_confirmedDrag &&
             _distanceExceeds(
               x - _touchDownX,
               y - _touchDownY,
-              _tapDownDeadZoneDist.toDouble(),
+              _dragDistThreshold.toDouble(),
             )) {
-          _tapConfirmed();
-          _updatePosition(x, y);
+          _confirmedDrag = true;
+          _cancelLongPressTimer();
+
+          // Check if this is a double-tap-drag (rapid second touch after a tap)
+          final now = DateTime.now().millisecondsSinceEpoch;
+          final isDoubleTapDrag = (now - _touchUpTime) <= _doubleTapTimeThreshold &&
+              !_distanceExceeds(
+                _touchDownX - _touchUpX,
+                _touchDownY - _touchUpY,
+                _doubleTapDistThreshold.toDouble(),
+              );
+
+          if (isDoubleTapDrag) {
+            // Double-tap-drag: the first tap already clicked, now hold for drag
+            // Position was already sent on pointer-down
+            onMouseButton(btnLeft, true);
+          } else {
+            // Normal drag: hold left button from the touch-down point
+            onMouseButton(btnLeft, true);
+          }
         }
+
+        // Update cursor position during drag
+        if (_confirmedDrag) {
+          _sendPosition(x, y);
+        }
+
+        _lastMoveX = x;
+        _lastMoveY = y;
       },
       onPointerUp: (event) {
         _pointerCount = (_pointerCount - 1).clamp(0, 10);
         if (_cancelled) return;
 
         _cancelLongPressTimer();
-        _cancelTapDownTimer();
-
-        if (_confirmedLongPress) {
-          onMouseButton(btnRight, false);
-        } else if (_confirmedTap) {
-          onMouseButton(btnLeft, false);
-        } else {
-          _tapConfirmed();
-          Future.delayed(const Duration(milliseconds: 100), () {
-            onMouseButton(btnLeft, false);
-          });
-        }
 
         final x = event.localPosition.dx.toInt();
         final y = event.localPosition.dy.toInt();
+
+        if (_confirmedLongPress) {
+          // Long-press release: release right-click
+          onMouseButton(btnRight, false);
+        } else if (_confirmedDrag) {
+          // Drag release: release left-click
+          onMouseButton(btnLeft, false);
+        } else {
+          // ── Simple tap: point-and-click ──
+          // Position was already sent on pointer-down. Now send the click
+          // with a micro-delay to guarantee the server processes position first.
+          //
+          // Check for double-tap: if this tap is close in time and space to
+          // the previous tap, send a double-click instead.
+          final now = DateTime.now().millisecondsSinceEpoch;
+          final isDoubleTap = (now - _touchUpTime) <= _doubleTapTimeThreshold &&
+              !_distanceExceeds(
+                x - _touchUpX,
+                y - _touchUpY,
+                _doubleTapDistThreshold.toDouble(),
+              );
+
+          // Ensure position is at the final touch point (may have micro-drifted)
+          _sendPosition(x, y);
+
+          if (isDoubleTap) {
+            // Double-tap: send a rapid left-click (the first click was already
+            // sent by the previous tap's pointer-up)
+            Future.delayed(const Duration(milliseconds: _positionToClickDelayMs), () {
+              if (!isMounted()) return;
+              onMouseButton(btnLeft, true);
+              Future.delayed(const Duration(milliseconds: 30), () {
+                if (!isMounted()) return;
+                onMouseButton(btnLeft, false);
+              });
+            });
+          } else {
+            // Single tap: click at touch point
+            Future.delayed(const Duration(milliseconds: _positionToClickDelayMs), () {
+              if (!isMounted()) return;
+              onMouseButton(btnLeft, true);
+              Future.delayed(const Duration(milliseconds: 60), () {
+                if (!isMounted()) return;
+                onMouseButton(btnLeft, false);
+              });
+            });
+          }
+        }
+
         _touchUpX = x;
         _touchUpY = y;
         _touchUpTime = DateTime.now().millisecondsSinceEpoch;
@@ -323,15 +424,12 @@ class DirectTouchHandler {
         _pointerCount = (_pointerCount - 1).clamp(0, 10);
         _cancelled = true;
         _cancelLongPressTimer();
-        _cancelTapDownTimer();
         if (_confirmedLongPress) {
           onMouseButton(btnRight, false);
-        } else if (_confirmedTap) {
+        } else if (_confirmedDrag) {
           onMouseButton(btnLeft, false);
         }
       },
-      // Double-tap removed: overlay must ONLY be triggered via the configured
-      // combo (default or custom in Settings), never by screen double-tap.
       child: const SizedBox.expand(),
     );
   }

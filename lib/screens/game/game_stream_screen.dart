@@ -1520,13 +1520,15 @@ class _GameStreamScreenState extends State<GameStreamScreen>
     //
     // Input mode priority:
     //   1. Gamepad mouse emulation active → trackpad (relative deltas via stick)
-    //   2. directTouch mode:
-    //      a. multiTouchGestures ON → absolute multi-touch passthrough
-    //      b. multiTouchGestures OFF → point-and-click emulation
+    //   2. directTouch mode → TRUE point-and-click emulation (mouse position + click)
+    //      Sub-mode: multiTouchGestures ON → absolute multi-touch passthrough
+    //                (only when explicitly enabled; default is point-and-click)
     //   3. trackpad / mouse mode → relative trackpad handler
     //
-    // The `multiTouchGestures` flag is a SUB-BEHAVIOR of directTouch, not a
-    // top-level mode override. This ensures touch mode selection always works.
+    // IMPORTANT: directTouch mode ALWAYS uses point-and-click (sendMousePosition
+    // + sendMouseButton) as the primary behavior. multiTouchGestures is an
+    // opt-in sub-mode that switches to raw touch passthrough (sendTouchEvent)
+    // for apps that natively support touch input.
     Widget child;
     if (_gamepadMouseActive) {
       // Gamepad stick → mouse: use trackpad handler for relative deltas
@@ -1536,8 +1538,12 @@ class _GameStreamScreenState extends State<GameStreamScreen>
       );
     } else if (_touchMode == MouseMode.directTouch) {
       if (_config.multiTouchGestures) {
+        // Explicit multi-touch passthrough: raw touch events for apps that
+        // natively support touch input (e.g., Android games on the server).
         child = _directTouchHandler.buildAbsoluteTouchInputLayer();
       } else {
+        // TRUE point-and-click: touch position → cursor teleport → click.
+        // This is the default and expected behavior for "Point and Click" mode.
         child = _directTouchHandler.buildDirectTouchInputLayer();
       }
     } else {
@@ -1556,10 +1562,16 @@ class _GameStreamScreenState extends State<GameStreamScreen>
     const cursorStyle = SystemMouseCursors.none;
 
     // ── MouseRegion: physical mouse hover → absolute position ───────────
-    // Only send absolute mouse position when in directTouch mode (point &
-    // click). In trackpad/mouse mode the child handler already sends
-    // relative deltas — sending absolute position simultaneously causes
-    // dual-cursor desync on the server.
+    // Only send absolute mouse position when in directTouch mode AND no
+    // touch gesture is currently active. This prevents the dual-source
+    // race condition where both MouseRegion.onHover and DirectTouchHandler
+    // send competing position updates simultaneously.
+    //
+    // On mobile: onHover fires during touch-move, so we MUST gate it
+    // behind isTouchActive to prevent fighting with the Listener.
+    //
+    // On desktop: onHover fires from physical mouse movement (no touch),
+    // so it correctly drives the cursor when no touch is happening.
     //
     // When gamepad-mouse emulation is active the native GamepadHandler
     // drives the cursor via nativeSendMouseMove — Flutter must NOT also
@@ -1569,8 +1581,11 @@ class _GameStreamScreenState extends State<GameStreamScreen>
       onHover: (event) {
         if (!_isConnected) return;
         // Only forward hover as absolute position in directTouch mode
-        // (point-and-click). All other modes use relative deltas.
-        if (_touchMode == MouseMode.directTouch && !_gamepadMouseActive) {
+        // (point-and-click) when NO touch gesture is active.
+        // This eliminates the race between MouseRegion and DirectTouchHandler.
+        if (_touchMode == MouseMode.directTouch &&
+            !_gamepadMouseActive &&
+            !_directTouchHandler.isTouchActive) {
           final coords = _touchToStreamCoords(event.localPosition);
           StreamingPlatformChannel.sendMousePosition(
             coords.$1,
@@ -1594,7 +1609,22 @@ class _GameStreamScreenState extends State<GameStreamScreen>
 
     double videoLeft = 0, videoTop = 0, videoW = sw, videoH = sh;
 
-    switch (_videoBoxFit) {
+    // ── Determine the effective BoxFit for the active render path ────────
+    //
+    // The Texture path uses FittedBox with _videoBoxFit (contain/cover/fill
+    // based on user's scaleMode setting).
+    //
+    // The DirectSubmit path uses Center → AspectRatio → AndroidView, which
+    // is structurally equivalent to BoxFit.contain regardless of the user's
+    // scaleMode setting. The AspectRatio widget constrains the child to the
+    // stream's aspect ratio, and Center places it in the middle — producing
+    // letterbox/pillarbox bars identical to BoxFit.contain.
+    //
+    // Using the wrong BoxFit for coordinate mapping causes touch positions
+    // to be offset by the difference in letterboxing between the two layouts.
+    final effectiveFit = _usingDirectSubmit ? BoxFit.contain : _videoBoxFit;
+
+    switch (effectiveFit) {
       case BoxFit.contain:
         final scaleX = sw / vw;
         final scaleY = sh / vh;
