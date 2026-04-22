@@ -11,7 +11,6 @@ import android.util.Log
 
 class AudioRenderer(
     private val enableAudioFx: Boolean = false,
-    // Skip audio effects on weak/low-RAM devices to save CPU
     private val isWeakDevice: Boolean = false
 ) {
     companion object {

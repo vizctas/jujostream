@@ -32,22 +32,8 @@ class MainActivity : FlutterActivity() {
         private const val NOTIFICATION_PERMISSION_REQUEST_CODE = 1001
     }
 
-    // Pending MethodChannel result for requestNotificationPermission.
-    // Set before launching the system dialog, resolved in onRequestPermissionsResult.
     private var pendingPermissionResult: MethodChannel.Result? = null
-
-    // ── Pairing state ────────────────────────────────────────────────────────
-    // True while pair() is in-flight. The PairingForegroundService holds the
-    // actual WifiLock + WakeLock — they survive Activity pause/stop because
-    // they live in the Service, not the Activity.
     private var isPairingActive = false
-
-    /**
-     * Requests POST_NOTIFICATIONS permission on Android 13+ (API 33).
-     * Without this, the FGS notification is invisible — the service still
-     * runs but the user can't see the PIN in the notification shade.
-     * Non-blocking: if already granted or pre-API 33, returns immediately.
-     */
     private fun ensureNotificationPermission() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
@@ -62,12 +48,6 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    /**
-     * Starts the Foreground Service to run the ENTIRE 5-phase pairing
-     * handshake natively. All phases execute in a Java thread that survives
-     * Dart VM pause — critical for same-device pairing where the user
-     * backgrounds JUJO to enter the PIN in Chrome.
-     */
     private fun startFullNativePairing(
         baseUrl: String,
         httpsPort: Int,
@@ -121,9 +101,6 @@ class MainActivity : FlutterActivity() {
         } catch (_: Exception) {}
     }
 
-    /**
-     * Returns the full pairing result as a Map, or null if still in progress.
-     */
     private fun pollPairingResult(): Map<String, Any?>? {
         val result = PairingForegroundService.pairingResult.get() ?: return null
         return mapOf(
@@ -133,8 +110,6 @@ class MainActivity : FlutterActivity() {
         )
     }
 
-    // Updates the PiP parameters so Android knows when auto-enter is allowed.
-    // Must be called whenever streaming/pairing state changes.
     private fun refreshPipParams() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
         val active = StreamingPlugin.isStreamingActive
@@ -209,7 +184,6 @@ class MainActivity : FlutterActivity() {
                         ) {
                             result.success("granted")
                         } else {
-                            // Store the result to resolve in onRequestPermissionsResult
                             pendingPermissionResult = result
                             ActivityCompat.requestPermissions(
                                 this,
@@ -226,7 +200,6 @@ class MainActivity : FlutterActivity() {
                             startActivity(intent)
                             result.success(true)
                         } catch (e: Exception) {
-                            // Fallback: open general app settings
                             try {
                                 val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
                                     data = Uri.fromParts("package", packageName, null)
@@ -245,9 +218,6 @@ class MainActivity : FlutterActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
-        // Request notification permission early so the FGS notification is
-        // visible when pairing starts. On Android 12 and below this is a no-op.
         ensureNotificationPermission()
 
         window.decorView.post { killFocusHighlightRecursive(window.decorView) }

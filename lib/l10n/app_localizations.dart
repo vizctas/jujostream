@@ -440,7 +440,6 @@ class AppLocalizations {
       'es':
           'Todavia no hay generos clasificados. Lanza una actualizacion de metadata para poblar los filtros.',
     },
-    // ── Smart Filter genre labels ──────────────────────────────────────
     'genreAction': {'en': 'Action', 'es': 'Acción'},
     'genreAdventure': {'en': 'Adventure', 'es': 'Aventura'},
     'genreFighting': {'en': 'Fighting', 'es': 'Pelea'},
@@ -455,7 +454,6 @@ class AppLocalizations {
     'genrePuzzle': {'en': 'Puzzle', 'es': 'Puzzle'},
     'genreHorror': {'en': 'Horror', 'es': 'Horror'},
     'genreStealth': {'en': 'Stealth', 'es': 'Stealth'},
-    // ── Filter labels ──────────────────────────────────────────────────
     'mostPlayed': {'en': 'Most played', 'es': 'Más jugados'},
     'collectionFallback': {'en': 'Collection', 'es': 'Colección'},
     'noDescription': {
@@ -1082,7 +1080,6 @@ class AppLocalizations {
   String get enableMetadataHint => _s('enableMetadataHint');
   String get smartFiltersExplain => _s('smartFiltersExplain');
   String get noGenresYet => _s('noGenresYet');
-  // ── Smart Filter genre getters ─────────────────────────────────────
   String get genreAction => _s('genreAction');
   String get genreAdventure => _s('genreAdventure');
   String get genreFighting => _s('genreFighting');

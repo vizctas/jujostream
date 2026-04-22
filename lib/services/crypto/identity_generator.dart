@@ -7,7 +7,6 @@ import 'package:pointycastle/export.dart';
 // Minimal ASN.1 DER encoder for self-signed X.509 certs (RSA-2048, SHA256).
 // Matches Moonlight's identity format: CN=NVIDIA GameStream Client, 20yr validity.
 
-// -- OIDs --
 final _oidSha256Rsa = Uint8List.fromList([
   0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x0b,
 ]);
@@ -16,7 +15,6 @@ final _oidRsa = Uint8List.fromList([
 ]);
 final _oidCn = Uint8List.fromList([0x06, 0x03, 0x55, 0x04, 0x03]);
 
-// -- DER primitives --
 Uint8List _derLen(int n) {
   if (n < 0x80) return Uint8List.fromList([n]);
   if (n < 0x100) return Uint8List.fromList([0x81, n]);
@@ -91,8 +89,6 @@ Uint8List _bigIntBytes(BigInt v) {
   }
   return out;
 }
-
-// -- Key & Cert generation --
 
 class GeneratedIdentity {
   final String uniqueId;

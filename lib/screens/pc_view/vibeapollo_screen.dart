@@ -868,7 +868,6 @@ class _VibeApolloScreenState extends State<VibeApolloScreen> {
   }
 }
 
-// ─── Action Card ──────────────────────────────────────────────────────────────
 
 class _ActionCard extends StatefulWidget {
   final _ApiAction action;

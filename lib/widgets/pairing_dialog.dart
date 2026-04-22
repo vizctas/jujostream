@@ -13,11 +13,8 @@ import '../providers/computer_provider.dart';
 import '../providers/theme_provider.dart';
 import '../services/crypto/client_identity.dart';
 
-// ─── Notification Permission Helper ───────────────────────────────────────────
-//
-// Uses the existing pairing_locks MethodChannel to check/request the
-// POST_NOTIFICATIONS permission on Android 13+.
-
+/// Uses the existing pairing_locks MethodChannel to check/request the
+/// POST_NOTIFICATIONS permission on Android 13+.
 const MethodChannel _pairingLocksChannel =
     MethodChannel('com.jujostream/pairing_locks');
 
@@ -56,21 +53,18 @@ Future<void> _openNotificationSettings() async {
   }
 }
 
-// ─── Flip-Clock Digit ─────────────────────────────────────────────────────────
-//
-// Split-flap mechanical display.
-//
-// Each digit box is a fixed-size container with 3D perspective.
-// The flip animates from blank → digit using two phases:
-//   Phase 1: Upper flap (blank) falls forward  0° → –90°
-//   Phase 2: Lower flap (digit) falls into place  90° → 0°
-//
-// The "cut in half" trick:
-//   A full-height text widget is placed inside a half-height container.
-//   For the TOP half: text is aligned to top, bottom overflows and is clipped.
-//   For the BOTTOM half: text is shifted UP by half the total height via
-//   a negative top offset, so only the bottom portion is visible.
-
+/// Split-flap mechanical display digit.
+///
+/// Each digit box is a fixed-size container with 3D perspective.
+/// The flip animates from blank → digit using two phases:
+///   Phase 1: Upper flap (blank) falls forward  0° → –90°
+///   Phase 2: Lower flap (digit) falls into place  90° → 0°
+///
+/// The "cut in half" trick:
+///   A full-height text widget is placed inside a half-height container.
+///   For the TOP half: text is aligned to top, bottom overflows and is clipped.
+///   For the BOTTOM half: text is shifted UP by half the total height via
+///   a negative top offset, so only the bottom portion is visible.
 class _FlipDigit extends StatefulWidget {
   final String digit;
   final Duration delay;
@@ -338,8 +332,6 @@ class _FlipDigitState extends State<_FlipDigit>
   }
 }
 
-// ─── Pairing Dialog ───────────────────────────────────────────────────────────
-
 class PairingDialog extends StatefulWidget {
   final ComputerDetails computer;
   final String pin;
@@ -582,7 +574,6 @@ class _PairingDialogState extends State<PairingDialog> {
 /// without it.
 Future<bool> showPairingDialog(
     BuildContext context, ComputerDetails computer) async {
-  // ── Notification permission gate (Android 13+) ──────────────────────
   if (io.Platform.isAndroid) {
     final status = await _checkNotificationPermission();
     if (status == 'denied' && context.mounted) {

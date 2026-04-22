@@ -58,8 +58,6 @@ class DirectTouchHandler {
   final int Function() getStreamWidth;
   final int Function() getStreamHeight;
 
-  // ── State: direct touch (point-and-click) ──────────────────────────────
-
   int _touchDownX = 0, _touchDownY = 0;
   int _lastMoveX = 0, _lastMoveY = 0;
   int _touchUpX = 0, _touchUpY = 0;
@@ -75,8 +73,6 @@ class DirectTouchHandler {
   /// Whether the cursor position has been sent for the current gesture.
   /// Ensures position is always sent before any click event.
   bool _positionSent = false;
-
-  // ── Constants ──────────────────────────────────────────────────────────
 
   static const int _longPressThresholdMs = 650;
   static const int _longPressDistThreshold = 30;
@@ -94,8 +90,6 @@ class DirectTouchHandler {
 
   static const int btnLeft = 1;
   static const int btnRight = 3;
-
-  // ── Helpers ────────────────────────────────────────────────────────────
 
   bool _distanceExceeds(int dx, int dy, double limit) {
     return (dx * dx + dy * dy) > (limit * limit);
@@ -128,8 +122,6 @@ class DirectTouchHandler {
     });
   }
 
-  // ── Long-press state machine ───────────────────────────────────────────
-
   void _startLongPressTimer() {
     _cancelLongPressTimer();
     final id = ++_timerIdCounter;
@@ -149,8 +141,6 @@ class DirectTouchHandler {
   void _cancelLongPressTimer() {
     _longPressTimerId = null;
   }
-
-  // ── Public: build absolute touch layer (multi-touch passthrough) ───────
 
   /// Returns a [Listener] widget that forwards multi-touch events with
   /// **normalized 0.0–1.0 coordinates** as required by moonlight-common-c's
@@ -243,8 +233,6 @@ class DirectTouchHandler {
   static double _normalizeContact(double size, Size screen) {
     return size.clamp(0.0, 1.0);
   }
-
-  // ── Public: build direct touch layer (point-and-click emulation) ───────
 
   /// Whether a touch gesture is currently active. When true, the
   /// MouseRegion.onHover in game_stream_screen must NOT send position

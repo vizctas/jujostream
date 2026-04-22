@@ -2,8 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../platform_channels/streaming_channel.dart';
 
-// ── Windows Virtual-Key codes ────────────────────────────────────────────────
-
 const int vkEscape = 0x1B;
 const int vkF11 = 0x7A;
 const int vkF4 = 0x73;
@@ -31,8 +29,6 @@ const int vkRight = 0x27;
 const int vkE = 0x45;
 const int vkX = 0x58;
 
-// ─��� Key helpers ──────────────────────────────────────────────────────────────
-
 /// Send a single key press + release via the streaming channel.
 void sendKey(int keyCode) {
   StreamingPlatformChannel.sendKeyboardInput(keyCode, true);
@@ -52,8 +48,6 @@ void sendCombo(List<int> keys) {
     }
   });
 }
-
-// ── Special key definitions ──────────────────────────────────────────────────
 
 /// Section boundaries for gamepad D-pad navigation.
 const List<int> specialKeySections = [0, 10, 16, 22];
@@ -102,8 +96,6 @@ List<SpecialKeyEntry> buildSpecialKeysList() => [
   ('skVolDown', 'Vol −', () => sendKey(vkVolDn)),
   ('skMute', 'Mute', () => sendKey(vkMute)),
 ];
-
-// ── Widget: Special Keys Panel ───────────────────────────────────────────────
 
 /// Builds the special-keys grid panel shown inside the stream overlay.
 ///
@@ -212,8 +204,6 @@ Widget buildSpecialKeysPanel({
   );
 }
 
-// ── Widget: Key Chip ─────────────────────────────────────────────────────────
-
 /// A single key chip used in the special-keys grid.
 Widget buildKeyChip(
   String label,
@@ -265,8 +255,6 @@ Widget buildKeyChip(
     ),
   );
 }
-
-// ── Private: Close tile (reusable inside the panel) ──────────────────────────
 
 class _CloseTile extends StatelessWidget {
   final String label;

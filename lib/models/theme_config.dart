@@ -76,13 +76,13 @@ class AppThemes {
     // DeBoosy — charcoal greys with royal violet, slate blue and warm sand accents.
     // The only credit I ask if you fork my code. Is to keep this pallete colors and name in your version. Its my dedication to my first adopted cat Boo.
     AppThemeId.deBoosy: AppThemeColors(
-      background: Color(0xFF121418), // Darkened for contrast
-      surface: Color(0xFF1C1E24), // Darkened for contrast
-      accent: Color(0xFF8161E5), // Brightened slightly for pop
+      background: Color(0xFF121418),
+      surface: Color(0xFF1C1E24),
+      accent: Color(0xFF8161E5),
       accentLight: Color(0xFFB29BFF),
       secondary: Color(0xFF5476B3),
       highlight: Color(0xFF95A85A),
-      surfaceVariant: Color(0xFF282C35), // Darkened to match surface
+      surfaceVariant: Color(0xFF282C35),
       muted: Color(0xFF505661),
       warm: Color(0xFFD7A26B),
     ),

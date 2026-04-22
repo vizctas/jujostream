@@ -2482,8 +2482,7 @@ class SettingsScreen extends StatelessWidget {
     );
   }
 
-  // ── Desktop Overlay Combo dialog ─────────────────────────────────────────
-
+  
   /// Available modifier + function keys for the desktop overlay combo picker.
   static const _desktopKeyOptions = [
     'Shift', 'Ctrl', 'Alt', 'Meta',
@@ -4188,7 +4187,6 @@ class _OverlayTriggerDialogState extends State<_OverlayTriggerDialog> {
   }
 }
 
-// -- Custom Resolution Tile (matches _FocusableChoiceTile style) ----------
 
 class _CustomResolutionTile extends StatefulWidget {
   final int currentWidth;
@@ -4369,7 +4367,6 @@ class _CustomResolutionTileState extends State<_CustomResolutionTile> {
   }
 }
 
-// -- Resolution Picker Dialog (scrollable + search) -----------------------
 
 class _ResolutionPickerDialog extends StatefulWidget {
   final double dialogWidth;

@@ -7,25 +7,13 @@ import android.view.Surface
 import android.view.Window
 import android.view.WindowManager
 
-/**
- * Switches the physical display refresh rate to best match
- * the target stream FPS. Restores original mode on teardown.
- *
- * Two mechanisms:
- *  - preferredDisplayModeId (API 23+): hard switch to a specific mode
- *  - Surface.setFrameRate (API 30+): tells the compositor the ideal
- *    cadence so VRR/LTPO panels can lock to it without a mode switch
- */
+
 object DisplayModeHelper {
     private const val TAG = "DisplayMode"
 
     private var savedModeId: Int = 0
     private var applied = false
 
-    /**
-     * Attempt to set the display refresh rate closest to [targetFps].
-     * Called on the main thread before stream start.
-     */
     fun apply(activity: Activity, targetFps: Int, surface: Surface?) {
         if (applied) return
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
@@ -47,7 +35,6 @@ object DisplayModeHelper {
             val nativeW = currentMode.physicalWidth
             val nativeH = currentMode.physicalHeight
 
-            // Gather modes at the same resolution, sorted by how well they match target fps
             val candidateModes = display.supportedModes
                 .filter { it.physicalWidth == nativeW && it.physicalHeight == nativeH }
                 .sortedBy { kotlin.math.abs(it.refreshRate - targetFps.toFloat()) }
@@ -60,7 +47,6 @@ object DisplayModeHelper {
             val bestMode = candidateModes.first()
             val delta = kotlin.math.abs(bestMode.refreshRate - targetFps.toFloat())
 
-            // Only switch if the closest mode is within 2 Hz of the target
             if (delta <= 2f && bestMode.modeId != currentMode.modeId) {
                 val attrs = window.attributes
                 attrs.preferredDisplayModeId = bestMode.modeId
@@ -102,9 +88,6 @@ object DisplayModeHelper {
         }
     }
 
-    /**
-     * Restore the original display mode. Called when streaming stops.
-     */
     fun restore(activity: Activity?) {
         if (!applied) return
         applied = false

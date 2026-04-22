@@ -555,8 +555,6 @@ class _SessionMetricsDialogState extends State<SessionMetricsDialog>
   }
 }
 
-// ─── Summary card ─────────────────────────────────────────────────────────────
-
 class _SummaryCard extends StatelessWidget {
   final String label;
   final String value;
@@ -605,8 +603,6 @@ class _SummaryCard extends StatelessWidget {
     );
   }
 }
-
-// ─── Mini chart panel (2-column grid) ─────────────────────────────────────────
 
 class _MiniPanel extends StatelessWidget {
   final String title;
@@ -688,8 +684,6 @@ class _MiniPanel extends StatelessWidget {
   }
 }
 
-// ─── Chart painter ────────────────────────────────────────────────────────────
-
 class _ChartPainter extends CustomPainter {
   final List<double> points;
   final Color color;
@@ -702,8 +696,6 @@ class _ChartPainter extends CustomPainter {
     this.maxY,
     this.drawProgress = 1.0,
   });
-
-  // ── Axis label helpers ──────────────────────────────────────────
 
   static String _fmtVal(double v) {
     if (v >= 1000) return '${(v / 1000).toStringAsFixed(1)}k';

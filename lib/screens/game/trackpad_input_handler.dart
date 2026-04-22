@@ -29,8 +29,6 @@ class TrackpadInputHandler {
   /// Must return true when the owning State is still mounted.
   final bool Function() isMounted;
 
-  // ── Constants ──────────────────────────────────────────────────────────
-
   static const int btnLeft = 1;
   static const int btnRight = 3;
   static const int btnMiddle = 2;
@@ -46,8 +44,6 @@ class TrackpadInputHandler {
   static const int _momentumInterval = 10;
   static const int _flickDecayTimeout = 50;
   static const int _scrollTransTimeout = 200;
-
-  // ── Mutable state ─────────────────────────────────────────────────────
 
   double _pendingDX = 0, _pendingDY = 0;
   int _lastX = 0, _lastY = 0;
@@ -70,8 +66,6 @@ class TrackpadInputHandler {
   int _flickTimerId = 0;
   int _scrollTransTimerId = 0;
 
-  // ── Public API ────────────────────────────────────────────────────────
-
   /// Builds a [Listener] widget that handles all trackpad gestures.
   Widget buildInputLayer({
     required double sensitivityX,
@@ -89,8 +83,6 @@ class TrackpadInputHandler {
       child: const SizedBox.expand(),
     );
   }
-
-  // ── Helpers ───────────────────────────────────────────────────────────
 
   int _getButton() {
     if (_pointerCount == 2) return btnRight;
@@ -129,8 +121,6 @@ class TrackpadInputHandler {
     if (x > 0) return math.pow(x, 1.0 / 3.0).toDouble();
     return -math.pow(-x, 1.0 / 3.0).toDouble();
   }
-
-  // ── Momentum ──────────────────────────────────────────────────────────
 
   void _startMomentum() {
     final id = ++_flickTimerId;
@@ -189,8 +179,6 @@ class TrackpadInputHandler {
     }
     Future.delayed(const Duration(milliseconds: _momentumInterval), loop);
   }
-
-  // ── Pointer event handlers ────────────────────────────────────────────
 
   void _onPointerDown(PointerDownEvent event) {
     final prevCount = _pointerCount;

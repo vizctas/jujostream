@@ -38,11 +38,12 @@ jobs:
             "cmake;3.22.1" \
             "build-tools;35.0.0"
 
-      # ── Native dependencies (OpenSSL + libopus) ────────────────
       - name: Build native dependencies (OpenSSL & libopus)
-        env:
-          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/28.2.13676358
         run: |
+          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.2.13676358"
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          echo "ANDROID_NDK_HOME=$ANDROID_NDK_HOME"
+          ls -d "$ANDROID_NDK_HOME" || { echo "FATAL: NDK dir missing after sdkmanager install"; exit 1; }
           chmod +x setup_native_deps.sh
           ./setup_native_deps.sh
 

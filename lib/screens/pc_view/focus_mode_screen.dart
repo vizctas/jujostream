@@ -43,10 +43,6 @@ Future<void> setFocusModeEnabled(bool value) async {
   await prefs.setBool(_kFocusModeEnabled, value);
 }
 
-// ---------------------------------------------------------------------------
-// Focus Mode Screen
-// ---------------------------------------------------------------------------
-
 class FocusModeScreen extends StatefulWidget {
   const FocusModeScreen({super.key});
 
@@ -188,8 +184,6 @@ class _FocusModeScreenState extends State<FocusModeScreen>
     }
   }
 
-  // ---- Navigation ----
-
   Future<void> _onComputerTapped(ComputerDetails computer) async {
     if (!computer.isReachable) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -292,8 +286,6 @@ class _FocusModeScreenState extends State<FocusModeScreen>
     if (!mounted) return;
     setState(() => _bgPaths.remove(computer.uuid));
   }
-
-  // ---- Build ----
 
   @override
   Widget build(BuildContext context) {
@@ -760,10 +752,6 @@ class _FocusModeScreenState extends State<FocusModeScreen>
   }
 }
 
-// ---------------------------------------------------------------------------
-// Blurred Wallpaper
-// ---------------------------------------------------------------------------
-
 class _BlurredWallpaper extends StatelessWidget {
   final String? imagePath;
   final Color fallbackColor;
@@ -795,10 +783,6 @@ class _BlurredWallpaper extends StatelessWidget {
     );
   }
 }
-
-// ---------------------------------------------------------------------------
-// Focus Server Card
-// ---------------------------------------------------------------------------
 
 class _FocusServerCard extends StatefulWidget {
   final ComputerDetails computer;
@@ -1075,10 +1059,6 @@ class _FocusServerCardState extends State<_FocusServerCard>
   }
 }
 
-// ---------------------------------------------------------------------------
-// Focus Server Circle (Circular ambience layout)
-// ---------------------------------------------------------------------------
-
 class _FocusServerCircle extends StatefulWidget {
   final ComputerDetails computer;
   final String? bgPath;
@@ -1304,10 +1284,6 @@ class _FocusServerCircleState extends State<_FocusServerCircle>
   }
 }
 
-// ---------------------------------------------------------------------------
-// Gamepad Hints Row
-// ---------------------------------------------------------------------------
-
 /// Renders pure-text gamepad hints (no borders, no background boxes).
 /// Positioned outside the AspectRatio card so it survives landscape layout.
 class _GamepadHintsRow extends StatelessWidget {
@@ -1357,10 +1333,6 @@ class _GamepadHintsRow extends StatelessWidget {
     );
   }
 }
-
-// ---------------------------------------------------------------------------
-// Particle Overlay (lightweight background effect)
-// ---------------------------------------------------------------------------
 
 class _ParticleOverlay extends StatefulWidget {
   final Color color;
@@ -1432,10 +1404,6 @@ class _ParticleOverlayState extends State<_ParticleOverlay>
     );
   }
 }
-
-// ---------------------------------------------------------------------------
-// Wave Overlay (Horizontal wave effect)
-// ---------------------------------------------------------------------------
 
 class _RibbonComponent {
   final double cycle;
@@ -1669,10 +1637,6 @@ class _ParticlePainter extends CustomPainter {
   bool shouldRepaint(covariant _ParticlePainter oldDelegate) => true;
 }
 
-// ---------------------------------------------------------------------------
-// Focus Mode Menu Dialog (mirrors _MainMenuDialog pattern)
-// ---------------------------------------------------------------------------
-
 class _FocusModeMenuDialog extends StatelessWidget {
   final BuildContext parentContext;
 
@@ -1802,10 +1766,6 @@ class _FocusModeMenuDialog extends StatelessWidget {
     );
   }
 }
-
-// ---------------------------------------------------------------------------
-// Focusable menu tile (gamepad-first, low-opacity white hover)
-// ---------------------------------------------------------------------------
 
 class _FocusMenuTile extends StatefulWidget {
   final int order;

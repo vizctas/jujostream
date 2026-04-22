@@ -20,11 +20,7 @@ class VideoDecoderRenderer(
     private val enableVrr: Boolean = false,
     private val externalSurface: Surface? = null,
     private val lowLatencyFrameBalance: Boolean = false,
-    // TV-perf: map of MIME type → verified HW decoder name from CodecProbe.
-    // The server can negotiate a different codec than what we preferred, so
-    // we need the right decoder for *each* possible MIME type, not just one.
     private val decodersByMime: Map<String, String> = emptyMap(),
-    // TV-perf: skip aggressive MediaFormat hints that overwhelm ARM32 chips
     private val isWeakDevice: Boolean = false
 ) {
     companion object {
@@ -91,18 +87,13 @@ class VideoDecoderRenderer(
 
     private var decoderName = "unknown"
     private var activeRenderPath = "texture"
-
-    // ── Vendor quirk flags (resolved in setup() after decoder creation) ──
     private var isMediaTekDecoder = false
     private var isExynosDecoder = false
 
-    // ── Zero-output watchdog state ──────────────────────────────────────
     @Volatile private var startTimeNs = 0L
     private var zeroOutputWarningEmitted = false
-
     private val queueTimestampNs = HashMap<Long, Long>(64)
 
-    // Choreographer vsync: holds decoded buffer indices ready for presentation
     private data class PendingFrame(val bufferIndex: Int, val ptsUs: Long)
     private val pendingFrames = LinkedBlockingDeque<PendingFrame>(8)
     @Volatile private var vsyncPresenterThread: Thread? = null
@@ -147,10 +138,6 @@ class VideoDecoderRenderer(
                     Log.w(TAG, "VRR: setFrameRate failed: ${e.message}")
                 }
             }
-
-            // ── Step 1: Create decoder BEFORE configuring format ─────────
-            // We need the decoder name to detect vendor quirks (MediaTek,
-            // Exynos) that affect which MediaFormat keys are safe to use.
             val matchedDecoder = decodersByMime[mimeType]
             videoDecoder = if (!matchedDecoder.isNullOrBlank()) {
                 try {
@@ -166,12 +153,10 @@ class VideoDecoderRenderer(
             }
             decoderName = videoDecoder!!.name
 
-            // ── Step 2: Detect vendor quirks from decoder name ───────────
             val nameLower = decoderName.lowercase()
             isMediaTekDecoder = nameLower.contains("mtk") || nameLower.contains("mediatek")
             isExynosDecoder = nameLower.contains("exynos")
 
-            // [G] Diagnostic: log device + decoder identity for remote debugging
             val socModel = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) Build.SOC_MODEL else "unknown"
             Log.i(TAG, "┌─── DECODER DIAGNOSTIC ───────────────────────────")
             Log.i(TAG, "│ Device: ${Build.MANUFACTURER} ${Build.MODEL}")
@@ -182,36 +167,22 @@ class VideoDecoderRenderer(
             Log.i(TAG, "│ Quirks: mtk=$isMediaTekDecoder exynos=$isExynosDecoder weak=$isWeakDevice")
             Log.i(TAG, "└──────────────────────────────────────────────────")
 
-            // ── Step 3: Build MediaFormat with vendor-aware keys ─────────
             val format = MediaFormat.createVideoFormat(mimeType, width, height)
 
-            // Pre-declare max resolution so the decoder allocates buffers at the right size
             format.setInteger(MediaFormat.KEY_MAX_WIDTH, width)
             format.setInteger(MediaFormat.KEY_MAX_HEIGHT, height)
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                 format.setInteger(MediaFormat.KEY_FRAME_RATE, redrawRate)
-                // TV-perf: weak ARM32 SoCs (MT8696, Amlogic) cannot sustain
-                // full-fps decode at realtime priority. Cap operating rate and
-                // use background priority so the scheduler doesn't starve the
-                // render thread. On capable devices keep original behavior.
                 if (isWeakDevice) {
                     format.setFloat(MediaFormat.KEY_OPERATING_RATE, minOf(redrawRate, 30).toFloat())
                     format.setInteger(MediaFormat.KEY_PRIORITY, 1)
                 } else {
-                    // [C] Use Short.MAX_VALUE instead of exact FPS to avoid
-                    // "guaranteed performance" mode that silently fails on some
-                    // MediaTek Dimensity and Samsung Exynos C2 decoders.
-                    // ExoPlayer uses this same approach in production.
+
                     format.setFloat(MediaFormat.KEY_OPERATING_RATE, Short.MAX_VALUE.toFloat())
                     format.setInteger(MediaFormat.KEY_PRIORITY, 0)
                 }
             }
-
-            // [B] KEY_LOW_LATENCY causes MediaTek C2 decoders (Dimensity) and
-            // some Samsung Exynos C2 decoders to never produce output frames.
-            // Moonlight upstream and ExoPlayer both skip this key on these vendors.
-            // Only enable on known-good vendors (Qualcomm, Nvidia, etc.).
             val applyLowLatency = !isWeakDevice &&
                 !isMediaTekDecoder &&
                 !isExynosDecoder &&
@@ -222,8 +193,6 @@ class VideoDecoderRenderer(
             Log.i(TAG, "MediaFormat: lowLatency=$applyLowLatency opRate=${
                 if (isWeakDevice) "capped" else "MAX"} priority=${if (isWeakDevice) 1 else 0}")
 
-            // being hardcoded to LIMITED. When fullRange=true, the decoder
-            // uses FULL range which preserves the complete 0-255 luma range.
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
                 val colorRange = if (fullRange) MediaFormat.COLOR_RANGE_FULL
                                  else MediaFormat.COLOR_RANGE_LIMITED
@@ -245,7 +214,6 @@ class VideoDecoderRenderer(
                 }
             }
 
-            // ── Step 4: Configure and start ──────────────────────────────
             videoDecoder!!.configure(format, renderSurface, null, 0)
             videoDecoder!!.start()
 
@@ -258,7 +226,6 @@ class VideoDecoderRenderer(
         }
     }
 
-    // reports accurate deltas instead of the entire previous session's count.
     fun resetStats() {
         totalFramesReceived = 0L
         totalFramesRendered = 0L
@@ -277,15 +244,13 @@ class VideoDecoderRenderer(
         pendingFrames.clear()
 
         if (useChoreographerVsync && Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN) {
-            // Vsync-aligned: decoder thread fills queue, Choreographer presents
             rendererThread = Thread({
                 android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_DISPLAY)
                 decoderDrainLoop()
             }, "Video-Decoder-Drain").apply { start() }
 
             vsyncPresenterThread = Thread({
-                // On weak single-core ARM32, two URGENT_DISPLAY threads
-                // fight the scheduler — lower vsync presenter to DISPLAY
+
                 val prio = if (isWeakDevice) android.os.Process.THREAD_PRIORITY_DISPLAY
                            else android.os.Process.THREAD_PRIORITY_URGENT_DISPLAY
                 android.os.Process.setThreadPriority(prio)
@@ -322,8 +287,6 @@ class VideoDecoderRenderer(
 
         while (!stopping) {
             try {
-                // Block up to 2ms — the kernel wakes this thread the instant a frame is ready,
-                // avoiding the OS scheduler overhead of Thread.sleep()
                 val firstIdx = decoder.dequeueOutputBuffer(info, 2_000)
                 if (firstIdx == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
                     Log.i(TAG, "Output format changed: ${decoder.outputFormat}")
@@ -333,8 +296,6 @@ class VideoDecoderRenderer(
 
                 var newestIndex = firstIdx
                 var newestPtsUs = info.presentationTimeUs
-
-                // Non-blocking drain — only keep the freshest decoded frame
                 while (true) {
                     val idx = decoder.dequeueOutputBuffer(info, 0)
                     when {
@@ -528,8 +489,6 @@ class VideoDecoderRenderer(
                 when {
                     idx >= 0 -> {
                         val frame = PendingFrame(idx, info.presentationTimeUs)
-
-                        // Enforce queue depth — shed oldest if over budget
                         while (pendingFrames.size >= effectiveDepth) {
                             val stale = pendingFrames.pollFirst() ?: break
                             try {
@@ -550,8 +509,6 @@ class VideoDecoderRenderer(
                 if (!stopping) Log.e(TAG, "Decoder drain error", e)
             }
         }
-
-        // Flush remaining queued frames on shutdown
         while (true) {
             val leftover = pendingFrames.pollFirst() ?: break
             try {
@@ -580,7 +537,6 @@ class VideoDecoderRenderer(
 
         if (chosen != null) {
             try {
-                // Present with vsync timestamp for compositor alignment
                 decoder.releaseOutputBuffer(chosen.bufferIndex, vsyncNanos)
                 totalFramesRendered++
                 updateDecodeLatency(chosen.ptsUs)
@@ -644,10 +600,6 @@ class VideoDecoderRenderer(
         val decoder = videoDecoder ?: return DR_NEED_IDR
         totalFramesReceived++
 
-        // [G] Zero-output watchdog: detect when the decoder is consuming
-        // input but never producing output. This is the exact symptom on
-        // MediaTek Dimensity and Samsung Exynos S25 Ultra devices.
-        // Fires once after 5 seconds of receiving frames with 0 rendered.
         if (!zeroOutputWarningEmitted && totalFramesRendered == 0L &&
             totalFramesReceived > 60 && startTimeNs > 0L) {
             val elapsedNs = System.nanoTime() - startTimeNs
@@ -666,7 +618,6 @@ class VideoDecoderRenderer(
             }
         }
 
-        // [G] Periodic frame stats for remote debugging (every 300 frames)
         if (totalFramesReceived % 300 == 0L) {
             Log.i(TAG, "FRAME STATS: recv=$totalFramesReceived rendered=$totalFramesRendered " +
                 "dropped=$totalFramesDropped latency=${avgDecodeLatencyMs.toInt()}ms decoder=$decoderName")
@@ -691,11 +642,6 @@ class VideoDecoderRenderer(
                 }
             }
 
-            // On weak devices the old fixed 20ms timeout triggered IDR requests
-            // too aggressively — each IDR costs 100-500ms of stall as the server
-            // encodes a full keyframe. Progressive backoff: try a short wait first,
-            // then retry with a longer one before giving up. This reduces IDR
-            // cascade on overloaded SoCs while keeping latency low on capable ones.
             val inputIndex = acquireInputBuffer(decoder)
             if (inputIndex < 0) {
                 return DR_NEED_IDR
@@ -703,8 +649,7 @@ class VideoDecoderRenderer(
 
             val inputBuffer = decoder.getInputBuffer(inputIndex) ?: return DR_NEED_IDR
             inputBuffer.clear()
-            
-            // No JNI unboxing array copy needed! Massive CPU/Memory optimization for Android TV.
+
             data.position(0)
             data.limit(length)
             inputBuffer.put(data)
@@ -714,8 +659,6 @@ class VideoDecoderRenderer(
 
             synchronized(queueTimestampNs) {
                 queueTimestampNs[timestampUs] = System.nanoTime()
-
-                // Tighter eviction on weak devices to bound memory
                 val evictionThreshold = if (isWeakDevice) 32 else 128
                 if (queueTimestampNs.size > evictionThreshold) {
                     val cutoffNs = System.nanoTime() - 1_000_000_000L // 1 second

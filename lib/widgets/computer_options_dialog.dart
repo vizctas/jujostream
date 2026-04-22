@@ -285,8 +285,6 @@ class ComputerOptionsDialog {
     );
   }
 
-  // ---------------------------------------------------------------------------
-
   static String _parseSunshineVersion(String v) {
     final p = v.split('.');
     return p.length >= 3 ? 'Sunshine ${p[0]}.${p[1]}.${p[2]}' : 'Sunshine $v';

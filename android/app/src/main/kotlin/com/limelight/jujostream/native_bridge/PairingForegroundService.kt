@@ -33,45 +33,19 @@ import javax.net.ssl.SSLContext
 import javax.net.ssl.TrustManager
 import javax.net.ssl.X509TrustManager
 
-/**
- * Foreground Service that runs the ENTIRE Moonlight/Sunshine 5-phase pairing
- * handshake natively in a Java thread.
- *
- * WHY ALL PHASES NATIVE:
- *   When Flutter goes to background on Android, the Dart isolate is paused.
- *   Previously only Phase 1 ran natively, but Phases 2-5 ran in Dart after
- *   the user returned from Chrome. The problem: Sunshine's pairing state
- *   machine has a tight timing window between phases. By the time the user
- *   switches back to JUJO and Dart resumes, the server's pairing session
- *   has often timed out → "wrong PIN" error.
- *
- *   Solution: ALL 5 phases run in this native Java thread inside the FGS.
- *   Phase 1 blocks until the user enters the PIN in Chrome. Phases 2-5
- *   execute immediately after in the same thread — no Dart VM dependency.
- *   Dart only polls for the final result (paired/failed).
- *
- * LIFECYCLE:
- *   Flutter "startFullPairing" → starts service + begins all-phase handshake
- *   Handshake completes → result stored in AtomicReference
- *   Flutter "pollResult" → retrieves the final result (or null if still running)
- *   Flutter "release" → stops service, releases locks
- */
+
 class PairingForegroundService : Service() {
 
     companion object {
         private const val TAG = "PairingFGS"
-        // Channel ID v2: changed from "pairing_channel" (IMPORTANCE_LOW) to fix
-        // invisible notifications. Android caches channel settings — changing
-        // importance on an existing channel has no effect. New ID forces recreation.
+
         private const val CHANNEL_ID = "pairing_pin_channel"
         private const val NOTIFICATION_ID = 1001
         private const val LOCK_TIMEOUT_MS = 310_000L // 5 min + margin
 
-        /** Final pairing result — read by Flutter via MethodChannel "pollResult" */
         val pairingResult = AtomicReference<NativePairingResult?>(null)
         val pairingInProgress = AtomicBoolean(false)
 
-        /** Cancel flag — set by Flutter via MethodChannel "cancel" */
         val cancelRequested = AtomicBoolean(false)
 
         fun reset() {
@@ -144,8 +118,6 @@ class PairingForegroundService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
-    // ── Full Native Pairing Handshake ────────────────────────────────────────
-
     private fun startFullPairing(
         baseUrl: String,
         httpsPort: Int,
@@ -197,7 +169,6 @@ class PairingForegroundService : Service() {
     ): NativePairingResult {
         Log.i(TAG, "Starting full native pairing handshake")
 
-        // Parse crypto materials
         val clientPrivateKey = parsePkcs8PrivateKey(keyPem)
         val clientCertPemBytes = certPem.toByteArray(Charsets.UTF_8)
         val clientCertSignature = extractX509Signature(certPem)
@@ -206,17 +177,15 @@ class PairingForegroundService : Service() {
         Log.d(TAG, "Client cert signature length: ${clientCertSignature.size}")
         Log.d(TAG, "Client cert sig first 8 bytes: ${bytesToHex(clientCertSignature.take(8).toByteArray())}")
 
-        // ── Upfront server-state reset ───────────────────────────────────────
+       
         try {
             httpGet("$baseUrl/unpair?uniqueid=$uniqueId", connectTimeout = 4000, readTimeout = 4000)
         } catch (_: Exception) {}
         Thread.sleep(1500)
 
-        // ── Derive AES key from salt + PIN ───────────────────────────────────
         val salt = randomBytes(16)
         val aesKey = deriveAesKey(salt, pin)
 
-        // ── Phase 1: getservercert (BLOCKING long-poll) ──────────────────────
         val phase1Url = "$baseUrl/pair" +
                 "?uniqueid=$uniqueId" +
                 "&devicename=Jujostream+Flutter" +
@@ -306,7 +275,6 @@ class PairingForegroundService : Service() {
         Log.d(TAG, "AES key: ${bytesToHex(aesKey)}")
         Log.d(TAG, "Salt: ${bytesToHex(salt)}")
 
-        // ── Phase 2: client challenge ────────────────────────────────────────
         if (cancelRequested.get()) return NativePairingResult(paired = false, error = "cancelled")
 
         val clientChallenge = randomBytes(16)
@@ -340,7 +308,6 @@ class PairingForegroundService : Service() {
         val serverResponse = serverChallengeResponse.sliceArray(0 until 32)
         val serverChallenge = serverChallengeResponse.sliceArray(32 until 48)
 
-        // ── Phase 3: server challenge response ───────────────────────────────
         if (cancelRequested.get()) return NativePairingResult(paired = false, error = "cancelled")
 
         val clientSecret = randomBytes(16)
@@ -376,7 +343,6 @@ class PairingForegroundService : Service() {
             return NativePairingResult(paired = false, error = "PIN incorrect or pairing state invalid")
         }
 
-        // ── Phase 4: client pairing secret ───────────────────────────────────
         if (cancelRequested.get()) return NativePairingResult(paired = false, error = "cancelled")
 
         val clientSignature = signSha256Rsa(clientSecret, clientPrivateKey)
@@ -395,7 +361,6 @@ class PairingForegroundService : Service() {
             return NativePairingResult(paired = false, error = "Server rejected client pairing secret")
         }
 
-        // ── Phase 5: pairchallenge (HTTPS) ───────────────────────────────────
         if (cancelRequested.get()) return NativePairingResult(paired = false, error = "cancelled")
 
         val address = baseUrl.removePrefix("http://").substringBefore(":")
@@ -414,7 +379,6 @@ class PairingForegroundService : Service() {
 
         var phase5Completed = false
 
-        // Try HTTPS first (with client cert + trust-all)
         Log.i(TAG, "Phase 5 (HTTPS): pairchallenge")
         try {
             val body = httpsGetWithClientCert(httpsPairChallengeUrl, certPem, keyPem, 5000)
@@ -427,7 +391,6 @@ class PairingForegroundService : Service() {
             Log.w(TAG, "Phase 5 HTTPS pairchallenge failed: $e")
         }
 
-        // Fallback to HTTP
         if (!phase5Completed) {
             Log.i(TAG, "Phase 5 fallback (HTTP): pairchallenge")
             try {
@@ -440,7 +403,6 @@ class PairingForegroundService : Service() {
             }
         }
 
-        // Verify via HTTPS serverinfo
         if (!phase5Completed) {
             Log.w(TAG, "Phase 5 challenge failed, verifying via HTTPS serverinfo")
             try {
@@ -469,8 +431,6 @@ class PairingForegroundService : Service() {
         return NativePairingResult(paired = true, serverCertHex = serverCertHex)
     }
 
-    // ── HTTP Helpers ─────────────────────────────────────────────────────────
-
     private fun httpGet(url: String, connectTimeout: Int = 15_000, readTimeout: Int = 60_000): String {
         val conn = URL(url).openConnection() as HttpURLConnection
         conn.requestMethod = "GET"
@@ -493,9 +453,6 @@ class PairingForegroundService : Service() {
         }
     }
 
-    /**
-     * HTTP GET with automatic socket-error retry (mirrors Dart _runPairingPhase).
-     */
     private fun httpGetWithRetry(
         phaseName: String,
         url: String,
@@ -532,10 +489,6 @@ class PairingForegroundService : Service() {
         }
     }
 
-    /**
-     * HTTPS GET with client certificate for Phase 5 / serverinfo verification.
-     * Uses trust-all TrustManager (self-signed Sunshine certs).
-     */
     private fun httpsGetWithClientCert(
         url: String,
         certPem: String,
@@ -585,8 +538,6 @@ class PairingForegroundService : Service() {
             conn.disconnect()
         }
     }
-
-    // ── Crypto Helpers ───────────────────────────────────────────────────────
 
     private fun randomBytes(length: Int): ByteArray {
         val bytes = ByteArray(length)
@@ -643,10 +594,6 @@ class PairingForegroundService : Service() {
         return keyFactory.generatePrivate(keySpec) as RSAPrivateKey
     }
 
-    /**
-     * Reads a DER TLV element at the given offset.
-     * Returns (tag, contentOffset, contentLength, totalLength).
-     */
     private data class DerElement(val tag: Int, val contentOffset: Int, val contentLength: Int, val totalLength: Int)
 
     private fun readDerElement(data: ByteArray, offset: Int): DerElement {
@@ -674,10 +621,6 @@ class PairingForegroundService : Service() {
         return DerElement(tag, offset + headerLength, contentLength, totalLength)
     }
 
-    /**
-     * Extracts the raw signature bytes from an X.509 certificate in PEM format.
-     * This mirrors the Dart _extractX509SignatureFromDer method.
-     */
     private fun extractX509Signature(certPem: String): ByteArray {
         try {
             val base64 = certPem
@@ -711,14 +654,11 @@ class PairingForegroundService : Service() {
         }
     }
 
-    // ── XML Helpers ──────────────────────────────────────────────────────────
-
     private fun extractXmlValue(xml: String, tag: String): String? {
         val regex = Regex("<$tag>(.*?)</$tag>", RegexOption.DOT_MATCHES_ALL)
         return regex.find(xml)?.groupValues?.get(1)?.trim()
     }
 
-    // ── Hex Helpers ──────────────────────────────────────────────────────────
 
     private fun bytesToHex(bytes: ByteArray): String {
         return bytes.joinToString("") { "%02x".format(it.toInt() and 0xFF) }
@@ -738,8 +678,6 @@ class PairingForegroundService : Service() {
         }
         return diff == 0
     }
-
-    // ── Lock Management ──────────────────────────────────────────────────────
 
     private fun acquireLocks() {
         try {
@@ -781,15 +719,11 @@ class PairingForegroundService : Service() {
         wifiLock = null
     }
 
-    // ── Notification ─────────────────────────────────────────────────────────
-
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
-            // Delete the old channel (IMPORTANCE_LOW → invisible notifications).
-            // Android caches channel settings; the only way to change importance
-            // is to delete and recreate with a new ID.
+
             manager.deleteNotificationChannel("pairing_channel")
 
             val channel = NotificationChannel(
@@ -826,10 +760,6 @@ class PairingForegroundService : Service() {
             .build()
     }
 
-    /**
-     * Updates the notification to show the PIN.
-     * Called after the service starts and the PIN is available.
-     */
     private fun updateNotificationWithPin(pin: String) {
         currentPin = pin
         val notification = buildNotification(pin)
@@ -837,8 +767,6 @@ class PairingForegroundService : Service() {
         manager.notify(NOTIFICATION_ID, notification)
     }
 }
-
-/** Result of the full native pairing handshake. */
 data class NativePairingResult(
     val paired: Boolean,
     val serverCertHex: String = "",
