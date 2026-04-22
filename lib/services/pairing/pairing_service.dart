@@ -74,12 +74,17 @@ class PairingService {
 
       _log.d('Phase 1: $phase1Url');
 
-      final phase1Response = await _freshGet(phase1Url);
+      var phase1Response = await _freshGet(phase1Url);
 
       if (phase1Response.statusCode != 200) {
-        return PairingResult.failed(
-          'Phase 1 failed: HTTP ${phase1Response.statusCode}',
-        );
+        _log.w('Phase 1 failed (${phase1Response.statusCode}). Server might be stuck. Retrying to clear state...');
+        await Future.delayed(const Duration(milliseconds: 500));
+        phase1Response = await _freshGet(phase1Url);
+        if (phase1Response.statusCode != 200) {
+          return PairingResult.failed(
+            'Phase 1 failed: HTTP ${phase1Response.statusCode}',
+          );
+        }
       }
 
       final phase1Xml = phase1Response.body;
@@ -594,14 +599,35 @@ class PairingService {
     String url, {
     Duration? timeout,
   }) async {
-    try {
-      return await _freshGet(url, timeout: timeout);
-    } on TimeoutException {
-      final seconds = timeout?.inSeconds ?? 0;
-      throw TimeoutException(
-        '$phaseName timed out after ${seconds}s',
-        timeout,
-      );
+    final startTime = DateTime.now();
+    final maxWait = timeout ?? const Duration(seconds: 60);
+
+    while (true) {
+      final elapsed = DateTime.now().difference(startTime);
+      final remaining = maxWait - elapsed;
+      if (remaining.isNegative) {
+        throw TimeoutException('$phaseName timed out after ${maxWait.inSeconds}s', maxWait);
+      }
+
+      try {
+        return await _freshGet(url, timeout: remaining);
+      } on TimeoutException {
+        throw TimeoutException('$phaseName timed out after ${maxWait.inSeconds}s', maxWait);
+      } catch (e) {
+        final lower = e.toString().toLowerCase();
+        if (lower.contains('connection abort') ||
+            lower.contains('software caused connection') ||
+            lower.contains('connection lost') ||
+            lower.contains('connection closed') ||
+            lower.contains('connection reset') ||
+            lower.contains('broken pipe') ||
+            lower.contains('socketexception')) {
+          Logger().w('$phaseName socket dropped: $e. Retrying in 1s...');
+          await Future.delayed(const Duration(seconds: 1));
+          continue;
+        }
+        rethrow;
+      }
     }
   }
 
