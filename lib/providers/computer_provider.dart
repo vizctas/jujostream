@@ -32,6 +32,13 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
   final Map<String, int> _pollFailCount = {};
   static const int _kOfflineThreshold = 2;
 
+  /// Timestamp of the last successful pairing per computer UUID.
+  /// Polls and verifyPairing cannot override paired state during this
+  /// grace period — Sunshine may take a few seconds to fully register
+  /// the pairing internally after Phase 5 completes.
+  final Map<String, DateTime> _pairingCompletedAt = {};
+  static const Duration _pairingGracePeriod = Duration(seconds: 15);
+
   NvApp? _activeSessionApp;
   ComputerDetails? _activeSessionComputer;
   DateTime? _activeSessionStart;
@@ -382,12 +389,18 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
     try {
       final result = await _pairingService.pair(computer, pin);
 
-      _isPairing = false;
       if (result.paired) {
         computer.pairState = PairState.paired;
         computer.serverCert = result.serverCert ?? computer.serverCert;
 
         computer.pairStatusFromHttps = true;
+
+        // Record pairing timestamp — polls and verifyPairing will not
+        // override the paired state during the grace period.
+        final graceKey = computer.uuid.isNotEmpty
+            ? computer.uuid
+            : computer.localAddress;
+        _pairingCompletedAt[graceKey] = DateTime.now();
 
         // Persist immediately so the paired state survives even if
         // the subsequent pollComputer() call fails or times out.
@@ -395,6 +408,9 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
         notifyListeners();
 
         unawaited(AchievementService.instance.unlock('first_connection'));
+
+        // Keep _isPairing = true during the post-pairing poll so the
+        // periodic _pollAll() timer doesn't race with us.
         await pollComputer(computer);
       } else {
         computer.pairState = PairState.failed;
@@ -449,7 +465,26 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
       if (info.pairState == PairState.paired) {
         return true;
       }
-      // Server confirmed: NOT paired. Update local state.
+
+      // If the response came via HTTP fallback (not HTTPS-authenticated),
+      // it cannot reliably determine pairing status. Allow entry.
+      if (!info.pairStatusFromHttps) {
+        return true;
+      }
+
+      // Check grace period — don't revoke pairing if we just completed it.
+      final graceKey = computer.uuid.isNotEmpty
+          ? computer.uuid
+          : computer.localAddress;
+      final pairedAt = _pairingCompletedAt[graceKey];
+      final inGracePeriod = pairedAt != null &&
+          DateTime.now().difference(pairedAt) < _pairingGracePeriod;
+      if (inGracePeriod) {
+        // Server may not have fully registered the pairing yet.
+        return true;
+      }
+
+      // HTTPS confirmed: NOT paired. Update local state.
       computer.pairState = PairState.notPaired;
       computer.serverCert = '';
       computer.pairStatusFromHttps = false;
@@ -467,6 +502,15 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
     if (success) {
       computer.pairState = PairState.notPaired;
       computer.serverCert = '';
+      computer.pairStatusFromHttps = false;
+
+      // Clear grace period so a subsequent re-pair doesn't inherit
+      // stale protection from the previous pairing session.
+      final graceKey = computer.uuid.isNotEmpty
+          ? computer.uuid
+          : computer.localAddress;
+      _pairingCompletedAt.remove(graceKey);
+
       _persistComputers();
       notifyListeners();
     }
@@ -548,11 +592,26 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
       // legitimately paired server to unpaired.
       if (computer.pairStatusFromHttps) {
         // HTTPS is authoritative — if server says notPaired, trust it.
+        // EXCEPT during the post-pairing grace period where Sunshine may
+        // not yet have fully registered the pairing internally.
         if (computer.pairState == PairState.notPaired &&
             existing.pairState == PairState.paired) {
-          // Server revoked pairing. Clear cached cert so the UI shows
-          // "Not Paired" and blocks entry until re-paired.
-          computer.serverCert = '';
+          final graceKey = existing.uuid.isNotEmpty
+              ? existing.uuid
+              : existing.localAddress;
+          final pairedAt = _pairingCompletedAt[graceKey];
+          final inGracePeriod = pairedAt != null &&
+              DateTime.now().difference(pairedAt) < _pairingGracePeriod;
+
+          if (inGracePeriod) {
+            // Still within grace period — preserve paired state.
+            computer.pairState = PairState.paired;
+            computer.pairStatusFromHttps = true;
+          } else {
+            // Server revoked pairing. Clear cached cert so the UI shows
+            // "Not Paired" and blocks entry until re-paired.
+            computer.serverCert = '';
+          }
         }
       } else if (computer.pairState == PairState.notPaired &&
           existing.pairState == PairState.paired &&

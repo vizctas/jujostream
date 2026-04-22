@@ -72,3 +72,6 @@ _fix_headers.py
 # Build artifacts at root 
 Jujostream.apk
 build_releases.sh
+
+# Local dev scripts (not tracked)
+dev_tools.ps1

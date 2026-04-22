@@ -1,3 +1,4 @@
+import 'dart:io' as io;
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -11,6 +12,49 @@ import '../models/computer_details.dart';
 import '../providers/computer_provider.dart';
 import '../providers/theme_provider.dart';
 import '../services/crypto/client_identity.dart';
+
+// ─── Notification Permission Helper ───────────────────────────────────────────
+//
+// Uses the existing pairing_locks MethodChannel to check/request the
+// POST_NOTIFICATIONS permission on Android 13+.
+
+const MethodChannel _pairingLocksChannel =
+    MethodChannel('com.jujostream/pairing_locks');
+
+/// Returns "granted", "denied", or "not_required".
+Future<String> _checkNotificationPermission() async {
+  if (!io.Platform.isAndroid) return 'not_required';
+  try {
+    final result =
+        await _pairingLocksChannel.invokeMethod<String>('checkNotificationPermission');
+    return result ?? 'not_required';
+  } on PlatformException {
+    return 'not_required';
+  }
+}
+
+/// Requests the permission via the system dialog.
+/// Returns "granted", "denied", or "not_required".
+Future<String> _requestNotificationPermission() async {
+  if (!io.Platform.isAndroid) return 'not_required';
+  try {
+    final result =
+        await _pairingLocksChannel.invokeMethod<String>('requestNotificationPermission');
+    return result ?? 'not_required';
+  } on PlatformException {
+    return 'not_required';
+  }
+}
+
+/// Opens the OS notification settings page for this app.
+Future<void> _openNotificationSettings() async {
+  if (!io.Platform.isAndroid) return;
+  try {
+    await _pairingLocksChannel.invokeMethod<bool>('openNotificationSettings');
+  } on PlatformException {
+    // ignore
+  }
+}
 
 // ─── Flip-Clock Digit ─────────────────────────────────────────────────────────
 //
@@ -306,20 +350,14 @@ class PairingDialog extends StatefulWidget {
   State<PairingDialog> createState() => _PairingDialogState();
 }
 
-class _PairingDialogState extends State<PairingDialog>
-    with WidgetsBindingObserver {
+class _PairingDialogState extends State<PairingDialog> {
   bool _busy = true;
   String? _err;
   bool _bail = false;
 
-  /// Tracks whether the app went to background while Phase 1 was in-flight.
-  /// Used on [resumed] to auto-retry if pairing failed while backgrounded.
-  bool _wentToBackgroundDuringPairing = false;
-
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addObserver(this);
     // Delay pairing by the total duration of the flip animation plus a small buffer
     // Initial delay + (3 staggers * 250) + flip animation (500)
     Future.delayed(const Duration(milliseconds: 2500), () {
@@ -327,66 +365,28 @@ class _PairingDialogState extends State<PairingDialog>
     });
   }
 
-  @override
-  void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    super.dispose();
-  }
-
-  /// Lifecycle guard for same-device pairing.
-  ///
-  /// CRITICAL: We do NOT cancel pairing on [paused].
-  ///
-  /// Reason: In Sunshine/Apollo, Phase 1 (getservercert) is the BLOCKING
-  /// long-poll that the server holds open until the user enters the PIN.
-  /// Cancelling it would kill Phase 1 mid-wait, produce "out of order
-  /// getservercert" on retry, and force the user to re-enter the PIN.
-  ///
-  /// Correct behavior: let Phase 1 complete naturally in the background.
-  /// When the user enters the PIN in Chrome, the server responds → Phase 1
-  /// returns → Phases 2-5 complete in seconds → pairing succeeds, possibly
-  /// while the user is still in Chrome (dialog will dismiss on return).
-  ///
-  /// If pairing failed while backgrounded (network killed Phase 1's TCP),
-  /// auto-retry fires on [resumed] so the user just re-enters the same PIN.
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.paused && _busy && !_bail) {
-      _wentToBackgroundDuringPairing = true;
-      // Do NOT call cancelActivePairing() here — see doc above.
-    } else if (state == AppLifecycleState.resumed &&
-        _wentToBackgroundDuringPairing) {
-      _wentToBackgroundDuringPairing = false;
-      if (_bail) return;
-
-      // If pairing failed while we were in the background (e.g. TCP killed),
-      // auto-retry now that we're in foreground with stable network.
-      if (!_busy && _err != null) {
-        Future.delayed(const Duration(seconds: 1), () {
-          if (mounted && !_bail) _pair();
-        });
-      }
-      // If _busy == true: Phase 1 is still waiting for server response.
-      // Nothing to do — let it complete; the dialog will update naturally.
-    }
-  }
-
   void _abort() {
     _bail = true;
     // Signal explicit user-initiated cancellation.
+    // This sets _cancelRequested in PairingService, which causes the
+    // native poll loop to call 'release' → stops the FGS + cancel flag.
     context.read<ComputerProvider>().cancelActivePairing();
+
+    // Best-effort server-side cleanup: tell the server to drop the
+    // pairing session so it doesn't linger. Fire-and-forget with
+    // proper client cleanup to avoid socket leaks.
     final addr = widget.computer.activeAddress.isNotEmpty
         ? widget.computer.activeAddress
         : widget.computer.localAddress;
     final p =
         widget.computer.externalPort > 0 ? widget.computer.externalPort : 47989;
-    try {
-      http.Client()
-          .get(Uri.parse(
-              'http://$addr:$p/unpair?uniqueid=${ClientIdentity.uniqueId}'))
-          .timeout(const Duration(seconds: 3))
-          .whenComplete(() {});
-    } catch (_) {}
+    final client = http.Client();
+    client
+        .get(Uri.parse(
+            'http://$addr:$p/unpair?uniqueid=${ClientIdentity.uniqueId}'))
+        .timeout(const Duration(seconds: 3))
+        .whenComplete(client.close)
+        .ignore();
     Navigator.pop(context, false);
   }
 
@@ -574,8 +574,24 @@ class _PairingDialogState extends State<PairingDialog>
 }
 
 /// Shows the pairing dialog and returns `true` if pairing succeeded.
+///
+/// On Android 13+ this first checks the POST_NOTIFICATIONS permission.
+/// If denied, a disclaimer dialog explains why it is critical and offers
+/// to re-request or open system settings. Pairing only proceeds once the
+/// user either grants the permission or explicitly chooses to continue
+/// without it.
 Future<bool> showPairingDialog(
     BuildContext context, ComputerDetails computer) async {
+  // ── Notification permission gate (Android 13+) ──────────────────────
+  if (io.Platform.isAndroid) {
+    final status = await _checkNotificationPermission();
+    if (status == 'denied' && context.mounted) {
+      final proceed = await _showNotificationDisclaimer(context);
+      if (!proceed || !context.mounted) return false;
+    }
+  }
+
+  if (!context.mounted) return false;
   final pin = context.read<ComputerProvider>().generatePairingPin();
   final ok = await showDialog<bool>(
     context: context,
@@ -583,4 +599,234 @@ Future<bool> showPairingDialog(
     builder: (_) => PairingDialog(computer: computer, pin: pin),
   );
   return ok ?? false;
+}
+
+/// Disclaimer dialog explaining why notification permission is required.
+///
+/// Returns `true` if the user granted permission or chose to continue
+/// without it, `false` if the user cancelled.
+Future<bool> _showNotificationDisclaimer(BuildContext context) async {
+  final tp = context.read<ThemeProvider>();
+  final isLight = tp.colors.isLight;
+
+  final result = await showDialog<String>(
+    context: context,
+    barrierDismissible: false,
+    builder: (ctx) => AlertDialog(
+      backgroundColor: tp.surface,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      icon: Icon(
+        Icons.notifications_active_rounded,
+        color: Colors.orangeAccent,
+        size: 40,
+      ),
+      title: Text(
+        'Notification Permission Required',
+        style: TextStyle(
+          color: isLight ? Colors.black87 : Colors.white,
+          fontWeight: FontWeight.w700,
+          fontSize: 17,
+        ),
+      ),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'JUJO needs notification permission to pair with your server.',
+            style: TextStyle(
+              color: isLight ? Colors.black87 : Colors.white,
+              fontWeight: FontWeight.w600,
+              fontSize: 14,
+            ),
+          ),
+          const SizedBox(height: 12),
+          _disclaimerBullet(
+            Icons.phone_android_rounded,
+            'When you open the browser to enter the PIN, JUJO goes to the background.',
+            isLight,
+          ),
+          const SizedBox(height: 8),
+          _disclaimerBullet(
+            Icons.vpn_key_rounded,
+            'The PIN is shown in the notification so you can see it without switching apps.',
+            isLight,
+          ),
+          const SizedBox(height: 8),
+          _disclaimerBullet(
+            Icons.wifi_protected_setup_rounded,
+            'The pairing handshake runs as a background service that survives the app being minimized.',
+            isLight,
+          ),
+          const SizedBox(height: 14),
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: Colors.orangeAccent.withValues(alpha: 0.10),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: Colors.orangeAccent.withValues(alpha: 0.25),
+              ),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.warning_amber_rounded,
+                    color: Colors.orangeAccent, size: 18),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Without this permission, pairing may fail on single-device setups.',
+                    style: TextStyle(
+                      color: Colors.orangeAccent.shade700,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+      actionsAlignment: MainAxisAlignment.spaceBetween,
+      actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(ctx, 'cancel'),
+          child: Text(
+            'Cancel',
+            style: TextStyle(
+              color: isLight ? Colors.black54 : Colors.white54,
+            ),
+          ),
+        ),
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, 'skip'),
+              child: Text(
+                'Continue Anyway',
+                style: TextStyle(
+                  color: isLight ? Colors.black54 : Colors.white54,
+                  fontSize: 13,
+                ),
+              ),
+            ),
+            const SizedBox(width: 6),
+            ElevatedButton.icon(
+              onPressed: () => Navigator.pop(ctx, 'grant'),
+              icon: const Icon(Icons.check_circle_outline, size: 18),
+              label: const Text('Allow'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: tp.accent,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
+    ),
+  );
+
+  if (result == 'cancel' || result == null) return false;
+  if (result == 'skip') return true;
+
+  // result == 'grant' → request the permission
+  final permResult = await _requestNotificationPermission();
+  if (permResult == 'granted') return true;
+
+  // Still denied after the system dialog — the user tapped "Don't allow"
+  // or the system won't show the dialog again (permanently denied).
+  // Offer to open settings.
+  if (!context.mounted) return false;
+  final settingsResult = await showDialog<String>(
+    context: context,
+    barrierDismissible: false,
+    builder: (ctx) => AlertDialog(
+      backgroundColor: tp.surface,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      icon: const Icon(Icons.block_rounded, color: Colors.redAccent, size: 36),
+      title: Text(
+        'Permission Denied',
+        style: TextStyle(
+          color: isLight ? Colors.black87 : Colors.white,
+          fontWeight: FontWeight.w700,
+          fontSize: 17,
+        ),
+      ),
+      content: Text(
+        'Notifications are still blocked. You can enable them manually '
+        'in Settings, or continue without the PIN notification.\n\n'
+        'Without notifications, you will need to memorize the PIN before '
+        'opening the browser.',
+        style: TextStyle(
+          color: isLight ? Colors.black54 : Colors.white70,
+          fontSize: 13,
+        ),
+      ),
+      actionsAlignment: MainAxisAlignment.end,
+      actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(ctx, 'cancel'),
+          child: const Text('Cancel'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(ctx, 'skip'),
+          child: const Text('Continue Anyway'),
+        ),
+        ElevatedButton.icon(
+          onPressed: () async {
+            await _openNotificationSettings();
+            if (ctx.mounted) Navigator.pop(ctx, 'settings');
+          },
+          icon: const Icon(Icons.settings, size: 18),
+          label: const Text('Open Settings'),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: tp.accent,
+            foregroundColor: Colors.white,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+
+  if (settingsResult == 'cancel' || settingsResult == null) return false;
+  if (settingsResult == 'skip') return true;
+
+  // User went to settings — re-check when they come back
+  if (context.mounted) {
+    // Small delay to let the user toggle the setting and return
+    await Future.delayed(const Duration(milliseconds: 500));
+    final recheck = await _checkNotificationPermission();
+    return recheck != 'denied';
+  }
+  return false;
+}
+
+Widget _disclaimerBullet(IconData icon, String text, bool isLight) {
+  return Row(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Icon(icon, size: 16, color: isLight ? Colors.black38 : Colors.white38),
+      const SizedBox(width: 8),
+      Expanded(
+        child: Text(
+          text,
+          style: TextStyle(
+            color: isLight ? Colors.black54 : Colors.white60,
+            fontSize: 12.5,
+            height: 1.35,
+          ),
+        ),
+      ),
+    ],
+  );
 }

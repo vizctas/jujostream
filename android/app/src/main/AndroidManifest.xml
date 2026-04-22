@@ -66,8 +66,8 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
-            <service 
-            android:name=".native_bridge.PairingForegroundService"
+            <service
+            android:name="com.limelight.jujostream.native_bridge.PairingForegroundService"
             android:foregroundServiceType="connectedDevice"
             android:exported="false" />
     </application>
