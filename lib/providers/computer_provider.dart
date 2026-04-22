@@ -358,6 +358,13 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
     return _pairingService.generatePin();
   }
 
+  /// Aborts the in-progress [pairComputer] call as soon as possible.
+  /// Called by the UI when the app is sent to background during pairing
+  /// so the Phase 2 long-poll retry loop exits cleanly.
+  void cancelActivePairing() {
+    _pairingService.requestCancel();
+  }
+
   Future<PairingResult> pairComputer(
     ComputerDetails computer,
     String pin,

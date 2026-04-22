@@ -306,14 +306,20 @@ class PairingDialog extends StatefulWidget {
   State<PairingDialog> createState() => _PairingDialogState();
 }
 
-class _PairingDialogState extends State<PairingDialog> {
+class _PairingDialogState extends State<PairingDialog>
+    with WidgetsBindingObserver {
   bool _busy = true;
   String? _err;
   bool _bail = false;
 
+  /// Tracks whether the app went to background while Phase 1 was in-flight.
+  /// Used on [resumed] to auto-retry if pairing failed while backgrounded.
+  bool _wentToBackgroundDuringPairing = false;
+
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     // Delay pairing by the total duration of the flip animation plus a small buffer
     // Initial delay + (3 staggers * 250) + flip animation (500)
     Future.delayed(const Duration(milliseconds: 2500), () {
@@ -321,8 +327,54 @@ class _PairingDialogState extends State<PairingDialog> {
     });
   }
 
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  /// Lifecycle guard for same-device pairing.
+  ///
+  /// CRITICAL: We do NOT cancel pairing on [paused].
+  ///
+  /// Reason: In Sunshine/Apollo, Phase 1 (getservercert) is the BLOCKING
+  /// long-poll that the server holds open until the user enters the PIN.
+  /// Cancelling it would kill Phase 1 mid-wait, produce "out of order
+  /// getservercert" on retry, and force the user to re-enter the PIN.
+  ///
+  /// Correct behavior: let Phase 1 complete naturally in the background.
+  /// When the user enters the PIN in Chrome, the server responds → Phase 1
+  /// returns → Phases 2-5 complete in seconds → pairing succeeds, possibly
+  /// while the user is still in Chrome (dialog will dismiss on return).
+  ///
+  /// If pairing failed while backgrounded (network killed Phase 1's TCP),
+  /// auto-retry fires on [resumed] so the user just re-enters the same PIN.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused && _busy && !_bail) {
+      _wentToBackgroundDuringPairing = true;
+      // Do NOT call cancelActivePairing() here — see doc above.
+    } else if (state == AppLifecycleState.resumed &&
+        _wentToBackgroundDuringPairing) {
+      _wentToBackgroundDuringPairing = false;
+      if (_bail) return;
+
+      // If pairing failed while we were in the background (e.g. TCP killed),
+      // auto-retry now that we're in foreground with stable network.
+      if (!_busy && _err != null) {
+        Future.delayed(const Duration(seconds: 1), () {
+          if (mounted && !_bail) _pair();
+        });
+      }
+      // If _busy == true: Phase 1 is still waiting for server response.
+      // Nothing to do — let it complete; the dialog will update naturally.
+    }
+  }
+
   void _abort() {
     _bail = true;
+    // Signal explicit user-initiated cancellation.
+    context.read<ComputerProvider>().cancelActivePairing();
     final addr = widget.computer.activeAddress.isNotEmpty
         ? widget.computer.activeAddress
         : widget.computer.localAddress;
@@ -466,7 +518,7 @@ class _PairingDialogState extends State<PairingDialog> {
                       ? widget.computer.activeAddress
                       : widget.computer.localAddress;
                   final url = Uri.parse('https://$addr:$_webUiPort');
-                  launchUrl(url, mode: LaunchMode.inAppBrowserView);
+                  launchUrl(url, mode: LaunchMode.externalApplication);
                 },
                 icon: const Icon(Icons.open_in_browser_rounded, size: 20),
                 label: const Text('Open Server Dashboard'),
@@ -496,8 +548,7 @@ class _PairingDialogState extends State<PairingDialog> {
               ]),
             if (_err != null) ...[
               const SizedBox(height: 8),
-              Text(_err!,
-                  style: const TextStyle(color: Colors.redAccent)),
+              Text(_err!, style: const TextStyle(color: Colors.redAccent)),
             ],
           ],
         ),

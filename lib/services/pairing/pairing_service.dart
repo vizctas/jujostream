@@ -2,6 +2,7 @@
 import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
 import 'package:pointycastle/export.dart';
@@ -16,7 +17,23 @@ class PairingService {
 
   static const Duration _phase5Timeout = Duration(seconds: 5);
 
+  /// MethodChannel for acquiring/releasing WakeLock + WifiLock on Android.
+  /// Calls silently no-op on non-Android platforms.
+  static const MethodChannel _pairingLocksChannel =
+      MethodChannel('com.jujostream/pairing_locks');
+
   static String get _uniqueId => ClientIdentity.uniqueId;
+
+  /// Set to true from [requestCancel] to abort an in-progress [pair] call.
+  /// Checked by [_runPairingPhase] at each retry iteration.
+  bool _cancelRequested = false;
+
+  /// Signals the active [pair] call to abort as soon as possible.
+  /// Called by the UI when the app goes to background during pairing.
+  void requestCancel() {
+    _cancelRequested = true;
+    _log.d('PairingService: cancel requested');
+  }
 
   late final RSAPrivateKey _clientPrivateKey = _parsePkcs8RsaPrivateKey(
     ClientIdentity.keyPem,
@@ -38,6 +55,9 @@ class PairingService {
   }
 
   Future<PairingResult> pair(ComputerDetails computer, String pin) async {
+    // Reset cancellation flag for this fresh pairing attempt.
+    _cancelRequested = false;
+
     final address = computer.activeAddress.isNotEmpty
         ? computer.activeAddress
         : computer.localAddress;
@@ -48,17 +68,27 @@ class PairingService {
 
     _log.i('Starting pairing with $address:$pairingPort, PIN: $pin');
 
+    // Acquire WakeLock + WifiLock so Android doesn\'t throttle the CPU or
+    // kill the WiFi socket when the user switches to Chrome to enter the PIN.
+    // On non-Android platforms this call is silently ignored.
+    try {
+      await _pairingLocksChannel.invokeMethod<void>('acquire');
+    } catch (_) {}
+
     final baseUrl = 'http://$address:$pairingPort';
     final uniqueId = _uniqueId;
 
     try {
-
+      // ── Upfront server-state reset ───────────────────────────────────────
+      // Clear any stale pairing session from a previous failed attempt.
+      // The delay is OUTSIDE the catch so it always executes even on failure.
       try {
         await _freshGet(
           '$baseUrl/unpair?uniqueid=$uniqueId',
-          timeout: const Duration(seconds: 5),
+          timeout: const Duration(seconds: 4),
         );
       } catch (_) {}
+      await Future.delayed(const Duration(milliseconds: 1500));
 
       final salt = _generateRandomBytes(16);
       final aesKey = _deriveAesKey(salt, pin);
@@ -74,26 +104,107 @@ class PairingService {
 
       _log.d('Phase 1: $phase1Url');
 
-      var phase1Response = await _freshGet(phase1Url);
+      // ── Phase 1: getservercert — the BLOCKING long-poll phase ─────────────
+      //
+      // MOONLIGHT REFERENCE INSIGHT (NvHTTP.java):
+      //   Phase 1 uses enableReadTimeout=false → readTimeout=0 (INFINITE).
+      //   Comment: "The initial pair query does require outside action (user
+      //   entering a PIN) but subsequent pairing queries do not."
+      //
+      // Sunshine/Apollo HOLDS the Phase 1 HTTP response until the user enters
+      // the PIN on the web UI. Phases 2-5 complete in seconds afterward.
+      //
+      // Previous bug: 10s timeout caused Phase 1 to die before user could
+      // switch apps, navigate to Sunshine, and type the PIN (30-90s typical).
+      // Dead Phase 1 → stale server session → "out of order getservercert."
+      //
+      // Fix: 90s per connection attempt. Self-heal (unpair + retry) if server
+      // rejects Phase 1 with paired=0 (stale session from prior attempt).
+      late String phase1Xml;
+      late String serverCertHex;
+      bool phase1Accepted = false;
 
-      if (phase1Response.statusCode != 200) {
-        _log.w('Phase 1 failed (${phase1Response.statusCode}). Server might be stuck. Retrying to clear state...');
-        await Future.delayed(const Duration(milliseconds: 500));
-        phase1Response = await _freshGet(phase1Url);
-        if (phase1Response.statusCode != 200) {
-          return PairingResult.failed(
-            'Phase 1 failed: HTTP ${phase1Response.statusCode}',
-          );
+      // Outer: 0 = normal attempt, 1 = self-heal (unpair + retry on rejection)
+      selfHealLoop:
+      for (var selfHeal = 0; selfHeal < 2 && !phase1Accepted; selfHeal++) {
+        if (selfHeal == 1) {
+          _log.w('Phase 1 rejected by server (stale session). Self-healing: unpair + retry.');
+          try {
+            await _freshGet(
+              '$baseUrl/unpair?uniqueid=$uniqueId',
+              timeout: const Duration(seconds: 5),
+            );
+          } catch (_) {}
+          await Future.delayed(const Duration(milliseconds: 2500));
+        }
+
+        // Inner: up to 4 connection attempts per self-heal pass
+        for (var attempt = 0; attempt < 4; attempt++) {
+          if (_cancelRequested) throw const _PairingCancelledException();
+          try {
+            final resp = await _freshGet(
+              phase1Url,
+              // 90 s = enough for user to copy PIN, switch to Chrome,
+              // navigate to Sunshine web UI, and type the PIN.
+              timeout: const Duration(seconds: 120),
+            );
+            phase1Xml = resp.body;
+
+            if (_extractXmlValue(phase1Xml, 'paired') == '1') {
+              phase1Accepted = true;
+              break selfHealLoop; // full success — exit both loops
+            }
+
+            // Server returned paired=0 — break inner loop so the outer loop
+            // can trigger the self-heal pass (unpair + retry Phase 1).
+            _log.w('Phase 1 returned paired=0 on attempt ${attempt + 1}'
+                ' (selfHeal=$selfHeal). Will self-heal if available.');
+            break;
+          } on TimeoutException catch (e) {
+            // 90 s elapsed without a server response. The user may still be
+            // navigating to the web UI. Retry the same URL (same salt).
+            _log.w('Phase 1 attempt ${attempt + 1}/4 timed out: $e. Retrying…');
+            // Loop continues to next attempt (no break/rethrow).
+          } catch (e) {
+            final lo = e.toString().toLowerCase();
+            final isSocketErr =
+                lo.contains('connection abort') ||
+                lo.contains('software caused') ||
+                lo.contains('connection reset') ||
+                lo.contains('connection refused') ||
+                lo.contains('connection closed') ||
+                lo.contains('socketexception') ||
+                lo.contains('broken pipe');
+            if (isSocketErr) {
+              _log.w('Phase 1 socket error attempt ${attempt + 1}/4: $e.'
+                  '${attempt < 3 ? ' Retrying in 2s…' : ' All attempts exhausted.'}');
+              if (attempt < 3) {
+                await Future.delayed(const Duration(seconds: 2));
+                continue; // next inner attempt
+              }
+              rethrow; // propagates to outer catch → classifyError → PAIR-001
+            }
+            rethrow;
+          }
         }
       }
 
-      final phase1Xml = phase1Response.body;
-      if (_extractXmlValue(phase1Xml, 'paired') != '1') {
+      if (!phase1Accepted) {
         return PairingResult.failed('Server rejected pairing request');
       }
 
-      final serverCertHex = _extractXmlValue(phase1Xml, 'plaincert') ?? '';
+      serverCertHex = _extractXmlValue(phase1Xml, 'plaincert') ?? '';
       if (serverCertHex.isEmpty) {
+        // Another device is simultaneously pairing (GFE/Sunshine returns empty
+        // cert in this case). Mirror Moonlight's ALREADY_IN_PROGRESS handling:
+        // call unpair to unblock the server so the user can retry.
+        _log.w('Phase 1: empty plaincert — another pairing session is active. Unpairing…');
+        try {
+          await _freshGet(
+            '$baseUrl/unpair?uniqueid=$uniqueId',
+            timeout: const Duration(seconds: 5),
+          );
+        } catch (_) {}
         return PairingResult.failed(
           'No server certificate returned (pairing already in progress?)',
         );
@@ -345,11 +456,22 @@ class PairingService {
 
       _log.i('Pairing successful!');
       return PairingResult.success(serverCertHex);
+    } on _PairingCancelledException {
+      // Cancellation is a normal control flow (user backgrounded the app).
+      // Return a typed result so the dialog can show re-entry guidance rather
+      // than a generic error message.
+      _log.i('Pairing cancelled by lifecycle observer (app went to background).');
+      return PairingResult.cancelled();
     } catch (e) {
       _log.e('Pairing error (raw): $e');
       final classified = classifyError('PAIR', e);
       _log.e('Pairing error (code): ${classified.code}');
       return PairingResult.failed(classified.userMessage);
+    } finally {
+      // Always release locks — even if pairing throws unexpectedly.
+      try {
+        await _pairingLocksChannel.invokeMethod<void>('release');
+      } catch (_) {}
     }
   }
 
@@ -594,7 +716,12 @@ class PairingService {
     }
   }
 
-  static Future<http.Response> _runPairingPhase(
+  /// Runs a single pairing phase with automatic socket-error retry.
+  ///
+  /// Throws [_PairingCancelledException] if [requestCancel] was called.
+  /// Throws [TimeoutException] if [timeout] (default 60s) is exceeded.
+  /// Other non-socket exceptions are rethrown immediately.
+  Future<http.Response> _runPairingPhase(
     String phaseName,
     String url, {
     Duration? timeout,
@@ -603,6 +730,13 @@ class PairingService {
     final maxWait = timeout ?? const Duration(seconds: 60);
 
     while (true) {
+      // Cancellation check — fires at the top of every retry iteration,
+      // i.e., within 1 second of requestCancel() being called (delay below).
+      if (_cancelRequested) {
+        _log.w('$phaseName aborted: cancel was requested (app went to background)');
+        throw const _PairingCancelledException();
+      }
+
       final elapsed = DateTime.now().difference(startTime);
       final remaining = maxWait - elapsed;
       if (remaining.isNegative) {
@@ -614,6 +748,7 @@ class PairingService {
       } on TimeoutException {
         throw TimeoutException('$phaseName timed out after ${maxWait.inSeconds}s', maxWait);
       } catch (e) {
+        if (e is _PairingCancelledException) rethrow;
         final lower = e.toString().toLowerCase();
         if (lower.contains('connection abort') ||
             lower.contains('software caused connection') ||
@@ -622,7 +757,7 @@ class PairingService {
             lower.contains('connection reset') ||
             lower.contains('broken pipe') ||
             lower.contains('socketexception')) {
-          Logger().w('$phaseName socket dropped: $e. Retrying in 1s...');
+          _log.w('$phaseName socket dropped: $e. Retrying in 1s...');
           await Future.delayed(const Duration(seconds: 1));
           continue;
         }
@@ -653,11 +788,35 @@ class PairingResult {
   final String? serverCert;
   final String? error;
 
-  PairingResult._({required this.paired, this.serverCert, this.error});
+  /// True when pairing was interrupted by the user backgrounding the app.
+  /// The dialog uses this to show specific "re-enter PIN" guidance instead
+  /// of a generic error, and to auto-retry once the user is back in foreground.
+  final bool wasCancelled;
+
+  PairingResult._({
+    required this.paired,
+    this.serverCert,
+    this.error,
+    this.wasCancelled = false,
+  });
 
   factory PairingResult.success(String serverCert) =>
       PairingResult._(paired: true, serverCert: serverCert);
 
   factory PairingResult.failed(String error) =>
       PairingResult._(paired: false, error: error);
+
+  factory PairingResult.cancelled() => PairingResult._(
+        paired: false,
+        error: 'Pairing interrupted',
+        wasCancelled: true,
+      );
+}
+
+/// Thrown internally by [PairingService._runPairingPhase] when
+/// [PairingService.requestCancel] is called while a phase is retrying.
+class _PairingCancelledException implements Exception {
+  const _PairingCancelledException();
+  @override
+  String toString() => 'Pairing was interrupted (app went to background)';
 }
