@@ -119,6 +119,9 @@ flutter {
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
 
+    // AndroidX core (required for NotificationCompat, ServiceCompat, etc.)
+    implementation("androidx.core:core-ktx:1.15.0")
+
     // Local JVM unit tests
     testImplementation("junit:junit:4.13.2")
 

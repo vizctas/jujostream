@@ -1,7 +1,8 @@
 ﻿import 'dart:async';
 import 'dart:convert';
+import 'dart:io' show Platform;
 import 'dart:math';
-import 'dart:typed_data';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
@@ -68,20 +69,11 @@ class PairingService {
 
     _log.i('Starting pairing with $address:$pairingPort, PIN: $pin');
 
-    // Acquire WakeLock + WifiLock so Android doesn\'t throttle the CPU or
-    // kill the WiFi socket when the user switches to Chrome to enter the PIN.
-    // On non-Android platforms this call is silently ignored.
-    try {
-      await _pairingLocksChannel.invokeMethod<void>('acquire');
-    } catch (_) {}
-
     final baseUrl = 'http://$address:$pairingPort';
     final uniqueId = _uniqueId;
 
     try {
       // ── Upfront server-state reset ───────────────────────────────────────
-      // Clear any stale pairing session from a previous failed attempt.
-      // The delay is OUTSIDE the catch so it always executes even on failure.
       try {
         await _freshGet(
           '$baseUrl/unpair?uniqueid=$uniqueId',
@@ -106,29 +98,26 @@ class PairingService {
 
       // ── Phase 1: getservercert — the BLOCKING long-poll phase ─────────────
       //
-      // MOONLIGHT REFERENCE INSIGHT (NvHTTP.java):
-      //   Phase 1 uses enableReadTimeout=false → readTimeout=0 (INFINITE).
-      //   Comment: "The initial pair query does require outside action (user
-      //   entering a PIN) but subsequent pairing queries do not."
-      //
       // Sunshine/Apollo HOLDS the Phase 1 HTTP response until the user enters
-      // the PIN on the web UI. Phases 2-5 complete in seconds afterward.
+      // the PIN on the web UI. This can take 30-120s.
       //
-      // Previous bug: 10s timeout caused Phase 1 to die before user could
-      // switch apps, navigate to Sunshine, and type the PIN (30-90s typical).
-      // Dead Phase 1 → stale server session → "out of order getservercert."
+      // On Android: Phase 1 runs as a NATIVE HTTP GET inside the Foreground
+      // Service (Java thread). This survives Dart VM pause when the user
+      // switches to Chrome to enter the PIN. Dart polls for the result.
       //
-      // Fix: 90s per connection attempt. Self-heal (unpair + retry) if server
-      // rejects Phase 1 with paired=0 (stale session from prior attempt).
+      // On other platforms (macOS/Windows/iOS): Dart HTTP works fine because
+      // the OS doesn't pause the process when switching apps.
       late String phase1Xml;
       late String serverCertHex;
       bool phase1Accepted = false;
+
+      final bool useNativePoll = !kIsWeb && Platform.isAndroid;
 
       // Outer: 0 = normal attempt, 1 = self-heal (unpair + retry on rejection)
       selfHealLoop:
       for (var selfHeal = 0; selfHeal < 2 && !phase1Accepted; selfHeal++) {
         if (selfHeal == 1) {
-          _log.w('Phase 1 rejected by server (stale session). Self-healing: unpair + retry.');
+          _log.w('Phase 1 rejected. Self-healing: unpair + retry.');
           try {
             await _freshGet(
               '$baseUrl/unpair?uniqueid=$uniqueId',
@@ -138,33 +127,40 @@ class PairingService {
           await Future.delayed(const Duration(milliseconds: 2500));
         }
 
-        // Inner: up to 4 connection attempts per self-heal pass
         for (var attempt = 0; attempt < 4; attempt++) {
           if (_cancelRequested) throw const _PairingCancelledException();
           try {
-            final resp = await _freshGet(
-              phase1Url,
-              // 90 s = enough for user to copy PIN, switch to Chrome,
-              // navigate to Sunshine web UI, and type the PIN.
-              timeout: const Duration(seconds: 120),
-            );
-            phase1Xml = resp.body;
+            String responseBody;
+
+            if (useNativePoll) {
+              // ── ANDROID: Native HTTP in Foreground Service ──────────────
+              // Starts the FGS which acquires WifiLock + WakeLock AND runs
+              // the HTTP GET in a native Java thread that survives Dart pause.
+              responseBody = await _nativePhase1Poll(
+                phase1Url,
+                timeoutMs: 120000,
+              );
+            } else {
+              // ── OTHER PLATFORMS: Dart HTTP (process doesn't pause) ──────
+              final resp = await _freshGet(
+                phase1Url,
+                timeout: const Duration(seconds: 120),
+              );
+              responseBody = resp.body;
+            }
+
+            phase1Xml = responseBody;
 
             if (_extractXmlValue(phase1Xml, 'paired') == '1') {
               phase1Accepted = true;
-              break selfHealLoop; // full success — exit both loops
+              break selfHealLoop;
             }
 
-            // Server returned paired=0 — break inner loop so the outer loop
-            // can trigger the self-heal pass (unpair + retry Phase 1).
             _log.w('Phase 1 returned paired=0 on attempt ${attempt + 1}'
                 ' (selfHeal=$selfHeal). Will self-heal if available.');
             break;
           } on TimeoutException catch (e) {
-            // 90 s elapsed without a server response. The user may still be
-            // navigating to the web UI. Retry the same URL (same salt).
             _log.w('Phase 1 attempt ${attempt + 1}/4 timed out: $e. Retrying…');
-            // Loop continues to next attempt (no break/rethrow).
           } catch (e) {
             final lo = e.toString().toLowerCase();
             final isSocketErr =
@@ -180,9 +176,9 @@ class PairingService {
                   '${attempt < 3 ? ' Retrying in 2s…' : ' All attempts exhausted.'}');
               if (attempt < 3) {
                 await Future.delayed(const Duration(seconds: 2));
-                continue; // next inner attempt
+                continue;
               }
-              rethrow; // propagates to outer catch → classifyError → PAIR-001
+              rethrow;
             }
             rethrow;
           }
@@ -195,9 +191,6 @@ class PairingService {
 
       serverCertHex = _extractXmlValue(phase1Xml, 'plaincert') ?? '';
       if (serverCertHex.isEmpty) {
-        // Another device is simultaneously pairing (GFE/Sunshine returns empty
-        // cert in this case). Mirror Moonlight's ALREADY_IN_PROGRESS handling:
-        // call unpair to unblock the server so the user can retry.
         _log.w('Phase 1: empty plaincert — another pairing session is active. Unpairing…');
         try {
           await _freshGet(
@@ -473,6 +466,72 @@ class PairingService {
         await _pairingLocksChannel.invokeMethod<void>('release');
       } catch (_) {}
     }
+  }
+
+  /// Runs Phase 1 HTTP long-poll via native Android Foreground Service.
+  ///
+  /// The native side (PairingForegroundService) runs the HTTP GET in a Java
+  /// thread that survives Dart VM pause. This method:
+  ///   1. Sends "acquireAndPoll" to start the FGS + native HTTP GET
+  ///   2. Polls "pollResult" every 500ms until the native thread completes
+  ///   3. Returns the HTTP response body
+  ///
+  /// Throws [TimeoutException] if the native poll doesn't complete in time.
+  /// Throws [Exception] on network errors reported by the native side.
+  Future<String> _nativePhase1Poll(
+    String url, {
+    required int timeoutMs,
+  }) async {
+    _log.i('Phase 1: using native Android poll (survives Dart VM pause)');
+
+    // Start the Foreground Service with the Phase 1 URL
+    await _pairingLocksChannel.invokeMethod<void>('acquireAndPoll', {
+      'url': url,
+      'timeoutMs': timeoutMs,
+    });
+
+    // Poll for the result — the native thread runs independently of Dart.
+    // When Dart resumes from background, the result may already be waiting.
+    final deadline = DateTime.now().add(Duration(milliseconds: timeoutMs + 15000));
+
+    while (DateTime.now().isBefore(deadline)) {
+      if (_cancelRequested) {
+        throw const _PairingCancelledException();
+      }
+
+      final result = await _pairingLocksChannel.invokeMethod<Map>('pollResult');
+
+      if (result != null) {
+        final success = result['success'] as bool? ?? false;
+        final body = result['body'] as String? ?? '';
+        final error = result['error'] as String?;
+
+        if (error == 'cancelled') {
+          throw const _PairingCancelledException();
+        }
+        if (error == 'interrupted') {
+          throw const _PairingCancelledException();
+        }
+        if (error != null && error.startsWith('timeout')) {
+          throw TimeoutException('Phase 1 native poll timed out');
+        }
+        if (error != null) {
+          throw Exception('Phase 1 native error: $error');
+        }
+        if (!success) {
+          throw Exception('Phase 1 native HTTP failed (status=${result['statusCode']})');
+        }
+
+        _log.i('Phase 1: native poll completed successfully');
+        return body;
+      }
+
+      // Result not ready yet — wait 500ms before polling again.
+      // This is cheap: MethodChannel calls are ~0.1ms overhead.
+      await Future.delayed(const Duration(milliseconds: 500));
+    }
+
+    throw TimeoutException('Phase 1 native poll exceeded deadline');
   }
 
   Future<bool> unpair(ComputerDetails computer) async {
