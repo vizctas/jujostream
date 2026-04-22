@@ -92,6 +92,14 @@ class VideoDecoderRenderer(
     private var decoderName = "unknown"
     private var activeRenderPath = "texture"
 
+    // ── Vendor quirk flags (resolved in setup() after decoder creation) ──
+    private var isMediaTekDecoder = false
+    private var isExynosDecoder = false
+
+    // ── Zero-output watchdog state ──────────────────────────────────────
+    @Volatile private var startTimeNs = 0L
+    private var zeroOutputWarningEmitted = false
+
     private val queueTimestampNs = HashMap<Long, Long>(64)
 
     // Choreographer vsync: holds decoded buffer indices ready for presentation
@@ -140,6 +148,41 @@ class VideoDecoderRenderer(
                 }
             }
 
+            // ── Step 1: Create decoder BEFORE configuring format ─────────
+            // We need the decoder name to detect vendor quirks (MediaTek,
+            // Exynos) that affect which MediaFormat keys are safe to use.
+            val matchedDecoder = decodersByMime[mimeType]
+            videoDecoder = if (!matchedDecoder.isNullOrBlank()) {
+                try {
+                    Log.i(TAG, "Using explicit decoder: $matchedDecoder (for $mimeType)")
+                    MediaCodec.createByCodecName(matchedDecoder)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Explicit decoder failed ($matchedDecoder): ${e.message} — type fallback")
+                    MediaCodec.createDecoderByType(mimeType)
+                }
+            } else {
+                Log.i(TAG, "No explicit decoder for $mimeType — using type fallback")
+                MediaCodec.createDecoderByType(mimeType)
+            }
+            decoderName = videoDecoder!!.name
+
+            // ── Step 2: Detect vendor quirks from decoder name ───────────
+            val nameLower = decoderName.lowercase()
+            isMediaTekDecoder = nameLower.contains("mtk") || nameLower.contains("mediatek")
+            isExynosDecoder = nameLower.contains("exynos")
+
+            // [G] Diagnostic: log device + decoder identity for remote debugging
+            val socModel = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) Build.SOC_MODEL else "unknown"
+            Log.i(TAG, "┌─── DECODER DIAGNOSTIC ───────────────────────────")
+            Log.i(TAG, "│ Device: ${Build.MANUFACTURER} ${Build.MODEL}")
+            Log.i(TAG, "│ SoC: hw=${Build.HARDWARE} board=${Build.BOARD} soc=$socModel")
+            Log.i(TAG, "│ Android: API ${Build.VERSION.SDK_INT} (${Build.VERSION.RELEASE})")
+            Log.i(TAG, "│ Decoder: $decoderName")
+            Log.i(TAG, "│ MIME: $mimeType")
+            Log.i(TAG, "│ Quirks: mtk=$isMediaTekDecoder exynos=$isExynosDecoder weak=$isWeakDevice")
+            Log.i(TAG, "└──────────────────────────────────────────────────")
+
+            // ── Step 3: Build MediaFormat with vendor-aware keys ─────────
             val format = MediaFormat.createVideoFormat(mimeType, width, height)
 
             // Pre-declare max resolution so the decoder allocates buffers at the right size
@@ -156,17 +199,28 @@ class VideoDecoderRenderer(
                     format.setFloat(MediaFormat.KEY_OPERATING_RATE, minOf(redrawRate, 30).toFloat())
                     format.setInteger(MediaFormat.KEY_PRIORITY, 1)
                 } else {
-                    format.setFloat(MediaFormat.KEY_OPERATING_RATE, redrawRate.toFloat())
+                    // [C] Use Short.MAX_VALUE instead of exact FPS to avoid
+                    // "guaranteed performance" mode that silently fails on some
+                    // MediaTek Dimensity and Samsung Exynos C2 decoders.
+                    // ExoPlayer uses this same approach in production.
+                    format.setFloat(MediaFormat.KEY_OPERATING_RATE, Short.MAX_VALUE.toFloat())
                     format.setInteger(MediaFormat.KEY_PRIORITY, 0)
                 }
             }
 
-            // TV-perf: KEY_LOW_LATENCY forces single-frame decode queue on the
-            // driver — on MT8696/Amlogic this disables pipeline optimizations
-            // and actually increases latency. Only enable on capable devices.
-            if (!isWeakDevice && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            // [B] KEY_LOW_LATENCY causes MediaTek C2 decoders (Dimensity) and
+            // some Samsung Exynos C2 decoders to never produce output frames.
+            // Moonlight upstream and ExoPlayer both skip this key on these vendors.
+            // Only enable on known-good vendors (Qualcomm, Nvidia, etc.).
+            val applyLowLatency = !isWeakDevice &&
+                !isMediaTekDecoder &&
+                !isExynosDecoder &&
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
+            if (applyLowLatency) {
                 format.setInteger(MediaFormat.KEY_LOW_LATENCY, 1)
             }
+            Log.i(TAG, "MediaFormat: lowLatency=$applyLowLatency opRate=${
+                if (isWeakDevice) "capped" else "MAX"} priority=${if (isWeakDevice) 1 else 0}")
 
             // being hardcoded to LIMITED. When fullRange=true, the decoder
             // uses FULL range which preserves the complete 0-255 luma range.
@@ -191,26 +245,9 @@ class VideoDecoderRenderer(
                 }
             }
 
-            // TV-perf: look up the HW decoder name for the ACTUAL negotiated
-            // mime type. The server may negotiate a different codec than what
-            // CodecProbe selected (e.g. HEVC when we wanted AV1), so we must
-            // match by mime, not by a fixed name.
-            val matchedDecoder = decodersByMime[mimeType]
-            videoDecoder = if (!matchedDecoder.isNullOrBlank()) {
-                try {
-                    Log.i(TAG, "Using explicit decoder: $matchedDecoder (for $mimeType)")
-                    MediaCodec.createByCodecName(matchedDecoder)
-                } catch (e: Exception) {
-                    Log.w(TAG, "Explicit decoder failed ($matchedDecoder): ${e.message} — type fallback")
-                    MediaCodec.createDecoderByType(mimeType)
-                }
-            } else {
-                Log.i(TAG, "No explicit decoder for $mimeType — using type fallback")
-                MediaCodec.createDecoderByType(mimeType)
-            }
+            // ── Step 4: Configure and start ──────────────────────────────
             videoDecoder!!.configure(format, renderSurface, null, 0)
             videoDecoder!!.start()
-            decoderName = videoDecoder!!.name
 
             Log.i(TAG, "Decoder started: $decoderName via $activeRenderPath")
             return 0
@@ -230,6 +267,8 @@ class VideoDecoderRenderer(
         frameTimingIndex = 0; frameTimingCount = 0
         interFrameIndex = 0; interFrameCount = 0
         lastRenderNs = 0L
+        startTimeNs = System.nanoTime()
+        zeroOutputWarningEmitted = false
         synchronized(queueTimestampNs) { queueTimestampNs.clear() }
     }
 
@@ -604,6 +643,34 @@ class VideoDecoderRenderer(
         if (stopping) return DR_OK
         val decoder = videoDecoder ?: return DR_NEED_IDR
         totalFramesReceived++
+
+        // [G] Zero-output watchdog: detect when the decoder is consuming
+        // input but never producing output. This is the exact symptom on
+        // MediaTek Dimensity and Samsung Exynos S25 Ultra devices.
+        // Fires once after 5 seconds of receiving frames with 0 rendered.
+        if (!zeroOutputWarningEmitted && totalFramesRendered == 0L &&
+            totalFramesReceived > 60 && startTimeNs > 0L) {
+            val elapsedNs = System.nanoTime() - startTimeNs
+            if (elapsedNs > 5_000_000_000L) {
+                zeroOutputWarningEmitted = true
+                Log.e(TAG, "┌─── ⚠ ZERO OUTPUT DETECTED ────────────────────────")
+                Log.e(TAG, "│ $totalFramesReceived frames received, 0 rendered after ${elapsedNs / 1_000_000}ms")
+                Log.e(TAG, "│ Decoder: $decoderName")
+                Log.e(TAG, "│ Quirks: mtk=$isMediaTekDecoder exynos=$isExynosDecoder weak=$isWeakDevice")
+                Log.e(TAG, "│ CSD submitted: $submittedCsd")
+                Log.e(TAG, "│ CSD sizes: vps=${vpsBuffer?.size ?: 0} sps=${spsBuffer?.size ?: 0} pps=${ppsBuffer?.size ?: 0}")
+                Log.e(TAG, "│ Render path: $activeRenderPath")
+                Log.e(TAG, "│ This decoder may not support the current MediaFormat configuration.")
+                Log.e(TAG, "│ Check KEY_LOW_LATENCY, KEY_OPERATING_RATE, and CSD handling.")
+                Log.e(TAG, "└───────────────────────────���───────────────────────")
+            }
+        }
+
+        // [G] Periodic frame stats for remote debugging (every 300 frames)
+        if (totalFramesReceived % 300 == 0L) {
+            Log.i(TAG, "FRAME STATS: recv=$totalFramesReceived rendered=$totalFramesRendered " +
+                "dropped=$totalFramesDropped latency=${avgDecodeLatencyMs.toInt()}ms decoder=$decoderName")
+        }
 
         try {
 
