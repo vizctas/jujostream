@@ -99,6 +99,13 @@ class VideoDecoderRenderer(
     private val pendingFrames = LinkedBlockingDeque<PendingFrame>(8)
     @Volatile private var vsyncPresenterThread: Thread? = null
 
+    private fun requiresCodecConfigSubmission(): Boolean {
+        return when (StreamConstants.mimeTypeForFormat(videoFormat)) {
+            "video/avc", "video/hevc" -> true
+            else -> false
+        }
+    }
+
     fun setup(videoFormat: Int, width: Int, height: Int, redrawRate: Int): Int {
         this.videoFormat = videoFormat
         this.initialWidth = width
@@ -618,7 +625,7 @@ class VideoDecoderRenderer(
                         BUFFER_TYPE_SPS -> { synchronized(csdLock) { spsBuffer = csdArray }; return DR_OK }
                         BUFFER_TYPE_PPS -> { synchronized(csdLock) { ppsBuffer = csdArray }; return DR_OK }
                     }
-                } else {
+                } else if (requiresCodecConfigSubmission()) {
                     if (!submitCsdBuffers()) return DR_NEED_IDR
                     submittedCsd = true
                 }
