@@ -77,16 +77,6 @@ void main() async {
   final launcherPreferences = LauncherPreferences();
   await launcherPreferences.load(themeProvider.launcherThemeId.name);
 
-  if (TvDetector.instance.isTV && !themeProvider.performanceMode) {
-    // Only set performance mode on first run (when
-    // reduce_effects has no saved value).  After the user
-    // toggles it off, respect that preference.
-    final prefs = await SharedPreferences.getInstance();
-    if (!prefs.containsKey('reduce_effects')) {
-      await themeProvider.setPerformanceMode(true);
-    }
-  }
-
   final authProvider = AuthProvider();
   unawaited(authProvider.trySilentSignIn());
 
