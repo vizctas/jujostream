@@ -61,6 +61,8 @@ Thumbs.db
 # Internal dev docs (keep local, not tracked)
 docs/planning.md
 docs/WORKFLOW.md
+.gemini/
+.github/
 .private/
 .private/
 .windsurf/

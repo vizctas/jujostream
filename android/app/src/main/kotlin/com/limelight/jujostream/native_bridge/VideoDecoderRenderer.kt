@@ -12,7 +12,7 @@ import java.util.concurrent.LinkedBlockingDeque
 import java.util.concurrent.TimeUnit
 
 class VideoDecoderRenderer(
-    private val textureEntry: TextureRegistry.SurfaceTextureEntry?,
+    private val flutterSurface: Surface?,
     private val framePacingMode: Int = FRAME_PACING_BALANCED,
     private val enableHdr: Boolean = false,
     private val fullRange: Boolean = false,
@@ -129,9 +129,9 @@ class VideoDecoderRenderer(
                 activeRenderPath = if (useChoreographerVsync) "direct-submit-vsync" else "direct-submit"
                 externalSurface
             } else {
-                Log.i(TAG, "Using SurfaceTexture path")
+                Log.i(TAG, "Using Flutter SurfaceProducer path")
                 activeRenderPath = if (useChoreographerVsync) "texture-vsync" else "texture"
-                Surface(textureEntry!!.surfaceTexture().apply { setDefaultBufferSize(width, height) })
+                flutterSurface
             }
 
             // VRR: hint compositor about ideal cadence
@@ -795,12 +795,9 @@ class VideoDecoderRenderer(
             Log.e(TAG, "Error cleaning up decoder", e)
         }
         videoDecoder = null
-        // Only release Surface if we own it (SurfaceTexture path)
-        if (externalSurface == null) {
-            renderSurface?.release()
-        }
+        videoDecoder = null
+        // Do not release flutterSurface here; managed by StreamingPlugin
         renderSurface = null
-        textureEntry?.release()
 
         vpsBuffer = null
         spsBuffer = null

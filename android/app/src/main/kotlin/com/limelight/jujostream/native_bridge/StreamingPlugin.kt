@@ -70,7 +70,7 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
 
     private var videoRenderer: VideoDecoderRenderer? = null
     private var audioRenderer: AudioRenderer? = null
-    private var textureEntry: TextureRegistry.SurfaceTextureEntry? = null
+    private var surfaceProducer: TextureRegistry.SurfaceProducer? = null
     private var directSubmitActive = false
 
     private var statsTimer: Timer? = null
@@ -290,16 +290,17 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
         directSubmitActive = directSurface != null
 
         if (directSurface == null) {
-            textureEntry = textureRegistry?.createSurfaceTexture()
-            if (textureEntry == null) {
-                result.error("TEXTURE_ERROR", "Failed to create texture", null)
+            surfaceProducer = textureRegistry?.createSurfaceProducer()
+            if (surfaceProducer == null) {
+                result.error("TEXTURE_ERROR", "Failed to create surface producer", null)
                 return
             }
+            surfaceProducer?.setSize(width, height)
         }
 
         val effectiveQueueDepth = if (weakDevice) minOf(frameQueueDepth.coerceIn(0, 6), 1) else frameQueueDepth.coerceIn(0, 6)
         videoRenderer = VideoDecoderRenderer(
-            if (directSurface != null) null else textureEntry!!,
+            if (directSurface != null) null else surfaceProducer!!.surface,
             effectiveFramePacingMode,
             enableHdr,
             fullRange = fullRange,
@@ -470,7 +471,7 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
     }
 
     private fun handleGetTextureId(result: MethodChannel.Result) {
-        val id = textureEntry?.id()
+        val id = surfaceProducer?.id()
         if (id != null) {
             result.success(id)
         } else {
@@ -791,8 +792,8 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
         audioRenderer?.cleanup()
         audioRenderer = null
 
-        textureEntry?.release()
-        textureEntry = null
+        surfaceProducer?.release()
+        surfaceProducer = null
     }
 
     private fun stopNativeConnection() {

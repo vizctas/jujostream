@@ -13,7 +13,6 @@ class AppLocalizations {
   static const delegate = _AppLocalizationsDelegate();
 
   static const Map<String, Map<String, String>> _strings = {
-
     'appTitle': {'en': 'JUJO Stream', 'es': 'JUJO Stream'},
     'settings': {'en': 'Settings', 'es': 'Ajustes'},
     'about': {'en': 'About', 'es': 'Acerca de'},
@@ -185,7 +184,10 @@ class AppLocalizations {
     'viewOnGithub': {'en': 'View on GitHub', 'es': 'Ver en GitHub'},
     'supportKofi': {'en': 'Support on Ko-fi', 'es': 'Apoyar en Ko-fi'},
     'license': {'en': 'License', 'es': 'Licencia'},
-    'openSource': {'en': 'Open Source — GPL-3.0', 'es': 'Código abierto — GPL-3.0'},
+    'openSource': {
+      'en': 'Open Source — GPL-3.0',
+      'es': 'Código abierto — GPL-3.0',
+    },
 
     'connecting': {'en': 'Connecting to', 'es': 'Conectando con'},
     'disconnect': {'en': 'Disconnect', 'es': 'Desconectar'},
@@ -288,7 +290,10 @@ class AppLocalizations {
 
     'sessionMetadata': {'en': 'Session Metadata', 'es': 'Datos de sesión'},
     'steamLibrary': {'en': 'Steam / Library', 'es': 'Steam / Biblioteca'},
-    'gameInformation': {'en': 'Game Information', 'es': 'Información del juego'},
+    'gameInformation': {
+      'en': 'Game Information',
+      'es': 'Información del juego',
+    },
     'pickLocalImage': {'en': 'Pick local image', 'es': 'Elegir imagen local'},
     'quickPresets': {'en': 'Quick Presets', 'es': 'Presets rápidos'},
     'perGameStreamProfile': {
@@ -326,8 +331,14 @@ class AppLocalizations {
     },
     'watchTrailer': {'en': 'Watch Trailer', 'es': 'Ver Tráiler'},
     'trailerTitle': {'en': 'Trailer — {name}', 'es': 'Tráiler — {name}'},
-    'trailerSteamError': {'en': 'Could not play the Steam trailer.', 'es': 'No se pudo reproducir el tráiler de Steam.'},
-    'exitFullscreen': {'en': 'Exit fullscreen', 'es': 'Salir de pantalla completa'},
+    'trailerSteamError': {
+      'en': 'Could not play the Steam trailer.',
+      'es': 'No se pudo reproducir el tráiler de Steam.',
+    },
+    'exitFullscreen': {
+      'en': 'Exit fullscreen',
+      'es': 'Salir de pantalla completa',
+    },
     'goBack': {'en': 'Back', 'es': 'Volver'},
     'fullscreen': {'en': 'Fullscreen', 'es': 'Pantalla completa'},
     'navConfirmBack': {
@@ -554,19 +565,18 @@ class AppLocalizations {
       'en': 'Configure from phone',
       'es': 'Configurar desde el celular',
     },
-    'pluginEnabledSnack': {
-      'en': '{name} enabled',
-      'es': '{name} habilitado',
-    },
+    'pluginEnabledSnack': {'en': '{name} enabled', 'es': '{name} habilitado'},
     'pluginDisabledSnack': {
       'en': '{name} disabled',
       'es': '{name} deshabilitado',
     },
-    'videoDelayLabel': {
-      'en': 'Video delay',
-      'es': 'Delay de video',
-    },
+    'videoDelayLabel': {'en': 'Video delay', 'es': 'Delay de video'},
 
+    'rearrangeServers': {
+      'en': 'Rearrange Servers',
+      'es': 'Reorganizar servidores',
+    },
+    'layoutSaved': {'en': 'Layout saved', 'es': 'Diseño guardado'},
     'myProfile': {'en': 'My Profile', 'es': 'Mi Perfil'},
     'changeAvatar': {'en': 'Change Avatar', 'es': 'Cambiar Avatar'},
     'changeName': {'en': 'Change Name', 'es': 'Cambiar Nombre'},
@@ -600,16 +610,24 @@ class AppLocalizations {
     'createCollection': {'en': 'Create collection', 'es': 'Crear colección'},
     'newCollection': {'en': 'New collection', 'es': 'Nueva colección'},
     'pipDesc': {
-      'en': 'When going Home or switching apps, the session continues in PiP. If OFF, it disconnects.',
-      'es': 'Al ir a Home o cambiar de app, la sesión continúa en PiP. Si está OFF, se desconecta.',
+      'en':
+          'When going Home or switching apps, the session continues in PiP. If OFF, it disconnects.',
+      'es':
+          'Al ir a Home o cambiar de app, la sesión continúa en PiP. Si está OFF, se desconecta.',
     },
     'deleteCollection': {'en': 'Delete collection', 'es': 'Eliminar colección'},
     'deleteCollectionConfirm': {'en': 'Delete', 'es': 'Eliminar'},
-    'renameCollection': {'en': 'Rename collection', 'es': 'Renombrar colección'},
+    'renameCollection': {
+      'en': 'Rename collection',
+      'es': 'Renombrar colección',
+    },
     'renameLabel': {'en': 'Rename', 'es': 'Renombrar'},
     'collectionName': {'en': 'Collection name', 'es': 'Nombre de la colección'},
     'colorLabel': {'en': 'Color', 'es': 'Color'},
-    'selectCollection': {'en': 'Select a collection', 'es': 'Selecciona una colección'},
+    'selectCollection': {
+      'en': 'Select a collection',
+      'es': 'Selecciona una colección',
+    },
     'addToCollection': {'en': 'Add to collection', 'es': 'Agregar a colección'},
     'addedToCollection': {'en': 'added to', 'es': 'agregado a'},
     'collectionNameHint': {'en': 'Name', 'es': 'Nombre'},
@@ -617,9 +635,15 @@ class AppLocalizations {
     'gameCount': {'en': 'game', 'es': 'juego'},
 
     'resetDefaults': {'en': 'Reset', 'es': 'Restablecer'},
-    'resetDefaultsConfirm': {'en': 'Reset to defaults?', 'es': '¿Volver a los valores por defecto?'},
+    'resetDefaultsConfirm': {
+      'en': 'Reset to defaults?',
+      'es': '¿Volver a los valores por defecto?',
+    },
     'yes': {'en': 'Yes', 'es': 'Sí'},
-    'launcherAppearanceTitle': {'en': 'Launcher Appearance', 'es': 'Apariencia del Launcher'},
+    'launcherAppearanceTitle': {
+      'en': 'Launcher Appearance',
+      'es': 'Apariencia del Launcher',
+    },
 
     'applyingQuality': {'en': 'Applying quality…', 'es': 'Aplicando calidad…'},
     'applyingPreset': {'en': 'Applying preset…', 'es': 'Aplicando preset…'},
@@ -627,77 +651,159 @@ class AppLocalizations {
 
     'smartBitrate': {'en': 'Smart Bitrate', 'es': 'Bitrate Inteligente'},
     'smartBitrateDesc': {
-      'en': 'Auto-detect network speed and pick the best bitrate before each session',
-      'es': 'Detecta la velocidad de red y elige el mejor bitrate antes de cada sesión',
+      'en':
+          'Auto-detect network speed and pick the best bitrate before each session',
+      'es':
+          'Detecta la velocidad de red y elige el mejor bitrate antes de cada sesión',
     },
     'smartBitrateMin': {'en': 'Minimum Range', 'es': 'Rango Mínimo'},
     'smartBitrateMax': {'en': 'Maximum Range', 'es': 'Rango Máximo'},
-    'smartBitrateMeasuring': {'en': 'Measuring network…', 'es': 'Midiendo red…'},
-    'smartBitrateResult': {'en': 'Smart Bitrate: {value} Mbps', 'es': 'Bitrate Inteligente: {value} Mbps'},
+    'smartBitrateMeasuring': {
+      'en': 'Measuring network…',
+      'es': 'Midiendo red…',
+    },
+    'smartBitrateResult': {
+      'en': 'Smart Bitrate: {value} Mbps',
+      'es': 'Bitrate Inteligente: {value} Mbps',
+    },
 
     'editName': {'en': 'Edit Name', 'es': 'Editar Nombre'},
     'editPoster': {'en': 'Change Poster', 'es': 'Cambiar Póster'},
     'customNameHint': {'en': 'Custom game name', 'es': 'Nombre personalizado'},
-    'posterUrlHint': {'en': 'Image URL (https://...)', 'es': 'URL de imagen (https://...)'},
-    'overrideApplied': {'en': 'Custom override saved', 'es': 'Personalización guardada'},
-    'overrideCleared': {'en': 'Override removed', 'es': 'Personalización eliminada'},
+    'posterUrlHint': {
+      'en': 'Image URL (https://...)',
+      'es': 'URL de imagen (https://...)',
+    },
+    'overrideApplied': {
+      'en': 'Custom override saved',
+      'es': 'Personalización guardada',
+    },
+    'overrideCleared': {
+      'en': 'Override removed',
+      'es': 'Personalización eliminada',
+    },
     'clearOverride': {'en': 'Reset to original', 'es': 'Restaurar original'},
 
-    'remoteAccessVpn': {'en': 'Remote Access (VPN)', 'es': 'Acceso Remoto (VPN)'},
-    'remoteAccessVpnDesc': {'en': 'Tailscale, ZeroTier, WireGuard', 'es': 'Tailscale, ZeroTier, WireGuard'},
+    'remoteAccessVpn': {
+      'en': 'Remote Access (VPN)',
+      'es': 'Acceso Remoto (VPN)',
+    },
+    'remoteAccessVpnDesc': {
+      'en': 'Tailscale, ZeroTier, WireGuard',
+      'es': 'Tailscale, ZeroTier, WireGuard',
+    },
     'artQualityLabel': {'en': 'Art Quality', 'es': 'Calidad de arte'},
     'artQualityHigh': {'en': 'High  (no limit)', 'es': 'Alta  (sin límite)'},
-    'artQualityMedium': {'en': 'Medium  (max 720 px)', 'es': 'Media  (max 720 px)'},
+    'artQualityMedium': {
+      'en': 'Medium  (max 720 px)',
+      'es': 'Media  (max 720 px)',
+    },
     'artQualityLow': {'en': 'Low  (max 400 px)', 'es': 'Baja  (max 400 px)'},
     'launcherThemeClassic': {'en': 'Classic', 'es': 'Clásico'},
     'launcherThemeClassicDesc': {
-      'en': 'Vertical poster carousel with grid toggle. The original JUJO layout.',
-      'es': 'Carrusel vertical de pósters con vista grid. El layout original de JUJO.',
+      'en':
+          'Vertical poster carousel with grid toggle. The original JUJO layout.',
+      'es':
+          'Carrusel vertical de pósters con vista grid. El layout original de JUJO.',
     },
     'launcherThemeBackbone': {'en': 'Backbone', 'es': 'Backbone'},
     'launcherThemeBackboneDesc': {
-      'en': 'Rectangular cards, side menu, status bar. Inspired by Backbone One.',
-      'es': 'Tarjetas rectangulares, menú lateral, barra de estado. Inspirado en Backbone One.',
+      'en':
+          'Rectangular cards, side menu, status bar. Inspired by Backbone One.',
+      'es':
+          'Tarjetas rectangulares, menú lateral, barra de estado. Inspirado en Backbone One.',
     },
     'launcherThemePs5': {'en': 'PS5', 'es': 'PS5'},
     'launcherThemePs5Desc': {
-      'en': 'Horizontal icon strip with hero art and slide-up detail panel. TV optimized.',
-      'es': 'Barra de iconos horizontal con arte de fondo y panel deslizable. Optimizado para TV.',
+      'en':
+          'Horizontal icon strip with hero art and slide-up detail panel. TV optimized.',
+      'es':
+          'Barra de iconos horizontal con arte de fondo y panel deslizable. Optimizado para TV.',
     },
     'launcherThemeHero': {'en': 'Hero', 'es': 'Hero'},
     'launcherThemeHeroDesc': {
-      'en': 'Full-screen hero art, bottom icon strip, slide-up detail panel. Premium.',
-      'es': 'Arte de fondo completo, barra inferior de iconos, panel deslizable. Premium.',
+      'en':
+          'Full-screen hero art, bottom icon strip, slide-up detail panel. Premium.',
+      'es':
+          'Arte de fondo completo, barra inferior de iconos, panel deslizable. Premium.',
     },
     'launcherThemeLabel': {'en': 'Layout Style', 'es': 'Estilo de Layout'},
 
-    'presAppearance': {'en': 'Launcher Appearance', 'es': 'Apariencia del Launcher'},
+    'presAppearance': {
+      'en': 'Launcher Appearance',
+      'es': 'Apariencia del Launcher',
+    },
     'presReset': {'en': 'Reset', 'es': 'Restablecer'},
-    'presResetConfirm': {'en': 'Restore default values?', 'es': '¿Volver a los valores por defecto?'},
+    'presResetConfirm': {
+      'en': 'Restore default values?',
+      'es': '¿Volver a los valores por defecto?',
+    },
     'presYes': {'en': 'Yes', 'es': 'Sí'},
     'presSectionBackground': {'en': 'Background', 'es': 'Fondo de pantalla'},
     'presBlur': {'en': 'Blur', 'es': 'Desenfoque'},
-    'presOverlayDarkness': {'en': 'Overlay darkness', 'es': 'Oscuridad del overlay'},
+    'presOverlayDarkness': {
+      'en': 'Overlay darkness',
+      'es': 'Oscuridad del overlay',
+    },
     'presParallaxDrift': {'en': 'Parallax drift', 'es': 'Derive parallax'},
-    'presParallaxDriftSub': {'en': 'Background moves smoothly when switching games', 'es': 'El fondo se mueve suavemente al cambiar de juego'},
-    'presParallaxSpeed': {'en': 'Parallax speed', 'es': 'Velocidad del parallax'},
-    'presParallaxSpeedSub': {'en': 'Full cycle time — higher = slower', 'es': 'Tiempo de un ciclo completo — mayor = más lento'},
+    'presParallaxDriftSub': {
+      'en': 'Background moves smoothly when switching games',
+      'es': 'El fondo se mueve suavemente al cambiar de juego',
+    },
+    'presParallaxSpeed': {
+      'en': 'Parallax speed',
+      'es': 'Velocidad del parallax',
+    },
+    'presParallaxSpeedSub': {
+      'en': 'Full cycle time — higher = slower',
+      'es': 'Tiempo de un ciclo completo — mayor = más lento',
+    },
     'presSectionCards': {'en': 'Game cards', 'es': 'Tarjetas de juego'},
     'presBorderRadius': {'en': 'Border radius', 'es': 'Redondez de bordes'},
-    'presCardSpacing': {'en': 'Card spacing', 'es': 'Separación entre tarjetas'},
+    'presCardSpacing': {
+      'en': 'Card spacing',
+      'es': 'Separación entre tarjetas',
+    },
     'presCardWidth': {'en': 'Card width', 'es': 'Ancho de tarjeta'},
     'presCardHeight': {'en': 'Card height', 'es': 'Alto de tarjeta'},
-    'presShowGameName': {'en': 'Show game name', 'es': 'Mostrar nombre del juego'},
-    'presRunningIndicator': {'en': 'Running indicator', 'es': 'Indicador "en ejecución"'},
-    'presRunningIndicatorSub': {'en': 'Green dot on active game cards', 'es': 'Punto verde en tarjetas de juegos activos'},
-    'presSectionCategoryBar': {'en': 'Category bar', 'es': 'Barra de categorías'},
-    'presShowFilterBar': {'en': 'Show filter bar', 'es': 'Mostrar barra de filtros'},
-    'presFilterBarSub': {'en': 'All / Recent / Active / Favorites', 'es': 'Todos / Recientes / Activos / Favoritos'},
+    'presShowGameName': {
+      'en': 'Show game name',
+      'es': 'Mostrar nombre del juego',
+    },
+    'presRunningIndicator': {
+      'en': 'Running indicator',
+      'es': 'Indicador "en ejecución"',
+    },
+    'presRunningIndicatorSub': {
+      'en': 'Green dot on active game cards',
+      'es': 'Punto verde en tarjetas de juegos activos',
+    },
+    'presSectionCategoryBar': {
+      'en': 'Category bar',
+      'es': 'Barra de categorías',
+    },
+    'presShowFilterBar': {
+      'en': 'Show filter bar',
+      'es': 'Mostrar barra de filtros',
+    },
+    'presFilterBarSub': {
+      'en': 'All / Recent / Active / Favorites',
+      'es': 'Todos / Recientes / Activos / Favoritos',
+    },
     'presShowCounts': {'en': 'Show counts', 'es': 'Mostrar conteos'},
-    'presShowCountsSub': {'en': 'Number of games per category', 'es': 'Número de juegos por categoría'},
+    'presShowCountsSub': {
+      'en': 'Number of games per category',
+      'es': 'Número de juegos por categoría',
+    },
     'presSectionSearch': {'en': 'Search', 'es': 'Búsqueda'},
-    'presInstantSearch': {'en': 'Instant search while typing', 'es': 'Filtro instantáneo al escribir'},
-    'presInstantSearchSub': {'en': 'Filter the list as you type without confirming first', 'es': 'Filtra la lista mientras escribes sin confirmar primero'},
+    'presInstantSearch': {
+      'en': 'Instant search while typing',
+      'es': 'Filtro instantáneo al escribir',
+    },
+    'presInstantSearchSub': {
+      'en': 'Filter the list as you type without confirming first',
+      'es': 'Filtra la lista mientras escribes sin confirmar primero',
+    },
     'themeOptions': {'en': 'Theme Options', 'es': 'Opciones del Tema'},
     'launcherThemeDesc': {
       'en': 'Change the entire layout and navigation style',
@@ -726,8 +832,10 @@ class AppLocalizations {
       'es': 'Bitrate Inteligente, Cloud Sync y overlay avanzado',
     },
     'proUpsellBenefit4': {
-      'en': 'Premium plugins: Intro Video, Steam Library, Genre Filters, Game Videos',
-      'es': 'Plugins premium: Video Intro, Biblioteca Steam, Filtros de Género, Videos de Juegos',
+      'en':
+          'Premium plugins: Intro Video, Steam Library, Genre Filters, Game Videos',
+      'es':
+          'Plugins premium: Video Intro, Biblioteca Steam, Filtros de Género, Videos de Juegos',
     },
     'proUpsellBenefit5': {
       'en': 'High quality art, full session history & more',
@@ -741,7 +849,8 @@ class AppLocalizations {
     'proUpsellLater': {'en': 'Maybe later', 'es': 'Quizás después'},
     'favoritesLimitReached': {
       'en': 'Free limit reached (5 favorites). Upgrade to Pro for unlimited.',
-      'es': 'Límite gratuito alcanzado (5 favoritos). Mejora a Pro para ilimitados.',
+      'es':
+          'Límite gratuito alcanzado (5 favoritos). Mejora a Pro para ilimitados.',
     },
     'pluginRemove': {'en': 'Remove', 'es': 'Quitar'},
     'pluginSelectVideo': {'en': 'Select video', 'es': 'Seleccionar video'},
@@ -757,17 +866,13 @@ class AppLocalizations {
       'en': 'Sign in with Steam',
       'es': 'Iniciar sesión con Steam',
     },
-    'pluginSteamConnecting': {
-      'en': 'Connecting…',
-      'es': 'Conectando…',
-    },
-    'pluginSteamAccount': {
-      'en': 'Account',
-      'es': 'Cuenta',
-    },
+    'pluginSteamConnecting': {'en': 'Connecting…', 'es': 'Conectando…'},
+    'pluginSteamAccount': {'en': 'Account', 'es': 'Cuenta'},
     'pluginVideoHint': {
-      'en': 'Recommended: 2-4 second videos. Users can interrupt playback when opening the app.',
-      'es': 'Recomendado: videos de 2-4 segundos. El usuario puede interrumpir la reproducción al abrir la app.',
+      'en':
+          'Recommended: 2-4 second videos. Users can interrupt playback when opening the app.',
+      'es':
+          'Recomendado: videos de 2-4 segundos. El usuario puede interrumpir la reproducción al abrir la app.',
     },
     'pluginVideoWhen': {
       'en': 'When should the video play?',
@@ -1030,7 +1135,8 @@ class AppLocalizations {
   String presetApplied(String name) =>
       _s('presetApplied').replaceAll('{name}', name);
   String get watchTrailer => _s('watchTrailer');
-  String trailerTitle(String name) => _s('trailerTitle').replaceAll('{name}', name);
+  String trailerTitle(String name) =>
+      _s('trailerTitle').replaceAll('{name}', name);
   String get trailerSteamError => _s('trailerSteamError');
   String get exitFullscreen => _s('exitFullscreen');
   String get goBack => _s('goBack');
@@ -1142,6 +1248,8 @@ class AppLocalizations {
       _s('pluginDisabledSnack').replaceAll('{name}', name);
   String get videoDelayLabel => _s('videoDelayLabel');
 
+  String get rearrangeServers => _s('rearrangeServers');
+  String get layoutSaved => _s('layoutSaved');
   String get myProfile => _s('myProfile');
   String get changeAvatar => _s('changeAvatar');
   String get changeName => _s('changeName');

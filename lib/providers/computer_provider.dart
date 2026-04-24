@@ -17,8 +17,10 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
   final PairingService _pairingService = PairingService();
 
   final List<ComputerDetails> _computers = [];
+  final List<String> _customOrder = [];
   static const String _computersStorageKey = 'saved_computers';
   static const String _primaryServerKey = 'primary_server_uuid';
+  static const String _customOrderKey = 'computer_custom_order';
   bool _isDiscovering = false;
   bool _isPairing = false;
   String? _error;
@@ -73,12 +75,34 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
   }
 
+  String _orderKey(ComputerDetails c) =>
+      c.uuid.isNotEmpty ? c.uuid : c.localAddress;
+
   static const Duration _activePollInterval = Duration(seconds: 3);
   static const Duration _idlePollInterval = Duration(seconds: 30);
   static const Duration _pollTimeout = Duration(seconds: 2);
   bool _appInForeground = true;
 
-  List<ComputerDetails> get computers => List.unmodifiable(_computers);
+  List<ComputerDetails> get computers {
+    if (_customOrder.isEmpty) return List.unmodifiable(_computers);
+    final orderMap = <String, int>{};
+    for (var i = 0; i < _customOrder.length; i++) {
+      orderMap[_customOrder[i]] = i;
+    }
+    final sorted = List<ComputerDetails>.from(_computers);
+    sorted.sort((a, b) {
+      final keyA = _orderKey(a);
+      final keyB = _orderKey(b);
+      final idxA = orderMap[keyA];
+      final idxB = orderMap[keyB];
+      if (idxA != null && idxB != null) return idxA.compareTo(idxB);
+      if (idxA != null) return -1;
+      if (idxB != null) return 1;
+      return 0;
+    });
+    return List.unmodifiable(sorted);
+  }
+
   bool get isDiscovering => _isDiscovering;
   bool get isPairing => _isPairing;
 
@@ -176,6 +200,12 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
             return computer;
           }),
         );
+      final orderList = prefs.getStringList(_customOrderKey);
+      if (orderList != null) {
+        _customOrder
+          ..clear()
+          ..addAll(orderList);
+      }
       notifyListeners();
     } catch (_) {}
   }
@@ -188,6 +218,30 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
           .toList(growable: false);
       await prefs.setStringList(_computersStorageKey, jsonList);
     } catch (_) {}
+  }
+
+  Future<void> _persistCustomOrder() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setStringList(
+        _customOrderKey,
+        _customOrder.toList(growable: false),
+      );
+    } catch (_) {}
+  }
+
+  Future<void> reorderComputers(int oldIndex, int newIndex) async {
+    final sorted = List<ComputerDetails>.from(computers);
+    if (oldIndex < 0 || oldIndex >= sorted.length) return;
+    if (newIndex < 0 || newIndex >= sorted.length) return;
+    final item = sorted.removeAt(oldIndex);
+    sorted.insert(newIndex, item);
+    _customOrder.clear();
+    for (final c in sorted) {
+      _customOrder.add(_orderKey(c));
+    }
+    await _persistCustomOrder();
+    notifyListeners();
   }
 
   Future<void> startDiscovery() async {
@@ -477,7 +531,8 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
           ? computer.uuid
           : computer.localAddress;
       final pairedAt = _pairingCompletedAt[graceKey];
-      final inGracePeriod = pairedAt != null &&
+      final inGracePeriod =
+          pairedAt != null &&
           DateTime.now().difference(pairedAt) < _pairingGracePeriod;
       if (inGracePeriod) {
         // Server may not have fully registered the pairing yet.
@@ -600,7 +655,8 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
               ? existing.uuid
               : existing.localAddress;
           final pairedAt = _pairingCompletedAt[graceKey];
-          final inGracePeriod = pairedAt != null &&
+          final inGracePeriod =
+              pairedAt != null &&
               DateTime.now().difference(pairedAt) < _pairingGracePeriod;
 
           if (inGracePeriod) {
@@ -622,9 +678,22 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
         computer.pairState = PairState.paired;
         computer.pairStatusFromHttps = true;
       }
+      final oldKey = _orderKey(existing);
+      final newKey = _orderKey(computer);
       _computers[existingIndex] = computer;
+      // Migrate custom order key if UUID was discovered (empty -> non-empty)
+      if (oldKey != newKey && oldKey.isNotEmpty) {
+        final idx = _customOrder.indexOf(oldKey);
+        if (idx >= 0) {
+          _customOrder[idx] = newKey;
+        }
+      }
     } else {
       _computers.add(computer);
+      final key = _orderKey(computer);
+      if (key.isNotEmpty && !_customOrder.contains(key)) {
+        _customOrder.add(key);
+      }
     }
     _persistComputers();
     notifyListeners();

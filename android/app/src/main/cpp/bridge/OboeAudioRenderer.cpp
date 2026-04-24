@@ -3,6 +3,7 @@
 #include "OboeAudioRenderer.h"
 #include <android/log.h>
 #include <cstring>
+#include <sys/system_properties.h>
 
 #define LOG_TAG "OboeAudioRenderer"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
@@ -39,16 +40,24 @@ int OboeAudioRenderer::start(int channelCount, int sampleRate, int samplesPerFra
 }
 
 void OboeAudioRenderer::openStream() {
+    bool amlogic = false;
+    char hardware[PROP_VALUE_MAX] = {0};
+    if (__system_property_get("ro.hardware", hardware) > 0) {
+        if (strstr(hardware, "amlogic") != nullptr || strstr(hardware, "amls") != nullptr) {
+            amlogic = true;
+        }
+    }
+
     oboe::AudioStreamBuilder builder;
     builder.setDirection(oboe::Direction::Output)
-           ->setPerformanceMode(oboe::PerformanceMode::LowLatency)
-           ->setSharingMode(oboe::SharingMode::Exclusive)
+           ->setPerformanceMode(amlogic ? oboe::PerformanceMode::None : oboe::PerformanceMode::LowLatency)
+           ->setSharingMode(oboe::SharingMode::Shared)
            ->setFormat(oboe::AudioFormat::I16)
            ->setChannelCount(mChannelCount)
            ->setSampleRate(mSampleRate)
            ->setDataCallback(this)
            ->setErrorCallback(this)
-           ->setUsage(oboe::Usage::Game)
+           ->setUsage(oboe::Usage::Media)
            ->setContentType(oboe::ContentType::Movie)
            ->setSpatializationBehavior(oboe::SpatializationBehavior::Auto);
 

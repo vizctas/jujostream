@@ -74,7 +74,7 @@ class AudioRenderer(
 
             audioTrack = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                 val audioAttributesBuilder = AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_GAME)
+                    .setUsage(AudioAttributes.USAGE_MEDIA)
                     .setContentType(AudioAttributes.CONTENT_TYPE_MOVIE)
 
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
