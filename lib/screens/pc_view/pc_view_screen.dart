@@ -672,6 +672,9 @@ class _PcViewScreenState extends State<PcViewScreen>
       if (!mounted || !paired) {
         return;
       }
+      // Pairing just completed — let the user manually re-enter the server
+      // so the server has time to finish persisting the pairing internally.
+      return;
     }
 
     // ── Entry gate: verify pairing is still valid on the server ─────
@@ -682,9 +685,9 @@ class _PcViewScreenState extends State<PcViewScreen>
     if (!mounted) return;
     if (!stillPaired) {
       final l = AppLocalizations.of(context);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(l.serverUnpaired)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(l.serverUnpaired)));
       return;
     }
 
@@ -1307,9 +1310,7 @@ class _GridFocusableCardState extends State<_GridFocusableCard> {
         onLongPress: widget.onLongPress,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 150),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-          ),
+          decoration: BoxDecoration(borderRadius: BorderRadius.circular(12)),
           foregroundDecoration: BoxDecoration(
             borderRadius: BorderRadius.circular(12),
             color: _hasFocus

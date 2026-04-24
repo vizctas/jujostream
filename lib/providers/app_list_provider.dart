@@ -281,6 +281,15 @@ class AppListProvider extends ChangeNotifier {
           return;
         }
         _error = 'No apps returned — server may not be paired or HTTPS failed.';
+        // Sunshine/Apollo can take a few seconds to persist the pairing
+        // before /applist returns apps. Retry once after a short delay.
+        if (isNewServer && !silent) {
+          Future.delayed(const Duration(seconds: 2), () {
+            if (!_disposed && _apps.isEmpty && _currentComputer != null) {
+              loadApps(_currentComputer!);
+            }
+          });
+        }
       } else {
         _error = null;
       }

@@ -1,6 +1,7 @@
 package com.limelight.jujostream.native_bridge
 
 import android.media.MediaCodec
+import android.media.MediaCodecInfo
 import android.media.MediaFormat
 import android.os.Build
 import android.util.Log
@@ -110,7 +111,8 @@ class VideoDecoderRenderer(
         this.initialWidth = width
         this.initialHeight = height
         this.redrawRateFps = redrawRate
-
+        
+        // I know excesive logs. Gonna add some log level control later if needed..Sorry for the noise. No time to safely remove them. 
         Log.i(TAG, "Setting up decoder: ${width}x${height}@${redrawRate}fps, " +
             "format=0x${videoFormat.toString(16)}, pacing=$framePacingMode, " +
             "hdr=$enableHdr, queueDepth=$maxQueueDepth, choreographer=$useChoreographerVsync, " +
@@ -151,18 +153,37 @@ class VideoDecoderRenderer(
                     Log.i(TAG, "Using explicit decoder: $matchedDecoder (for $mimeType)")
                     MediaCodec.createByCodecName(matchedDecoder)
                 } catch (e: Exception) {
-                    Log.w(TAG, "Explicit decoder failed ($matchedDecoder): ${e.message} — type fallback")
-                    MediaCodec.createDecoderByType(mimeType)
+                    Log.w(TAG, "Explicit decoder '$matchedDecoder' failed: ${e.message} — safe re-probe")
+                    val probe = CodecProbe.safeDecoderNameForMime(mimeType, width, height, redrawRate, enableHdr)
+                    if (probe != null) MediaCodec.createByCodecName(probe)
+                    else MediaCodec.createDecoderByType(mimeType)
                 }
             } else {
-                Log.i(TAG, "No explicit decoder for $mimeType — using type fallback")
-                MediaCodec.createDecoderByType(mimeType)
+                val probe = CodecProbe.safeDecoderNameForMime(mimeType, width, height, redrawRate, enableHdr)
+                if (probe != null) {
+                    Log.i(TAG, "No explicit decoder for $mimeType — safe-probe resolved: $probe")
+                    MediaCodec.createByCodecName(probe)
+                } else {
+                    Log.w(TAG, "No safe decoder for $mimeType — last-resort type fallback")
+                    MediaCodec.createDecoderByType(mimeType)
+                }
             }
             decoderName = videoDecoder!!.name
+
+            // Layer-2 guard: reject any DRM-only decoder that bypassed probe selection
+            if (!isDecoderSafeForClearPlayback(videoDecoder!!, mimeType)) {
+                Log.e(TAG, "Decoder '$decoderName' requires secure playback — cannot decode clear stream. Aborting setup.")
+                videoDecoder!!.release()
+                videoDecoder = null
+                return -1
+            }
 
             val nameLower = decoderName.lowercase()
             isMediaTekDecoder = nameLower.contains("mtk") || nameLower.contains("mediatek")
             isExynosDecoder = nameLower.contains("exynos")
+
+            // Internal telemetry not yet used ... Maybe later will add some export functions to share on github.
+            // Gonna need more test if the telemetry may cause some perfomance issues.
 
             val socModel = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) Build.SOC_MODEL else "unknown"
             Log.i(TAG, "┌─── DECODER DIAGNOSTIC ───────────────────────────")
@@ -696,6 +717,24 @@ class VideoDecoderRenderer(
         val totalMs = timeoutsUs.sum() / 1000
         Log.w(TAG, "No input buffer after ${totalMs}ms (${timeoutsUs.size} attempts) — requesting IDR")
         return -1
+    }
+
+    private fun isDecoderSafeForClearPlayback(decoder: MediaCodec, mimeType: String): Boolean {
+        val nameLower = decoder.name.lowercase()
+        if (nameLower.contains(".secure") || nameLower.contains(".tunneled")) return false
+        return try {
+            val caps = decoder.codecInfo.getCapabilitiesForType(mimeType) ?: return true
+            val requiresSecure = caps.isFeatureRequired(
+                MediaCodecInfo.CodecCapabilities.FEATURE_SecurePlayback)
+            // Reject tunneled-playback decoders too: they need a HW_AV_SYNC_ID
+            // that a streaming client never supplies, leading to zero rendered
+            // frames — the same black-screen symptom as .secure on Dimensity.
+            val requiresTunneled = caps.isFeatureRequired(
+                MediaCodecInfo.CodecCapabilities.FEATURE_TunneledPlayback)
+            !requiresSecure && !requiresTunneled
+        } catch (_: Exception) {
+            true
+        }
     }
 
     private fun submitCsdBuffers(): Boolean {

@@ -194,6 +194,9 @@ class _FocusModeScreenState extends State<FocusModeScreen>
     if (!computer.isPaired) {
       final ok = await showPairingDialog(context, computer);
       if (!mounted || !ok) return;
+      // Pairing just completed — let the user manually re-enter the server
+      // so the server has time to finish persisting the pairing internally.
+      return;
     }
 
     // ── Entry gate: verify pairing is still valid on the server ─────
@@ -202,9 +205,9 @@ class _FocusModeScreenState extends State<FocusModeScreen>
     if (!mounted) return;
     if (!stillPaired) {
       final l = AppLocalizations.of(context);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(l.serverUnpaired)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(l.serverUnpaired)));
       return;
     }
 
@@ -1456,23 +1459,30 @@ class _WaveOverlayState extends State<_WaveOverlay>
     super.initState();
     final numRibbons = TvDetector.instance.isTV ? 2 : 4;
     final random = math.Random();
-    
+
     final baseFill = widget.isLight ? 0.03 : 0.06;
     final baseStroke = widget.isLight ? 0.12 : 0.25;
 
     for (int i = 0; i < numRibbons; i++) {
-       _ribbons.add(_Ribbon(
+      _ribbons.add(
+        _Ribbon(
           thickness: random.nextDouble() * 0.025 + 0.005,
           fillAlpha: baseFill * (1.0 - (i % 3) * 0.15),
           strokeAlpha: baseStroke * (1.0 - (i % 3) * 0.15),
-          components: List.generate(4, (compIndex) => _RibbonComponent(
-              cycle: (random.nextDouble() * 1.5 + 0.2) * (compIndex * 0.6 + 1.0),
-              amp: (random.nextDouble() * 0.25 + 0.05) / (compIndex * 0.4 + 1.0),
+          components: List.generate(
+            4,
+            (compIndex) => _RibbonComponent(
+              cycle:
+                  (random.nextDouble() * 1.5 + 0.2) * (compIndex * 0.6 + 1.0),
+              amp:
+                  (random.nextDouble() * 0.25 + 0.05) / (compIndex * 0.4 + 1.0),
               speed: random.nextDouble() * 0.3 + 0.06,
               phase: random.nextDouble() * math.pi * 2,
               phaseOffset: random.nextDouble() * 0.6 + 0.1,
-          )),
-       ));
+            ),
+          ),
+        ),
+      );
     }
 
     _ticker = createTicker((elapsed) {
@@ -1520,7 +1530,7 @@ class _WavePainter extends CustomPainter {
     final w = size.width;
     final h = size.height;
     const baseY = 0.5;
-    
+
     // We sample x every 'step' pixels (similar to HTML w/150)
     final double step = w / 150.0;
 
@@ -1539,22 +1549,26 @@ class _WavePainter extends CustomPainter {
         ..isAntiAlias = true;
 
       final path = Path();
-      
+
       // Top edge
       for (double x = 0; x <= w + step; x += step) {
-        double nx = x / w; 
+        double nx = x / w;
         double nodeDist = (nx - 0.5).abs() * 2;
-        double convergence = math.pow(nodeDist, 1.5) * 0.85 + 0.15; 
-        
+        double convergence = math.pow(nodeDist, 1.5) * 0.85 + 0.15;
+
         double y = h * baseY;
         for (final comp in ribbon.components) {
-            y += math.sin(nx * math.pi * 2 * comp.cycle - time * comp.speed + comp.phase) * (h * comp.amp * convergence);
+          y +=
+              math.sin(
+                nx * math.pi * 2 * comp.cycle - time * comp.speed + comp.phase,
+              ) *
+              (h * comp.amp * convergence);
         }
-        
+
         if (x == 0) {
-           path.moveTo(x, y);
+          path.moveTo(x, y);
         } else {
-           path.lineTo(x, y);
+          path.lineTo(x, y);
         }
       }
 
@@ -1562,17 +1576,26 @@ class _WavePainter extends CustomPainter {
       for (double x = w + step; x >= -step; x -= step) {
         double nx = x / w;
         double nodeDist = (nx - 0.5).abs() * 2;
-        double convergence = math.pow(nodeDist, 1.5) * 0.85 + 0.15; 
-        
-        double dynamicThickness = ribbon.thickness + math.sin(nx * math.pi * 2 - time * 0.9) * (ribbon.thickness * 0.2);
+        double convergence = math.pow(nodeDist, 1.5) * 0.85 + 0.15;
+
+        double dynamicThickness =
+            ribbon.thickness +
+            math.sin(nx * math.pi * 2 - time * 0.9) * (ribbon.thickness * 0.2);
         double y = h * baseY + (h * dynamicThickness);
-        
+
         for (final comp in ribbon.components) {
-            y += math.sin(nx * math.pi * 2 * comp.cycle - time * comp.speed + comp.phase + comp.phaseOffset) * (h * comp.amp * convergence);
+          y +=
+              math.sin(
+                nx * math.pi * 2 * comp.cycle -
+                    time * comp.speed +
+                    comp.phase +
+                    comp.phaseOffset,
+              ) *
+              (h * comp.amp * convergence);
         }
         path.lineTo(x, y);
       }
-      
+
       path.close();
       canvas.drawPath(path, fillPaint);
       canvas.drawPath(path, strokePaint);

@@ -233,8 +233,22 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
             Log.i(TAG, "Weak device: stripped codec map to avc-only → $decodersByMime")
         }
 
-        val primaryFormat = StreamConstants.videoFormatFor(effectiveCodec, enableHdr)
-        var supportedVideoFormats = primaryFormat
+        // Never advertise a codec that has no safe clear-playback decoder on this device.
+        // This prevents the server from negotiating a codec we'd then fail to decode.
+        val safeEffective = when {
+            effectiveCodec == "H265" && "video/hevc" !in decodersByMime -> {
+                Log.w(TAG, "No safe HEVC decoder available — downgrading advertised codec to H264")
+                "H264"
+            }
+            effectiveCodec == "AV1" && "video/av01" !in decodersByMime -> {
+                Log.w(TAG, "No safe AV1 decoder available — downgrading advertised codec to H264")
+                "H264"
+            }
+            else -> effectiveCodec
+        }
+        if (safeEffective != effectiveCodec) activeCodecName = safeEffective
+
+        var supportedVideoFormats = StreamConstants.videoFormatFor(safeEffective, enableHdr)
         for (codec in allSupported) {
             supportedVideoFormats = supportedVideoFormats or
                 StreamConstants.videoFormatFor(codec.codec, enableHdr)

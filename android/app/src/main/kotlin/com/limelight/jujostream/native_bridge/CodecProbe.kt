@@ -44,6 +44,11 @@ object CodecProbe {
         return ranked.firstOrNull()?.codec
     }
 
+    fun safeDecoderNameForMime(mime: String, width: Int, height: Int, fps: Int, hdr: Boolean): String? {
+        val mcl = MediaCodecList(MediaCodecList.ALL_CODECS)
+        return findBestDecoder(mcl, mime, width, height, fps, hdr)?.decoderName
+    }
+
     private fun findBestDecoder(
         mcl: MediaCodecList,
         mime: String,
@@ -63,6 +68,8 @@ object CodecProbe {
             val caps = try {
                 info.getCapabilitiesForType(mime) ?: continue
             } catch (_: Exception) { continue }
+
+            if (!isClearPlaybackDecoder(info, caps)) continue
 
             val vidCaps = caps.videoCapabilities ?: continue
 
@@ -105,6 +112,33 @@ object CodecProbe {
             hwAccel = topHw,
             score = topScore
         )
+    }
+
+    private fun isClearPlaybackDecoder(
+        info: MediaCodecInfo,
+        caps: MediaCodecInfo.CodecCapabilities
+    ): Boolean {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && info.isAlias) {
+            return false
+        }
+
+        val decoderName = info.name.lowercase()
+        if (decoderName.contains(".secure") || decoderName.contains(".tunneled")) {
+            return false
+        }
+
+        return try {
+            val requiresSecure = caps.isFeatureRequired(
+                MediaCodecInfo.CodecCapabilities.FEATURE_SecurePlayback)
+            // Tunneled-playback decoders (e.g. some MediaTek/Dimensity .tunneled variants)
+            // require a HW_AV_SYNC_ID that streaming apps never provide. They will accept
+            // CSD + frames but render zero output — same black-screen symptom as .secure.
+            val requiresTunneled = caps.isFeatureRequired(
+                MediaCodecInfo.CodecCapabilities.FEATURE_TunneledPlayback)
+            !requiresSecure && !requiresTunneled
+        } catch (_: Exception) {
+            true
+        }
     }
 
     private fun measurePerfHeadroom(
