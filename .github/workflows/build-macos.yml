@@ -3,7 +3,7 @@ name: Build macOS
 on:
   push:
     branches:
-      - 'feature/r1'
+      - 'master'
 
 jobs:
   build-macos:

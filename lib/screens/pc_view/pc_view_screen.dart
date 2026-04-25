@@ -39,7 +39,7 @@ class PcViewScreen extends StatefulWidget {
 }
 
 class _PcViewScreenState extends State<PcViewScreen>
-    with WidgetsBindingObserver {
+    with WidgetsBindingObserver, TickerProviderStateMixin {
   final FocusNode _screenFocusNode = FocusNode(debugLabel: 'pc-view-screen');
   bool _focusRequested = false;
   bool _autoConnectAttempted = false;
@@ -55,6 +55,9 @@ class _PcViewScreenState extends State<PcViewScreen>
   int _activeSectionIndex = 0;
 
   final Map<String, String> _computerBgPaths = {};
+  bool _rearrangeMode = false;
+  int? _selectedRearrangeIndex;
+  AnimationController? _shakeController;
 
   final _tourSettingsKey = GlobalKey(debugLabel: 'tour-settings-btn');
   final _tourMoreKey = GlobalKey(debugLabel: 'tour-more-btn');
@@ -66,6 +69,11 @@ class _PcViewScreenState extends State<PcViewScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _shakeController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 300),
+    )..repeat(reverse: true);
+    _shakeController!.stop();
 
     if (!TvDetector.instance.isTV) {
       SystemChrome.setPreferredOrientations([]);
@@ -225,6 +233,7 @@ class _PcViewScreenState extends State<PcViewScreen>
     // Each destination screen owns its own UI mode.
     PcViewScreen.pendingTour.removeListener(_onPendingTour);
     _screenFocusNode.dispose();
+    _shakeController?.dispose();
     for (final n in _iconFocusNodes) {
       n.dispose();
     }
@@ -246,48 +255,85 @@ class _PcViewScreenState extends State<PcViewScreen>
       child: Scaffold(
         backgroundColor: tp.background,
         appBar: AppBar(
-          title: const Text(
-            'JujoStream',
-            style: TextStyle(
-              fontWeight: FontWeight.w600,
-              fontSize: 22,
-              letterSpacing: 1.2,
-            ),
-          ),
+          title: _rearrangeMode
+              ? Text(
+                  AppLocalizations.of(context).rearrangeServers,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 18,
+                    letterSpacing: 0.8,
+                  ),
+                )
+              : const Text(
+                  'JujoStream',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 22,
+                    letterSpacing: 1.2,
+                  ),
+                ),
           backgroundColor: tp.surface,
           foregroundColor: tp.colors.isLight ? Colors.black87 : Colors.white,
           elevation: 0,
-          actions: [
-            Stack(
-              clipBehavior: Clip.none,
-              children: [
-                _FocusableIconBtn(
-                  key: _tourMoreKey,
-                  focusNode: _iconFocusNodes[0],
-                  icon: Icons.more_vert,
-                  tooltip: 'More options',
-                  onPressed: () => _showMoreMenu(context),
-                  onNav: (dir) => _handleIconNav(0, dir),
-                ),
-              ],
-            ),
-            _FocusableIconBtn(
-              key: _tourSettingsKey,
-              focusNode: _iconFocusNodes[1],
-              icon: Icons.settings,
-              tooltip: 'Settings',
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const SettingsScreen(),
+          actions: _rearrangeMode
+              ? [
+                  TextButton(
+                    onPressed: () {
+                      setState(() {
+                        _rearrangeMode = false;
+                        _selectedRearrangeIndex = null;
+                        _shakeController?.stop();
+                      });
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            AppLocalizations.of(context).layoutSaved,
+                          ),
+                          duration: const Duration(seconds: 2),
+                        ),
+                      );
+                    },
+                    child: Text(
+                      AppLocalizations.of(context).done,
+                      style: TextStyle(
+                        color: tp.accent,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
                   ),
-                );
-              },
-              onNav: (dir) => _handleIconNav(1, dir),
-            ),
-            const SizedBox(width: 8),
-          ],
+                  const SizedBox(width: 8),
+                ]
+              : [
+                  Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      _FocusableIconBtn(
+                        key: _tourMoreKey,
+                        focusNode: _iconFocusNodes[0],
+                        icon: Icons.more_vert,
+                        tooltip: 'More options',
+                        onPressed: () => _showMoreMenu(context),
+                        onNav: (dir) => _handleIconNav(0, dir),
+                      ),
+                    ],
+                  ),
+                  _FocusableIconBtn(
+                    key: _tourSettingsKey,
+                    focusNode: _iconFocusNodes[1],
+                    icon: Icons.settings,
+                    tooltip: 'Settings',
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const SettingsScreen(),
+                        ),
+                      );
+                    },
+                    onNav: (dir) => _handleIconNav(1, dir),
+                  ),
+                  const SizedBox(width: 8),
+                ],
         ),
         body: Consumer<ComputerProvider>(
           builder: (context, provider, child) {
@@ -306,6 +352,8 @@ class _PcViewScreenState extends State<PcViewScreen>
                 if (provider.computers.isEmpty && provider.isDiscovering)
                   _buildDiscoveryBanner(),
                 Expanded(child: _buildComputerGrid(provider)),
+
+                if (_rearrangeMode) _buildRearrangeHintBanner(),
 
                 NowPlayingBanner(
                   onTap: () {
@@ -329,6 +377,69 @@ class _PcViewScreenState extends State<PcViewScreen>
     );
   }
 
+  Widget _buildRearrangeHintBanner() {
+    final tp = context.read<ThemeProvider>();
+    final isSelected = _selectedRearrangeIndex != null;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+      color: tp.surfaceVariant.withValues(alpha: 0.95),
+      child: Wrap(
+        alignment: WrapAlignment.center,
+        spacing: 20,
+        runSpacing: 8,
+        children: [
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              GamepadHintIcon('A', size: 16),
+              const SizedBox(width: 6),
+              Text(
+                isSelected ? 'Drop here' : 'Select',
+                style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
+              ),
+            ],
+          ),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              GamepadHintIcon('B', size: 16),
+              const SizedBox(width: 6),
+              Text(
+                isSelected ? 'Cancel' : 'Exit',
+                style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
+              ),
+            ],
+          ),
+          if (!isSelected)
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.touch_app, size: 16, color: Colors.white54),
+                const SizedBox(width: 6),
+                const Text(
+                  'Tap to select',
+                  style: TextStyle(color: Colors.white54, fontSize: 13, fontWeight: FontWeight.w500),
+                ),
+              ],
+            )
+          else
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.touch_app, size: 16, color: Colors.white54),
+                const SizedBox(width: 6),
+                const Text(
+                  'Tap to place',
+                  style: TextStyle(color: Colors.white54, fontSize: 13, fontWeight: FontWeight.w500),
+                ),
+              ],
+            ),
+        ],
+      ),
+    );
+  }
+
   void _showMoreMenu(BuildContext context) {
     showGeneralDialog(
       context: context,
@@ -348,8 +459,50 @@ class _PcViewScreenState extends State<PcViewScreen>
         );
       },
       pageBuilder: (ctx, _, _) =>
-          _MainMenuDialog(parentContext: context, onStartTour: _startTour),
+          _MainMenuDialog(
+            parentContext: context,
+            onStartTour: _startTour,
+            onRearrange: _startRearrangeMode,
+          ),
     );
+  }
+
+  void _startRearrangeMode() {
+    setState(() {
+      _rearrangeMode = true;
+      _selectedRearrangeIndex = null;
+      _shakeController?.repeat(reverse: true);
+    });
+  }
+
+  void _handleRearrangeCancel() {
+    if (_selectedRearrangeIndex != null) {
+      setState(() => _selectedRearrangeIndex = null);
+      UiSoundService.playUiMove();
+    } else {
+      setState(() {
+        _rearrangeMode = false;
+        _selectedRearrangeIndex = null;
+        _shakeController?.stop();
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(AppLocalizations.of(context).layoutSaved),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    }
+  }
+
+  void _handleRearrangeSelect(int index, ComputerProvider provider) {
+    if (_selectedRearrangeIndex == null) {
+      setState(() => _selectedRearrangeIndex = index);
+      UiSoundService.playClick();
+    } else {
+      provider.reorderComputers(_selectedRearrangeIndex!, index);
+      setState(() => _selectedRearrangeIndex = null);
+      UiSoundService.playClick();
+    }
   }
 
   void _startTour() {
@@ -629,31 +782,54 @@ class _PcViewScreenState extends State<PcViewScreen>
               : null;
 
           if (index == provider.computers.length) {
-            return _GridFocusableCard(
+            final addCard = _GridFocusableCard(
               focusNode: focusNode,
-              onSelect: _showAddComputerDialog,
+              onSelect: _rearrangeMode ? null : _showAddComputerDialog,
+              onCancel: _rearrangeMode ? _handleRearrangeCancel : null,
               onNav: (dir) => _handleGridNav(index, dir, crossAxisCount),
-              child: _AddServerCard(onTap: _showAddComputerDialog),
+              child: _AddServerCard(onTap: _rearrangeMode ? () {} : _showAddComputerDialog),
             );
+            if (_rearrangeMode) {
+              return Opacity(opacity: 0.3, child: addCard);
+            }
+            return addCard;
           }
-          return _GridFocusableCard(
+
+          final isSelectedForRearrange = _selectedRearrangeIndex == index;
+
+          Widget cardWrapper = _GridFocusableCard(
             key: index == 0 ? _tourServerCardKey : null,
             focusNode: focusNode,
-            onSelect: () => _onComputerTapped(provider.computers[index]),
-            onLongPress: () =>
-                _showComputerOptions(provider, provider.computers[index]),
+            isSelected: isSelectedForRearrange,
+            onSelect: _rearrangeMode ? () => _handleRearrangeSelect(index, provider) : () => _onComputerTapped(provider.computers[index]),
+            onLongPress: _rearrangeMode ? null : () => _showComputerOptions(provider, provider.computers[index]),
+            onCancel: _rearrangeMode ? _handleRearrangeCancel : null,
             onNav: (dir) => _handleGridNav(index, dir, crossAxisCount),
-            child: _ComputerCard(
-              computer: provider.computers[index],
-              customBgPath: provider.computers[index].isPaired
-                  ? _computerBgPaths[provider.computers[index].uuid]
-                  : null,
-              index: index,
-              onTap: () => _onComputerTapped(provider.computers[index]),
-              onLongPress: () =>
-                  _showComputerOptions(provider, provider.computers[index]),
-            ),
+            child: _rearrangeMode
+              ? RotationTransition(
+                  turns: Tween(begin: -0.006, end: 0.006).animate(_shakeController!),
+                  child: _ComputerCard(
+                    computer: provider.computers[index],
+                    customBgPath: provider.computers[index].isPaired
+                        ? _computerBgPaths[provider.computers[index].uuid]
+                        : null,
+                    index: index,
+                    onTap: () => _handleRearrangeSelect(index, provider),
+                    onLongPress: () {},
+                  ),
+                )
+              : _ComputerCard(
+                  computer: provider.computers[index],
+                  customBgPath: provider.computers[index].isPaired
+                      ? _computerBgPaths[provider.computers[index].uuid]
+                      : null,
+                  index: index,
+                  onTap: () => _onComputerTapped(provider.computers[index]),
+                  onLongPress: () => _showComputerOptions(provider, provider.computers[index]),
+                ),
           );
+
+          return cardWrapper;
         },
       ),
     );
@@ -672,6 +848,9 @@ class _PcViewScreenState extends State<PcViewScreen>
       if (!mounted || !paired) {
         return;
       }
+      // Pairing just completed — let the user manually re-enter the server
+      // so the server has time to finish persisting the pairing internally.
+      return;
     }
 
     // ── Entry gate: verify pairing is still valid on the server ─────
@@ -682,9 +861,9 @@ class _PcViewScreenState extends State<PcViewScreen>
     if (!mounted) return;
     if (!stillPaired) {
       final l = AppLocalizations.of(context);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(l.serverUnpaired)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(l.serverUnpaired)));
       return;
     }
 
@@ -1244,16 +1423,20 @@ class _GridFocusableCard extends StatefulWidget {
   final FocusNode? focusNode;
   final VoidCallback? onSelect;
   final VoidCallback? onLongPress;
+  final VoidCallback? onCancel;
   final void Function(LogicalKeyboardKey dir) onNav;
   final Widget child;
+  final bool isSelected;
 
   const _GridFocusableCard({
     super.key,
     this.focusNode,
     this.onSelect,
     this.onLongPress,
+    this.onCancel,
     required this.onNav,
     required this.child,
+    this.isSelected = false,
   });
 
   @override
@@ -1288,6 +1471,10 @@ class _GridFocusableCardState extends State<_GridFocusableCard> {
         if (key == LogicalKeyboardKey.escape ||
             key == LogicalKeyboardKey.goBack ||
             key == LogicalKeyboardKey.gameButtonB) {
+          if (widget.onCancel != null) {
+            widget.onCancel!();
+            return KeyEventResult.handled;
+          }
           Navigator.maybePop(context);
           return KeyEventResult.handled;
         }
@@ -1307,16 +1494,14 @@ class _GridFocusableCardState extends State<_GridFocusableCard> {
         onLongPress: widget.onLongPress,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 150),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-          ),
+          decoration: BoxDecoration(borderRadius: BorderRadius.circular(12)),
           foregroundDecoration: BoxDecoration(
             borderRadius: BorderRadius.circular(12),
-            color: _hasFocus
+            color: (_hasFocus || widget.isSelected)
                 ? Colors.white.withValues(alpha: 0.06)
                 : Colors.transparent,
           ),
-          transform: _hasFocus
+          transform: (_hasFocus || widget.isSelected)
               ? (Matrix4.identity()..scale(1.01))
               : Matrix4.identity(),
           transformAlignment: Alignment.center,
@@ -1413,7 +1598,8 @@ class _FocusableIconBtnState extends State<_FocusableIconBtn> {
 class _MainMenuDialog extends StatefulWidget {
   final BuildContext parentContext;
   final VoidCallback? onStartTour;
-  const _MainMenuDialog({required this.parentContext, this.onStartTour});
+  final VoidCallback? onRearrange;
+  const _MainMenuDialog({required this.parentContext, this.onStartTour, this.onRearrange});
 
   @override
   State<_MainMenuDialog> createState() => _MainMenuDialogState();
@@ -1594,6 +1780,21 @@ class _MainMenuDialogState extends State<_MainMenuDialog> {
                                         (_) => false,
                                       );
                                     }
+                                  },
+                                ),
+                                _DialogMenuItemTile(
+                                  order: 4,
+                                  compact: compact,
+                                  icon: Icons.grid_view_rounded,
+                                  iconBubble: tp.accentLight.withValues(
+                                    alpha: 0.17,
+                                  ),
+                                  iconColor: tp.accentLight,
+                                  label: l.rearrangeServers,
+                                  accentColor: tp.accent,
+                                  onTap: () {
+                                    Navigator.pop(context);
+                                    widget.onRearrange?.call();
                                   },
                                 ),
                                 SizedBox(height: compact ? 6 : 10),

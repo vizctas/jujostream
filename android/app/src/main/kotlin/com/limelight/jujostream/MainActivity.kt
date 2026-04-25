@@ -1,18 +1,24 @@
 package com.limelight.jujostream
 
+import android.Manifest
 import android.app.ActivityManager
 import android.app.PictureInPictureParams
 import android.content.Context
 import android.content.pm.PackageManager
 import android.content.res.Configuration
-import android.graphics.Color
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.content.Intent
+import android.provider.Settings
+import com.limelight.jujostream.native_bridge.PairingForegroundService
 import android.util.Rational
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -21,6 +27,99 @@ import com.limelight.jujostream.native_bridge.StreamingPlugin
 
 class MainActivity : FlutterActivity() {
     private var gamepadHandler: GamepadHandler? = null
+
+    companion object {
+        private const val NOTIFICATION_PERMISSION_REQUEST_CODE = 1001
+    }
+
+    private var pendingPermissionResult: MethodChannel.Result? = null
+    private var isPairingActive = false
+    private fun ensureNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED
+            ) {
+                ActivityCompat.requestPermissions(
+                    this,
+                    arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+                    NOTIFICATION_PERMISSION_REQUEST_CODE
+                )
+            }
+        }
+    }
+
+    private fun startFullNativePairing(
+        baseUrl: String,
+        httpsPort: Int,
+        uniqueId: String,
+        pin: String,
+        certPem: String,
+        keyPem: String,
+        timeoutMs: Long
+    ) {
+        isPairingActive = true
+        PairingForegroundService.reset()
+
+        try {
+            val intent = Intent(this, PairingForegroundService::class.java).apply {
+                putExtra("mode", "fullPairing")
+                putExtra("baseUrl", baseUrl)
+                putExtra("httpsPort", httpsPort)
+                putExtra("uniqueId", uniqueId)
+                putExtra("pin", pin)
+                putExtra("certPem", certPem)
+                putExtra("keyPem", keyPem)
+                putExtra("timeoutMs", timeoutMs)
+            }
+            android.util.Log.i("PairingFGS", "Starting PairingForegroundService with mode=fullPairing")
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(intent)
+            } else {
+                startService(intent)
+            }
+            android.util.Log.i("PairingFGS", "PairingForegroundService started successfully")
+        } catch (e: Exception) {
+            android.util.Log.e("PairingFGS", "FAILED to start PairingForegroundService: $e", e)
+            // Store error so Dart can detect the failure immediately
+            PairingForegroundService.pairingResult.set(
+                com.limelight.jujostream.native_bridge.NativePairingResult(
+                    paired = false,
+                    error = "Failed to start pairing service: ${e.message}"
+                )
+            )
+        }
+    }
+
+    private fun releasePairingLocks() {
+        isPairingActive = false
+        refreshPipParams()
+
+        PairingForegroundService.cancelRequested.set(true)
+        try {
+            val intent = Intent(this, PairingForegroundService::class.java)
+            stopService(intent)
+        } catch (_: Exception) {}
+    }
+
+    private fun pollPairingResult(): Map<String, Any?>? {
+        val result = PairingForegroundService.pairingResult.get() ?: return null
+        return mapOf(
+            "paired" to result.paired,
+            "serverCertHex" to result.serverCertHex,
+            "error" to result.error
+        )
+    }
+
+    private fun refreshPipParams() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
+        val active = StreamingPlugin.isStreamingActive
+        val ratio = if (StreamingPlugin.isStreamingActive) Rational(16, 9) else Rational(9, 16)
+        val params = PictureInPictureParams.Builder()
+            .setAspectRatio(ratio)
+            .setAutoEnterEnabled(active)
+            .build()
+        runCatching { setPictureInPictureParams(params) }
+    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -43,12 +142,99 @@ class MainActivity : FlutterActivity() {
                     else -> result.notImplemented()
                 }
             }
+
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.jujostream/pairing_locks")
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "startFullPairing" -> {
+                        val baseUrl = call.argument<String>("baseUrl") ?: ""
+                        val httpsPort = call.argument<Number>("httpsPort")?.toInt() ?: 47984
+                        val uniqueId = call.argument<String>("uniqueId") ?: ""
+                        val pin = call.argument<String>("pin") ?: ""
+                        val certPem = call.argument<String>("certPem") ?: ""
+                        val keyPem = call.argument<String>("keyPem") ?: ""
+                        val timeoutMs = call.argument<Number>("timeoutMs")?.toLong() ?: 120_000L
+                        startFullNativePairing(baseUrl, httpsPort, uniqueId, pin, certPem, keyPem, timeoutMs)
+                        result.success(null)
+                    }
+                    "pollResult" -> {
+                        result.success(pollPairingResult())
+                    }
+                    "release" -> {
+                        releasePairingLocks()
+                        result.success(null)
+                    }
+                    "checkNotificationPermission" -> {
+                        // Returns "granted", "denied", or "not_required" (pre-API 33)
+                        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+                            result.success("not_required")
+                        } else {
+                            val granted = ContextCompat.checkSelfPermission(
+                                this, Manifest.permission.POST_NOTIFICATIONS
+                            ) == PackageManager.PERMISSION_GRANTED
+                            result.success(if (granted) "granted" else "denied")
+                        }
+                    }
+                    "requestNotificationPermission" -> {
+                        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+                            result.success("not_required")
+                        } else if (ContextCompat.checkSelfPermission(
+                                this, Manifest.permission.POST_NOTIFICATIONS
+                            ) == PackageManager.PERMISSION_GRANTED
+                        ) {
+                            result.success("granted")
+                        } else {
+                            pendingPermissionResult = result
+                            ActivityCompat.requestPermissions(
+                                this,
+                                arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+                                NOTIFICATION_PERMISSION_REQUEST_CODE
+                            )
+                        }
+                    }
+                    "openNotificationSettings" -> {
+                        try {
+                            val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                                putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+                            }
+                            startActivity(intent)
+                            result.success(true)
+                        } catch (e: Exception) {
+                            try {
+                                val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                    data = Uri.fromParts("package", packageName, null)
+                                }
+                                startActivity(intent)
+                                result.success(true)
+                            } catch (_: Exception) {
+                                result.success(false)
+                            }
+                        }
+                    }
+                    else -> result.notImplemented()
+                }
+            }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        ensureNotificationPermission()
 
         window.decorView.post { killFocusHighlightRecursive(window.decorView) }
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == NOTIFICATION_PERMISSION_REQUEST_CODE) {
+            val granted = grantResults.isNotEmpty() &&
+                    grantResults[0] == PackageManager.PERMISSION_GRANTED
+            pendingPermissionResult?.success(if (granted) "granted" else "denied")
+            pendingPermissionResult = null
+        }
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -56,14 +242,7 @@ class MainActivity : FlutterActivity() {
 
         window.decorView.post { killFocusHighlightRecursive(window.decorView) }
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            val streaming = StreamingPlugin.isStreamingActive
-            val params = PictureInPictureParams.Builder()
-                .setAspectRatio(Rational(16, 9))
-                .setAutoEnterEnabled(streaming)
-                .build()
-            try { setPictureInPictureParams(params) } catch (_: Exception) {}
-        }
+        refreshPipParams()
     }
 
     private fun killFocusHighlightRecursive(view: View) {
@@ -94,6 +273,7 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun onDestroy() {
+        releasePairingLocks() // safety: release any held locks if activity is destroyed
         gamepadHandler?.dispose()
         gamepadHandler = null
         super.onDestroy()
@@ -125,8 +305,9 @@ class MainActivity : FlutterActivity() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         if (!StreamingPlugin.isStreamingActive) return
         if (isInPictureInPictureMode) return
+        val ratio = if (StreamingPlugin.isStreamingActive) Rational(16, 9) else Rational(9, 16)
         val params = PictureInPictureParams.Builder()
-            .setAspectRatio(Rational(16, 9))
+            .setAspectRatio(ratio)
             .apply {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                     setAutoEnterEnabled(true)

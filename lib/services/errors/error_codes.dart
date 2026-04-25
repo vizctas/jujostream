@@ -54,7 +54,6 @@ String sanitizeError(String raw) {
 
 /// Developer-facing error dictionary. Maps code → full technical description.
 const Map<String, String> errorDescriptions = {
-  // ── Pairing ──────────────────────────────────────────────────────────
   'PAIR-001': 'Connection abort during pairing HTTP request. '
       'ClientException: Software caused connection abort. '
       'Typically: server not reachable, firewall blocking port, or server crashed mid-handshake.',
@@ -74,7 +73,6 @@ const Map<String, String> errorDescriptions = {
   'PAIR-010': 'TLS/SSL handshake error during pairing.',
   'PAIR-099': 'Unknown pairing error. See raw logs for details.',
 
-  // ── Streaming ─────────────────────────────���──────────────────────────
   'STRM-001': 'Stream connection failed — server returned non-zero status code.',
   'STRM-002': 'Stream timed out during startup (30s). '
       'Server may be overloaded or network too slow.',
@@ -85,7 +83,6 @@ const Map<String, String> errorDescriptions = {
       'Codec not supported by device hardware.',
   'STRM-099': 'Unknown streaming error. See raw logs for details.',
 
-  // ── Network ──────────────────────────────────────────────────────────
   'NET-001': 'Connection abort — TCP reset by peer or OS.',
   'NET-002': 'Connection refused — target host actively rejected the connection.',
   'NET-003': 'Connection timed out — no response from host.',
@@ -93,13 +90,10 @@ const Map<String, String> errorDescriptions = {
   'NET-005': 'Network unreachable — no route to host.',
   'NET-099': 'Unknown network error.',
 
-  // ── Discovery ────────────────────────────────────────────────────────
   'DISC-001': 'mDNS discovery failed — no multicast support on this network.',
   'DISC-002': 'Server responded to discovery but returned invalid XML.',
   'DISC-099': 'Unknown discovery error.',
 };
-
-// ── Internal matching logic ──────────────────────────────────────────────
 
 class _ErrorEntry {
   final String code;

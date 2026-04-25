@@ -5,12 +5,6 @@ import android.media.MediaCodecList
 import android.os.Build
 import android.util.Log
 
-/**
- * Queries hardware decoder capabilities to find the best codec
- * for a given resolution and frame rate. Uses PerformancePoint API
- * on Android 10+ and falls back to isSizeSupported/areSizeAndRateSupported
- * on older versions.
- */
 object CodecProbe {
     private const val TAG = "CodecProbe"
 
@@ -28,10 +22,6 @@ object CodecProbe {
         "AV1"  to "video/av01"
     )
 
-    /**
-     * Returns a ranked list of codecs that can handle [width]x[height]@[fps].
-     * Best candidate first. Empty list = nothing can handle it.
-     */
     fun rankCodecs(width: Int, height: Int, fps: Int, hdr: Boolean): List<CodecScore> {
         val mcl = MediaCodecList(MediaCodecList.ALL_CODECS)
         val results = mutableListOf<CodecScore>()
@@ -49,13 +39,14 @@ object CodecProbe {
         return results
     }
 
-    /**
-     * Pick the single best codec for the target config. Returns codec tag
-     * ("H264", "H265", "AV1") or null if nothing works.
-     */
     fun selectBest(width: Int, height: Int, fps: Int, hdr: Boolean): String? {
         val ranked = rankCodecs(width, height, fps, hdr)
         return ranked.firstOrNull()?.codec
+    }
+
+    fun safeDecoderNameForMime(mime: String, width: Int, height: Int, fps: Int, hdr: Boolean): String? {
+        val mcl = MediaCodecList(MediaCodecList.ALL_CODECS)
+        return findBestDecoder(mcl, mime, width, height, fps, hdr)?.decoderName
     }
 
     private fun findBestDecoder(
@@ -78,12 +69,12 @@ object CodecProbe {
                 info.getCapabilitiesForType(mime) ?: continue
             } catch (_: Exception) { continue }
 
+            if (!isClearPlaybackDecoder(info, caps)) continue
+
             val vidCaps = caps.videoCapabilities ?: continue
 
-            // Check basic resolution support
             if (!vidCaps.isSizeSupported(w, h)) continue
 
-            // Check resolution + fps combo
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
                 if (!vidCaps.areSizeAndRateSupported(w, h, fps.toDouble())) continue
             }
@@ -91,10 +82,7 @@ object CodecProbe {
             val isHw = isHardwareDecoder(info)
             var score = 0
 
-            // hw decoders get big bonus
             if (isHw) score += 500
-
-            // Codec efficiency tier bonus
             score += when (mime) {
                 "video/av01" -> 300  // best compression
                 "video/hevc" -> 200  // good compression
@@ -102,10 +90,8 @@ object CodecProbe {
                 else -> 0
             }
 
-            // HDR compatibility bonus
             if (hdr && supportsHdr(caps)) score += 150
 
-            // PerformancePoint headroom on API 29+
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 val headroom = measurePerfHeadroom(vidCaps, w, h, fps)
                 score += headroom
@@ -120,7 +106,7 @@ object CodecProbe {
 
         if (topScore < 0) return null
         return CodecScore(
-            codec = "", // caller fills in
+            codec = "",
             mime = mime,
             decoderName = topName,
             hwAccel = topHw,
@@ -128,15 +114,37 @@ object CodecProbe {
         )
     }
 
-    /**
-     * Estimate headroom by probing progressively higher demands.
-     * Uses areSizeAndRateSupported which works across all API levels.
-     */
+    private fun isClearPlaybackDecoder(
+        info: MediaCodecInfo,
+        caps: MediaCodecInfo.CodecCapabilities
+    ): Boolean {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && info.isAlias) {
+            return false
+        }
+
+        val decoderName = info.name.lowercase()
+        if (decoderName.contains(".secure") || decoderName.contains(".tunneled")) {
+            return false
+        }
+
+        return try {
+            val requiresSecure = caps.isFeatureRequired(
+                MediaCodecInfo.CodecCapabilities.FEATURE_SecurePlayback)
+            // Tunneled-playback decoders (e.g. some MediaTek/Dimensity .tunneled variants)
+            // require a HW_AV_SYNC_ID that streaming apps never provide. They will accept
+            // CSD + frames but render zero output — same black-screen symptom as .secure.
+            val requiresTunneled = caps.isFeatureRequired(
+                MediaCodecInfo.CodecCapabilities.FEATURE_TunneledPlayback)
+            !requiresSecure && !requiresTunneled
+        } catch (_: Exception) {
+            true
+        }
+    }
+
     private fun measurePerfHeadroom(
         vidCaps: MediaCodecInfo.VideoCapabilities,
         w: Int, h: Int, fps: Int
     ): Int {
-        // Probe escalating demands to gauge spare capacity
         val probes = listOf(
             Triple(w, h, fps * 2),         // same res, 2x fps
             Triple(w * 3 / 2, h * 3 / 2, fps), // 1.5x res, same fps
@@ -161,11 +169,10 @@ object CodecProbe {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             return info.isHardwareAccelerated
         }
-        // Heuristic for older APIs
         val name = info.name.lowercase()
         return !name.contains("omx.google.") &&
                !name.contains("c2.android.") &&
-               !name.startsWith("omx.sec.") // some Samsung SW decoders
+               !name.startsWith("omx.sec.")
     }
 
     private fun supportsHdr(caps: MediaCodecInfo.CodecCapabilities): Boolean {
@@ -173,7 +180,6 @@ object CodecProbe {
 
         val profiles = caps.profileLevels ?: return false
         for (pl in profiles) {
-            // HEVC Main10 HDR / AV1 Main10
             if (pl.profile == MediaCodecInfo.CodecProfileLevel.HEVCProfileMain10 ||
                 pl.profile == MediaCodecInfo.CodecProfileLevel.HEVCProfileMain10HDR10) {
                 return true
@@ -188,9 +194,6 @@ object CodecProbe {
         return false
     }
 
-    /**
-     * Returns a summary map suitable for sending over MethodChannel.
-     */
     fun probeAsMap(width: Int, height: Int, fps: Int, hdr: Boolean): Map<String, Any> {
         val ranked = rankCodecs(width, height, fps, hdr)
         val best = ranked.firstOrNull()

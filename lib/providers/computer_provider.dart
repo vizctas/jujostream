@@ -17,8 +17,10 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
   final PairingService _pairingService = PairingService();
 
   final List<ComputerDetails> _computers = [];
+  final List<String> _customOrder = [];
   static const String _computersStorageKey = 'saved_computers';
   static const String _primaryServerKey = 'primary_server_uuid';
+  static const String _customOrderKey = 'computer_custom_order';
   bool _isDiscovering = false;
   bool _isPairing = false;
   String? _error;
@@ -31,6 +33,13 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
   /// Prevents transient failures (e.g. after session close) from flipping state.
   final Map<String, int> _pollFailCount = {};
   static const int _kOfflineThreshold = 2;
+
+  /// Timestamp of the last successful pairing per computer UUID.
+  /// Polls and verifyPairing cannot override paired state during this
+  /// grace period — Sunshine may take a few seconds to fully register
+  /// the pairing internally after Phase 5 completes.
+  final Map<String, DateTime> _pairingCompletedAt = {};
+  static const Duration _pairingGracePeriod = Duration(seconds: 15);
 
   NvApp? _activeSessionApp;
   ComputerDetails? _activeSessionComputer;
@@ -66,13 +75,37 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
   }
 
+  String _orderKey(ComputerDetails c) =>
+      c.uuid.isNotEmpty ? c.uuid : c.localAddress;
+
   static const Duration _activePollInterval = Duration(seconds: 3);
   static const Duration _idlePollInterval = Duration(seconds: 30);
   static const Duration _pollTimeout = Duration(seconds: 2);
   bool _appInForeground = true;
 
-  List<ComputerDetails> get computers => List.unmodifiable(_computers);
+  List<ComputerDetails> get computers {
+    if (_customOrder.isEmpty) return List.unmodifiable(_computers);
+    final orderMap = <String, int>{};
+    for (var i = 0; i < _customOrder.length; i++) {
+      orderMap[_customOrder[i]] = i;
+    }
+    final sorted = List<ComputerDetails>.from(_computers);
+    sorted.sort((a, b) {
+      final keyA = _orderKey(a);
+      final keyB = _orderKey(b);
+      final idxA = orderMap[keyA];
+      final idxB = orderMap[keyB];
+      if (idxA != null && idxB != null) return idxA.compareTo(idxB);
+      if (idxA != null) return -1;
+      if (idxB != null) return 1;
+      return 0;
+    });
+    return List.unmodifiable(sorted);
+  }
+
   bool get isDiscovering => _isDiscovering;
+  bool get isPairing => _isPairing;
+
   String? get error => _error;
 
   String? get primaryServerUuid => _primaryServerUuid;
@@ -167,6 +200,12 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
             return computer;
           }),
         );
+      final orderList = prefs.getStringList(_customOrderKey);
+      if (orderList != null) {
+        _customOrder
+          ..clear()
+          ..addAll(orderList);
+      }
       notifyListeners();
     } catch (_) {}
   }
@@ -179,6 +218,30 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
           .toList(growable: false);
       await prefs.setStringList(_computersStorageKey, jsonList);
     } catch (_) {}
+  }
+
+  Future<void> _persistCustomOrder() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setStringList(
+        _customOrderKey,
+        _customOrder.toList(growable: false),
+      );
+    } catch (_) {}
+  }
+
+  Future<void> reorderComputers(int oldIndex, int newIndex) async {
+    final sorted = List<ComputerDetails>.from(computers);
+    if (oldIndex < 0 || oldIndex >= sorted.length) return;
+    if (newIndex < 0 || newIndex >= sorted.length) return;
+    final item = sorted.removeAt(oldIndex);
+    sorted.insert(newIndex, item);
+    _customOrder.clear();
+    for (final c in sorted) {
+      _customOrder.add(_orderKey(c));
+    }
+    await _persistCustomOrder();
+    notifyListeners();
   }
 
   Future<void> startDiscovery() async {
@@ -356,6 +419,13 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
     return _pairingService.generatePin();
   }
 
+  /// Aborts the in-progress [pairComputer] call as soon as possible.
+  /// Called by the UI when the app is sent to background during pairing
+  /// so the Phase 2 long-poll retry loop exits cleanly.
+  void cancelActivePairing() {
+    _pairingService.requestCancel();
+  }
+
   Future<PairingResult> pairComputer(
     ComputerDetails computer,
     String pin,
@@ -373,12 +443,18 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
     try {
       final result = await _pairingService.pair(computer, pin);
 
-      _isPairing = false;
       if (result.paired) {
         computer.pairState = PairState.paired;
         computer.serverCert = result.serverCert ?? computer.serverCert;
 
         computer.pairStatusFromHttps = true;
+
+        // Record pairing timestamp — polls and verifyPairing will not
+        // override the paired state during the grace period.
+        final graceKey = computer.uuid.isNotEmpty
+            ? computer.uuid
+            : computer.localAddress;
+        _pairingCompletedAt[graceKey] = DateTime.now();
 
         // Persist immediately so the paired state survives even if
         // the subsequent pollComputer() call fails or times out.
@@ -386,6 +462,9 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
         notifyListeners();
 
         unawaited(AchievementService.instance.unlock('first_connection'));
+
+        // Keep _isPairing = true during the post-pairing poll so the
+        // periodic _pollAll() timer doesn't race with us.
         await pollComputer(computer);
       } else {
         computer.pairState = PairState.failed;
@@ -440,7 +519,27 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
       if (info.pairState == PairState.paired) {
         return true;
       }
-      // Server confirmed: NOT paired. Update local state.
+
+      // If the response came via HTTP fallback (not HTTPS-authenticated),
+      // it cannot reliably determine pairing status. Allow entry.
+      if (!info.pairStatusFromHttps) {
+        return true;
+      }
+
+      // Check grace period — don't revoke pairing if we just completed it.
+      final graceKey = computer.uuid.isNotEmpty
+          ? computer.uuid
+          : computer.localAddress;
+      final pairedAt = _pairingCompletedAt[graceKey];
+      final inGracePeriod =
+          pairedAt != null &&
+          DateTime.now().difference(pairedAt) < _pairingGracePeriod;
+      if (inGracePeriod) {
+        // Server may not have fully registered the pairing yet.
+        return true;
+      }
+
+      // HTTPS confirmed: NOT paired. Update local state.
       computer.pairState = PairState.notPaired;
       computer.serverCert = '';
       computer.pairStatusFromHttps = false;
@@ -458,6 +557,15 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
     if (success) {
       computer.pairState = PairState.notPaired;
       computer.serverCert = '';
+      computer.pairStatusFromHttps = false;
+
+      // Clear grace period so a subsequent re-pair doesn't inherit
+      // stale protection from the previous pairing session.
+      final graceKey = computer.uuid.isNotEmpty
+          ? computer.uuid
+          : computer.localAddress;
+      _pairingCompletedAt.remove(graceKey);
+
       _persistComputers();
       notifyListeners();
     }
@@ -539,11 +647,27 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
       // legitimately paired server to unpaired.
       if (computer.pairStatusFromHttps) {
         // HTTPS is authoritative — if server says notPaired, trust it.
+        // EXCEPT during the post-pairing grace period where Sunshine may
+        // not yet have fully registered the pairing internally.
         if (computer.pairState == PairState.notPaired &&
             existing.pairState == PairState.paired) {
-          // Server revoked pairing. Clear cached cert so the UI shows
-          // "Not Paired" and blocks entry until re-paired.
-          computer.serverCert = '';
+          final graceKey = existing.uuid.isNotEmpty
+              ? existing.uuid
+              : existing.localAddress;
+          final pairedAt = _pairingCompletedAt[graceKey];
+          final inGracePeriod =
+              pairedAt != null &&
+              DateTime.now().difference(pairedAt) < _pairingGracePeriod;
+
+          if (inGracePeriod) {
+            // Still within grace period — preserve paired state.
+            computer.pairState = PairState.paired;
+            computer.pairStatusFromHttps = true;
+          } else {
+            // Server revoked pairing. Clear cached cert so the UI shows
+            // "Not Paired" and blocks entry until re-paired.
+            computer.serverCert = '';
+          }
         }
       } else if (computer.pairState == PairState.notPaired &&
           existing.pairState == PairState.paired &&
@@ -554,9 +678,22 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
         computer.pairState = PairState.paired;
         computer.pairStatusFromHttps = true;
       }
+      final oldKey = _orderKey(existing);
+      final newKey = _orderKey(computer);
       _computers[existingIndex] = computer;
+      // Migrate custom order key if UUID was discovered (empty -> non-empty)
+      if (oldKey != newKey && oldKey.isNotEmpty) {
+        final idx = _customOrder.indexOf(oldKey);
+        if (idx >= 0) {
+          _customOrder[idx] = newKey;
+        }
+      }
     } else {
       _computers.add(computer);
+      final key = _orderKey(computer);
+      if (key.isNotEmpty && !_customOrder.contains(key)) {
+        _customOrder.add(key);
+      }
     }
     _persistComputers();
     notifyListeners();

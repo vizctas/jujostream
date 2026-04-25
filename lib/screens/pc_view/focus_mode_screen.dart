@@ -43,10 +43,6 @@ Future<void> setFocusModeEnabled(bool value) async {
   await prefs.setBool(_kFocusModeEnabled, value);
 }
 
-// ---------------------------------------------------------------------------
-// Focus Mode Screen
-// ---------------------------------------------------------------------------
-
 class FocusModeScreen extends StatefulWidget {
   const FocusModeScreen({super.key});
 
@@ -188,8 +184,6 @@ class _FocusModeScreenState extends State<FocusModeScreen>
     }
   }
 
-  // ---- Navigation ----
-
   Future<void> _onComputerTapped(ComputerDetails computer) async {
     if (!computer.isReachable) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -200,6 +194,9 @@ class _FocusModeScreenState extends State<FocusModeScreen>
     if (!computer.isPaired) {
       final ok = await showPairingDialog(context, computer);
       if (!mounted || !ok) return;
+      // Pairing just completed — let the user manually re-enter the server
+      // so the server has time to finish persisting the pairing internally.
+      return;
     }
 
     // ── Entry gate: verify pairing is still valid on the server ─────
@@ -208,9 +205,9 @@ class _FocusModeScreenState extends State<FocusModeScreen>
     if (!mounted) return;
     if (!stillPaired) {
       final l = AppLocalizations.of(context);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(l.serverUnpaired)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(l.serverUnpaired)));
       return;
     }
 
@@ -292,8 +289,6 @@ class _FocusModeScreenState extends State<FocusModeScreen>
     if (!mounted) return;
     setState(() => _bgPaths.remove(computer.uuid));
   }
-
-  // ---- Build ----
 
   @override
   Widget build(BuildContext context) {
@@ -760,10 +755,6 @@ class _FocusModeScreenState extends State<FocusModeScreen>
   }
 }
 
-// ---------------------------------------------------------------------------
-// Blurred Wallpaper
-// ---------------------------------------------------------------------------
-
 class _BlurredWallpaper extends StatelessWidget {
   final String? imagePath;
   final Color fallbackColor;
@@ -795,10 +786,6 @@ class _BlurredWallpaper extends StatelessWidget {
     );
   }
 }
-
-// ---------------------------------------------------------------------------
-// Focus Server Card
-// ---------------------------------------------------------------------------
 
 class _FocusServerCard extends StatefulWidget {
   final ComputerDetails computer;
@@ -1075,10 +1062,6 @@ class _FocusServerCardState extends State<_FocusServerCard>
   }
 }
 
-// ---------------------------------------------------------------------------
-// Focus Server Circle (Circular ambience layout)
-// ---------------------------------------------------------------------------
-
 class _FocusServerCircle extends StatefulWidget {
   final ComputerDetails computer;
   final String? bgPath;
@@ -1304,10 +1287,6 @@ class _FocusServerCircleState extends State<_FocusServerCircle>
   }
 }
 
-// ---------------------------------------------------------------------------
-// Gamepad Hints Row
-// ---------------------------------------------------------------------------
-
 /// Renders pure-text gamepad hints (no borders, no background boxes).
 /// Positioned outside the AspectRatio card so it survives landscape layout.
 class _GamepadHintsRow extends StatelessWidget {
@@ -1357,10 +1336,6 @@ class _GamepadHintsRow extends StatelessWidget {
     );
   }
 }
-
-// ---------------------------------------------------------------------------
-// Particle Overlay (lightweight background effect)
-// ---------------------------------------------------------------------------
 
 class _ParticleOverlay extends StatefulWidget {
   final Color color;
@@ -1433,10 +1408,6 @@ class _ParticleOverlayState extends State<_ParticleOverlay>
   }
 }
 
-// ---------------------------------------------------------------------------
-// Wave Overlay (Horizontal wave effect)
-// ---------------------------------------------------------------------------
-
 class _RibbonComponent {
   final double cycle;
   final double amp;
@@ -1488,23 +1459,30 @@ class _WaveOverlayState extends State<_WaveOverlay>
     super.initState();
     final numRibbons = TvDetector.instance.isTV ? 2 : 4;
     final random = math.Random();
-    
+
     final baseFill = widget.isLight ? 0.03 : 0.06;
     final baseStroke = widget.isLight ? 0.12 : 0.25;
 
     for (int i = 0; i < numRibbons; i++) {
-       _ribbons.add(_Ribbon(
+      _ribbons.add(
+        _Ribbon(
           thickness: random.nextDouble() * 0.025 + 0.005,
           fillAlpha: baseFill * (1.0 - (i % 3) * 0.15),
           strokeAlpha: baseStroke * (1.0 - (i % 3) * 0.15),
-          components: List.generate(4, (compIndex) => _RibbonComponent(
-              cycle: (random.nextDouble() * 1.5 + 0.2) * (compIndex * 0.6 + 1.0),
-              amp: (random.nextDouble() * 0.25 + 0.05) / (compIndex * 0.4 + 1.0),
+          components: List.generate(
+            4,
+            (compIndex) => _RibbonComponent(
+              cycle:
+                  (random.nextDouble() * 1.5 + 0.2) * (compIndex * 0.6 + 1.0),
+              amp:
+                  (random.nextDouble() * 0.25 + 0.05) / (compIndex * 0.4 + 1.0),
               speed: random.nextDouble() * 0.3 + 0.06,
               phase: random.nextDouble() * math.pi * 2,
               phaseOffset: random.nextDouble() * 0.6 + 0.1,
-          )),
-       ));
+            ),
+          ),
+        ),
+      );
     }
 
     _ticker = createTicker((elapsed) {
@@ -1552,7 +1530,7 @@ class _WavePainter extends CustomPainter {
     final w = size.width;
     final h = size.height;
     const baseY = 0.5;
-    
+
     // We sample x every 'step' pixels (similar to HTML w/150)
     final double step = w / 150.0;
 
@@ -1571,22 +1549,26 @@ class _WavePainter extends CustomPainter {
         ..isAntiAlias = true;
 
       final path = Path();
-      
+
       // Top edge
       for (double x = 0; x <= w + step; x += step) {
-        double nx = x / w; 
+        double nx = x / w;
         double nodeDist = (nx - 0.5).abs() * 2;
-        double convergence = math.pow(nodeDist, 1.5) * 0.85 + 0.15; 
-        
+        double convergence = math.pow(nodeDist, 1.5) * 0.85 + 0.15;
+
         double y = h * baseY;
         for (final comp in ribbon.components) {
-            y += math.sin(nx * math.pi * 2 * comp.cycle - time * comp.speed + comp.phase) * (h * comp.amp * convergence);
+          y +=
+              math.sin(
+                nx * math.pi * 2 * comp.cycle - time * comp.speed + comp.phase,
+              ) *
+              (h * comp.amp * convergence);
         }
-        
+
         if (x == 0) {
-           path.moveTo(x, y);
+          path.moveTo(x, y);
         } else {
-           path.lineTo(x, y);
+          path.lineTo(x, y);
         }
       }
 
@@ -1594,17 +1576,26 @@ class _WavePainter extends CustomPainter {
       for (double x = w + step; x >= -step; x -= step) {
         double nx = x / w;
         double nodeDist = (nx - 0.5).abs() * 2;
-        double convergence = math.pow(nodeDist, 1.5) * 0.85 + 0.15; 
-        
-        double dynamicThickness = ribbon.thickness + math.sin(nx * math.pi * 2 - time * 0.9) * (ribbon.thickness * 0.2);
+        double convergence = math.pow(nodeDist, 1.5) * 0.85 + 0.15;
+
+        double dynamicThickness =
+            ribbon.thickness +
+            math.sin(nx * math.pi * 2 - time * 0.9) * (ribbon.thickness * 0.2);
         double y = h * baseY + (h * dynamicThickness);
-        
+
         for (final comp in ribbon.components) {
-            y += math.sin(nx * math.pi * 2 * comp.cycle - time * comp.speed + comp.phase + comp.phaseOffset) * (h * comp.amp * convergence);
+          y +=
+              math.sin(
+                nx * math.pi * 2 * comp.cycle -
+                    time * comp.speed +
+                    comp.phase +
+                    comp.phaseOffset,
+              ) *
+              (h * comp.amp * convergence);
         }
         path.lineTo(x, y);
       }
-      
+
       path.close();
       canvas.drawPath(path, fillPaint);
       canvas.drawPath(path, strokePaint);
@@ -1668,10 +1659,6 @@ class _ParticlePainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _ParticlePainter oldDelegate) => true;
 }
-
-// ---------------------------------------------------------------------------
-// Focus Mode Menu Dialog (mirrors _MainMenuDialog pattern)
-// ---------------------------------------------------------------------------
 
 class _FocusModeMenuDialog extends StatelessWidget {
   final BuildContext parentContext;
@@ -1802,10 +1789,6 @@ class _FocusModeMenuDialog extends StatelessWidget {
     );
   }
 }
-
-// ---------------------------------------------------------------------------
-// Focusable menu tile (gamepad-first, low-opacity white hover)
-// ---------------------------------------------------------------------------
 
 class _FocusMenuTile extends StatefulWidget {
   final int order;

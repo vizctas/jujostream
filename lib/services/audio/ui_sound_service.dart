@@ -33,10 +33,6 @@ class UiSoundService {
   /// Path of the last written ambience file (for manual loop replay).
   static String? _lastAmbienceFilePath;
 
-  // ------------------------------------------------------------------
-  // Stream session guards
-  // ------------------------------------------------------------------
-
   static void enterStreamSession() {
     _isStreaming = true;
     stopAmbience();
@@ -69,10 +65,6 @@ class UiSoundService {
     }
   }
 
-  // ------------------------------------------------------------------
-  // Ensure the audio cache directory exists
-  // ------------------------------------------------------------------
-
   static Future<String> _ensureAudioCacheDir() async {
     if (_audioCacheDir != null) return _audioCacheDir!;
     final dir = await getApplicationSupportDirectory();
@@ -100,10 +92,6 @@ class UiSoundService {
     }
     return filePath;
   }
-
-  // ------------------------------------------------------------------
-  // Player factories
-  // ------------------------------------------------------------------
 
   static AudioPlayer _getInitPlayer() {
     if (_initPlayer == null) {
@@ -172,10 +160,6 @@ class UiSoundService {
     ),
   );
 
-  // ------------------------------------------------------------------
-  // Initialization
-  // ------------------------------------------------------------------
-
   static Future<void> ensureInitialized() async {
     if (_configured) return;
     final player = _getPlayer();
@@ -184,10 +168,6 @@ class UiSoundService {
     // Pre-warm the audio cache directory so first playback is fast.
     _ensureAudioCacheDir();
   }
-
-  // ------------------------------------------------------------------
-  // Click sound (generated WAV)
-  // ------------------------------------------------------------------
 
   static Uint8List _buildClickWav() {
     const sampleRate = 8000;
@@ -253,10 +233,6 @@ class UiSoundService {
     }
   }
 
-  // ------------------------------------------------------------------
-  // Favorite sound (generated WAV)
-  // ------------------------------------------------------------------
-
   static Uint8List? _favWav;
   static String? _favWavPath;
 
@@ -314,10 +290,6 @@ class UiSoundService {
     } catch (_) {}
   }
 
-  // ------------------------------------------------------------------
-  // Asset loader — writes to app-support so DeviceFileSource works
-  // ------------------------------------------------------------------
-
   /// Loads a Flutter asset and writes it to the audio cache directory.
   /// Returns the absolute file path, or null on failure.
   static Future<String?> _loadAssetToFile(String assetPath) async {
@@ -332,10 +304,6 @@ class UiSoundService {
       return null;
     }
   }
-
-  // ------------------------------------------------------------------
-  // Ambience sound
-  // ------------------------------------------------------------------
 
   static void playAmbience() {
     if (_ambiencePlaying) return;
@@ -411,10 +379,6 @@ class UiSoundService {
     }
   }
 
-  // ------------------------------------------------------------------
-  // Click-to-init sound
-  // ------------------------------------------------------------------
-
   static String? _clickToInitPath;
 
   static void playClickToInit() {
@@ -433,10 +397,6 @@ class UiSoundService {
     }
   }
 
-  // ------------------------------------------------------------------
-  // Server enter sound (cv_server.mp3)
-  // ------------------------------------------------------------------
-
   static String? _serverEnterPath;
 
   static void playServerEnter() {
@@ -454,10 +414,6 @@ class UiSoundService {
       debugPrint('[UiSound] playServerEnter error: $e');
     }
   }
-
-  // ------------------------------------------------------------------
-  // UI move sound (ui_move.mp3) — lightweight navigation feedback
-  // ------------------------------------------------------------------
 
   static String? _uiMovePath;
 

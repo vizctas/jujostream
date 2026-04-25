@@ -497,17 +497,29 @@ class GamepadHandler(
 
         if (!hasGamepadSource && !hasJoystickSource && !hasDpadSource) return false
 
-        val hasLeftStick = dev.getMotionRange(MotionEvent.AXIS_X,     InputDevice.SOURCE_JOYSTICK) != null &&
-                           dev.getMotionRange(MotionEvent.AXIS_Y,     InputDevice.SOURCE_JOYSTICK) != null
-        val hasDpadAxes  = dev.getMotionRange(MotionEvent.AXIS_HAT_X, InputDevice.SOURCE_JOYSTICK) != null &&
-                           dev.getMotionRange(MotionEvent.AXIS_HAT_Y, InputDevice.SOURCE_JOYSTICK) != null
+        // Some BT HID stacks (e.g. Chromecast GTV) report axes under SOURCE_GAMEPAD
+        // instead of SOURCE_JOYSTICK. Check both so we don't miss the controller.
+        val hasLeftStick =
+            (dev.getMotionRange(MotionEvent.AXIS_X, InputDevice.SOURCE_JOYSTICK) != null ||
+             (hasGamepadSource && dev.getMotionRange(MotionEvent.AXIS_X, InputDevice.SOURCE_GAMEPAD) != null)) &&
+            (dev.getMotionRange(MotionEvent.AXIS_Y, InputDevice.SOURCE_JOYSTICK) != null ||
+             (hasGamepadSource && dev.getMotionRange(MotionEvent.AXIS_Y, InputDevice.SOURCE_GAMEPAD) != null))
+        val hasDpadAxes  =
+            (dev.getMotionRange(MotionEvent.AXIS_HAT_X, InputDevice.SOURCE_JOYSTICK) != null ||
+             (hasGamepadSource && dev.getMotionRange(MotionEvent.AXIS_HAT_X, InputDevice.SOURCE_GAMEPAD) != null)) &&
+            (dev.getMotionRange(MotionEvent.AXIS_HAT_Y, InputDevice.SOURCE_JOYSTICK) != null ||
+             (hasGamepadSource && dev.getMotionRange(MotionEvent.AXIS_HAT_Y, InputDevice.SOURCE_GAMEPAD) != null))
 
         val hasFaceButtons = hasGamepadSource && dev.hasKeys(
             KeyEvent.KEYCODE_BUTTON_A, KeyEvent.KEYCODE_BUTTON_B,
             KeyEvent.KEYCODE_BUTTON_X, KeyEvent.KEYCODE_BUTTON_Y
         ).any { it }
 
-        if (hasLeftStick || hasDpadAxes || hasFaceButtons) return true
+        // Sony PS controllers (vendor 0x054C) are always gamepads — some TV BT stacks
+        // don't fully report sources/keycodes so use vendor ID as authoritative fallback.
+        val isSonyController = dev.vendorId == 0x054C && hasGamepadSource
+
+        if (hasLeftStick || hasDpadAxes || hasFaceButtons || isSonyController) return true
         if (joyConDevice && joyConEnabled) return true
         return isRelaxedUsbGamepad(dev)
     }
@@ -971,6 +983,10 @@ class GamepadHandler(
 
             return false
         }
+
+        // Route touchpad motion events (PS controller touchpad) to the dedicated handler
+        val isTouchpad = (source and InputDevice.SOURCE_TOUCHPAD) == InputDevice.SOURCE_TOUCHPAD
+        if (isTouchpad) return handleTouchpadEvent(event)
 
         val isGamepad = (source and InputDevice.SOURCE_JOYSTICK) == InputDevice.SOURCE_JOYSTICK ||
                         (source and InputDevice.SOURCE_GAMEPAD) == InputDevice.SOURCE_GAMEPAD
@@ -1679,11 +1695,13 @@ class GamepadHandler(
                             "hasZRz=$hasZRz, hasRxRy=$hasRxRy, " +
                             "triggerAxes=${state.leftTriggerAxis}/${state.rightTriggerAxis})")
                     } else {
-
-                        state.usesLinuxGamepadStandardFaceButtons = true
-                        state.triggersIdleNegative = true
+                        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+                            state.usesLinuxGamepadStandardFaceButtons = true
+                            Log.i(TAG, "Detected Sony standard on Android < 12 (no hasButtonC, linuxStd applied)")
+                        } else {
+                            Log.i(TAG, "Detected Sony standard on Android 12+ (relying on native OS mapping)")
+                        }
                         state.supportedButtonFlags = ALL_STANDARD_BUTTONS
-                        Log.i(TAG, "Detected Sony standard (no hasButtonC, linuxStd)")
                     }
                 }
 

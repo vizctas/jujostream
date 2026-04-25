@@ -61,6 +61,8 @@ Thumbs.db
 # Internal dev docs (keep local, not tracked)
 docs/planning.md
 docs/WORKFLOW.md
+.gemini/
+.github/
 .private/
 .private/
 .windsurf/
@@ -71,3 +73,8 @@ _fix_headers.py
 
 # Build artifacts at root 
 Jujostream.apk
+build_releases.sh
+
+# Local dev scripts (not tracked)
+dev_tools.ps1
+devtools_options.yaml

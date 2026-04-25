@@ -115,8 +115,8 @@ class SettingsScreen extends StatelessWidget {
                       themeProvider.ambienceEffect == 'particles'
                           ? _tr(context, 'Particles', 'Partículas')
                           : (themeProvider.ambienceEffect == 'waves'
-                              ? _tr(context, 'Waves', 'Ondas')
-                              : _tr(context, 'None', 'Ninguno')),
+                                ? _tr(context, 'Waves', 'Ondas')
+                                : _tr(context, 'None', 'Ninguno')),
                       () => _pickAmbienceEffect(context, themeProvider),
                     ),
                     _choiceTile(
@@ -918,7 +918,7 @@ class SettingsScreen extends StatelessWidget {
                         c.copyWith(enableSessionMetrics: v),
                       ),
                     ),
-                    
+
                     _choiceTile(
                       context,
                       _tr(context, 'Overlay Trigger', 'Trigger del overlay'),
@@ -943,7 +943,11 @@ class SettingsScreen extends StatelessWidget {
                     // Desktop keyboard combo for overlay (macOS / Windows)
                     _choiceTile(
                       context,
-                      _tr(context, 'Desktop Overlay Combo', 'Combo de overlay (escritorio)'),
+                      _tr(
+                        context,
+                        'Desktop Overlay Combo',
+                        'Combo de overlay (escritorio)',
+                      ),
                       c.desktopOverlayKeys.isEmpty
                           ? _tr(context, 'None', 'Ninguno')
                           : '${c.desktopOverlayKeys.join(' + ')} • ${(c.desktopOverlayHoldMs / 1000).toStringAsFixed(1)}s',
@@ -971,8 +975,10 @@ class SettingsScreen extends StatelessWidget {
                         isPanicCombo: true,
                         titleEn: 'Panic Combo',
                         titleEs: 'Combo del pánico',
-                        descEn: 'Emergency combo that instantly terminates the running game session on the server. Use when a game is unresponsive.',
-                        descEs: 'Combo de emergencia que termina instantáneamente la sesión del juego en el servidor. Úsalo cuando un juego no responde.',
+                        descEn:
+                            'Emergency combo that instantly terminates the running game session on the server. Use when a game is unresponsive.',
+                        descEs:
+                            'Combo de emergencia que termina instantáneamente la sesión del juego en el servidor. Úsalo cuando un juego no responde.',
                       ),
                       leading: const Icon(
                         Icons.warning_amber_outlined,
@@ -1049,7 +1055,11 @@ class SettingsScreen extends StatelessWidget {
                       ),
                     ),
                     _toggle(
-                      _tr(context, 'Force Skia Renderer', 'Forzar Skia Renderer'),
+                      _tr(
+                        context,
+                        'Force Skia Renderer',
+                        'Forzar Skia Renderer',
+                      ),
                       _tr(
                         context,
                         'Disable Impeller and use Skia/OpenGL. Fixes black screen on some GPUs (requires restart)',
@@ -1107,7 +1117,11 @@ class SettingsScreen extends StatelessWidget {
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Text(
-                            _tr(context, 'Keep Jujo alive', 'Mantén a JUJO con vida'),
+                            _tr(
+                              context,
+                              'Keep Jujo alive',
+                              'Mantén a JUJO con vida',
+                            ),
                             style: const TextStyle(
                               color: Colors.white54,
                               fontWeight: FontWeight.w600,
@@ -1119,11 +1133,15 @@ class SettingsScreen extends StatelessWidget {
                           Focus(
                             autofocus: false,
                             onKeyEvent: (_, ev) {
-                              if (ev is! KeyDownEvent) return KeyEventResult.ignored;
+                              if (ev is! KeyDownEvent)
+                                return KeyEventResult.ignored;
                               if (ev.logicalKey == LogicalKeyboardKey.enter ||
                                   ev.logicalKey == LogicalKeyboardKey.select ||
-                                  ev.logicalKey == LogicalKeyboardKey.gameButtonA) {
-                                launchUrl(Uri.parse('https://ko-fi.com/jujodev'));
+                                  ev.logicalKey ==
+                                      LogicalKeyboardKey.gameButtonA) {
+                                launchUrl(
+                                  Uri.parse('https://ko-fi.com/jujodev'),
+                                );
                                 return KeyEventResult.handled;
                               }
                               return KeyEventResult.ignored;
@@ -1132,19 +1150,30 @@ class SettingsScreen extends StatelessWidget {
                               builder: (ctx) {
                                 final focused = Focus.of(ctx).hasFocus;
                                 return GestureDetector(
-                                  onTap: () => launchUrl(Uri.parse('https://ko-fi.com/jujodev')),
+                                  onTap: () => launchUrl(
+                                    Uri.parse('https://ko-fi.com/jujodev'),
+                                  ),
                                   child: AnimatedContainer(
                                     duration: const Duration(milliseconds: 150),
                                     decoration: BoxDecoration(
                                       borderRadius: BorderRadius.circular(8),
-                                      boxShadow: focused ? [
-                                        BoxShadow(
-                                          color: const Color(0xFF29abe0).withValues(alpha: 0.6),
-                                          blurRadius: 16,
-                                          spreadRadius: 4,
-                                        )
-                                      ] : [],
-                                      border: focused ? Border.all(color: Colors.white, width: 2) : null,
+                                      boxShadow: focused
+                                          ? [
+                                              BoxShadow(
+                                                color: const Color(
+                                                  0xFF29abe0,
+                                                ).withValues(alpha: 0.6),
+                                                blurRadius: 16,
+                                                spreadRadius: 4,
+                                              ),
+                                            ]
+                                          : [],
+                                      border: focused
+                                          ? Border.all(
+                                              color: Colors.white,
+                                              width: 2,
+                                            )
+                                          : null,
                                     ),
                                     child: ClipRRect(
                                       borderRadius: BorderRadius.circular(8),
@@ -1152,9 +1181,18 @@ class SettingsScreen extends StatelessWidget {
                                         'https://storage.ko-fi.com/cdn/kofi2.png?v=3',
                                         height: 40,
                                         errorBuilder: (_, _, _) => Container(
-                                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 16,
+                                            vertical: 10,
+                                          ),
                                           color: const Color(0xFF29abe0),
-                                          child: const Text('Support me on Ko-fi', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                                          child: const Text(
+                                            'Support me on Ko-fi',
+                                            style: TextStyle(
+                                              color: Colors.white,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
                                         ),
                                       ),
                                     ),
@@ -1847,14 +1885,20 @@ class SettingsScreen extends StatelessWidget {
   void _pickAmbienceLayout(BuildContext ctx, ThemeProvider tp) {
     _showPicker(ctx, _tr(ctx, 'Ambience Layout', 'Diseño de ambiente'), [
       (_tr(ctx, 'Card', 'Tarjeta'), () => tp.setAmbienceLayout('card')),
-      (_tr(ctx, 'Circular', 'Circular'), () => tp.setAmbienceLayout('circular')),
+      (
+        _tr(ctx, 'Circular', 'Circular'),
+        () => tp.setAmbienceLayout('circular'),
+      ),
     ]);
   }
 
   void _pickAmbienceEffect(BuildContext ctx, ThemeProvider tp) {
     _showPicker(ctx, _tr(ctx, 'Background Effect', 'Efecto de fondo'), [
       (_tr(ctx, 'Waves', 'Ondas'), () => tp.setAmbienceEffect('waves')),
-      (_tr(ctx, 'Particles', 'Partículas'), () => tp.setAmbienceEffect('particles')),
+      (
+        _tr(ctx, 'Particles', 'Partículas'),
+        () => tp.setAmbienceEffect('particles'),
+      ),
       (_tr(ctx, 'None', 'Ninguno'), () => tp.setAmbienceEffect('none')),
     ]);
   }
@@ -1877,32 +1921,32 @@ class SettingsScreen extends StatelessWidget {
   }
 
   static const _resolutionPresets = <(String, int, int)>[
-    ('720p',        1280,  720),
-    ('900p',        1600,  900),
-    ('1080p',       1920, 1080),
-    ('1200p',       1920, 1200),
-    ('1440p (2K)',  2560, 1440),
-    ('1600p',       2560, 1600),
-    ('4K (UHD)',    3840, 2160),
-    ('5K',          5120, 2880),
-    ('8K',          7680, 4320),
+    ('720p', 1280, 720),
+    ('900p', 1600, 900),
+    ('1080p', 1920, 1080),
+    ('1200p', 1920, 1200),
+    ('1440p (2K)', 2560, 1440),
+    ('1600p', 2560, 1600),
+    ('4K (UHD)', 3840, 2160),
+    ('5K', 5120, 2880),
+    ('8K', 7680, 4320),
     // Ultrawide
-    ('UW 1080p',    2560, 1080),
-    ('UW 1440p',    3440, 1440),
-    ('UW 1600p',    3840, 1600),
-    ('Super UW',    5120, 1440),
+    ('UW 1080p', 2560, 1080),
+    ('UW 1440p', 3440, 1440),
+    ('UW 1600p', 3840, 1600),
+    ('Super UW', 5120, 1440),
     // Portrait / vertical
-    ('720×1280',     720, 1280),
-    ('1080×1920',   1080, 1920),
-    ('1440×2560',   1440, 2560),
+    ('720×1280', 720, 1280),
+    ('1080×1920', 1080, 1920),
+    ('1440×2560', 1440, 2560),
     // Retro / low
-    ('480p',         854,  480),
-    ('576p',        1024,  576),
-    ('540p',         960,  540),
+    ('480p', 854, 480),
+    ('576p', 1024, 576),
+    ('540p', 960, 540),
     // Steam Deck / handheld
-    ('Steam Deck',  1280,  800),
-    ('ROG Ally',    1920, 1080),
-    ('Legion Go',   2560, 1600),
+    ('Steam Deck', 1280, 800),
+    ('ROG Ally', 1920, 1080),
+    ('Legion Go', 2560, 1600),
   ];
 
   void _showResolutionPicker(BuildContext ctx, SettingsProvider s) {
@@ -2231,7 +2275,8 @@ class SettingsScreen extends StatelessWidget {
 
   String _resLabel(StreamConfiguration c) {
     for (final p in _resolutionPresets) {
-      if (p.$2 == c.width && p.$3 == c.height) return '${p.$1} (${c.width}×${c.height})';
+      if (p.$2 == c.width && p.$3 == c.height)
+        return '${p.$1} (${c.width}×${c.height})';
     }
     return '${c.width}×${c.height}';
   }
@@ -2450,8 +2495,12 @@ class SettingsScreen extends StatelessWidget {
                 ],
               ),
               child: _OverlayTriggerDialog(
-                combo: isPanicCombo ? config.panicCombo : config.overlayTriggerCombo,
-                holdMs: isPanicCombo ? config.panicHoldMs : config.overlayTriggerHoldMs,
+                combo: isPanicCombo
+                    ? config.panicCombo
+                    : config.overlayTriggerCombo,
+                holdMs: isPanicCombo
+                    ? config.panicHoldMs
+                    : config.overlayTriggerHoldMs,
                 buttonScheme: buttonScheme,
                 titleEn: titleEn,
                 titleEs: titleEs,
@@ -2460,10 +2509,7 @@ class SettingsScreen extends StatelessWidget {
                 onChanged: (combo, holdMs) {
                   if (isPanicCombo) {
                     settings.updateConfig(
-                      config.copyWith(
-                        panicCombo: combo,
-                        panicHoldMs: holdMs,
-                      ),
+                      config.copyWith(panicCombo: combo, panicHoldMs: holdMs),
                     );
                   } else {
                     settings.updateConfig(
@@ -2482,14 +2528,28 @@ class SettingsScreen extends StatelessWidget {
     );
   }
 
-  // ── Desktop Overlay Combo dialog ─────────────────────────────────────────
-
   /// Available modifier + function keys for the desktop overlay combo picker.
   static const _desktopKeyOptions = [
-    'Shift', 'Ctrl', 'Alt', 'Meta',
-    '-', 'F1', 'F2', 'F3', 'F4', 'F5', 'F6',
-    'F7', 'F8', 'F9', 'F10', 'F11', 'F12',
-    'Tab', 'Space', '`',
+    'Shift',
+    'Ctrl',
+    'Alt',
+    'Meta',
+    '-',
+    'F1',
+    'F2',
+    'F3',
+    'F4',
+    'F5',
+    'F6',
+    'F7',
+    'F8',
+    'F9',
+    'F10',
+    'F11',
+    'F12',
+    'Tab',
+    'Space',
+    '`',
   ];
 
   void _showDesktopComboDialog(
@@ -2536,28 +2596,47 @@ class SettingsScreen extends StatelessWidget {
                     children: [
                       Row(
                         children: [
-                          const Icon(Icons.keyboard_outlined, color: Colors.white54, size: 20),
+                          const Icon(
+                            Icons.keyboard_outlined,
+                            color: Colors.white54,
+                            size: 20,
+                          ),
                           const SizedBox(width: 10),
                           Expanded(
                             child: Text(
-                              _tr(ctx2, 'Desktop Overlay Combo', 'Combo de overlay (escritorio)'),
-                              style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w700),
+                              _tr(
+                                ctx2,
+                                'Desktop Overlay Combo',
+                                'Combo de overlay (escritorio)',
+                              ),
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w700,
+                              ),
                             ),
                           ),
                         ],
                       ),
                       const SizedBox(height: 6),
                       Text(
-                        _tr(ctx2,
+                        _tr(
+                          ctx2,
                           'Select the key combination and hold time to open the stream overlay on desktop (macOS / Windows).',
                           'Elige la combinación de teclas y el tiempo de pulsación para abrir el overlay en escritorio (macOS / Windows).',
                         ),
-                        style: const TextStyle(color: Colors.white54, fontSize: 12),
+                        style: const TextStyle(
+                          color: Colors.white54,
+                          fontSize: 12,
+                        ),
                       ),
                       const SizedBox(height: 16),
                       // Current selection preview
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
                         decoration: BoxDecoration(
                           color: Colors.white.withValues(alpha: 0.05),
                           borderRadius: BorderRadius.circular(10),
@@ -2570,7 +2649,9 @@ class SettingsScreen extends StatelessWidget {
                                   ? _tr(ctx2, 'None', 'Ninguno')
                                   : '${selected.join(' + ')} • ${(holdMs / 1000).toStringAsFixed(1)}s',
                               style: TextStyle(
-                                color: selected.isEmpty ? Colors.white38 : Colors.white,
+                                color: selected.isEmpty
+                                    ? Colors.white38
+                                    : Colors.white,
                                 fontSize: 13,
                                 fontWeight: FontWeight.w600,
                               ),
@@ -2589,7 +2670,10 @@ class SettingsScreen extends StatelessWidget {
                             onTap: () => toggle(key),
                             child: AnimatedContainer(
                               duration: const Duration(milliseconds: 120),
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 7,
+                              ),
                               decoration: BoxDecoration(
                                 color: isOn
                                     ? tp.accent.withValues(alpha: 0.22)
@@ -2605,7 +2689,9 @@ class SettingsScreen extends StatelessWidget {
                                 style: TextStyle(
                                   color: isOn ? tp.accentLight : Colors.white70,
                                   fontSize: 13,
-                                  fontWeight: isOn ? FontWeight.w700 : FontWeight.w400,
+                                  fontWeight: isOn
+                                      ? FontWeight.w700
+                                      : FontWeight.w400,
                                 ),
                               ),
                             ),
@@ -2616,7 +2702,11 @@ class SettingsScreen extends StatelessWidget {
                       // Hold time slider
                       Text(
                         _tr(ctx2, 'Hold Time', 'Tiempo de pulsación'),
-                        style: const TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.w600),
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                       const SizedBox(height: 4),
                       Row(
@@ -2635,7 +2725,9 @@ class SettingsScreen extends StatelessWidget {
                                 min: 0,
                                 max: 5000,
                                 divisions: 50,
-                                onChanged: (v) => setDialogState(() => holdMs = (v / 100).round() * 100),
+                                onChanged: (v) => setDialogState(
+                                  () => holdMs = (v / 100).round() * 100,
+                                ),
                               ),
                             ),
                           ),
@@ -2644,7 +2736,11 @@ class SettingsScreen extends StatelessWidget {
                             child: Text(
                               '${(holdMs / 1000).toStringAsFixed(1)}s',
                               textAlign: TextAlign.right,
-                              style: TextStyle(color: tp.accentLight, fontSize: 13, fontWeight: FontWeight.w700),
+                              style: TextStyle(
+                                color: tp.accentLight,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700,
+                              ),
                             ),
                           ),
                         ],
@@ -2660,7 +2756,9 @@ class SettingsScreen extends StatelessWidget {
                                 holdMs = 0;
                               });
                             },
-                            child: Text(_tr(ctx2, 'Reset to default', 'Restablecer')),
+                            child: Text(
+                              _tr(ctx2, 'Reset to default', 'Restablecer'),
+                            ),
                           ),
                           Row(
                             children: [
@@ -2673,13 +2771,17 @@ class SettingsScreen extends StatelessWidget {
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor: tp.accent,
                                   foregroundColor: Colors.white,
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
                                 ),
                                 onPressed: () {
-                                  settings.updateConfig(config.copyWith(
-                                    desktopOverlayKeys: List.from(selected),
-                                    desktopOverlayHoldMs: holdMs,
-                                  ));
+                                  settings.updateConfig(
+                                    config.copyWith(
+                                      desktopOverlayKeys: List.from(selected),
+                                      desktopOverlayHoldMs: holdMs,
+                                    ),
+                                  );
                                   Navigator.pop(ctx2);
                                 },
                                 child: Text(_tr(ctx2, 'Save', 'Guardar')),
@@ -4188,8 +4290,6 @@ class _OverlayTriggerDialogState extends State<_OverlayTriggerDialog> {
   }
 }
 
-// -- Custom Resolution Tile (matches _FocusableChoiceTile style) ----------
-
 class _CustomResolutionTile extends StatefulWidget {
   final int currentWidth;
   final int currentHeight;
@@ -4211,6 +4311,9 @@ class _CustomResolutionTileState extends State<_CustomResolutionTile> {
   final FocusNode _wFocus = FocusNode();
   final FocusNode _hFocus = FocusNode();
   bool _focused = false;
+  // Editing mode: when false, TextFields are excluded from focus traversal
+  // so the D-pad cannot land on them directly. Only A-press activates them.
+  bool _editing = false;
 
   bool _isPreset(int w, int h) {
     for (final p in SettingsScreen._resolutionPresets) {
@@ -4223,14 +4326,37 @@ class _CustomResolutionTileState extends State<_CustomResolutionTile> {
   void initState() {
     super.initState();
     final preset = _isPreset(widget.currentWidth, widget.currentHeight);
-    _wCtrl = TextEditingController(text: preset ? '' : widget.currentWidth.toString());
-    _hCtrl = TextEditingController(text: preset ? '' : widget.currentHeight.toString());
+    _wCtrl = TextEditingController(
+      text: preset ? '' : widget.currentWidth.toString(),
+    );
+    _hCtrl = TextEditingController(
+      text: preset ? '' : widget.currentHeight.toString(),
+    );
+
+    // B / Escape while a TextField is focused → exit editing mode and
+    // return focus to the outer tile. KeyEventResult.handled prevents
+    // the B press from propagating up and popping the settings screen.
+    for (final fn in [_wFocus, _hFocus]) {
+      fn.onKeyEvent = (node, event) {
+        if (event is! KeyDownEvent) return KeyEventResult.ignored;
+        final k = event.logicalKey;
+        if (k == LogicalKeyboardKey.gameButtonB ||
+            k == LogicalKeyboardKey.escape ||
+            k == LogicalKeyboardKey.goBack) {
+          node.unfocus();
+          setState(() => _editing = false);
+          return KeyEventResult.handled;
+        }
+        return KeyEventResult.ignored;
+      };
+    }
   }
 
   @override
   void didUpdateWidget(covariant _CustomResolutionTile old) {
     super.didUpdateWidget(old);
-    if (old.currentWidth != widget.currentWidth || old.currentHeight != widget.currentHeight) {
+    if (old.currentWidth != widget.currentWidth ||
+        old.currentHeight != widget.currentHeight) {
       if (_isPreset(widget.currentWidth, widget.currentHeight)) {
         _wCtrl.clear();
         _hCtrl.clear();
@@ -4266,13 +4392,21 @@ class _CustomResolutionTileState extends State<_CustomResolutionTile> {
     final hasCustom = _wCtrl.text.isNotEmpty && _hCtrl.text.isNotEmpty;
 
     return Focus(
-      onFocusChange: (f) => setState(() => _focused = f),
+      onFocusChange: (f) {
+        setState(() {
+          _focused = f;
+          // When the tile loses focus entirely, exit editing mode so the
+          // fields are excluded from traversal again next time.
+          if (!f) _editing = false;
+        });
+      },
       onKeyEvent: (_, event) {
         if (event is! KeyDownEvent) return KeyEventResult.ignored;
         final key = event.logicalKey;
         if (key == LogicalKeyboardKey.enter ||
             key == LogicalKeyboardKey.select ||
             key == LogicalKeyboardKey.gameButtonA) {
+          setState(() => _editing = true);
           _wFocus.requestFocus();
           return KeyEventResult.handled;
         }
@@ -4281,9 +4415,13 @@ class _CustomResolutionTileState extends State<_CustomResolutionTile> {
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 150),
         decoration: BoxDecoration(
-          color: _focused ? Colors.white.withValues(alpha: 0.05) : Colors.transparent,
+          color: _focused
+              ? Colors.white.withValues(alpha: 0.05)
+              : Colors.transparent,
           border: Border.all(
-            color: _focused ? accent.withValues(alpha: 0.3) : Colors.transparent,
+            color: _focused
+                ? accent.withValues(alpha: 0.3)
+                : Colors.transparent,
             width: 1,
           ),
           borderRadius: BorderRadius.circular(8),
@@ -4303,17 +4441,31 @@ class _CustomResolutionTileState extends State<_CustomResolutionTile> {
                     const SizedBox(height: 2),
                     Text(
                       hasCustom
-                          ? (isEs ? 'Sobreescribe el preset seleccionado' : 'Overrides the selected preset')
-                          : (isEs ? 'Vacio = usa el preset de arriba' : 'Empty = uses preset above'),
+                          ? (isEs
+                                ? 'Sobreescribe el preset seleccionado'
+                                : 'Overrides the selected preset')
+                          : (isEs
+                                ? 'Vacio = usa el preset de arriba'
+                                : 'Empty = uses preset above'),
                       style: TextStyle(
-                        color: hasCustom ? accent.withValues(alpha: 0.8) : Colors.white38,
+                        color: hasCustom
+                            ? accent.withValues(alpha: 0.8)
+                            : Colors.white38,
                         fontSize: 12,
                       ),
                     ),
                   ],
                 ),
               ),
-              _buildField(_wCtrl, _wFocus, isEs ? 'Ancho' : 'Width', accent),
+              ExcludeFocus(
+                excluding: !_editing,
+                child: _buildField(
+                  _wCtrl,
+                  _wFocus,
+                  isEs ? 'Ancho' : 'Width',
+                  accent,
+                ),
+              ),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 6),
                 child: Text(
@@ -4325,7 +4477,15 @@ class _CustomResolutionTileState extends State<_CustomResolutionTile> {
                   ),
                 ),
               ),
-              _buildField(_hCtrl, _hFocus, isEs ? 'Alto' : 'Height', accent),
+              ExcludeFocus(
+                excluding: !_editing,
+                child: _buildField(
+                  _hCtrl,
+                  _hFocus,
+                  isEs ? 'Alto' : 'Height',
+                  accent,
+                ),
+              ),
             ],
           ),
         ),
@@ -4333,7 +4493,12 @@ class _CustomResolutionTileState extends State<_CustomResolutionTile> {
     );
   }
 
-  Widget _buildField(TextEditingController ctrl, FocusNode focusNode, String hint, Color accent) {
+  Widget _buildField(
+    TextEditingController ctrl,
+    FocusNode focusNode,
+    String hint,
+    Color accent,
+  ) {
     return SizedBox(
       width: 72,
       height: 34,
@@ -4342,34 +4507,55 @@ class _CustomResolutionTileState extends State<_CustomResolutionTile> {
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(8),
           border: Border.all(
-            color: focusNode.hasFocus ? accent.withValues(alpha: 0.6) : Colors.white.withValues(alpha: 0.1),
+            color: focusNode.hasFocus
+                ? accent.withValues(alpha: 0.6)
+                : Colors.white.withValues(alpha: 0.1),
             width: focusNode.hasFocus ? 1.5 : 1,
           ),
-          color: focusNode.hasFocus ? Colors.white.withValues(alpha: 0.06) : Colors.white.withValues(alpha: 0.03),
+          color: focusNode.hasFocus
+              ? Colors.white.withValues(alpha: 0.06)
+              : Colors.white.withValues(alpha: 0.03),
         ),
         child: TextField(
           controller: ctrl,
           focusNode: focusNode,
           keyboardType: TextInputType.number,
-          inputFormatters: [FilteringTextInputFormatter.digitsOnly, LengthLimitingTextInputFormatter(5)],
+          inputFormatters: [
+            FilteringTextInputFormatter.digitsOnly,
+            LengthLimitingTextInputFormatter(5),
+          ],
           textAlign: TextAlign.center,
-          style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w500),
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 13,
+            fontWeight: FontWeight.w500,
+          ),
           decoration: InputDecoration(
             hintText: hint,
-            hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.2), fontSize: 12),
+            hintStyle: TextStyle(
+              color: Colors.white.withValues(alpha: 0.2),
+              fontSize: 12,
+            ),
             border: InputBorder.none,
-            contentPadding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 6,
+              vertical: 8,
+            ),
             isDense: true,
           ),
-          onChanged: (_) { setState(() {}); _tryApply(); },
-          onSubmitted: (_) { _tryApply(); if (focusNode == _wFocus) _hFocus.requestFocus(); },
+          onChanged: (_) {
+            setState(() {});
+            _tryApply();
+          },
+          onSubmitted: (_) {
+            _tryApply();
+            if (focusNode == _wFocus) _hFocus.requestFocus();
+          },
         ),
       ),
     );
   }
 }
-
-// -- Resolution Picker Dialog (scrollable + search) -----------------------
 
 class _ResolutionPickerDialog extends StatefulWidget {
   final double dialogWidth;
@@ -4391,7 +4577,8 @@ class _ResolutionPickerDialog extends StatefulWidget {
   });
 
   @override
-  State<_ResolutionPickerDialog> createState() => _ResolutionPickerDialogState();
+  State<_ResolutionPickerDialog> createState() =>
+      _ResolutionPickerDialogState();
 }
 
 class _ResolutionPickerDialogState extends State<_ResolutionPickerDialog> {
@@ -4460,7 +4647,11 @@ class _ResolutionPickerDialogState extends State<_ResolutionPickerDialog> {
                     padding: const EdgeInsets.symmetric(horizontal: 20),
                     child: Text(
                       isEs ? 'Resolucion' : 'Resolution',
-                      style: const TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w700),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 17,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                   ),
                   const SizedBox(height: 10),
@@ -4470,15 +4661,33 @@ class _ResolutionPickerDialogState extends State<_ResolutionPickerDialog> {
                       height: 38,
                       child: TextField(
                         controller: _searchCtrl,
-                        style: const TextStyle(color: Colors.white, fontSize: 13),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 13,
+                        ),
                         decoration: InputDecoration(
-                          hintText: isEs ? 'Buscar resolucion...' : 'Search resolution...',
-                          hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.3), fontSize: 13),
-                          prefixIcon: Icon(Icons.search, color: Colors.white.withValues(alpha: 0.3), size: 18),
+                          hintText: isEs
+                              ? 'Buscar resolucion...'
+                              : 'Search resolution...',
+                          hintStyle: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.3),
+                            fontSize: 13,
+                          ),
+                          prefixIcon: Icon(
+                            Icons.search,
+                            color: Colors.white.withValues(alpha: 0.3),
+                            size: 18,
+                          ),
                           filled: true,
                           fillColor: Colors.white.withValues(alpha: 0.06),
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                            borderSide: BorderSide.none,
+                          ),
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 0,
+                          ),
                           isDense: true,
                         ),
                         onChanged: (v) => setState(() => _query = v.trim()),

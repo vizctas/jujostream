@@ -14,6 +14,8 @@ import '../../models/computer_details.dart';
 import '../../models/game_collection.dart';
 import '../../models/nv_app.dart';
 import '../../providers/app_list_provider.dart';
+import '../../providers/computer_provider.dart';
+
 import '../../providers/plugins_provider.dart';
 import '../../providers/settings_provider.dart';
 import '../../providers/theme_provider.dart';
@@ -260,7 +262,9 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
     } else if (state == AppLifecycleState.resumed) {
       _startAutoRefreshTimer();
       _videoController?.play();
-      context.read<AppListProvider>().refresh();
+      if (!context.read<ComputerProvider>().isPairing) {
+        context.read<AppListProvider>().refresh();
+      }
     }
   }
 
@@ -481,7 +485,17 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
               });
             }
 
-            if (provider.isLoading && provider.apps.isEmpty) {
+            // Show skeleton when:
+            //  1. Actively loading with no apps yet, OR
+            //  2. Pre-load state: loadApps() hasn't been called yet for this
+            //     screen (isLoading=false, apps empty, no error). This happens
+            //     on the very first build frame before addPostFrameCallback
+            //     fires loadApps(). Without this, the user briefly sees the
+            //     "No apps found" empty state before the skeleton appears.
+            final isPreLoadState = !provider.isLoading &&
+                provider.apps.isEmpty &&
+                provider.error == null;
+            if ((provider.isLoading && provider.apps.isEmpty) || isPreLoadState) {
               return Scaffold(
                 backgroundColor: _tp.background,
                 body: SafeArea(

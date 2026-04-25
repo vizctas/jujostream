@@ -1028,12 +1028,32 @@ const _companionHtml = r'''
   <div class="row">
     <div>
       <label data-i18n="resolution"></label>
-      <select id="streamRes">
-        <option value="1280x720">720p</option>
-        <option value="1920x1080">1080p</option>
-        <option value="2560x1440">1440p</option>
-        <option value="3840x2160">4K</option>
+      <select id="streamRes" onchange="onResChange()">
+        <option value="854x480">480p (854×480)</option>
+        <option value="960x540">540p (960×540)</option>
+        <option value="1024x576">576p (1024×576)</option>
+        <option value="1280x720">720p (1280×720)</option>
+        <option value="1280x800">Steam Deck (1280×800)</option>
+        <option value="1600x900">900p (1600×900)</option>
+        <option value="1920x1080">1080p (1920×1080)</option>
+        <option value="1920x1200">1200p (1920×1200)</option>
+        <option value="2560x1080">UW 1080p (2560×1080)</option>
+        <option value="2560x1440">1440p / 2K (2560×1440)</option>
+        <option value="2560x1600">1600p / Legion Go (2560×1600)</option>
+        <option value="3440x1440">UW 1440p (3440×1440)</option>
+        <option value="3840x1600">UW 1600p (3840×1600)</option>
+        <option value="3840x2160">4K UHD (3840×2160)</option>
+        <option value="5120x1440">Super UW (5120×1440)</option>
+        <option value="5120x2880">5K (5120×2880)</option>
+        <option value="7680x4320">8K (7680×4320)</option>
+        <option value="custom" data-i18n="customResLabel">Custom…</option>
       </select>
+      <div id="customResBlock" style="display:none;margin-top:8px">
+        <div class="row">
+          <div><label data-i18n="widthLabel"></label><input type="text" id="customResW" inputmode="numeric" placeholder="1920"></div>
+          <div><label data-i18n="heightLabel"></label><input type="text" id="customResH" inputmode="numeric" placeholder="1080"></div>
+        </div>
+      </div>
     </div>
     <div>
       <label data-i18n="fpsLabel"></label>
@@ -1347,6 +1367,7 @@ const L = {
     gamepadTitle: 'Gamepad', deadzoneLabel: 'Deadzone (%)',
     flipFaceButtons: 'Flip Face Buttons (A↔B, X↔Y)', multipleControllers: 'Multiple Controllers',
     controllerCountLabel: 'Controller Count (0=auto)', controllerDriverLabel: 'Controller Driver',
+    customResLabel: 'Custom…', widthLabel: 'Width (px)', heightLabel: 'Height (px)',
     autoLabel: 'Auto', xboxUsbDriver: 'Enhanced USB/XInput Detection', usbBindAll: 'USB Bind All',
     joyConSupport: 'Joy-Con Support', batteryStatusReport: 'Battery Status Report',
     motionSensors: 'Motion Sensors', motionFallback: 'Motion Fallback (touchscreen)',
@@ -1439,6 +1460,7 @@ const L = {
     gamepadTitle: 'Mando', deadzoneLabel: 'Zona muerta (%)',
     flipFaceButtons: 'Invertir botones frontales (A↔B, X↔Y)', multipleControllers: 'Múltiples mandos',
     controllerCountLabel: 'Cantidad de mandos (0=auto)', controllerDriverLabel: 'Driver del mando',
+    customResLabel: 'Personalizado…', widthLabel: 'Ancho (px)', heightLabel: 'Alto (px)',
     autoLabel: 'Auto', xboxUsbDriver: 'Deteccion USB/XInput mejorada', usbBindAll: 'Vincular todos los USB',
     joyConSupport: 'Soporte Joy-Con', batteryStatusReport: 'Reporte de batería',
     motionSensors: 'Sensores de movimiento', motionFallback: 'Respaldo de movimiento (pantalla táctil)',
@@ -1539,7 +1561,17 @@ async function load() {
     document.getElementById('lpParallax').checked = c.lp_parallax ?? true;
     // Stream config
     const w = c.stream_width || 1920, h = c.stream_height || 1080;
-    document.getElementById('streamRes').value = w + 'x' + h;
+    const presetVal = w + 'x' + h;
+    const sel = document.getElementById('streamRes');
+    if ([...sel.options].some(o => o.value === presetVal)) {
+      sel.value = presetVal;
+      document.getElementById('customResBlock').style.display = 'none';
+    } else {
+      sel.value = 'custom';
+      document.getElementById('customResW').value = w;
+      document.getElementById('customResH').value = h;
+      document.getElementById('customResBlock').style.display = '';
+    }
     document.getElementById('streamFps').value = String(c.stream_fps || 60);
     document.getElementById('streamBitrate').value = c.stream_bitrate || 20000;
     document.getElementById('streamCodec').value = String(c.stream_video_codec || 0);
@@ -1643,7 +1675,15 @@ async function save() {
   btn.disabled = true;
   btn.textContent = L[lang].saving;
   try {
-    const res = document.getElementById('streamRes').value.split('x');
+    const resVal = document.getElementById('streamRes').value;
+    let resW, resH;
+    if (resVal === 'custom') {
+      resW = parseInt(document.getElementById('customResW').value) || 1920;
+      resH = parseInt(document.getElementById('customResH').value) || 1080;
+    } else {
+      const res = resVal.split('x');
+      resW = parseInt(res[0]); resH = parseInt(res[1]);
+    }
     const body = {
       // Plugin toggles
       steam_connect_enabled: document.getElementById('steamEnabled').checked,
@@ -1679,8 +1719,8 @@ async function save() {
       lp_show_category_bar: document.getElementById('lpCategoryBar').checked,
       lp_parallax: document.getElementById('lpParallax').checked,
       // Stream config
-      stream_width: parseInt(res[0]),
-      stream_height: parseInt(res[1]),
+      stream_width: resW,
+      stream_height: resH,
       stream_fps: parseInt(document.getElementById('streamFps').value),
       stream_bitrate: parseInt(document.getElementById('streamBitrate').value) || 20000,
       stream_video_codec: parseInt(document.getElementById('streamCodec').value),
@@ -1760,6 +1800,11 @@ async function save() {
   } catch(e) { showMsg(L[lang].errSave + e, true); }
   btn.disabled = false;
   btn.textContent = L[lang].saveBtn;
+}
+
+function onResChange() {
+  const v = document.getElementById('streamRes').value;
+  document.getElementById('customResBlock').style.display = v === 'custom' ? '' : 'none';
 }
 
 function showMsg(text, isErr) {

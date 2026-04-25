@@ -1,7 +1,9 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:convert';
+import 'dart:io' show Platform;
 import 'dart:math';
-import 'dart:typed_data';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
 import 'package:pointycastle/export.dart';
@@ -12,11 +14,27 @@ import '../errors/error_codes.dart';
 
 class PairingService {
   final Logger _log = Logger();
-  static const Duration _pairPhaseTimeout = Duration(seconds: 20);
+  static const Duration _pairPhaseTimeout = Duration(seconds: 60);
 
   static const Duration _phase5Timeout = Duration(seconds: 5);
 
+  /// MethodChannel for the native Android Foreground Service that runs
+  /// the ENTIRE pairing handshake natively (survives Dart VM pause).
+  static const MethodChannel _pairingLocksChannel =
+      MethodChannel('com.jujostream/pairing_locks');
+
   static String get _uniqueId => ClientIdentity.uniqueId;
+
+  /// Set to true from [requestCancel] to abort an in-progress [pair] call.
+  /// Checked by [_runPairingPhase] at each retry iteration.
+  bool _cancelRequested = false;
+
+  /// Signals the active [pair] call to abort as soon as possible.
+  /// Called by the UI when the user explicitly cancels pairing.
+  void requestCancel() {
+    _cancelRequested = true;
+    _log.d('PairingService: cancel requested');
+  }
 
   late final RSAPrivateKey _clientPrivateKey = _parsePkcs8RsaPrivateKey(
     ClientIdentity.keyPem,
@@ -28,16 +46,15 @@ class PairingService {
     _pemToDer(ClientIdentity.certPem),
   );
 
-  Future<void> generateClientIdentity() async {
-    _log.d('Using embedded client identity for pairing');
-  }
-
   String generatePin() {
     final random = Random.secure();
     return random.nextInt(10000).toString().padLeft(4, '0');
   }
 
   Future<PairingResult> pair(ComputerDetails computer, String pin) async {
+    // Reset cancellation flag for this fresh pairing attempt.
+    _cancelRequested = false;
+
     final address = computer.activeAddress.isNotEmpty
         ? computer.activeAddress
         : computer.localAddress;
@@ -51,14 +68,118 @@ class PairingService {
     final baseUrl = 'http://$address:$pairingPort';
     final uniqueId = _uniqueId;
 
-    try {
+    // ── ANDROID: Run ENTIRE handshake natively in Foreground Service ──────
+    //
+    // On Android, when the user backgrounds JUJO to enter the PIN in Chrome,
+    // the Dart VM is paused. Previously only Phase 1 ran natively, but
+    // Phases 2-5 had to wait for Dart to resume — by which time the server's
+    // pairing session had often timed out ("wrong PIN" error).
+    //
+    // Solution: ALL 5 phases run in a native Java thread inside the FGS.
+    // Phase 1 blocks until the user enters the PIN. Phases 2-5 execute
+    // immediately after in the same thread. Dart only polls for the result.
+    final bool useNativeFullPairing = !kIsWeb && Platform.isAndroid;
 
+    if (useNativeFullPairing) {
+      return _pairViaNativeService(computer, pin, baseUrl, uniqueId);
+    }
+
+    // ── OTHER PLATFORMS: Dart-based pairing (process doesn't pause) ──────
+    return _pairViaDart(computer, pin, baseUrl, uniqueId);
+  }
+
+  /// Runs the entire pairing handshake via the native Android Foreground Service.
+  ///
+  /// The native side handles all 5 phases in a Java thread that survives
+  /// Dart VM pause. This method just starts the service and polls for results.
+  Future<PairingResult> _pairViaNativeService(
+    ComputerDetails computer,
+    String pin,
+    String baseUrl,
+    String uniqueId,
+  ) async {
+    _log.i('Using native Android full-pairing (survives Dart VM pause)');
+
+    final httpsPort = computer.httpsPort > 0 ? computer.httpsPort : 47984;
+
+    try {
+      // Start the Foreground Service with all pairing parameters
+      await _pairingLocksChannel.invokeMethod<void>('startFullPairing', {
+        'baseUrl': baseUrl,
+        'httpsPort': httpsPort,
+        'uniqueId': uniqueId,
+        'pin': pin,
+        'certPem': ClientIdentity.certPem,
+        'keyPem': ClientIdentity.keyPem,
+        'timeoutMs': 120000,
+      });
+
+      // Poll for the result — the native thread runs independently of Dart.
+      // When Dart resumes from background, the result may already be waiting.
+      final deadline = DateTime.now().add(const Duration(seconds: 180));
+
+      while (DateTime.now().isBefore(deadline)) {
+        if (_cancelRequested) {
+          try {
+            await _pairingLocksChannel.invokeMethod<void>('release');
+          } catch (_) {}
+          return PairingResult.cancelled();
+        }
+
+        final result =
+            await _pairingLocksChannel.invokeMethod<Map>('pollResult');
+
+        if (result != null) {
+          final paired = result['paired'] as bool? ?? false;
+          final serverCertHex = result['serverCertHex'] as String? ?? '';
+          final error = result['error'] as String?;
+
+          if (error == 'cancelled' || error == 'interrupted') {
+            return PairingResult.cancelled();
+          }
+
+          if (paired) {
+            _log.i('Native pairing succeeded!');
+            return PairingResult.success(serverCertHex);
+          } else {
+            _log.e('Native pairing failed: $error');
+            return PairingResult.failed(error ?? 'Pairing failed');
+          }
+        }
+
+        // Result not ready yet — wait 500ms before polling again.
+        await Future.delayed(const Duration(milliseconds: 500));
+      }
+
+      return PairingResult.failed('Pairing timed out');
+    } catch (e) {
+      _log.e('Native pairing error: $e');
+      final classified = classifyError('PAIR', e);
+      return PairingResult.failed(classified.userMessage);
+    } finally {
+      try {
+        await _pairingLocksChannel.invokeMethod<void>('release');
+      } catch (_) {}
+    }
+  }
+
+  /// Runs the pairing handshake entirely in Dart (for macOS/Windows/iOS).
+  /// These platforms don't pause the process when switching apps.
+  Future<PairingResult> _pairViaDart(
+    ComputerDetails computer,
+    String pin,
+    String baseUrl,
+    String uniqueId,
+  ) async {
+    try {
+      // ── Upfront server-state reset ───────────────────────────────────────
       try {
         await _freshGet(
           '$baseUrl/unpair?uniqueid=$uniqueId',
-          timeout: const Duration(seconds: 5),
+          timeout: const Duration(seconds: 4),
         );
       } catch (_) {}
+      await Future.delayed(const Duration(milliseconds: 1500));
 
       final salt = _generateRandomBytes(16);
       final aesKey = _deriveAesKey(salt, pin);
@@ -74,21 +195,83 @@ class PairingService {
 
       _log.d('Phase 1: $phase1Url');
 
-      final phase1Response = await _freshGet(phase1Url);
+      // ── Phase 1: getservercert — the BLOCKING long-poll phase ─────────────
+      late String phase1Xml;
+      late String serverCertHex;
+      bool phase1Accepted = false;
 
-      if (phase1Response.statusCode != 200) {
-        return PairingResult.failed(
-          'Phase 1 failed: HTTP ${phase1Response.statusCode}',
-        );
+      // Outer: 0 = normal attempt, 1 = self-heal (unpair + retry on rejection)
+      selfHealLoop:
+      for (var selfHeal = 0; selfHeal < 2 && !phase1Accepted; selfHeal++) {
+        if (selfHeal == 1) {
+          _log.w('Phase 1 rejected. Self-healing: unpair + retry.');
+          try {
+            await _freshGet(
+              '$baseUrl/unpair?uniqueid=$uniqueId',
+              timeout: const Duration(seconds: 5),
+            );
+          } catch (_) {}
+          await Future.delayed(const Duration(milliseconds: 2500));
+        }
+
+        for (var attempt = 0; attempt < 4; attempt++) {
+          if (_cancelRequested) throw const _PairingCancelledException();
+          try {
+            final resp = await _freshGet(
+              phase1Url,
+              timeout: const Duration(seconds: 120),
+            );
+            final responseBody = resp.body;
+
+            phase1Xml = responseBody;
+
+            if (_extractXmlValue(phase1Xml, 'paired') == '1') {
+              phase1Accepted = true;
+              break selfHealLoop;
+            }
+
+            _log.w('Phase 1 returned paired=0 on attempt ${attempt + 1}'
+                ' (selfHeal=$selfHeal). Will self-heal if available.');
+            break;
+          } on TimeoutException catch (e) {
+            _log.w('Phase 1 attempt ${attempt + 1}/4 timed out: $e. Retrying…');
+          } catch (e) {
+            final lo = e.toString().toLowerCase();
+            final isSocketErr =
+                lo.contains('connection abort') ||
+                lo.contains('software caused') ||
+                lo.contains('connection reset') ||
+                lo.contains('connection refused') ||
+                lo.contains('connection closed') ||
+                lo.contains('socketexception') ||
+                lo.contains('broken pipe');
+            if (isSocketErr) {
+              _log.w('Phase 1 socket error attempt ${attempt + 1}/4: $e.'
+                  '${attempt < 3 ? ' Retrying in 2s…' : ' All attempts exhausted.'}');
+              if (attempt < 3) {
+                await Future.delayed(const Duration(seconds: 2));
+                continue;
+              }
+              rethrow;
+            }
+            rethrow;
+          }
+        }
       }
 
-      final phase1Xml = phase1Response.body;
-      if (_extractXmlValue(phase1Xml, 'paired') != '1') {
+      if (!phase1Accepted) {
         return PairingResult.failed('Server rejected pairing request');
       }
 
-      final serverCertHex = _extractXmlValue(phase1Xml, 'plaincert') ?? '';
+      serverCertHex = _extractXmlValue(phase1Xml, 'plaincert') ?? '';
       if (serverCertHex.isEmpty) {
+        _log.w('Phase 1: empty plaincert — another pairing session is active. Unpairing…');
+        try {
+          await _freshGet(
+            '$baseUrl/unpair?uniqueid=$uniqueId',
+            timeout: const Duration(seconds: 5),
+          );
+        } catch (_) {}
         return PairingResult.failed(
           'No server certificate returned (pairing already in progress?)',
         );
@@ -237,7 +420,7 @@ class PairingService {
       final httpsPort = computer.httpsPort > 0
           ? computer.httpsPort
           : 47984;
-      final httpsBaseUrl = 'https://$address:$httpsPort';
+      final httpsBaseUrl = 'https://${computer.activeAddress.isNotEmpty ? computer.activeAddress : computer.localAddress}:$httpsPort';
 
       final httpsClient = IOClient(ClientIdentity.createHttpClient());
 
@@ -311,13 +494,11 @@ class PairingService {
             if (serverInfoResponse.statusCode == 200 && pairStatus == '1') {
               phase5Completed = true;
             } else if (serverInfoResponse.statusCode == 200 && pairStatus == '0') {
-
               serverExplicitlyRejected = true;
-              _log.e('Phase 5: server returned PairStatus=0 â€” pairing explicitly rejected');
+              _log.e('Phase 5: server returned PairStatus=0 — pairing explicitly rejected');
             }
           } catch (e) {
             _log.w('Phase 5 serverinfo verification failed (network): $e');
-
           }
 
           if (serverExplicitlyRejected) {
@@ -340,6 +521,9 @@ class PairingService {
 
       _log.i('Pairing successful!');
       return PairingResult.success(serverCertHex);
+    } on _PairingCancelledException {
+      _log.i('Pairing cancelled by user.');
+      return PairingResult.cancelled();
     } catch (e) {
       _log.e('Pairing error (raw): $e');
       final classified = classifyError('PAIR', e);
@@ -589,19 +773,51 @@ class PairingService {
     }
   }
 
-  static Future<http.Response> _runPairingPhase(
+  /// Runs a single pairing phase with automatic socket-error retry.
+  ///
+  /// Throws [_PairingCancelledException] if [requestCancel] was called.
+  /// Throws [TimeoutException] if [timeout] (default 60s) is exceeded.
+  /// Other non-socket exceptions are rethrown immediately.
+  Future<http.Response> _runPairingPhase(
     String phaseName,
     String url, {
     Duration? timeout,
   }) async {
-    try {
-      return await _freshGet(url, timeout: timeout);
-    } on TimeoutException {
-      final seconds = timeout?.inSeconds ?? 0;
-      throw TimeoutException(
-        '$phaseName timed out after ${seconds}s',
-        timeout,
-      );
+    final startTime = DateTime.now();
+    final maxWait = timeout ?? const Duration(seconds: 60);
+
+    while (true) {
+      if (_cancelRequested) {
+        _log.w('$phaseName aborted: cancel was requested');
+        throw const _PairingCancelledException();
+      }
+
+      final elapsed = DateTime.now().difference(startTime);
+      final remaining = maxWait - elapsed;
+      if (remaining.isNegative) {
+        throw TimeoutException('$phaseName timed out after ${maxWait.inSeconds}s', maxWait);
+      }
+
+      try {
+        return await _freshGet(url, timeout: remaining);
+      } on TimeoutException {
+        throw TimeoutException('$phaseName timed out after ${maxWait.inSeconds}s', maxWait);
+      } catch (e) {
+        if (e is _PairingCancelledException) rethrow;
+        final lower = e.toString().toLowerCase();
+        if (lower.contains('connection abort') ||
+            lower.contains('software caused connection') ||
+            lower.contains('connection lost') ||
+            lower.contains('connection closed') ||
+            lower.contains('connection reset') ||
+            lower.contains('broken pipe') ||
+            lower.contains('socketexception')) {
+          _log.w('$phaseName socket dropped: $e. Retrying in 1s...');
+          await Future.delayed(const Duration(seconds: 1));
+          continue;
+        }
+        rethrow;
+      }
     }
   }
 
@@ -627,11 +843,35 @@ class PairingResult {
   final String? serverCert;
   final String? error;
 
-  PairingResult._({required this.paired, this.serverCert, this.error});
+  /// True when pairing was interrupted by the user backgrounding the app.
+  /// The dialog uses this to show specific "re-enter PIN" guidance instead
+  /// of a generic error, and to auto-retry once the user is back in foreground.
+  final bool wasCancelled;
+
+  PairingResult._({
+    required this.paired,
+    this.serverCert,
+    this.error,
+    this.wasCancelled = false,
+  });
 
   factory PairingResult.success(String serverCert) =>
       PairingResult._(paired: true, serverCert: serverCert);
 
   factory PairingResult.failed(String error) =>
       PairingResult._(paired: false, error: error);
+
+  factory PairingResult.cancelled() => PairingResult._(
+        paired: false,
+        error: 'Pairing interrupted',
+        wasCancelled: true,
+      );
+}
+
+/// Thrown internally by [PairingService._runPairingPhase] when
+/// [PairingService.requestCancel] is called while a phase is retrying.
+class _PairingCancelledException implements Exception {
+  const _PairingCancelledException();
+  @override
+  String toString() => 'Pairing was cancelled by user';
 }

@@ -1,6 +1,7 @@
 package com.limelight.jujostream.native_bridge
 
 import android.media.MediaCodec
+import android.media.MediaCodecInfo
 import android.media.MediaFormat
 import android.os.Build
 import android.util.Log
@@ -11,7 +12,7 @@ import java.util.concurrent.LinkedBlockingDeque
 import java.util.concurrent.TimeUnit
 
 class VideoDecoderRenderer(
-    private val textureEntry: TextureRegistry.SurfaceTextureEntry?,
+    private val flutterSurface: Surface?,
     private val framePacingMode: Int = FRAME_PACING_BALANCED,
     private val enableHdr: Boolean = false,
     private val fullRange: Boolean = false,
@@ -20,11 +21,7 @@ class VideoDecoderRenderer(
     private val enableVrr: Boolean = false,
     private val externalSurface: Surface? = null,
     private val lowLatencyFrameBalance: Boolean = false,
-    // TV-perf: map of MIME type → verified HW decoder name from CodecProbe.
-    // The server can negotiate a different codec than what we preferred, so
-    // we need the right decoder for *each* possible MIME type, not just one.
     private val decodersByMime: Map<String, String> = emptyMap(),
-    // TV-perf: skip aggressive MediaFormat hints that overwhelm ARM32 chips
     private val isWeakDevice: Boolean = false
 ) {
     companion object {
@@ -91,20 +88,31 @@ class VideoDecoderRenderer(
 
     private var decoderName = "unknown"
     private var activeRenderPath = "texture"
+    private var isMediaTekDecoder = false
+    private var isExynosDecoder = false
 
+    @Volatile private var startTimeNs = 0L
+    private var zeroOutputWarningEmitted = false
     private val queueTimestampNs = HashMap<Long, Long>(64)
 
-    // Choreographer vsync: holds decoded buffer indices ready for presentation
     private data class PendingFrame(val bufferIndex: Int, val ptsUs: Long)
     private val pendingFrames = LinkedBlockingDeque<PendingFrame>(8)
     @Volatile private var vsyncPresenterThread: Thread? = null
+
+    private fun requiresCodecConfigSubmission(): Boolean {
+        return when (StreamConstants.mimeTypeForFormat(videoFormat)) {
+            "video/avc", "video/hevc" -> true
+            else -> false
+        }
+    }
 
     fun setup(videoFormat: Int, width: Int, height: Int, redrawRate: Int): Int {
         this.videoFormat = videoFormat
         this.initialWidth = width
         this.initialHeight = height
         this.redrawRateFps = redrawRate
-
+        
+        // I know excesive logs. Gonna add some log level control later if needed..Sorry for the noise. No time to safely remove them. 
         Log.i(TAG, "Setting up decoder: ${width}x${height}@${redrawRate}fps, " +
             "format=0x${videoFormat.toString(16)}, pacing=$framePacingMode, " +
             "hdr=$enableHdr, queueDepth=$maxQueueDepth, choreographer=$useChoreographerVsync, " +
@@ -121,9 +129,9 @@ class VideoDecoderRenderer(
                 activeRenderPath = if (useChoreographerVsync) "direct-submit-vsync" else "direct-submit"
                 externalSurface
             } else {
-                Log.i(TAG, "Using SurfaceTexture path")
+                Log.i(TAG, "Using Flutter SurfaceProducer path")
                 activeRenderPath = if (useChoreographerVsync) "texture-vsync" else "texture"
-                Surface(textureEntry!!.surfaceTexture().apply { setDefaultBufferSize(width, height) })
+                flutterSurface
             }
 
             // VRR: hint compositor about ideal cadence
@@ -139,37 +147,80 @@ class VideoDecoderRenderer(
                     Log.w(TAG, "VRR: setFrameRate failed: ${e.message}")
                 }
             }
+            val matchedDecoder = decodersByMime[mimeType]
+            videoDecoder = if (!matchedDecoder.isNullOrBlank()) {
+                try {
+                    Log.i(TAG, "Using explicit decoder: $matchedDecoder (for $mimeType)")
+                    MediaCodec.createByCodecName(matchedDecoder)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Explicit decoder '$matchedDecoder' failed: ${e.message} — safe re-probe")
+                    val probe = CodecProbe.safeDecoderNameForMime(mimeType, width, height, redrawRate, enableHdr)
+                    if (probe != null) MediaCodec.createByCodecName(probe)
+                    else MediaCodec.createDecoderByType(mimeType)
+                }
+            } else {
+                val probe = CodecProbe.safeDecoderNameForMime(mimeType, width, height, redrawRate, enableHdr)
+                if (probe != null) {
+                    Log.i(TAG, "No explicit decoder for $mimeType — safe-probe resolved: $probe")
+                    MediaCodec.createByCodecName(probe)
+                } else {
+                    Log.w(TAG, "No safe decoder for $mimeType — last-resort type fallback")
+                    MediaCodec.createDecoderByType(mimeType)
+                }
+            }
+            decoderName = videoDecoder!!.name
+
+            // Layer-2 guard: reject any DRM-only decoder that bypassed probe selection
+            if (!isDecoderSafeForClearPlayback(videoDecoder!!, mimeType)) {
+                Log.e(TAG, "Decoder '$decoderName' requires secure playback — cannot decode clear stream. Aborting setup.")
+                videoDecoder!!.release()
+                videoDecoder = null
+                return -1
+            }
+
+            val nameLower = decoderName.lowercase()
+            isMediaTekDecoder = nameLower.contains("mtk") || nameLower.contains("mediatek")
+            isExynosDecoder = nameLower.contains("exynos")
+
+            // Internal telemetry not yet used ... Maybe later will add some export functions to share on github.
+            // Gonna need more test if the telemetry may cause some perfomance issues.
+
+            val socModel = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) Build.SOC_MODEL else "unknown"
+            Log.i(TAG, "┌─── DECODER DIAGNOSTIC ───────────────────────────")
+            Log.i(TAG, "│ Device: ${Build.MANUFACTURER} ${Build.MODEL}")
+            Log.i(TAG, "│ SoC: hw=${Build.HARDWARE} board=${Build.BOARD} soc=$socModel")
+            Log.i(TAG, "│ Android: API ${Build.VERSION.SDK_INT} (${Build.VERSION.RELEASE})")
+            Log.i(TAG, "│ Decoder: $decoderName")
+            Log.i(TAG, "│ MIME: $mimeType")
+            Log.i(TAG, "│ Quirks: mtk=$isMediaTekDecoder exynos=$isExynosDecoder weak=$isWeakDevice")
+            Log.i(TAG, "└──────────────────────────────────────────────────")
 
             val format = MediaFormat.createVideoFormat(mimeType, width, height)
 
-            // Pre-declare max resolution so the decoder allocates buffers at the right size
             format.setInteger(MediaFormat.KEY_MAX_WIDTH, width)
             format.setInteger(MediaFormat.KEY_MAX_HEIGHT, height)
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                 format.setInteger(MediaFormat.KEY_FRAME_RATE, redrawRate)
-                // TV-perf: weak ARM32 SoCs (MT8696, Amlogic) cannot sustain
-                // full-fps decode at realtime priority. Cap operating rate and
-                // use background priority so the scheduler doesn't starve the
-                // render thread. On capable devices keep original behavior.
                 if (isWeakDevice) {
                     format.setFloat(MediaFormat.KEY_OPERATING_RATE, minOf(redrawRate, 30).toFloat())
                     format.setInteger(MediaFormat.KEY_PRIORITY, 1)
                 } else {
-                    format.setFloat(MediaFormat.KEY_OPERATING_RATE, redrawRate.toFloat())
+
+                    format.setFloat(MediaFormat.KEY_OPERATING_RATE, Short.MAX_VALUE.toFloat())
                     format.setInteger(MediaFormat.KEY_PRIORITY, 0)
                 }
             }
-
-            // TV-perf: KEY_LOW_LATENCY forces single-frame decode queue on the
-            // driver — on MT8696/Amlogic this disables pipeline optimizations
-            // and actually increases latency. Only enable on capable devices.
-            if (!isWeakDevice && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val applyLowLatency = !isWeakDevice &&
+                !isMediaTekDecoder &&
+                !isExynosDecoder &&
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
+            if (applyLowLatency) {
                 format.setInteger(MediaFormat.KEY_LOW_LATENCY, 1)
             }
+            Log.i(TAG, "MediaFormat: lowLatency=$applyLowLatency opRate=${
+                if (isWeakDevice) "capped" else "MAX"} priority=${if (isWeakDevice) 1 else 0}")
 
-            // being hardcoded to LIMITED. When fullRange=true, the decoder
-            // uses FULL range which preserves the complete 0-255 luma range.
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
                 val colorRange = if (fullRange) MediaFormat.COLOR_RANGE_FULL
                                  else MediaFormat.COLOR_RANGE_LIMITED
@@ -191,26 +242,8 @@ class VideoDecoderRenderer(
                 }
             }
 
-            // TV-perf: look up the HW decoder name for the ACTUAL negotiated
-            // mime type. The server may negotiate a different codec than what
-            // CodecProbe selected (e.g. HEVC when we wanted AV1), so we must
-            // match by mime, not by a fixed name.
-            val matchedDecoder = decodersByMime[mimeType]
-            videoDecoder = if (!matchedDecoder.isNullOrBlank()) {
-                try {
-                    Log.i(TAG, "Using explicit decoder: $matchedDecoder (for $mimeType)")
-                    MediaCodec.createByCodecName(matchedDecoder)
-                } catch (e: Exception) {
-                    Log.w(TAG, "Explicit decoder failed ($matchedDecoder): ${e.message} — type fallback")
-                    MediaCodec.createDecoderByType(mimeType)
-                }
-            } else {
-                Log.i(TAG, "No explicit decoder for $mimeType — using type fallback")
-                MediaCodec.createDecoderByType(mimeType)
-            }
             videoDecoder!!.configure(format, renderSurface, null, 0)
             videoDecoder!!.start()
-            decoderName = videoDecoder!!.name
 
             Log.i(TAG, "Decoder started: $decoderName via $activeRenderPath")
             return 0
@@ -221,7 +254,6 @@ class VideoDecoderRenderer(
         }
     }
 
-    // reports accurate deltas instead of the entire previous session's count.
     fun resetStats() {
         totalFramesReceived = 0L
         totalFramesRendered = 0L
@@ -230,6 +262,8 @@ class VideoDecoderRenderer(
         frameTimingIndex = 0; frameTimingCount = 0
         interFrameIndex = 0; interFrameCount = 0
         lastRenderNs = 0L
+        startTimeNs = System.nanoTime()
+        zeroOutputWarningEmitted = false
         synchronized(queueTimestampNs) { queueTimestampNs.clear() }
     }
 
@@ -238,15 +272,13 @@ class VideoDecoderRenderer(
         pendingFrames.clear()
 
         if (useChoreographerVsync && Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN) {
-            // Vsync-aligned: decoder thread fills queue, Choreographer presents
             rendererThread = Thread({
                 android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_DISPLAY)
                 decoderDrainLoop()
             }, "Video-Decoder-Drain").apply { start() }
 
             vsyncPresenterThread = Thread({
-                // On weak single-core ARM32, two URGENT_DISPLAY threads
-                // fight the scheduler — lower vsync presenter to DISPLAY
+
                 val prio = if (isWeakDevice) android.os.Process.THREAD_PRIORITY_DISPLAY
                            else android.os.Process.THREAD_PRIORITY_URGENT_DISPLAY
                 android.os.Process.setThreadPriority(prio)
@@ -283,8 +315,6 @@ class VideoDecoderRenderer(
 
         while (!stopping) {
             try {
-                // Block up to 2ms — the kernel wakes this thread the instant a frame is ready,
-                // avoiding the OS scheduler overhead of Thread.sleep()
                 val firstIdx = decoder.dequeueOutputBuffer(info, 2_000)
                 if (firstIdx == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
                     Log.i(TAG, "Output format changed: ${decoder.outputFormat}")
@@ -294,8 +324,6 @@ class VideoDecoderRenderer(
 
                 var newestIndex = firstIdx
                 var newestPtsUs = info.presentationTimeUs
-
-                // Non-blocking drain — only keep the freshest decoded frame
                 while (true) {
                     val idx = decoder.dequeueOutputBuffer(info, 0)
                     when {
@@ -489,8 +517,6 @@ class VideoDecoderRenderer(
                 when {
                     idx >= 0 -> {
                         val frame = PendingFrame(idx, info.presentationTimeUs)
-
-                        // Enforce queue depth — shed oldest if over budget
                         while (pendingFrames.size >= effectiveDepth) {
                             val stale = pendingFrames.pollFirst() ?: break
                             try {
@@ -511,8 +537,6 @@ class VideoDecoderRenderer(
                 if (!stopping) Log.e(TAG, "Decoder drain error", e)
             }
         }
-
-        // Flush remaining queued frames on shutdown
         while (true) {
             val leftover = pendingFrames.pollFirst() ?: break
             try {
@@ -541,7 +565,6 @@ class VideoDecoderRenderer(
 
         if (chosen != null) {
             try {
-                // Present with vsync timestamp for compositor alignment
                 decoder.releaseOutputBuffer(chosen.bufferIndex, vsyncNanos)
                 totalFramesRendered++
                 updateDecodeLatency(chosen.ptsUs)
@@ -605,6 +628,29 @@ class VideoDecoderRenderer(
         val decoder = videoDecoder ?: return DR_NEED_IDR
         totalFramesReceived++
 
+        if (!zeroOutputWarningEmitted && totalFramesRendered == 0L &&
+            totalFramesReceived > 60 && startTimeNs > 0L) {
+            val elapsedNs = System.nanoTime() - startTimeNs
+            if (elapsedNs > 5_000_000_000L) {
+                zeroOutputWarningEmitted = true
+                Log.e(TAG, "┌─── ⚠ ZERO OUTPUT DETECTED ────────────────────────")
+                Log.e(TAG, "│ $totalFramesReceived frames received, 0 rendered after ${elapsedNs / 1_000_000}ms")
+                Log.e(TAG, "│ Decoder: $decoderName")
+                Log.e(TAG, "│ Quirks: mtk=$isMediaTekDecoder exynos=$isExynosDecoder weak=$isWeakDevice")
+                Log.e(TAG, "│ CSD submitted: $submittedCsd")
+                Log.e(TAG, "│ CSD sizes: vps=${vpsBuffer?.size ?: 0} sps=${spsBuffer?.size ?: 0} pps=${ppsBuffer?.size ?: 0}")
+                Log.e(TAG, "│ Render path: $activeRenderPath")
+                Log.e(TAG, "│ This decoder may not support the current MediaFormat configuration.")
+                Log.e(TAG, "│ Check KEY_LOW_LATENCY, KEY_OPERATING_RATE, and CSD handling.")
+                Log.e(TAG, "└───────────────────────────���───────────────────────")
+            }
+        }
+
+        if (totalFramesReceived % 300 == 0L) {
+            Log.i(TAG, "FRAME STATS: recv=$totalFramesReceived rendered=$totalFramesRendered " +
+                "dropped=$totalFramesDropped latency=${avgDecodeLatencyMs.toInt()}ms decoder=$decoderName")
+        }
+
         try {
 
             if (frameType == FRAME_TYPE_IDR) {
@@ -618,17 +664,12 @@ class VideoDecoderRenderer(
                         BUFFER_TYPE_SPS -> { synchronized(csdLock) { spsBuffer = csdArray }; return DR_OK }
                         BUFFER_TYPE_PPS -> { synchronized(csdLock) { ppsBuffer = csdArray }; return DR_OK }
                     }
-                } else {
+                } else if (requiresCodecConfigSubmission()) {
                     if (!submitCsdBuffers()) return DR_NEED_IDR
                     submittedCsd = true
                 }
             }
 
-            // On weak devices the old fixed 20ms timeout triggered IDR requests
-            // too aggressively — each IDR costs 100-500ms of stall as the server
-            // encodes a full keyframe. Progressive backoff: try a short wait first,
-            // then retry with a longer one before giving up. This reduces IDR
-            // cascade on overloaded SoCs while keeping latency low on capable ones.
             val inputIndex = acquireInputBuffer(decoder)
             if (inputIndex < 0) {
                 return DR_NEED_IDR
@@ -636,8 +677,7 @@ class VideoDecoderRenderer(
 
             val inputBuffer = decoder.getInputBuffer(inputIndex) ?: return DR_NEED_IDR
             inputBuffer.clear()
-            
-            // No JNI unboxing array copy needed! Massive CPU/Memory optimization for Android TV.
+
             data.position(0)
             data.limit(length)
             inputBuffer.put(data)
@@ -647,8 +687,6 @@ class VideoDecoderRenderer(
 
             synchronized(queueTimestampNs) {
                 queueTimestampNs[timestampUs] = System.nanoTime()
-
-                // Tighter eviction on weak devices to bound memory
                 val evictionThreshold = if (isWeakDevice) 32 else 128
                 if (queueTimestampNs.size > evictionThreshold) {
                     val cutoffNs = System.nanoTime() - 1_000_000_000L // 1 second
@@ -679,6 +717,24 @@ class VideoDecoderRenderer(
         val totalMs = timeoutsUs.sum() / 1000
         Log.w(TAG, "No input buffer after ${totalMs}ms (${timeoutsUs.size} attempts) — requesting IDR")
         return -1
+    }
+
+    private fun isDecoderSafeForClearPlayback(decoder: MediaCodec, mimeType: String): Boolean {
+        val nameLower = decoder.name.lowercase()
+        if (nameLower.contains(".secure") || nameLower.contains(".tunneled")) return false
+        return try {
+            val caps = decoder.codecInfo.getCapabilitiesForType(mimeType) ?: return true
+            val requiresSecure = caps.isFeatureRequired(
+                MediaCodecInfo.CodecCapabilities.FEATURE_SecurePlayback)
+            // Reject tunneled-playback decoders too: they need a HW_AV_SYNC_ID
+            // that a streaming client never supplies, leading to zero rendered
+            // frames — the same black-screen symptom as .secure on Dimensity.
+            val requiresTunneled = caps.isFeatureRequired(
+                MediaCodecInfo.CodecCapabilities.FEATURE_TunneledPlayback)
+            !requiresSecure && !requiresTunneled
+        } catch (_: Exception) {
+            true
+        }
     }
 
     private fun submitCsdBuffers(): Boolean {
@@ -739,12 +795,9 @@ class VideoDecoderRenderer(
             Log.e(TAG, "Error cleaning up decoder", e)
         }
         videoDecoder = null
-        // Only release Surface if we own it (SurfaceTexture path)
-        if (externalSurface == null) {
-            renderSurface?.release()
-        }
+        videoDecoder = null
+        // Do not release flutterSurface here; managed by StreamingPlugin
         renderSurface = null
-        textureEntry?.release()
 
         vpsBuffer = null
         spsBuffer = null

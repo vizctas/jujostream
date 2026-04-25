@@ -70,7 +70,7 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
 
     private var videoRenderer: VideoDecoderRenderer? = null
     private var audioRenderer: AudioRenderer? = null
-    private var textureEntry: TextureRegistry.SurfaceTextureEntry? = null
+    private var surfaceProducer: TextureRegistry.SurfaceProducer? = null
     private var directSubmitActive = false
 
     private var statsTimer: Timer? = null
@@ -201,14 +201,8 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
 
         val audioConfiguration = StreamConstants.audioConfigFor(audioConfig)
 
-        // The server uses this to know what the client can decode. The primary
-        // codec (resolvedCodec) determines the actual stream format, but
-        // advertising all supported formats allows the server to fall back
-        // gracefully if the primary codec isn't available server-side.
         val allSupported = CodecProbe.rankCodecs(width, height, fps, enableHdr)
 
-        // TV-perf: detect weak ARM32 TV/streaming-stick devices (MT8696, Amlogic arm32).
-        // These get forced to H264, explicit decoder name, and relaxed MediaFormat hints.
         val weakDevice = detectWeakDevice()
         val effectiveCodec = when {
             weakDevice && videoCodec == "auto" -> {
@@ -219,10 +213,6 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
         }
         activeCodecName = effectiveCodec
 
-        // Build a map of MIME type → best HW decoder name from CodecProbe.
-        // The server may negotiate a different codec than effectiveCodec
-        // (e.g. HEVC when we preferred AV1), so VideoDecoderRenderer needs
-        // the correct decoder for every possible negotiated format.
         val decodersByMime = mutableMapOf<String, String>()
         for (cs in allSupported) {
             val mime = when (cs.codec) {
@@ -231,30 +221,39 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
                 "AV1"  -> "video/av01"
                 else -> continue
             }
-            // First entry per mime wins (allSupported is sorted by score desc)
             if (mime !in decodersByMime) {
                 decodersByMime[mime] = cs.decoderName
             }
         }
         Log.i(TAG, "Decoder map: $decodersByMime (weakDevice=$weakDevice, preferred=$effectiveCodec)")
 
-        // On weak devices forced to H264, strip non-avc decoders so the
-        // server cannot negotiate a codec the SoC can't sustain
         if (weakDevice && effectiveCodec == "H264") {
             val avcDecoder = decodersByMime["video/avc"]
             decodersByMime.keys.retainAll(setOf("video/avc"))
             Log.i(TAG, "Weak device: stripped codec map to avc-only → $decodersByMime")
         }
 
-        val primaryFormat = StreamConstants.videoFormatFor(effectiveCodec, enableHdr)
-        var supportedVideoFormats = primaryFormat
+        // Never advertise a codec that has no safe clear-playback decoder on this device.
+        // This prevents the server from negotiating a codec we'd then fail to decode.
+        val safeEffective = when {
+            effectiveCodec == "H265" && "video/hevc" !in decodersByMime -> {
+                Log.w(TAG, "No safe HEVC decoder available — downgrading advertised codec to H264")
+                "H264"
+            }
+            effectiveCodec == "AV1" && "video/av01" !in decodersByMime -> {
+                Log.w(TAG, "No safe AV1 decoder available — downgrading advertised codec to H264")
+                "H264"
+            }
+            else -> effectiveCodec
+        }
+        if (safeEffective != effectiveCodec) activeCodecName = safeEffective
+
+        var supportedVideoFormats = StreamConstants.videoFormatFor(safeEffective, enableHdr)
         for (codec in allSupported) {
             supportedVideoFormats = supportedVideoFormats or
                 StreamConstants.videoFormatFor(codec.codec, enableHdr)
         }
 
-        // TV-perf: weak devices should always use latency pacing to drain
-        // stale frames immediately rather than building a depth-2 queue.
         val effectiveFramePacingMode = if (weakDevice && framePacingMode != VideoDecoderRenderer.FRAME_PACING_LATENCY) {
             Log.w(TAG, "Weak device — overriding frame pacing to LATENCY (was $framePacingMode)")
             VideoDecoderRenderer.FRAME_PACING_LATENCY
@@ -278,7 +277,7 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
         Log.i(TAG, "VRR: $enableVrr, DirectSubmit: $directSubmit, LowLatencyFrameBalance: $lowLatencyFrameBalance")
         Log.i(TAG, "═══════════════════════════════════════")
 
-        // Resolve rendering surface: direct submit (SurfaceView) or texture (SurfaceTexture)
+
         val directSurface = if (directSubmit && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val ds = DirectSubmitViewFactory.awaitSurface(3000)
             if (ds != null) {
@@ -291,18 +290,17 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
         directSubmitActive = directSurface != null
 
         if (directSurface == null) {
-            // Fallback: standard SurfaceTexture path
-            textureEntry = textureRegistry?.createSurfaceTexture()
-            if (textureEntry == null) {
-                result.error("TEXTURE_ERROR", "Failed to create texture", null)
+            surfaceProducer = textureRegistry?.createSurfaceProducer()
+            if (surfaceProducer == null) {
+                result.error("TEXTURE_ERROR", "Failed to create surface producer", null)
                 return
             }
+            surfaceProducer?.setSize(width, height)
         }
 
-        // Weak ARM32 devices can't drain >1 frame queue without backpressure
         val effectiveQueueDepth = if (weakDevice) minOf(frameQueueDepth.coerceIn(0, 6), 1) else frameQueueDepth.coerceIn(0, 6)
         videoRenderer = VideoDecoderRenderer(
-            if (directSurface != null) null else textureEntry!!,
+            if (directSurface != null) null else surfaceProducer!!.surface,
             effectiveFramePacingMode,
             enableHdr,
             fullRange = fullRange,
@@ -315,7 +313,6 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
             isWeakDevice = weakDevice
         )
 
-        // VRR: switch display mode to match stream FPS
         if (enableVrr) {
             activity?.let { act ->
                 DisplayModeHelper.apply(act, fps, null)
@@ -379,7 +376,6 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
                     } else {
                         Log.e(TAG, "nativeStartConnection failed: $status")
                         cleanup()
-                        // pass status as errorDetails so Dart can read e.details as int
                         result.error("STREAM_FAILED", "Connection failed with code $status", status)
                     }
                 }
@@ -407,7 +403,6 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
                           !Build.SUPPORTED_ABIS.contains("arm64-v8a")
         val isLowRam = am?.isLowRamDevice ?: false
 
-        // Tier 1: ARM32-only or system-flagged low-RAM → always weak
         if (isArm32Only || isLowRam) {
             Log.i(TAG, "detectWeakDevice: arm32=$isArm32Only lowRam=$isLowRam → true (tier-1)")
             return true
@@ -416,7 +411,6 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
         val isTv = pm.hasSystemFeature(PackageManager.FEATURE_LEANBACK) ||
                    pm.hasSystemFeature(PackageManager.FEATURE_TELEVISION)
 
-        // Tier 2: Known-capable SoCs — never weak regardless of form factor
         val soc = Build.HARDWARE.lowercase()
         val board = Build.BOARD.lowercase()
         val model = Build.MODEL.lowercase()
@@ -428,7 +422,6 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
             return false
         }
 
-        // Tier 3: TV without capable SoC + limited RAM → weak
         if (isTv) {
             val memInfo = ActivityManager.MemoryInfo()
             am?.getMemoryInfo(memInfo)
@@ -438,7 +431,6 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
             return isLimitedRam
         }
 
-        // Tier 4: Non-TV arm64 device → not weak
         Log.i(TAG, "detectWeakDevice: non-TV arm64 → false (tier-4)")
         return false
     }
@@ -479,7 +471,7 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
     }
 
     private fun handleGetTextureId(result: MethodChannel.Result) {
-        val id = textureEntry?.id()
+        val id = surfaceProducer?.id()
         if (id != null) {
             result.success(id)
         } else {
@@ -663,7 +655,6 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
 
         lastFramesRendered = 0L
         lastFramesDropped = 0L
-        // resolution. FPS is extrapolated to per-second rate from the 200ms window.
         statsTimer?.cancel()
         statsTimer = Timer("StreamStats", true).also { timer ->
             timer.scheduleAtFixedRate(object : TimerTask() {
@@ -673,8 +664,6 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
                     val currentDropped = renderer.totalFramesDropped
                     val renderedDelta = (currentFrames - lastFramesRendered).coerceAtLeast(0)
                     val droppedDelta = (currentDropped - lastFramesDropped).coerceAtLeast(0)
-
-                    // Extrapolate 200ms window → per-second rate (×5)
                     val fps = (renderedDelta * 5).toInt()
                     val totalDelta = renderedDelta + droppedDelta
                     val dropRate = if (totalDelta > 0)
@@ -724,9 +713,7 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
             reconnectAfterPip = true
             return
         }
-        // Explicitly stop the native connection so the server tears down the
-        // session. Without this, a reconnect attempt gets GS_WRONG_STATE (104)
-        // because the server still considers this client's session active.
+
         stopNativeConnection()
         sendEvent(mapOf("type" to "connectionTerminated", "errorCode" to errorCode))
         cleanup()
@@ -805,8 +792,8 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
         audioRenderer?.cleanup()
         audioRenderer = null
 
-        textureEntry?.release()
-        textureEntry = null
+        surfaceProducer?.release()
+        surfaceProducer = null
     }
 
     private fun stopNativeConnection() {

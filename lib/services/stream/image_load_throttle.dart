@@ -28,15 +28,11 @@ class ImageLoadThrottle {
 
     final cache = PaintingBinding.instance.imageCache;
 
-    // Save current limits
     _savedMaximumSize = cache.maximumSize;
     _savedMaximumSizeBytes = cache.maximumSizeBytes;
 
-    // Evict live images to free memory and cancel pending decodes
     cache.clearLiveImages();
 
-    // Reduce cache to minimum — new image requests will still work
-    // but won't queue aggressively
     cache.maximumSize = 10;
     cache.maximumSizeBytes = 10 << 20; // 10 MB
   }
