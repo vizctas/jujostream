@@ -32,6 +32,7 @@ class ClassicTheme extends LauncherTheme {
     required bool isGridView,
     required Set<String> favoriteIds,
     required ValueChanged<NvApp> onToggleFavorite,
+    VoidCallback? onToggleView,
     Widget? videoWidget,
     int? videoForAppId,
     VoidCallback? onSearch,

@@ -40,6 +40,7 @@ class HeroTheme extends LauncherTheme {
     required bool isGridView,
     required Set<String> favoriteIds,
     required ValueChanged<NvApp> onToggleFavorite,
+    VoidCallback? onToggleView,
     Widget? videoWidget,
     int? videoForAppId,
     VoidCallback? onSearch,
@@ -471,8 +472,7 @@ class _HeroBodyState extends State<_HeroBody>
                     width: double.infinity,
                     height: double.infinity,
                     memCacheWidth: 1280,
-                    errorWidget: (_, _, _) =>
-                        Container(color: tp.background),
+                    errorWidget: (_, _, _) => Container(color: tp.background),
                   ),
                 ),
               )
@@ -943,8 +943,7 @@ class _HeroBodyState extends State<_HeroBody>
                     child: SizedBox(
                       width: 72,
                       height: 72,
-                      child:
-                          s.posterUrl != null && s.posterUrl!.isNotEmpty
+                      child: s.posterUrl != null && s.posterUrl!.isNotEmpty
                           ? PosterImage(
                               url: s.posterUrl!,
                               fit: BoxFit.cover,
@@ -988,10 +987,7 @@ class _HeroBodyState extends State<_HeroBody>
                             fontWeight: FontWeight.w800,
                             height: 1.1,
                             shadows: [
-                              Shadow(
-                                color: Colors.black87,
-                                blurRadius: 12,
-                              ),
+                              Shadow(color: Colors.black87, blurRadius: 12),
                             ],
                           ),
                         ),
@@ -1285,8 +1281,7 @@ class _HeroBodyState extends State<_HeroBody>
         children: [
           _badgeMini(badge),
           const SizedBox(width: 4),
-          Text(label,
-              style: const TextStyle(color: Colors.white, fontSize: 9)),
+          Text(label, style: const TextStyle(color: Colors.white, fontSize: 9)),
         ],
       ),
     );

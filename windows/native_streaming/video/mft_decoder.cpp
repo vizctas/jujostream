@@ -26,10 +26,12 @@ extern "C" {
 #include <codecapi.h>
 #include <cstdio>
 #include <cstring>
+#include <timeapi.h>
 
 #pragma comment(lib, "mfplat.lib")
 #pragma comment(lib, "mf.lib")
 #pragma comment(lib, "mfuuid.lib")
+#pragma comment(lib, "winmm.lib")
 
 // AV1 GUID — available Win10 20H1+ but MFT hardware decoder from 21H2+
 DEFINE_GUID(MFVideoFormat_AV1_LOCAL,
@@ -344,6 +346,7 @@ int MftDecoder::submitFrame(const uint8_t *data, int length, int frameType,
 // drainLoop — runs on dedicated thread, pumps ProcessOutput
 // -------------------------------------------------------------------
 void MftDecoder::drainLoop() {
+    timeBeginPeriod(1);
     while (drain_running_) {
         // For async MFT: wait for any transform event with a 16ms timeout
         // (1 frame @ 60fps) so we don't permanently stall on shutdown.
@@ -428,6 +431,7 @@ void MftDecoder::drainLoop() {
 
         if (out.pEvents) out.pEvents->Release();
     }
+    timeEndPeriod(1);
 }
 
 // -------------------------------------------------------------------

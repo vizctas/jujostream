@@ -27,6 +27,8 @@ public:
     void setOverlayVisible(bool visible)       { overlay_visible_.store(visible); }
 
     int getConnectedCount() const;
+    bool isPolling() const { return poll_running_.load(); }
+    bool isSlotConnected(int slot) const { return slot >= 0 && slot < 8 ? prev_connected_[slot] : false; }
 
     // Filled by poll thread, read by gamepad method handler for getControllerInfo
     struct ControllerInfo {
@@ -44,6 +46,11 @@ public:
         overlay_dpad_cb_ = std::move(cb);
     }
 
+    // Called when not streaming — fires UI nav events to Dart (D-Pad, A, B)
+    void setNavInputCallback(std::function<void(const std::string&)> cb) {
+        nav_input_cb_ = std::move(cb);
+    }
+
 private:
     XInputHandler() = default;
     ~XInputHandler() { stopPolling(); }
@@ -59,11 +66,13 @@ private:
     double response_curve_    = 1.0;
     double mouse_emu_speed_   = 1.0;
 
-    // Previous XINPUT_STATE per slot for delta detection
-    uint32_t prev_buttons_[4] = {};
-    bool     prev_connected_[4] = {};
+    // Previous raw and Moonlight button state per slot (0-3 XInput, 4-7 WGI)
+    uint32_t prev_buttons_[8] = {};
+    uint32_t prev_li_buttons_[8] = {};
+    bool     prev_connected_[8] = {};
 
     std::function<void(const std::string&)> overlay_dpad_cb_;
+    std::function<void(const std::string&)> nav_input_cb_;
 };
 
 }  // namespace input

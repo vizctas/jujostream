@@ -26,6 +26,8 @@ class LauncherPreferences extends ChangeNotifier {
   bool _showButtonHints = true;
   String _buttonScheme = 'xbox';
 
+  bool _desktopFullscreen = true;
+
   String _profileId = 'classic';
   String _key(String base) => '${_profileId}_$base';
 
@@ -50,6 +52,7 @@ class LauncherPreferences extends ChangeNotifier {
   int get maxRecentCount => _maxRecentCount;
   bool get showButtonHints => _showButtonHints;
   String get buttonScheme => _buttonScheme;
+  bool get desktopFullscreen => _desktopFullscreen;
 
   Future<void> load([String? profileId]) async {
     if (profileId != null) _profileId = profileId;
@@ -78,6 +81,7 @@ class LauncherPreferences extends ChangeNotifier {
     _maxRecentCount = getI('lp_maxRecentCount', 8).clamp(1, 12);
     _showButtonHints = getB('lp_showButtonHints', true);
     _buttonScheme = getS('lp_buttonScheme', 'xbox');
+    _desktopFullscreen = getB('lp_desktopFullscreen', true);
     notifyListeners();
   }
 
@@ -100,6 +104,7 @@ class LauncherPreferences extends ChangeNotifier {
       p.setInt(_key('lp_maxRecentCount'), _maxRecentCount),
       p.setBool(_key('lp_showButtonHints'), _showButtonHints),
       p.setString(_key('lp_buttonScheme'), _buttonScheme),
+      p.setBool(_key('lp_desktopFullscreen'), _desktopFullscreen),
     ]);
   }
 
@@ -199,6 +204,12 @@ class LauncherPreferences extends ChangeNotifier {
     _save();
   }
 
+  void setDesktopFullscreen(bool v) {
+    _desktopFullscreen = v;
+    notifyListeners();
+    _save();
+  }
+
   Future<void> resetDefaults() async {
     final isClassic = _profileId == 'classic';
     _backgroundBlur = isClassic ? 0.0 : 1.0;
@@ -217,6 +228,7 @@ class LauncherPreferences extends ChangeNotifier {
     _maxRecentCount = 8;
     _showButtonHints = true;
     _buttonScheme = 'xbox';
+    _desktopFullscreen = true;
     notifyListeners();
     await _save();
   }

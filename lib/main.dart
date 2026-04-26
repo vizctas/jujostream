@@ -22,6 +22,9 @@ import 'services/crypto/client_identity.dart';
 import 'services/preferences/launcher_preferences.dart';
 import 'services/database/app_override_service.dart';
 import 'services/input/gamepad_button_helper.dart';
+import 'services/input/gamepad_navigation_service.dart';
+import 'services/window/fullscreen_service.dart';
+import 'platform_channels/gamepad_channel.dart';
 import 'services/tv/tv_detector.dart';
 import 'screens/pc_view/focus_mode_screen.dart';
 import 'screens/pc_view/pc_view_screen.dart';
@@ -75,6 +78,10 @@ void main() async {
 
   await TvDetector.instance.init();
   GamepadButtonHelper.instance.init();
+  if (io.Platform.isWindows) {
+    GamepadChannel.init();           // wire MethodCallHandler before first frame
+    GamepadNavigationService.init(); // map onNavInput → Flutter focus traversal
+  }
 
   final settingsProvider = SettingsProvider();
   await settingsProvider.loadSettings();
@@ -86,6 +93,13 @@ void main() async {
 
   final launcherPreferences = LauncherPreferences();
   await launcherPreferences.load(themeProvider.launcherThemeId.name);
+
+  if (io.Platform.isWindows) {
+    FullscreenService.init(initialState: launcherPreferences.desktopFullscreen);
+    FullscreenService.onF11Toggle = (bool newState) {
+      launcherPreferences.setDesktopFullscreen(newState);
+    };
+  }
 
   final authProvider = AuthProvider();
   unawaited(authProvider.trySilentSignIn());

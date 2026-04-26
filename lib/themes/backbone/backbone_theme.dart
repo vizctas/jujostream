@@ -40,6 +40,7 @@ class BackboneTheme extends LauncherTheme {
     required bool isGridView,
     required Set<String> favoriteIds,
     required ValueChanged<NvApp> onToggleFavorite,
+    VoidCallback? onToggleView,
     Widget? videoWidget,
     int? videoForAppId,
     VoidCallback? onSearch,
@@ -73,6 +74,7 @@ class BackboneTheme extends LauncherTheme {
       activeSessionAppId: activeSessionAppId,
       favoriteIds: favoriteIds,
       onToggleFavorite: onToggleFavorite,
+      onToggleView: onToggleView,
       videoWidget: videoWidget,
       videoForAppId: videoForAppId,
       onSearch: onSearch,
@@ -97,6 +99,7 @@ class _Body extends StatefulWidget {
   final String? activeSessionAppId;
   final Set<String> favoriteIds;
   final ValueChanged<NvApp> onToggleFavorite;
+  final VoidCallback? onToggleView;
   final Widget? videoWidget;
   final int? videoForAppId;
   final VoidCallback? onSearch;
@@ -115,6 +118,7 @@ class _Body extends StatefulWidget {
     required this.activeSessionAppId,
     required this.favoriteIds,
     required this.onToggleFavorite,
+    this.onToggleView,
     this.videoWidget,
     this.videoForAppId,
     this.onSearch,
@@ -275,7 +279,7 @@ class _BodyState extends State<_Body> {
           }
           if (k == LogicalKeyboardKey.gameButtonX) {
             _action();
-            if (s != null) widget.onToggleFavorite(s);
+            widget.onToggleView?.call();
             return KeyEventResult.handled;
           }
 
@@ -344,7 +348,7 @@ class _BodyState extends State<_Body> {
           }
           if (k == LogicalKeyboardKey.gameButtonX) {
             _action();
-            if (s != null) widget.onToggleFavorite(s);
+            widget.onToggleView?.call();
             return KeyEventResult.handled;
           }
           if (k == LogicalKeyboardKey.gameButtonY) {
@@ -821,10 +825,16 @@ class _BodyState extends State<_Body> {
                   if (s != null) widget.onAppSelected(s);
                 }),
                 const SizedBox(width: 8),
-                _gpBtn('X', Icons.star_outline, l.fav, Colors.amberAccent, () {
-                  _action();
-                  if (s != null) widget.onToggleFavorite(s);
-                }),
+                _gpBtn(
+                  'X',
+                  Icons.grid_view_rounded,
+                  'Grid',
+                  Colors.cyanAccent,
+                  () {
+                    _action();
+                    widget.onToggleView?.call();
+                  },
+                ),
                 const SizedBox(width: 8),
                 _gpBtn('Y', Icons.tune, l.options, Colors.cyanAccent, () {
                   _action();
@@ -879,8 +889,7 @@ class _BodyState extends State<_Body> {
                     child: SizedBox(
                       width: 80,
                       height: 45,
-                      child:
-                          s.posterUrl != null && s.posterUrl!.isNotEmpty
+                      child: s.posterUrl != null && s.posterUrl!.isNotEmpty
                           ? PosterImage(
                               url: s.posterUrl!,
                               fit: BoxFit.cover,
@@ -925,10 +934,7 @@ class _BodyState extends State<_Body> {
                             fontWeight: FontWeight.w800,
                             height: 1.1,
                             shadows: [
-                              Shadow(
-                                color: Colors.black87,
-                                blurRadius: 12,
-                              ),
+                              Shadow(color: Colors.black87, blurRadius: 12),
                             ],
                           ),
                         ),
@@ -969,38 +975,40 @@ class _BodyState extends State<_Body> {
                         children: [
                           Expanded(
                             child: GestureDetector(
-                            onTap: () {
-                              _action();
-                              widget.onAppSelected(s);
-                            },
-                            child: Container(
-                              width: double.infinity,
-                              padding: const EdgeInsets.symmetric(vertical: 14),
-                              decoration: BoxDecoration(
-                                color: tp.accent,
-                                borderRadius: BorderRadius.circular(10),
-                                boxShadow: null,
-                              ),
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  const Icon(
-                                    Icons.play_arrow_rounded,
-                                    color: Colors.white,
-                                    size: 22,
-                                  ),
-                                  const SizedBox(width: 6),
-                                  Text(
-                                    s.isRunning ? l.resume : l.play,
-                                    style: const TextStyle(
+                              onTap: () {
+                                _action();
+                                widget.onAppSelected(s);
+                              },
+                              child: Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 14,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: tp.accent,
+                                  borderRadius: BorderRadius.circular(10),
+                                  boxShadow: null,
+                                ),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    const Icon(
+                                      Icons.play_arrow_rounded,
                                       color: Colors.white,
-                                      fontSize: 15,
-                                      fontWeight: FontWeight.w800,
-                                      letterSpacing: 0.5,
+                                      size: 22,
                                     ),
-                                  ),
-                                ],
-                              ),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      s.isRunning ? l.resume : l.play,
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.w800,
+                                        letterSpacing: 0.5,
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ),
                             ),
                           ),
@@ -1118,9 +1126,9 @@ class _BodyState extends State<_Body> {
                 widget.onAppSelected(s);
               }),
               const SizedBox(width: 14),
-              _tappableHint('X', l.fav, () {
+              _tappableHint('X', 'Grid', () {
                 _action();
-                widget.onToggleFavorite(s);
+                widget.onToggleView?.call();
               }),
               const SizedBox(width: 14),
               _tappableHint('Y', l.options, () {
@@ -1256,8 +1264,10 @@ class _BodyState extends State<_Body> {
         children: [
           _badgeMini(badge),
           const SizedBox(width: 4),
-          Text(label,
-              style: const TextStyle(color: Colors.white24, fontSize: 9)),
+          Text(
+            label,
+            style: const TextStyle(color: Colors.white24, fontSize: 9),
+          ),
         ],
       ),
     );

@@ -18,6 +18,10 @@ class GamepadChannel {
 
   static void Function(int controllerNumber)? onControllerDisconnected;
 
+  /// Fired when a gamepad D-Pad / A / B is pressed while not streaming.
+  /// [key] is one of: 'up', 'down', 'left', 'right', 'select', 'back'.
+  static void Function(String key)? onNavInput;
+
   static void init() {
     _channel.setMethodCallHandler((call) async {
       if (call.method == 'onComboDetected') {
@@ -37,6 +41,9 @@ class GamepadChannel {
         final args = call.arguments;
         final int? slot = args is Map ? args['slot'] as int? : args as int?;
         if (slot != null) onControllerDisconnected?.call(slot);
+      } else if (call.method == 'onNavInput') {
+        final key = call.arguments as String?;
+        if (key != null) onNavInput?.call(key);
       }
     });
   }

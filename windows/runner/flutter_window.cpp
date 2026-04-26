@@ -7,6 +7,7 @@
 // JujoStream native plugins
 #include "plugin/streaming_plugin_win.h"
 #include "input/gamepad_plugin_win.h"
+#include "window_plugin_win.h"
 
 FlutterWindow::FlutterWindow(const flutter::DartProject& project)
     : project_(project) {}
@@ -42,6 +43,13 @@ bool FlutterWindow::OnCreate() {
   if (raw_gp) {
     gamepad_registrar_ = std::make_unique<flutter::PluginRegistrarWindows>(raw_gp);
     jujostream::GamepadPluginRegisterWithRegistrar(gamepad_registrar_.get());
+  }
+  // Window management plugin (fullscreen / F11)
+  auto *raw_win = flutter_controller_->engine()->GetRegistrarForPlugin(
+      "WindowPluginWin");
+  if (raw_win) {
+    window_registrar_ = std::make_unique<flutter::PluginRegistrarWindows>(raw_win);
+    jujostream::WindowPluginRegisterWithRegistrar(window_registrar_.get());
   }
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 

@@ -565,6 +565,14 @@ class _PcViewScreenState extends State<PcViewScreen>
     );
   }
 
+  void _doExit() {
+    if (io.Platform.isWindows || io.Platform.isMacOS || io.Platform.isLinux) {
+      io.exit(0);
+    } else {
+      SystemNavigator.pop();
+    }
+  }
+
   void _showExitConfirm(BuildContext context, ThemeProvider tp) {
     showDialog(
       context: context,
@@ -621,7 +629,7 @@ class _PcViewScreenState extends State<PcViewScreen>
                 Navigator.pop(ctx);
                 return;
               }
-              SystemNavigator.pop();
+              _doExit();
             }
 
             return Focus(
@@ -703,7 +711,7 @@ class _PcViewScreenState extends State<PcViewScreen>
                         textColor: Colors.white,
                         onTap: () {
                           setState(() => selectedIndex = 1);
-                          SystemNavigator.pop();
+                          _doExit();
                         },
                       ),
                     ],
