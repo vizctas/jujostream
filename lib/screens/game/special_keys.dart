@@ -72,7 +72,11 @@ List<SpecialKeyEntry> buildSpecialKeysList() => [
   ('skTaskView', 'Win+Tab', () => sendCombo([vkLwin, vkTab])),
   ('skDisplayMode', 'Win+P', () => sendCombo([vkLwin, vkP])),
   ('skDisplayLeft', 'Win+Shift+←', () => sendCombo([vkLwin, vkShift, vkLeft])),
-  ('skDisplayRight', 'Win+Shift+→', () => sendCombo([vkLwin, vkShift, vkRight])),
+  (
+    'skDisplayRight',
+    'Win+Shift+→',
+    () => sendCombo([vkLwin, vkShift, vkRight]),
+  ),
 
   // ── INPUT (10–15) ──
   ('skNextField', 'Tab', () => sendKey(vkTab)),
@@ -87,7 +91,11 @@ List<SpecialKeyEntry> buildSpecialKeysList() => [
   ('skGameBar', 'Win+G', () => sendCombo([vkLwin, vkG])),
   ('skScreenshot', 'PrtScn', () => sendKey(vkPrintScreen)),
   ('skSecurity', 'Ctrl+Alt+Del', () => sendCombo([vkCtrl, vkAlt, vkDelete])),
-  ('skTaskManager', 'Ctrl+Shift+Esc', () => sendCombo([vkCtrl, vkShift, vkEscape])),
+  (
+    'skTaskManager',
+    'Ctrl+Shift+Esc',
+    () => sendCombo([vkCtrl, vkShift, vkEscape]),
+  ),
   ('skExplorer', 'Win+E', () => sendCombo([vkLwin, vkE])),
 
   // ── MEDIA (22–25) ──
@@ -308,13 +316,19 @@ final Map<LogicalKeyboardKey, int> _logicalToVk = {
   LogicalKeyboardKey.digit6: 0x36, LogicalKeyboardKey.digit7: 0x37,
   LogicalKeyboardKey.digit8: 0x38, LogicalKeyboardKey.digit9: 0x39,
 
-  // F-keys
+  // F-keys (F1–F24)
   LogicalKeyboardKey.f1: 0x70, LogicalKeyboardKey.f2: 0x71,
   LogicalKeyboardKey.f3: 0x72, LogicalKeyboardKey.f4: 0x73,
   LogicalKeyboardKey.f5: 0x74, LogicalKeyboardKey.f6: 0x75,
   LogicalKeyboardKey.f7: 0x76, LogicalKeyboardKey.f8: 0x77,
   LogicalKeyboardKey.f9: 0x78, LogicalKeyboardKey.f10: 0x79,
   LogicalKeyboardKey.f11: 0x7A, LogicalKeyboardKey.f12: 0x7B,
+  LogicalKeyboardKey.f13: 0x7C, LogicalKeyboardKey.f14: 0x7D,
+  LogicalKeyboardKey.f15: 0x7E, LogicalKeyboardKey.f16: 0x7F,
+  LogicalKeyboardKey.f17: 0x80, LogicalKeyboardKey.f18: 0x81,
+  LogicalKeyboardKey.f19: 0x82, LogicalKeyboardKey.f20: 0x83,
+  LogicalKeyboardKey.f21: 0x84, LogicalKeyboardKey.f22: 0x85,
+  LogicalKeyboardKey.f23: 0x86, LogicalKeyboardKey.f24: 0x87,
 
   // Modifiers
   LogicalKeyboardKey.shiftLeft: 0xA0, LogicalKeyboardKey.shiftRight: 0xA1,
@@ -350,7 +364,8 @@ final Map<LogicalKeyboardKey, int> _logicalToVk = {
   LogicalKeyboardKey.numpad6: 0x66, LogicalKeyboardKey.numpad7: 0x67,
   LogicalKeyboardKey.numpad8: 0x68, LogicalKeyboardKey.numpad9: 0x69,
   LogicalKeyboardKey.numpadMultiply: 0x6A, LogicalKeyboardKey.numpadAdd: 0x6B,
-  LogicalKeyboardKey.numpadSubtract: 0x6D, LogicalKeyboardKey.numpadDecimal: 0x6E,
+  LogicalKeyboardKey.numpadSubtract: 0x6D,
+  LogicalKeyboardKey.numpadDecimal: 0x6E,
   LogicalKeyboardKey.numpadDivide: 0x6F, LogicalKeyboardKey.numpadEnter: 0x0D,
   LogicalKeyboardKey.numLock: 0x90,
 

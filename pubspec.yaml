@@ -83,6 +83,10 @@ dev_dependencies:
 flutter_launcher_icons:
   android: true
   ios: true
+  windows:
+    generate: true
+    image_path: "assets/images/app_icon.png"
+    icon_size: 48
   image_path: "assets/images/app_icon.png"
   adaptive_icon_background: "#2D2D3A"
   adaptive_icon_foreground: "assets/images/app_icon.png"

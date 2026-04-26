@@ -35,6 +35,9 @@ target_compile_definitions(${BINARY_NAME} PRIVATE "NOMINMAX")
 target_link_libraries(${BINARY_NAME} PRIVATE flutter flutter_wrapper_app)
 target_link_libraries(${BINARY_NAME} PRIVATE "dwmapi.lib")
 target_link_libraries(${BINARY_NAME} PRIVATE native_streaming)
+target_link_options(${BINARY_NAME} PRIVATE
+  "$<$<CONFIG:Debug>:/NODEFAULTLIB:MSVCRT>"
+)
 target_include_directories(${BINARY_NAME} PRIVATE
   "${CMAKE_SOURCE_DIR}"
   "${CMAKE_SOURCE_DIR}/native_streaming"

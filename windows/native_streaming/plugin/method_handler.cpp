@@ -7,12 +7,14 @@
 #include "method_handler.h"
 #include "streaming_bridge_win.h"
 #include "../video/codec_probe_win.h"
+#include "../video/mft_decoder.h"
 #include "../video/texture_bridge.h"
 #include "../audio/wasapi_renderer.h"
 
 #include <string>
 #include <vector>
 #include <cstring>
+#include <thread>
 
 extern "C" {
 #include "moonlight_bridge_win.h"
@@ -98,7 +100,11 @@ void MethodHandler::handleMethodCall(
 }
 
 // -------------------------------------------------------------------
-// startStream
+// startStream  — IMPORTANT: LiStartConnection blocks for seconds.
+//   Running it on the Flutter platform thread deadlocks the Win32
+//   message pump which kills the debug log reader and the channel.
+//   We capture all params by value, move the result ptr into a
+//   shared_ptr, and reply from a detached background thread.
 // -------------------------------------------------------------------
 void MethodHandler::handleStartStream(const flutter::EncodableValue *args,
     std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result) {
@@ -128,11 +134,36 @@ void MethodHandler::handleStartStream(const flutter::EncodableValue *args,
     int audioConfiguration  = (audioConfig == "surround51") ? 0x003F06CA :
                               (audioConfig == "surround71") ? 0x063F08CA : 0x000302CA;
 
-    // Build supported video formats bitmask
+    // Probe hardware/software codec availability before advertising to server.
     bool hdr = colorSpace != 0;
-    int supportedVideoFormats = 0x0001; // always H264
-    if (videoCodec == "H265" || videoCodec == "auto") supportedVideoFormats |= (hdr ? 0x0F00 : 0x0100);
-    if (videoCodec == "AV1"  || videoCodec == "auto") supportedVideoFormats |= (hdr ? 0xF000 : 0x1000);
+    auto probe = video::CodecProbeWin::instance().probe(width, height, fps, hdr);
+    auto codecStatus = [&](const std::string &key) -> std::string {
+        auto it = probe.find(key);
+        return it != probe.end() ? it->second : "unsupported";
+    };
+    bool h265TextureUsable = (codecStatus("h265") == "hardware");
+    bool av1TextureUsable  = (codecStatus("av1")  == "hardware");
+    fprintf(stderr, "handleStartStream: codec probe h264=%s h265=%s av1=%s\n",
+            codecStatus("h264").c_str(), codecStatus("h265").c_str(),
+            codecStatus("av1").c_str());
+
+    int supportedVideoFormats = 0x0001; // H264 always
+    if ((videoCodec == "H265" || videoCodec == "auto") && h265TextureUsable)
+        supportedVideoFormats |= (hdr ? 0x0F00 : 0x0100);
+    if ((videoCodec == "AV1"  || videoCodec == "auto") && av1TextureUsable)
+        supportedVideoFormats |= (hdr ? 0xF000 : 0x1000);
+    if ((videoCodec == "H265" || videoCodec == "auto") &&
+        codecStatus("h265") == "software") {
+        fprintf(stderr,
+                "handleStartStream: HEVC probe is software-only; not advertising until "
+                "system-memory decode frames can be uploaded to the Windows texture path\n");
+    }
+    if ((videoCodec == "AV1" || videoCodec == "auto") &&
+        codecStatus("av1") == "software") {
+        fprintf(stderr,
+                "handleStartStream: AV1 probe is software-only; not advertising until "
+                "system-memory decode frames can be uploaded to the Windows texture path\n");
+    }
 
     // riKey: 32 hex chars = 16 bytes
     auto riAesKey = hexToBytes(riKeyHex, 16);
@@ -144,31 +175,57 @@ void MethodHandler::handleStartStream(const flutter::EncodableValue *args,
     riAesIv[2] = (riKeyId >>  8) & 0xFF;
     riAesIv[3] = (riKeyId)       & 0xFF;
 
-    int status = moonlightWinStartConnection(
-        host.c_str(),
-        appVersion.c_str(),
-        gfeVersion.empty() ? nullptr : gfeVersion.c_str(),
-        rtspUrl.empty()    ? nullptr : rtspUrl.c_str(),
-        serverCodecMode,
-        width, height, fps, bitrate,
-        1392,     // packetSize
-        2,        // streamingRemotely
-        audioConfiguration,
-        supportedVideoFormats,
-        fps * 100,
-        riAesKey.data(), riAesIv,
-        0,         // videoCapabilities
-        colorSpace, colorRange
-    );
+    // Copy riAesIv into a vector for capture
+    std::vector<uint8_t> riAesIvVec(riAesIv, riAesIv + 16);
 
-    if (status == 0) {
-        result->Success(flutter::EncodableValue(true));
-    } else {
-        result->Error("STREAM_FAILED",
-                      std::string("Connection failed code=") + std::to_string(status),
-                      flutter::EncodableValue(status));
-    }
+    // Move result into shared_ptr so it can be captured by the lambda
+    auto sharedResult = std::shared_ptr<flutter::MethodResult<flutter::EncodableValue>>(
+        std::move(result));
+
+    std::thread([
+        host, appVersion, gfeVersion, rtspUrl,
+        serverCodecMode, width, height, fps, bitrate,
+        audioConfiguration, supportedVideoFormats,
+        riAesKey, riAesIvVec, colorSpace, colorRange,
+        sharedResult
+    ]() mutable {
+        // MFT/COM requires apartment init on this new thread
+        CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+
+        fprintf(stderr, "moonlight_startStream_thread: addr=%s %dx%d@%d bitrate=%d codec=0x%X\n",
+                host.c_str(), width, height, fps, bitrate, supportedVideoFormats);
+
+        int status = moonlightWinStartConnection(
+            host.c_str(),
+            appVersion.c_str(),
+            gfeVersion.empty() ? nullptr : gfeVersion.c_str(),
+            rtspUrl.empty()    ? nullptr : rtspUrl.c_str(),
+            serverCodecMode,
+            width, height, fps, bitrate,
+            1392,     // packetSize
+            2,        // streamingRemotely (AUTO)
+            audioConfiguration,
+            supportedVideoFormats,
+            fps * 100,
+            riAesKey.data(), riAesIvVec.data(),
+            0,         // videoCapabilities
+            colorSpace, colorRange
+        );
+
+        fprintf(stderr, "moonlight_startStream_thread: LiStartConnection returned %d\n", status);
+
+        if (status == 0) {
+            sharedResult->Success(flutter::EncodableValue(true));
+        } else {
+            sharedResult->Error("STREAM_FAILED",
+                std::string("Connection failed code=") + std::to_string(status),
+                flutter::EncodableValue(status));
+        }
+
+        CoUninitialize();
+    }).detach();
 }
+
 
 // -------------------------------------------------------------------
 // stopStream
@@ -284,10 +341,33 @@ void MethodHandler::handleSendControllerArrival(const flutter::EncodableValue *a
 
 void MethodHandler::handleSendTouchEvent(const flutter::EncodableValue *args,
     std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result) {
-    // Touch forwarding on Windows — moonlight-common-c LiSendTouchEvent
-    // Exposed via moonlight_bridge_win.h when the symbol is added.
-    // For now accepted without error so the Dart channel doesn't log failures.
-    (void)args;
+    if (!args) { result->Success(); return; }
+    const auto &m = *std::get_if<flutter::EncodableMap>(args);
+
+    // The Dart side sends raw pixel coordinates relative to the stream widget.
+    // LiSendTouchEvent expects normalised coords in [0, 1].
+    // We use TextureBridge stream dimensions for normalisation.
+    const int tw = video::TextureBridge::instance().width();
+    const int th = video::TextureBridge::instance().height();
+    const float normX = (tw > 0)
+        ? static_cast<float>(getDouble(m, "x")) / static_cast<float>(tw) : 0.5f;
+    const float normY = (th > 0)
+        ? static_cast<float>(getDouble(m, "y")) / static_cast<float>(th) : 0.5f;
+
+    const int rc = moonlightWinSendTouchEvent(
+        static_cast<uint8_t>(getInt(m, "eventType")),
+        static_cast<uint32_t>(getInt(m, "pointerId")),
+        normX, normY,
+        static_cast<float>(getDouble(m, "pressure", 1.0)),
+        static_cast<float>(getDouble(m, "contactMajor")),
+        static_cast<float>(getDouble(m, "contactMinor")),
+        static_cast<uint16_t>(getInt(m, "orientation")));
+
+    // LI_ERR_UNSUPPORTED (-8) means the host (GFE < 7.1.431) doesn't support
+    // touch events — treat as success so the Dart layer doesn't log an error.
+    if (rc != 0 && rc != -8) {
+        fprintf(stderr, "handleSendTouchEvent: LiSendTouchEvent returned %d\n", rc);
+    }
     result->Success();
 }
 
@@ -317,10 +397,34 @@ void MethodHandler::handleGetStats(
         vs.framesDecoded + vs.framesDropped > 0
             ? (int)((vs.framesDropped * 100) / (vs.framesDecoded + vs.framesDropped))
             : 0);
-    stats[flutter::EncodableValue("totalRendered")] = flutter::EncodableValue((int64_t)vs.framesDecoded);
-    stats[flutter::EncodableValue("totalDropped")]  = flutter::EncodableValue((int64_t)vs.framesDropped);
-    stats[flutter::EncodableValue("pendingAudioMs")]= flutter::EncodableValue(
+    stats[flutter::EncodableValue("totalRendered")]      = flutter::EncodableValue((int64_t)vs.framesDecoded);
+    stats[flutter::EncodableValue("totalDropped")]       = flutter::EncodableValue((int64_t)vs.framesDropped);
+    stats[flutter::EncodableValue("codec")]              = flutter::EncodableValue(vs.codec);
+    stats[flutter::EncodableValue("isSoftwareDecoder")]  = flutter::EncodableValue(vs.isSoftwareDecoder);
+    stats[flutter::EncodableValue("packetsSubmitted")]   = flutter::EncodableValue((int64_t)vs.packetsSubmitted);
+    stats[flutter::EncodableValue("bytesSubmitted")]     = flutter::EncodableValue((int64_t)vs.bytesSubmitted);
+    stats[flutter::EncodableValue("inputsAccepted")]     = flutter::EncodableValue((int64_t)vs.inputsAccepted);
+    stats[flutter::EncodableValue("idrFrames")]          = flutter::EncodableValue((int64_t)vs.idrFrames);
+    stats[flutter::EncodableValue("outputSamples")]      = flutter::EncodableValue((int64_t)vs.outputSamples);
+    stats[flutter::EncodableValue("dxgiFrames")]         = flutter::EncodableValue((int64_t)vs.dxgiFrames);
+    stats[flutter::EncodableValue("dxgiMisses")]         = flutter::EncodableValue((int64_t)vs.dxgiMisses);
+    stats[flutter::EncodableValue("processInputFailures")] = flutter::EncodableValue((int64_t)vs.processInputFailures);
+    stats[flutter::EncodableValue("processOutputFailures")] = flutter::EncodableValue((int64_t)vs.processOutputFailures);
+    stats[flutter::EncodableValue("streamChanges")]      = flutter::EncodableValue((int64_t)vs.streamChanges);
+    stats[flutter::EncodableValue("textureBlits")]       = flutter::EncodableValue((int64_t)vs.textureBlits);
+    stats[flutter::EncodableValue("textureBlitFailures")] = flutter::EncodableValue((int64_t)vs.textureBlitFailures);
+    stats[flutter::EncodableValue("textureFrameNotifications")] = flutter::EncodableValue((int64_t)vs.textureFrameNotifications);
+    stats[flutter::EncodableValue("textureDescriptorCallbacks")] = flutter::EncodableValue((int64_t)vs.textureDescriptorCallbacks);
+    stats[flutter::EncodableValue("textureNullDescriptorCallbacks")] = flutter::EncodableValue((int64_t)vs.textureNullDescriptorCallbacks);
+    stats[flutter::EncodableValue("pendingAudioMs")]     = flutter::EncodableValue(
         moonlightWinGetPendingAudioDuration());
+    auto audioStats = ar.stats();
+    stats[flutter::EncodableValue("audioSubmittedSamples")] = flutter::EncodableValue((int64_t)audioStats.submittedSamples);
+    stats[flutter::EncodableValue("audioDroppedSamples")] = flutter::EncodableValue((int64_t)audioStats.droppedSamples);
+    stats[flutter::EncodableValue("audioUnderruns")] = flutter::EncodableValue((int64_t)audioStats.underruns);
+    stats[flutter::EncodableValue("audioReinitCount")] = flutter::EncodableValue((int64_t)audioStats.reinitCount);
+    stats[flutter::EncodableValue("audioChannels")] = flutter::EncodableValue(audioStats.channels);
+    stats[flutter::EncodableValue("audioSampleRate")] = flutter::EncodableValue(audioStats.sampleRate);
     result->Success(flutter::EncodableValue(stats));
 }
 

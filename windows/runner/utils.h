@@ -8,6 +8,11 @@
 // it for both the runner and the Flutter library.
 void CreateAndAttachConsole();
 
+// Redirects native stdout/stderr to a per-session beta log file under
+// %LOCALAPPDATA%\JujoStream\logs. Safe to call even when the directory cannot
+// be created; failures leave streams unchanged.
+void InitializeBetaNativeLogging();
+
 // Takes a null-terminated wchar_t* encoded in UTF-16 and returns a std::string
 // encoded in UTF-8. Returns an empty std::string on failure.
 std::string Utf8FromUtf16(const wchar_t* utf16_string);

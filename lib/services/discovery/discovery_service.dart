@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:logger/logger.dart';
 import 'package:nsd/nsd.dart';
 import '../../models/computer_details.dart';
+import 'mdns_hostname_resolver.dart';
 
 class DiscoveryService {
   static const String _serviceType = '_nvstream._tcp';
@@ -34,21 +35,35 @@ class DiscoveryService {
   }
 
   void _handleServiceFound(Service service) {
-    final address = service.host ?? '';
-    if (address.isEmpty) return;
+    // Prefer pre-resolved IP addresses from nsd (populated with autoResolve: true).
+    // On Windows, service.host is a .local hostname that dart:io resolves via LLMNR
+    // to 127.0.0.1 instead of the real LAN IP. Using the already-resolved IP from
+    // nsd bypasses that OS-level mismatch entirely.
+    final resolvedIps = MdnsHostnameResolver.filterUsableAddresses(
+      service.addresses ?? const [],
+    );
 
-    // Normalize: strip trailing dot from mDNS hostnames (e.g. "mypc.local.")
-    // and lower-case to avoid duplicate hostnames with different cases on macOS.
-    final normalizedAddress = address.endsWith('.')
-        ? address.substring(0, address.length - 1).toLowerCase()
-        : address.toLowerCase();
+    late final String normalizedAddress;
+    if (resolvedIps.isNotEmpty) {
+      normalizedAddress = resolvedIps.first.address;
+      _log.d('Using nsd-resolved IP ${normalizedAddress} for ${service.name}');
+    } else {
+      final raw = service.host ?? '';
+      if (raw.isEmpty) return;
 
-    // Skip IPv6 link-local addresses — they cause duplicate entries on macOS
-    // and are unreliable for HTTP polling.
-    if (normalizedAddress.startsWith('fe80:') ||
-        normalizedAddress.contains('%')) {
-      _log.d('Skipping IPv6 link-local: $normalizedAddress');
-      return;
+      // Normalize: strip trailing dot from mDNS hostnames (e.g. "mypc.local.")
+      // and lower-case to avoid duplicate hostnames with different cases on macOS.
+      final normalized = raw.endsWith('.')
+          ? raw.substring(0, raw.length - 1).toLowerCase()
+          : raw.toLowerCase();
+
+      // Skip IPv6 link-local addresses — they cause duplicate entries on macOS
+      // and are unreliable for HTTP polling.
+      if (normalized.startsWith('fe80:') || normalized.contains('%')) {
+        _log.d('Skipping IPv6 link-local: $normalized');
+        return;
+      }
+      normalizedAddress = normalized;
     }
 
     _log.i(
@@ -109,8 +124,10 @@ class DiscoveryService {
   }
 }
 
-Future<Discovery> startNsdDiscovery(String serviceType,
-    {bool autoResolve = true}) {
+Future<Discovery> startNsdDiscovery(
+  String serviceType, {
+  bool autoResolve = true,
+}) {
   return startDiscovery(serviceType, autoResolve: autoResolve);
 }
 

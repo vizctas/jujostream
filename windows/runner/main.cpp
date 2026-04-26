@@ -12,6 +12,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   if (!::AttachConsole(ATTACH_PARENT_PROCESS) && ::IsDebuggerPresent()) {
     CreateAndAttachConsole();
   }
+  InitializeBetaNativeLogging();
 
   // Initialize COM, so that it is available for use in the library and/or
   // plugins.

@@ -76,6 +76,22 @@ public:
     double   avgDecodeMsEma() const { return decode_ema_ms_; }  // read on stats thread; approximate
     uint64_t framesDecoded() const { return frames_decoded_.load(); }
     uint64_t framesDropped() const { return frames_dropped_.load(); }
+    bool     isSoftware()    const { return is_software_; }
+    const char *codecName() const;
+
+    struct Telemetry {
+        uint64_t packetsSubmitted;
+        uint64_t bytesSubmitted;
+        uint64_t inputsAccepted;
+        uint64_t idrFrames;
+        uint64_t outputSamples;
+        uint64_t dxgiFrames;
+        uint64_t dxgiMisses;
+        uint64_t processInputFailures;
+        uint64_t processOutputFailures;
+        uint64_t streamChanges;
+    };
+    Telemetry telemetry() const;
 
 private:
     MftDecoder() = default;
@@ -94,11 +110,12 @@ private:
     std::thread    drain_thread_;
     std::atomic<bool> drain_running_{false};
 
-    int   width_      = 0;
-    int   height_     = 0;
-    int   fps_        = 60;
-    bool  isHevc_     = false;
-    bool  isAV1_      = false;
+    int   width_       = 0;
+    int   height_      = 0;
+    int   fps_         = 60;
+    bool  isHevc_      = false;
+    bool  isAV1_       = false;
+    bool  is_software_ = false;  // true when software MFT fallback is active
     bool  initialized_ = false;
 
     // Codec config (SPS/PPS/VPS bytes, stored for IDR re-injection)
@@ -111,6 +128,16 @@ private:
     std::atomic<int>      fps_reported_{0};
     std::atomic<uint64_t> frames_decoded_{0};
     std::atomic<uint64_t> frames_dropped_{0};
+    std::atomic<uint64_t> packets_submitted_{0};
+    std::atomic<uint64_t> bytes_submitted_{0};
+    std::atomic<uint64_t> inputs_accepted_{0};
+    std::atomic<uint64_t> idr_frames_{0};
+    std::atomic<uint64_t> output_samples_{0};
+    std::atomic<uint64_t> dxgi_frames_{0};
+    std::atomic<uint64_t> dxgi_misses_{0};
+    std::atomic<uint64_t> process_input_failures_{0};
+    std::atomic<uint64_t> process_output_failures_{0};
+    std::atomic<uint64_t> stream_changes_{0};
     double                decode_ema_ms_ = 0.0;
     LARGE_INTEGER         perf_freq_{};
 };

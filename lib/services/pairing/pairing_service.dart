@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io' show Platform;
+import 'dart:io' show InternetAddress, Platform;
 import 'dart:math';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show kIsWeb, visibleForTesting;
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
@@ -10,18 +10,24 @@ import 'package:pointycastle/export.dart';
 import 'package:logger/logger.dart';
 import '../../models/computer_details.dart';
 import '../crypto/client_identity.dart';
+import '../discovery/mdns_hostname_resolver.dart';
 import '../errors/error_codes.dart';
 
 class PairingService {
+  PairingService({MdnsHostnameResolver? mdnsResolver})
+    : _mdnsResolver = mdnsResolver ?? MdnsHostnameResolver();
+
   final Logger _log = Logger();
+  final MdnsHostnameResolver _mdnsResolver;
   static const Duration _pairPhaseTimeout = Duration(seconds: 60);
 
   static const Duration _phase5Timeout = Duration(seconds: 5);
 
   /// MethodChannel for the native Android Foreground Service that runs
   /// the ENTIRE pairing handshake natively (survives Dart VM pause).
-  static const MethodChannel _pairingLocksChannel =
-      MethodChannel('com.jujostream/pairing_locks');
+  static const MethodChannel _pairingLocksChannel = MethodChannel(
+    'com.jujostream/pairing_locks',
+  );
 
   static String get _uniqueId => ClientIdentity.uniqueId;
 
@@ -55,17 +61,6 @@ class PairingService {
     // Reset cancellation flag for this fresh pairing attempt.
     _cancelRequested = false;
 
-    final address = computer.activeAddress.isNotEmpty
-        ? computer.activeAddress
-        : computer.localAddress;
-
-    final pairingPort = computer.externalPort > 0
-        ? computer.externalPort
-        : 47989;
-
-    _log.i('Starting pairing with $address:$pairingPort, PIN: $pin');
-
-    final baseUrl = 'http://$address:$pairingPort';
     final uniqueId = _uniqueId;
 
     // ── ANDROID: Run ENTIRE handshake natively in Foreground Service ──────
@@ -79,13 +74,292 @@ class PairingService {
     // Phase 1 blocks until the user enters the PIN. Phases 2-5 execute
     // immediately after in the same thread. Dart only polls for the result.
     final bool useNativeFullPairing = !kIsWeb && Platform.isAndroid;
+    final endpoint = useNativeFullPairing
+        ? _primaryPairingEndpoint(computer)
+        : await _resolvePairingEndpoint(computer, uniqueId);
+
+    if (endpoint == null) {
+      return PairingResult.failed(
+        'No pairing HTTP endpoint is reachable. Verify the server is running and port 47989 is allowed through the firewall.',
+      );
+    }
+
+    _log.i('Starting pairing with ${endpoint.address}:${endpoint.port}');
 
     if (useNativeFullPairing) {
-      return _pairViaNativeService(computer, pin, baseUrl, uniqueId);
+      return _pairViaNativeService(computer, pin, endpoint.baseUrl, uniqueId);
     }
 
     // ── OTHER PLATFORMS: Dart-based pairing (process doesn't pause) ──────
-    return _pairViaDart(computer, pin, baseUrl, uniqueId);
+    return _pairViaDart(computer, pin, endpoint.baseUrl, uniqueId);
+  }
+
+  Future<_PairingEndpoint?> _resolvePairingEndpoint(
+    ComputerDetails computer,
+    String uniqueId,
+  ) async {
+    final candidates = _buildPairingEndpointCandidates(computer);
+    if (candidates.isEmpty) return null;
+
+    for (final endpoint in candidates) {
+      for (final probeEndpoint in await _expandPairingEndpoint(endpoint)) {
+        try {
+          final response = await _freshGet(
+            '${probeEndpoint.baseUrl}/serverinfo?uniqueid=$uniqueId',
+            timeout: const Duration(seconds: 2),
+          );
+          if (response.statusCode == 200) {
+            _log.i('Pairing endpoint selected: ${probeEndpoint.safeBaseUrl}');
+            return probeEndpoint;
+          }
+          _log.w(
+            'Pairing endpoint ${probeEndpoint.safeBaseUrl} returned HTTP ${response.statusCode}',
+          );
+        } catch (e) {
+          _log.w(
+            'Pairing endpoint ${probeEndpoint.safeBaseUrl} unavailable: '
+            '${sanitizePairingLogMessage(e)}',
+          );
+        }
+      }
+    }
+
+    _log.w('No pairing endpoint probe succeeded.');
+    return null;
+  }
+
+  Future<List<_PairingEndpoint>> _expandPairingEndpoint(
+    _PairingEndpoint endpoint,
+  ) async {
+    List<InternetAddress> resolved = const [];
+    Object? lookupError;
+
+    try {
+      resolved = await InternetAddress.lookup(
+        endpoint.address,
+      ).timeout(const Duration(seconds: 2));
+    } catch (e) {
+      lookupError = e;
+      _log.w(
+        'System DNS lookup failed for ${endpoint.address}: '
+        '${sanitizePairingLogMessage(e)}',
+      );
+    }
+
+    final unsafeLoopback =
+        lookupError == null &&
+        _isUnsafeLoopbackPairingResolution(endpoint.address, resolved);
+
+    if (unsafeLoopback || lookupError != null) {
+      final mdnsAddresses = await _mdnsResolver.resolve(endpoint.address);
+      final mdnsEndpoints = _expandEndpointWithResolvedAddresses(
+        endpoint,
+        mdnsAddresses,
+      );
+      if (mdnsEndpoints.isNotEmpty) {
+        _log.i(
+          'mDNS resolved ${endpoint.address} to '
+          '${mdnsEndpoints.map((e) => e.address).join(', ')}',
+        );
+        return mdnsEndpoints;
+      }
+    }
+
+    if (unsafeLoopback) {
+      // mDNS resolution above returned no usable addresses.
+      // On Windows, LLMNR may map .local names to 127.0.0.1 and our mDNS
+      // query may also have failed.  Rather than silently blocking the
+      // endpoint, try it directly as a last resort — the HTTP probe will
+      // fail with a real network error if the address is genuinely wrong,
+      // which at least surfaces a useful diagnostic.
+      if (endpoint.address.toLowerCase().endsWith('.local')) {
+        _log.w(
+          'mDNS resolution failed for ${endpoint.address} (OS returned loopback). '
+          'Retrying with raw hostname as last resort.',
+        );
+        return [endpoint];
+      }
+      _log.w(
+        'Skipping pairing endpoint ${endpoint.safeBaseUrl}: non-.local hostname '
+        'resolved to loopback (${resolved.map((a) => a.address).join(', ')}).',
+      );
+      return const [];
+    }
+
+    return [endpoint];
+  }
+
+  static _PairingEndpoint? _primaryPairingEndpoint(ComputerDetails computer) {
+    final candidates = _buildPairingEndpointCandidates(computer);
+    return candidates.isEmpty ? null : candidates.first;
+  }
+
+  @visibleForTesting
+  static List<String> pairingBaseUrlCandidatesForTest(
+    ComputerDetails computer,
+  ) {
+    return _buildPairingEndpointCandidates(
+      computer,
+    ).map((endpoint) => endpoint.baseUrl).toList(growable: false);
+  }
+
+  static List<_PairingEndpoint> _buildPairingEndpointCandidates(
+    ComputerDetails computer,
+  ) {
+    final seenAddresses = <String>{};
+    final addresses =
+        <String>[
+              computer.activeAddress,
+              computer.manualAddress,
+              computer.localAddress,
+              computer.remoteAddress,
+            ]
+            .map((address) => address.trim())
+            .where((address) => address.isNotEmpty)
+            .where(seenAddresses.add)
+            .toList(growable: false);
+
+    final primaryPort = computer.externalPort > 0
+        ? computer.externalPort
+        : 47989;
+    final ports = <int>[primaryPort, if (primaryPort != 47989) 47989];
+
+    final seenEndpoints = <String>{};
+    final endpoints = <_PairingEndpoint>[];
+    for (final address in addresses) {
+      for (final port in ports) {
+        final key = '$address:$port';
+        if (seenEndpoints.add(key)) {
+          endpoints.add(_PairingEndpoint(address: address, port: port));
+        }
+      }
+    }
+    return endpoints;
+  }
+
+  @visibleForTesting
+  static List<String> pairingBaseUrlCandidatesWithResolvedAddressesForTest(
+    ComputerDetails computer,
+    Map<String, List<InternetAddress>> resolvedByHost,
+  ) {
+    final expanded = <_PairingEndpoint>[];
+    for (final endpoint in _buildPairingEndpointCandidates(computer)) {
+      expanded.addAll(
+        _expandEndpointWithResolvedAddresses(
+          endpoint,
+          resolvedByHost[endpoint.address] ?? const [],
+        ),
+      );
+    }
+    return expanded.map((endpoint) => endpoint.baseUrl).toList(growable: false);
+  }
+
+  static List<_PairingEndpoint> _expandEndpointWithResolvedAddresses(
+    _PairingEndpoint endpoint,
+    List<InternetAddress> addresses,
+  ) {
+    final usableAddresses = MdnsHostnameResolver.filterUsableAddresses(
+      addresses,
+    );
+    return usableAddresses
+        .map(
+          (address) =>
+              _PairingEndpoint(address: address.address, port: endpoint.port),
+        )
+        .toList(growable: false);
+  }
+
+  @visibleForTesting
+  static String sanitizePairingLogMessage(Object value) {
+    var message = value.toString();
+    message = message.replaceAllMapped(
+      RegExp(r'https?:\/\/[^\s]+', caseSensitive: false),
+      (match) => _sanitizePairingUrl(match.group(0)!),
+    );
+    message = message.replaceAllMapped(
+      RegExp(
+        r'(clientcert|servercert|uniqueid|salt|clientchallenge|serverchallengeresp|clientpairingsecret|pairingsecret|rikey)=([^&\s,}]+)',
+        caseSensitive: false,
+      ),
+      (match) => '${match.group(1)}=redacted',
+    );
+    return message;
+  }
+
+  static String _sanitizePairingUrl(String rawUrl) {
+    try {
+      final uri = Uri.parse(rawUrl);
+      if (!uri.hasScheme || uri.queryParameters.isEmpty) return rawUrl;
+
+      final safeQuery = <String, String>{};
+      uri.queryParameters.forEach((key, value) {
+        safeQuery[key] = _isSensitivePairingQueryKey(key) ? 'redacted' : value;
+      });
+      return uri.replace(queryParameters: safeQuery).toString();
+    } catch (_) {
+      return rawUrl;
+    }
+  }
+
+  static bool _isSensitivePairingQueryKey(String key) {
+    final lower = key.toLowerCase();
+    return lower == 'uniqueid' ||
+        lower.contains('cert') ||
+        lower.contains('salt') ||
+        lower.contains('challenge') ||
+        lower.contains('secret') ||
+        lower.contains('key');
+  }
+
+  @visibleForTesting
+  static bool isUnsafeLoopbackPairingResolutionForTest(
+    String host,
+    List<InternetAddress> resolved,
+  ) {
+    return _isUnsafeLoopbackPairingResolution(host, resolved);
+  }
+
+  static bool _isUnsafeLoopbackPairingResolution(
+    String host,
+    List<InternetAddress> resolved,
+  ) {
+    if (_isExplicitLocalHost(host)) return false;
+    if (_isIpLiteral(host)) return false;
+    return resolved.isNotEmpty &&
+        resolved.every((address) => address.isLoopback);
+  }
+
+  static bool _isExplicitLocalHost(String host) {
+    final normalized = host.trim().toLowerCase();
+    return normalized == 'localhost' ||
+        normalized == '127.0.0.1' ||
+        normalized == '::1';
+  }
+
+  static bool _isIpLiteral(String host) {
+    return InternetAddress.tryParse(host.trim()) != null;
+  }
+
+  @visibleForTesting
+  static String pairingHttpsBaseUrlForTest(
+    ComputerDetails computer,
+    String selectedHttpBaseUrl,
+  ) {
+    return _buildPairingHttpsBaseUrl(computer, selectedHttpBaseUrl);
+  }
+
+  static String _buildPairingHttpsBaseUrl(
+    ComputerDetails computer,
+    String selectedHttpBaseUrl,
+  ) {
+    final httpsPort = computer.httpsPort > 0 ? computer.httpsPort : 47984;
+    final selectedHost = Uri.parse(selectedHttpBaseUrl).host;
+    final address = selectedHost.isNotEmpty
+        ? selectedHost
+        : (computer.activeAddress.isNotEmpty
+              ? computer.activeAddress
+              : computer.localAddress);
+    return 'https://$address:$httpsPort';
   }
 
   /// Runs the entire pairing handshake via the native Android Foreground Service.
@@ -126,8 +400,9 @@ class PairingService {
           return PairingResult.cancelled();
         }
 
-        final result =
-            await _pairingLocksChannel.invokeMethod<Map>('pollResult');
+        final result = await _pairingLocksChannel.invokeMethod<Map>(
+          'pollResult',
+        );
 
         if (result != null) {
           final paired = result['paired'] as bool? ?? false;
@@ -153,7 +428,7 @@ class PairingService {
 
       return PairingResult.failed('Pairing timed out');
     } catch (e) {
-      _log.e('Native pairing error: $e');
+      _log.e('Native pairing error: ${sanitizePairingLogMessage(e)}');
       final classified = classifyError('PAIR', e);
       return PairingResult.failed(classified.userMessage);
     } finally {
@@ -193,7 +468,7 @@ class PairingService {
           '&salt=${_bytesToHex(salt)}'
           '&clientcert=${_bytesToHex(_clientCertPemBytes)}';
 
-      _log.d('Phase 1: $phase1Url');
+      _log.d('Phase 1: ${sanitizePairingLogMessage(phase1Url)}');
 
       // ── Phase 1: getservercert — the BLOCKING long-poll phase ─────────────
       late String phase1Xml;
@@ -230,11 +505,16 @@ class PairingService {
               break selfHealLoop;
             }
 
-            _log.w('Phase 1 returned paired=0 on attempt ${attempt + 1}'
-                ' (selfHeal=$selfHeal). Will self-heal if available.');
+            _log.w(
+              'Phase 1 returned paired=0 on attempt ${attempt + 1}'
+              ' (selfHeal=$selfHeal). Will self-heal if available.',
+            );
             break;
           } on TimeoutException catch (e) {
-            _log.w('Phase 1 attempt ${attempt + 1}/4 timed out: $e. Retrying…');
+            _log.w(
+              'Phase 1 attempt ${attempt + 1}/4 timed out: '
+              '${sanitizePairingLogMessage(e)}. Retrying…',
+            );
           } catch (e) {
             final lo = e.toString().toLowerCase();
             final isSocketErr =
@@ -246,8 +526,11 @@ class PairingService {
                 lo.contains('socketexception') ||
                 lo.contains('broken pipe');
             if (isSocketErr) {
-              _log.w('Phase 1 socket error attempt ${attempt + 1}/4: $e.'
-                  '${attempt < 3 ? ' Retrying in 2s…' : ' All attempts exhausted.'}');
+              _log.w(
+                'Phase 1 socket error attempt ${attempt + 1}/4: '
+                '${sanitizePairingLogMessage(e)}.'
+                '${attempt < 3 ? ' Retrying in 2s…' : ' All attempts exhausted.'}',
+              );
               if (attempt < 3) {
                 await Future.delayed(const Duration(seconds: 2));
                 continue;
@@ -265,7 +548,9 @@ class PairingService {
 
       serverCertHex = _extractXmlValue(phase1Xml, 'plaincert') ?? '';
       if (serverCertHex.isEmpty) {
-        _log.w('Phase 1: empty plaincert — another pairing session is active. Unpairing…');
+        _log.w(
+          'Phase 1: empty plaincert — another pairing session is active. Unpairing…',
+        );
         try {
           await _freshGet(
             '$baseUrl/unpair?uniqueid=$uniqueId',
@@ -417,10 +702,7 @@ class PairingService {
         return PairingResult.failed('Server rejected client pairing secret');
       }
 
-      final httpsPort = computer.httpsPort > 0
-          ? computer.httpsPort
-          : 47984;
-      final httpsBaseUrl = 'https://${computer.activeAddress.isNotEmpty ? computer.activeAddress : computer.localAddress}:$httpsPort';
+      final httpsBaseUrl = _buildPairingHttpsBaseUrl(computer, baseUrl);
 
       final httpsClient = IOClient(ClientIdentity.createHttpClient());
 
@@ -456,7 +738,10 @@ class PairingService {
             );
           }
         } catch (e) {
-          _log.w('Phase 5 HTTPS pairchallenge failed: $e');
+          _log.w(
+            'Phase 5 HTTPS pairchallenge failed: '
+            '${sanitizePairingLogMessage(e)}',
+          );
         }
 
         if (!phase5Completed) {
@@ -477,28 +762,42 @@ class PairingService {
               );
             }
           } catch (e) {
-            _log.w('Phase 5 HTTP pairchallenge failed: $e');
+            _log.w(
+              'Phase 5 HTTP pairchallenge failed: '
+              '${sanitizePairingLogMessage(e)}',
+            );
           }
         }
 
         if (!phase5Completed) {
-          _log.w('Phase 5 challenge failed, verifying pair state via HTTPS serverinfo');
+          _log.w(
+            'Phase 5 challenge failed, verifying pair state via HTTPS serverinfo',
+          );
           bool serverExplicitlyRejected = false;
           try {
             final serverInfoUrl = '$httpsBaseUrl/serverinfo?uniqueid=$uniqueId';
             final serverInfoResponse = await httpsClient
                 .get(Uri.parse(serverInfoUrl))
                 .timeout(const Duration(seconds: 5));
-            final pairStatus = _extractXmlValue(serverInfoResponse.body, 'PairStatus');
+            final pairStatus = _extractXmlValue(
+              serverInfoResponse.body,
+              'PairStatus',
+            );
 
             if (serverInfoResponse.statusCode == 200 && pairStatus == '1') {
               phase5Completed = true;
-            } else if (serverInfoResponse.statusCode == 200 && pairStatus == '0') {
+            } else if (serverInfoResponse.statusCode == 200 &&
+                pairStatus == '0') {
               serverExplicitlyRejected = true;
-              _log.e('Phase 5: server returned PairStatus=0 — pairing explicitly rejected');
+              _log.e(
+                'Phase 5: server returned PairStatus=0 — pairing explicitly rejected',
+              );
             }
           } catch (e) {
-            _log.w('Phase 5 serverinfo verification failed (network): $e');
+            _log.w(
+              'Phase 5 serverinfo verification failed (network): '
+              '${sanitizePairingLogMessage(e)}',
+            );
           }
 
           if (serverExplicitlyRejected) {
@@ -525,7 +824,7 @@ class PairingService {
       _log.i('Pairing cancelled by user.');
       return PairingResult.cancelled();
     } catch (e) {
-      _log.e('Pairing error (raw): $e');
+      _log.e('Pairing error (raw): ${sanitizePairingLogMessage(e)}');
       final classified = classifyError('PAIR', e);
       _log.e('Pairing error (code): ${classified.code}');
       return PairingResult.failed(classified.userMessage);
@@ -541,10 +840,13 @@ class PairingService {
         '?uniqueid=$_uniqueId';
 
     try {
-      final response = await _freshGet(url, timeout: const Duration(seconds: 5));
+      final response = await _freshGet(
+        url,
+        timeout: const Duration(seconds: 5),
+      );
       return response.statusCode == 200;
     } catch (e) {
-      _log.e('Unpair failed: $e');
+      _log.e('Unpair failed: ${sanitizePairingLogMessage(e)}');
       return false;
     }
   }
@@ -678,7 +980,6 @@ class PairingService {
   }
 
   Uint8List _pemToDer(String pem) {
-
     final base64Body = pem
         .replaceAll('\r', '')
         .split('\n')
@@ -795,13 +1096,19 @@ class PairingService {
       final elapsed = DateTime.now().difference(startTime);
       final remaining = maxWait - elapsed;
       if (remaining.isNegative) {
-        throw TimeoutException('$phaseName timed out after ${maxWait.inSeconds}s', maxWait);
+        throw TimeoutException(
+          '$phaseName timed out after ${maxWait.inSeconds}s',
+          maxWait,
+        );
       }
 
       try {
         return await _freshGet(url, timeout: remaining);
       } on TimeoutException {
-        throw TimeoutException('$phaseName timed out after ${maxWait.inSeconds}s', maxWait);
+        throw TimeoutException(
+          '$phaseName timed out after ${maxWait.inSeconds}s',
+          maxWait,
+        );
       } catch (e) {
         if (e is _PairingCancelledException) rethrow;
         final lower = e.toString().toLowerCase();
@@ -812,7 +1119,10 @@ class PairingService {
             lower.contains('connection reset') ||
             lower.contains('broken pipe') ||
             lower.contains('socketexception')) {
-          _log.w('$phaseName socket dropped: $e. Retrying in 1s...');
+          _log.w(
+            '$phaseName socket dropped: ${sanitizePairingLogMessage(e)}. '
+            'Retrying in 1s...',
+          );
           await Future.delayed(const Duration(seconds: 1));
           continue;
         }
@@ -822,6 +1132,17 @@ class PairingService {
   }
 
   void dispose() {}
+}
+
+class _PairingEndpoint {
+  final String address;
+  final int port;
+
+  const _PairingEndpoint({required this.address, required this.port});
+
+  String get baseUrl => 'http://$address:$port';
+
+  String get safeBaseUrl => baseUrl;
 }
 
 class _DerElement {
@@ -862,10 +1183,10 @@ class PairingResult {
       PairingResult._(paired: false, error: error);
 
   factory PairingResult.cancelled() => PairingResult._(
-        paired: false,
-        error: 'Pairing interrupted',
-        wasCancelled: true,
-      );
+    paired: false,
+    error: 'Pairing interrupted',
+    wasCancelled: true,
+  );
 }
 
 /// Thrown internally by [PairingService._runPairingPhase] when

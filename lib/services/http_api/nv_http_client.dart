@@ -6,10 +6,12 @@ import 'package:logger/logger.dart';
 import '../../models/computer_details.dart';
 import '../../models/nv_app.dart';
 import '../crypto/client_identity.dart';
+import '../discovery/mdns_hostname_resolver.dart';
 
 class NvHttpClient {
   final Logger _log = Logger();
   final http.Client _httpClient = http.Client();
+  final MdnsHostnameResolver _mdnsResolver = MdnsHostnameResolver();
 
   static const int defaultHttpsPort = 47984;
   static const int defaultHttpPort = 47989;
@@ -25,27 +27,49 @@ class NvHttpClient {
     return '$scheme://$address:$port';
   }
 
+  /// Resolves a `.local` hostname to a real IP via mDNS before HTTP calls.
+  /// On Windows, [InternetAddress.lookup] maps `.local` to 127.0.0.1 via LLMNR.
+  /// Returns the resolved IP string, or the original [address] if not `.local`
+  /// or if resolution fails (let the call fail naturally with a real error).
+  Future<String> _resolveAddress(String address) async {
+    if (!address.toLowerCase().endsWith('.local')) return address;
+    try {
+      final resolved = await _mdnsResolver.resolve(
+        address,
+        timeout: const Duration(seconds: 2),
+      );
+      if (resolved.isNotEmpty) {
+        _log.d('mDNS pre-resolved $address → ${resolved.first.address}');
+        return resolved.first.address;
+      }
+    } catch (e) {
+      _log.w('mDNS pre-resolution failed for $address: $e');
+    }
+    return address;
+  }
+
   Future<ComputerDetails?> getServerInfo(
     String address, {
     int port = defaultHttpPort,
     Duration timeout = const Duration(seconds: 5),
   }) async {
+    final resolvedAddress = await _resolveAddress(address);
     try {
       final url =
-          '${_baseUrl(address, port, https: false)}/serverinfo'
+          '${_baseUrl(resolvedAddress, port, https: false)}/serverinfo'
           '?uniqueid=$uniqueId';
       _log.d('Fetching server info (HTTP) from: $url');
 
-      final response = await _httpClient
-          .get(Uri.parse(url))
-          .timeout(timeout);
+      final response = await _httpClient.get(Uri.parse(url)).timeout(timeout);
 
       if (response.statusCode == 200) {
         return parseServerInfo(response.body, address, port);
       }
-      _log.w('serverinfo HTTP ${response.statusCode} from $address:$port');
+      _log.w(
+        'serverinfo HTTP ${response.statusCode} from $resolvedAddress:$port',
+      );
     } catch (e) {
-      _log.e('Failed to get server info (HTTP) from $address: $e');
+      _log.e('Failed to get server info (HTTP) from $resolvedAddress: $e');
     }
     return null;
   }
@@ -56,20 +80,23 @@ class NvHttpClient {
     int httpPort = defaultHttpPort,
     Duration timeout = const Duration(seconds: 5),
   }) async {
+    final resolvedAddress = await _resolveAddress(address);
     try {
       final url =
-          '${_baseUrl(address, httpsPort)}/serverinfo'
+          '${_baseUrl(resolvedAddress, httpsPort)}/serverinfo'
           '?uniqueid=$uniqueId';
       _log.d('Fetching server info (HTTPS) from: $url');
 
       final client = _newHttpsClient();
       try {
-        final response = await client
-            .get(Uri.parse(url))
-            .timeout(timeout);
+        final response = await client.get(Uri.parse(url)).timeout(timeout);
 
         if (response.statusCode == 200) {
-          final info = parseServerInfo(response.body, address, httpPort);
+          final info = parseServerInfo(
+            response.body,
+            resolvedAddress,
+            httpPort,
+          );
           info.pairStatusFromHttps = true;
           return info;
         }
@@ -81,7 +108,7 @@ class NvHttpClient {
       _log.w('HTTPS serverinfo failed ($e), falling back to HTTP');
     }
 
-    return getServerInfo(address, port: httpPort, timeout: timeout);
+    return getServerInfo(resolvedAddress, port: httpPort, timeout: timeout);
   }
 
   @visibleForTesting
@@ -147,9 +174,10 @@ class NvHttpClient {
     String address, {
     int httpsPort = defaultHttpsPort,
   }) async {
+    final resolvedAddress = await _resolveAddress(address);
     try {
       final url =
-          '${_baseUrl(address, httpsPort)}/applist'
+          '${_baseUrl(resolvedAddress, httpsPort)}/applist'
           '?uniqueid=$uniqueId';
       _log.d('Fetching app list (HTTPS) from: $url');
 
@@ -173,11 +201,13 @@ class NvHttpClient {
           _log.w('applist XML status_code=$xmlStatus (not paired or error)');
           return [];
         }
-        return parseAppList(response.body, address, httpsPort);
+        return parseAppList(response.body, resolvedAddress, httpsPort);
       }
-      _log.w('applist HTTPS ${response.statusCode} from $address:$httpsPort');
+      _log.w(
+        'applist HTTPS ${response.statusCode} from $resolvedAddress:$httpsPort',
+      );
     } catch (e) {
-      _log.e('Failed to get app list from $address: $e');
+      _log.e('Failed to get app list from $resolvedAddress: $e');
     }
     return [];
   }
@@ -284,15 +314,18 @@ class NvHttpClient {
     for (var attempt = 0; attempt <= _maxLaunchRetries; attempt++) {
       try {
         if (attempt > 0) {
-          final delayMs = _launchRetryDelaysMs[
-              (attempt - 1).clamp(0, _launchRetryDelaysMs.length - 1)];
-          _log.i(
-            'Launch retry $attempt/$_maxLaunchRetries after ${delayMs}ms',
-          );
+          final delayMs =
+              _launchRetryDelaysMs[(attempt - 1).clamp(
+                0,
+                _launchRetryDelaysMs.length - 1,
+              )];
+          _log.i('Launch retry $attempt/$_maxLaunchRetries after ${delayMs}ms');
           await Future.delayed(Duration(milliseconds: delayMs));
         }
 
-        _log.i('Launching app $appId on $address:$port (attempt ${attempt + 1})');
+        _log.i(
+          'Launching app $appId on $address:$port (attempt ${attempt + 1})',
+        );
         final client = _newHttpsClient();
         try {
           final response = await client
@@ -307,8 +340,7 @@ class NvHttpClient {
               extractXmlValue(response.body, 'rikey') ?? riKeyHex;
           final serverRiKeyId =
               int.tryParse(
-                extractXmlValue(response.body, 'rikeyid') ??
-                    riKeyId.toString(),
+                extractXmlValue(response.body, 'rikeyid') ?? riKeyId.toString(),
               ) ??
               riKeyId;
           final sessionUrl = extractXmlValue(response.body, 'sessionUrl0');
@@ -385,15 +417,18 @@ class NvHttpClient {
     for (var attempt = 0; attempt <= _maxLaunchRetries; attempt++) {
       try {
         if (attempt > 0) {
-          final delayMs = _launchRetryDelaysMs[
-              (attempt - 1).clamp(0, _launchRetryDelaysMs.length - 1)];
-          _log.i(
-            'Resume retry $attempt/$_maxLaunchRetries after ${delayMs}ms',
-          );
+          final delayMs =
+              _launchRetryDelaysMs[(attempt - 1).clamp(
+                0,
+                _launchRetryDelaysMs.length - 1,
+              )];
+          _log.i('Resume retry $attempt/$_maxLaunchRetries after ${delayMs}ms');
           await Future.delayed(Duration(milliseconds: delayMs));
         }
 
-        _log.i('Resuming app $appId on $address:$port (attempt ${attempt + 1})');
+        _log.i(
+          'Resuming app $appId on $address:$port (attempt ${attempt + 1})',
+        );
         final client = _newHttpsClient();
         try {
           final response = await client
@@ -404,8 +439,7 @@ class NvHttpClient {
             return LaunchResult.fail('HTTP ${response.statusCode}');
           }
 
-          final resumeStatus =
-              extractXmlValue(response.body, 'resume') ?? '0';
+          final resumeStatus = extractXmlValue(response.body, 'resume') ?? '0';
           if (resumeStatus == '0') {
             return LaunchResult.fail('Resume rejected (resume=0)');
           }
@@ -414,8 +448,7 @@ class NvHttpClient {
               extractXmlValue(response.body, 'rikey') ?? riKeyHex;
           final serverRiKeyId =
               int.tryParse(
-                extractXmlValue(response.body, 'rikeyid') ??
-                    riKeyId.toString(),
+                extractXmlValue(response.body, 'rikeyid') ?? riKeyId.toString(),
               ) ??
               riKeyId;
           final sessionUrl = extractXmlValue(response.body, 'sessionUrl0');

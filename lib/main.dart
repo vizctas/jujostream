@@ -29,11 +29,14 @@ import 'widgets/tour_overlay.dart';
 import 'services/notifications/notification_service.dart';
 import 'services/pro/pro_service.dart';
 import 'services/crash/crash_service.dart';
+import 'services/telemetry/beta_telemetry_service.dart';
 
 class _AppHttpOverrides extends io.HttpOverrides {
   @override
   io.HttpClient createHttpClient(io.SecurityContext? context) {
-    final client = super.createHttpClient(ClientIdentity.buildSecurityContext());
+    final client = super.createHttpClient(
+      ClientIdentity.buildSecurityContext(),
+    );
     client.badCertificateCallback = (cert, host, port) => true;
     client.maxConnectionsPerHost = 4;
     return client;
@@ -53,6 +56,12 @@ void main() async {
     debugPaintPointersEnabled = false;
   }
   io.HttpOverrides.global = _AppHttpOverrides();
+  await BetaTelemetryService.initialize();
+  BetaTelemetryService.installDebugPrintCapture();
+  BetaTelemetryService.event('app_boot', {
+    'platform': io.Platform.operatingSystem,
+    'debug': kDebugMode,
+  });
 
   // Generate per-device identity (cert + key + uniqueId) on first launch.
   // Must complete before any HTTPS networking starts.
@@ -61,7 +70,8 @@ void main() async {
   unawaited(NotificationService.init());
   unawaited(UiSoundService.ensureInitialized());
   unawaited(ProService().initialize());
-  unawaited(CrashService.initialize());
+  await CrashService.initialize();
+  BetaTelemetryService.installGlobalHandlers();
 
   await TvDetector.instance.init();
   GamepadButtonHelper.instance.init();
@@ -108,6 +118,7 @@ void main() async {
       child: const JujostreamApp(),
     ),
   );
+  BetaTelemetryService.event('run_app');
 }
 
 class JujostreamApp extends StatelessWidget {

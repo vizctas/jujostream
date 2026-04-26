@@ -1,3 +1,5 @@
+import 'dart:io' show Platform;
+
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 class NotificationService {
@@ -18,11 +20,17 @@ class NotificationService {
       requestBadgePermission: false,
       requestSoundPermission: false,
     );
+    const windows = WindowsInitializationSettings(
+      appName: 'JUJO Stream',
+      appUserModelId: 'JujoStream.Client.Beta',
+      guid: '7e6e7f3c-3d9f-4ed4-8c10-3bc72b7cb8c5',
+    );
     await _plugin.initialize(
       settings: const InitializationSettings(
         android: android,
         iOS: darwin,
         macOS: darwin,
+        windows: windows,
       ),
     );
     _initialized = true;
@@ -42,11 +50,17 @@ class NotificationService {
       onlyAlertOnce: true,
       icon: '@mipmap/ic_launcher',
     );
+    const windowsDetails = WindowsNotificationDetails(
+      duration: WindowsNotificationDuration.short,
+    );
     await _plugin.show(
       id: _kEnrichId,
       title: 'JUJO Stream',
       body: message,
-      notificationDetails: const NotificationDetails(android: androidDetails),
+      notificationDetails: NotificationDetails(
+        android: androidDetails,
+        windows: Platform.isWindows ? windowsDetails : null,
+      ),
     );
   }
 

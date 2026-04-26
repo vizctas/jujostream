@@ -68,7 +68,8 @@ class ComputerDetails {
       httpsPort: json['httpsPort'] ?? 47984,
       externalPort: json['externalPort'] ?? 47989,
       serverCert: json['serverCert'] ?? '',
-      state: ComputerState.values[json['state'] ?? 0],
+      state:
+          ComputerState.values[json['state'] ?? ComputerState.unknown.index],
       pairState: PairState.values[json['pairState'] ?? 0],
       runningGameId: json['runningGameId'] ?? 0,
       activeAddress: json['activeAddress'] ?? '',
