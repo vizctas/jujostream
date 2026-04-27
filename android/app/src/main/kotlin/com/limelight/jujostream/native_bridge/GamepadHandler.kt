@@ -1797,6 +1797,12 @@ class GamepadHandler(
     }
 
     private fun handlePhysicalKeyboardEvent(event: KeyEvent): Boolean {
+        // Guard: don't forward keyboard input to the native stream until the
+        // connection is fully established. Sending input during the RTSP
+        // handshake can cause protocol errors or undefined behavior in
+        // moonlight-common-c.
+        if (!StreamingPlugin.isConnectionEstablished) return false
+
         val vk = when {
             forceQwertyLayoutEnabled -> scanCodeToQwertyVk(event.scanCode) ?: androidKeyToVk(event.keyCode)
             else -> androidKeyToVk(event.keyCode)
