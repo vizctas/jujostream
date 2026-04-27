@@ -400,6 +400,25 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
     }
   }
 
+  void _toggleViewMode(List<NvApp> apps) {
+    _feedbackAction();
+    setState(() {
+      _viewMode = _viewMode == _ViewMode.carousel
+          ? _ViewMode.grid
+          : _ViewMode.carousel;
+    });
+    if (_viewMode == _ViewMode.grid) {
+      _disposeVideoController();
+      return;
+    }
+
+    final visibleApps = _visibleApps(apps);
+    if (visibleApps.isNotEmpty) {
+      _scheduleVideoPreview(_selectedApp(visibleApps));
+    }
+    _restoreScrollPosition();
+  }
+
   void _showFavoriteFeedback(bool added) {
     late OverlayEntry entry;
     entry = OverlayEntry(
@@ -492,10 +511,12 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
             //     on the very first build frame before addPostFrameCallback
             //     fires loadApps(). Without this, the user briefly sees the
             //     "No apps found" empty state before the skeleton appears.
-            final isPreLoadState = !provider.isLoading &&
+            final isPreLoadState =
+                !provider.isLoading &&
                 provider.apps.isEmpty &&
                 provider.error == null;
-            if ((provider.isLoading && provider.apps.isEmpty) || isPreLoadState) {
+            if ((provider.isLoading && provider.apps.isEmpty) ||
+                isPreLoadState) {
               return Scaffold(
                 backgroundColor: _tp.background,
                 body: SafeArea(
@@ -669,7 +690,8 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
             }
 
             final launcherTheme = context.read<ThemeProvider>().launcherTheme;
-            if (launcherTheme.id != LauncherThemeId.classic) {
+            if (launcherTheme.id != LauncherThemeId.classic &&
+                _viewMode != _ViewMode.grid) {
               final visibleApps = _visibleApps(provider.apps.toList());
               _ensureValidSelection(visibleApps);
               final selected = _selectedApp(visibleApps);
@@ -717,6 +739,7 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
                 isGridView: _viewMode == _ViewMode.grid,
                 favoriteIds: _favoriteAppIds.map((id) => id.toString()).toSet(),
                 onToggleFavorite: _toggleFavorite,
+                onToggleView: () => _toggleViewMode(provider.apps.toList()),
                 videoWidget: videoWidget,
                 videoForAppId: videoAppId,
                 onSearch: _openSearch,
@@ -1032,23 +1055,7 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
                 ? Icons.grid_view_rounded
                 : Icons.view_carousel,
             _viewMode == _ViewMode.carousel ? 'Grid' : 'List',
-            () {
-              _feedbackAction();
-              setState(() {
-                _viewMode = _viewMode == _ViewMode.carousel
-                    ? _ViewMode.grid
-                    : _ViewMode.carousel;
-              });
-              if (_viewMode == _ViewMode.grid) {
-                _disposeVideoController();
-              } else {
-                final visibleApps = _visibleApps(apps);
-                if (visibleApps.isNotEmpty) {
-                  _scheduleVideoPreview(_selectedApp(visibleApps));
-                }
-                _restoreScrollPosition();
-              }
-            },
+            () => _toggleViewMode(apps),
             gamepadHint: 'X',
           ),
           const SizedBox(width: 6),
@@ -1351,17 +1358,7 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
                 _viewMode == _ViewMode.carousel
                     ? Icons.grid_view_rounded
                     : Icons.view_carousel,
-                () {
-                  _feedbackAction();
-                  setState(() {
-                    _viewMode = _viewMode == _ViewMode.carousel
-                        ? _ViewMode.grid
-                        : _ViewMode.carousel;
-                  });
-                  if (_viewMode == _ViewMode.grid) {
-                    _disposeVideoController();
-                  }
-                },
+                () => _toggleViewMode(apps),
               ),
               const SizedBox(width: 8),
 

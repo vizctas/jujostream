@@ -40,6 +40,7 @@ class Ps5Theme extends LauncherTheme {
     required bool isGridView,
     required Set<String> favoriteIds,
     required ValueChanged<NvApp> onToggleFavorite,
+    VoidCallback? onToggleView,
     Widget? videoWidget,
     int? videoForAppId,
     VoidCallback? onSearch,
@@ -71,6 +72,7 @@ class Ps5Theme extends LauncherTheme {
       activeSessionAppId: activeSessionAppId,
       favoriteIds: favoriteIds,
       onToggleFavorite: onToggleFavorite,
+      onToggleView: onToggleView,
       videoWidget: videoWidget,
       videoForAppId: videoForAppId,
       onSearch: onSearch,
@@ -94,6 +96,7 @@ class _Ps5Body extends StatefulWidget {
   final String? activeSessionAppId;
   final Set<String> favoriteIds;
   final ValueChanged<NvApp> onToggleFavorite;
+  final VoidCallback? onToggleView;
   final Widget? videoWidget;
   final int? videoForAppId;
   final VoidCallback? onSearch;
@@ -112,6 +115,7 @@ class _Ps5Body extends StatefulWidget {
     required this.activeSessionAppId,
     required this.favoriteIds,
     required this.onToggleFavorite,
+    this.onToggleView,
     this.videoWidget,
     this.videoForAppId,
     this.onSearch,
@@ -309,7 +313,7 @@ class _Ps5BodyState extends State<_Ps5Body> {
       }
       if (k == LogicalKeyboardKey.gameButtonX) {
         _tap();
-        if (_sel != null) widget.onToggleFavorite(_sel!);
+        widget.onToggleView?.call();
         return KeyEventResult.handled;
       }
       if (k == LogicalKeyboardKey.gameButtonThumbLeft) {
@@ -377,7 +381,7 @@ class _Ps5BodyState extends State<_Ps5Body> {
 
       if (k == LogicalKeyboardKey.gameButtonX) {
         _tap();
-        if (_sel != null) widget.onToggleFavorite(_sel!);
+        widget.onToggleView?.call();
         return KeyEventResult.handled;
       }
       if (k == LogicalKeyboardKey.gameButtonY) {
@@ -882,11 +886,9 @@ class _Ps5BodyState extends State<_Ps5Body> {
               spacing: 6,
               runSpacing: 4,
               children: [
-                if (s.isRunning)
-                  _chip('● ${l.running}', Colors.greenAccent),
+                if (s.isRunning) _chip('● ${l.running}', Colors.greenAccent),
                 if (isFav) _chip('★', Colors.amberAccent),
-                if (s.pluginName != null)
-                  _chip(s.pluginName!, tp.accentLight),
+                if (s.pluginName != null) _chip(s.pluginName!, tp.accentLight),
                 ...s.metadataGenres
                     .take(2)
                     .map((g) => _chip(g, Colors.white38)),
@@ -927,10 +929,17 @@ class _Ps5BodyState extends State<_Ps5Body> {
                                   boxShadow: [
                                     BoxShadow(
                                       color: Colors.black.withValues(
-                                        alpha: inBtns && _btnIdx == 0 ? 0.32 : 0.18,
+                                        alpha: inBtns && _btnIdx == 0
+                                            ? 0.32
+                                            : 0.18,
                                       ),
-                                      blurRadius: inBtns && _btnIdx == 0 ? 18 : 10,
-                                      offset: Offset(0, inBtns && _btnIdx == 0 ? 8 : 4),
+                                      blurRadius: inBtns && _btnIdx == 0
+                                          ? 18
+                                          : 10,
+                                      offset: Offset(
+                                        0,
+                                        inBtns && _btnIdx == 0 ? 8 : 4,
+                                      ),
                                     ),
                                   ],
                                 ),
@@ -1052,47 +1061,75 @@ class _Ps5BodyState extends State<_Ps5Body> {
       padding: const EdgeInsets.fromLTRB(40, 8, 40, 12),
       child: Row(
         children: [
-          _hint('L3', l.search, onTap: () {
-            _tap();
-            widget.onSearch?.call();
-          }),
+          _hint(
+            'L3',
+            l.search,
+            onTap: () {
+              _tap();
+              widget.onSearch?.call();
+            },
+          ),
           const SizedBox(width: 12),
-          _hint('R3', 'Filter', onTap: () {
-            _tap();
-            widget.onFilter?.call();
-          }),
+          _hint(
+            'R3',
+            'Filter',
+            onTap: () {
+              _tap();
+              widget.onFilter?.call();
+            },
+          ),
           const SizedBox(width: 12),
-          _hint('R1', l.smartFilters, onTap: () {
-            _tap();
-            widget.onSmartFilters?.call();
-          }),
+          _hint(
+            'R1',
+            l.smartFilters,
+            onTap: () {
+              _tap();
+              widget.onSmartFilters?.call();
+            },
+          ),
           const Spacer(),
-          _hint('Ⓐ', l.play, onTap: () {
-            _tap();
-            if (s != null) widget.onAppSelected(s);
-          }),
+          _hint(
+            'Ⓐ',
+            l.play,
+            onTap: () {
+              _tap();
+              if (s != null) widget.onAppSelected(s);
+            },
+          ),
           const SizedBox(width: 12),
-          _hint('Ⓧ', l.fav, onTap: () {
-            _tap();
-            if (s != null) widget.onToggleFavorite(s);
-          }),
+          _hint(
+            'X',
+            'Grid',
+            onTap: () {
+              _tap();
+              widget.onToggleView?.call();
+            },
+          ),
           const SizedBox(width: 12),
-          _hint('Ⓨ', l.options, onTap: () {
-            _tap();
-            if (s != null) widget.onAppDetails(s);
-          }),
+          _hint(
+            'Ⓨ',
+            l.options,
+            onTap: () {
+              _tap();
+              if (s != null) widget.onAppDetails(s);
+            },
+          ),
           const SizedBox(width: 12),
-          _hint('SELECT', l.themeOptions, onTap: () {
-            _tap();
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => AppViewPresentationSettingsScreen(
-                  preferences: context.read<LauncherPreferences>(),
+          _hint(
+            'SELECT',
+            l.themeOptions,
+            onTap: () {
+              _tap();
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => AppViewPresentationSettingsScreen(
+                    preferences: context.read<LauncherPreferences>(),
+                  ),
                 ),
-              ),
-            );
-          }),
+              );
+            },
+          ),
         ],
       ),
     );
@@ -1119,8 +1156,10 @@ class _Ps5BodyState extends State<_Ps5Body> {
           children: [
             GamepadHintIcon(badge, size: 16, forceVisible: true),
             const SizedBox(width: 3),
-            Text(label,
-                style: const TextStyle(color: Colors.white24, fontSize: 9)),
+            Text(
+              label,
+              style: const TextStyle(color: Colors.white24, fontSize: 9),
+            ),
           ],
         ),
       );

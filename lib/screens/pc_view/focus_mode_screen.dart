@@ -743,7 +743,15 @@ class _FocusModeScreenState extends State<FocusModeScreen>
             child: const Text('Cancel'),
           ),
           TextButton(
-            onPressed: () => SystemNavigator.pop(),
+            onPressed: () {
+              if (io.Platform.isWindows ||
+                  io.Platform.isMacOS ||
+                  io.Platform.isLinux) {
+                io.exit(0);
+              } else {
+                SystemNavigator.pop();
+              }
+            },
             child: const Text(
               'Exit',
               style: TextStyle(color: Colors.redAccent),

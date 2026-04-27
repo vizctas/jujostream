@@ -6,19 +6,55 @@
 #include <windows.h>
 
 #include <iostream>
+#include <string>
 
 void CreateAndAttachConsole() {
   if (::AllocConsole()) {
     FILE *unused;
-    if (freopen_s(&unused, "CONOUT$", "w", stdout)) {
+    if (freopen_s(&unused, "CONOUT$", "w", stdout) == 0) {
       _dup2(_fileno(stdout), 1);
     }
-    if (freopen_s(&unused, "CONOUT$", "w", stderr)) {
-      _dup2(_fileno(stdout), 2);
+    if (freopen_s(&unused, "CONOUT$", "w", stderr) == 0) {
+      _dup2(_fileno(stderr), 2);
     }
     std::ios::sync_with_stdio();
     FlutterDesktopResyncOutputStreams();
   }
+}
+
+void InitializeBetaNativeLogging() {
+  wchar_t local_app_data[MAX_PATH];
+  DWORD len = ::GetEnvironmentVariableW(
+      L"LOCALAPPDATA", local_app_data, static_cast<DWORD>(MAX_PATH));
+  if (len == 0 || len >= MAX_PATH) {
+    return;
+  }
+
+  std::wstring base(local_app_data);
+  std::wstring app_dir = base + L"\\JujoStream";
+  std::wstring log_dir = app_dir + L"\\logs";
+  ::CreateDirectoryW(app_dir.c_str(), nullptr);
+  ::CreateDirectoryW(log_dir.c_str(), nullptr);
+
+  SYSTEMTIME st;
+  ::GetLocalTime(&st);
+  wchar_t file_name[128];
+  swprintf_s(file_name, L"jujo_native_%04u%02u%02u_%02u%02u%02u.log",
+             st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
+  std::wstring log_path = log_dir + L"\\" + file_name;
+
+  FILE* out = nullptr;
+  if (_wfreopen_s(&out, log_path.c_str(), L"a", stderr) == 0) {
+    _dup2(_fileno(stderr), 2);
+  }
+  if (_wfreopen_s(&out, log_path.c_str(), L"a", stdout) == 0) {
+    _dup2(_fileno(stdout), 1);
+  }
+  std::ios::sync_with_stdio();
+  FlutterDesktopResyncOutputStreams();
+
+  fprintf(stderr, "[native] beta log initialized\n");
+  fflush(stderr);
 }
 
 std::vector<std::string> GetCommandLineArguments() {

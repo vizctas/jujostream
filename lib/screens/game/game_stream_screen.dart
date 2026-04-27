@@ -15,6 +15,7 @@ import '../../providers/settings_provider.dart';
 import '../../providers/theme_provider.dart';
 import '../../services/audio/ui_sound_service.dart';
 import '../../services/pro/pro_service.dart';
+import '../../services/telemetry/beta_telemetry_service.dart';
 import '../../services/input/gamepad_button_helper.dart';
 import '../../services/stream/image_load_throttle.dart';
 import '../../widgets/session_metrics_dialog.dart';
@@ -155,6 +156,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
   bool _sessionMetricsDialogShown = false;
   late final SettingsProvider _settingsProvider;
   StreamSubscription<Map<String, dynamic>>? _statsSubscription;
+  int _statsTelemetryTicks = 0;
 
   late ComputerProvider _computerProvider;
 
@@ -330,6 +332,19 @@ class _GameStreamScreenState extends State<GameStreamScreen>
       debugPrint('Scale Mode: ${cfg.scaleMode}');
       debugPrint('Server: $address:${widget.computer.httpsPort}');
       debugPrint('>>> ');
+      BetaTelemetryService.event('stream_start_requested', {
+        'host': address,
+        'port': widget.computer.httpsPort,
+        'appId': widget.app.appId,
+        'width': cfg.width,
+        'height': cfg.height,
+        'fps': cfg.fps,
+        'bitrate': effectiveBitrate,
+        'codec': codecStr,
+        'hdr': cfg.enableHdr,
+        'audio': audioStr,
+        'directSubmit': cfg.enableDirectSubmit,
+      });
 
       final success =
           await StreamingPlatformChannel.startStream(
@@ -405,8 +420,12 @@ class _GameStreamScreenState extends State<GameStreamScreen>
           _isConnected = true;
           _reconnectMessage = null;
         });
+        BetaTelemetryService.event('stream_started', {
+          'textureId': textureId ?? -1,
+          'directSubmit': _usingDirectSubmit,
+          'controllerCount': physicalCount,
+        });
 
-        final wasReconnecting = _isReconnecting;
         _isReconnecting = false;
 
         // always redetect so the controller is picked up on initial entry AND reconnects
@@ -425,16 +444,22 @@ class _GameStreamScreenState extends State<GameStreamScreen>
         _isReconnecting = false;
         final errorCode = StreamingPlatformChannel.lastStartStreamErrorCode;
         final detail = StreamingPlatformChannel.lastStartStreamError;
+        BetaTelemetryService.event('stream_start_failed', {
+          'code': errorCode ?? -1,
+          'detail': detail ?? '',
+        });
 
         // GS_WRONG_STATE (104) — server has a stale session from a previous
         // client. Auto-cancel it and retry once before showing the error.
         if (errorCode == 104 && !_isReconnecting) {
+          if (!mounted) return;
+          final isEs = Localizations.localeOf(context).languageCode == 'es';
           debugPrint(
             'GS_WRONG_STATE detected — cancelling stale server session and retrying…',
           );
           setState(() {
             _reconnectMessage =
-                Localizations.localeOf(context).languageCode == 'es'
+                isEs
                 ? 'Sesión anterior detectada — cancelando…'
                 : 'Stale session detected — cancelling…';
           });
@@ -463,6 +488,11 @@ class _GameStreamScreenState extends State<GameStreamScreen>
         });
       }
     } catch (e) {
+      BetaTelemetryService.error(
+        'stream_start_exception',
+        e,
+        StackTrace.current,
+      );
       if (_isReconnecting &&
           _presetReconnectRetries < _maxPresetReconnectRetries) {
         _presetReconnectRetries++;
@@ -519,10 +549,13 @@ class _GameStreamScreenState extends State<GameStreamScreen>
     final cmp = Completer<void>();
     _pendingStop = cmp;
     try {
+      BetaTelemetryService.event('stream_stop_requested', {
+        'clearActiveSession': clearActiveSession,
+      });
       await GamepadChannel.setStreamingActive(false);
       await StreamingPlatformChannel.stopStream();
 
-      if (!clearActiveSession) {
+      if (!clearActiveSession && mounted) {
         widget.computer.runningGameId = widget.app.appId;
         context.read<AppListProvider>().currentComputer?.runningGameId =
             widget.app.appId;
@@ -541,6 +574,9 @@ class _GameStreamScreenState extends State<GameStreamScreen>
         }
       }
     } finally {
+      BetaTelemetryService.event('stream_stopped', {
+        'clearActiveSession': clearActiveSession,
+      });
       _stopInFlight = false;
       if (!cmp.isCompleted) cmp.complete();
     }
@@ -641,6 +677,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
       final type = event['type'] as String?;
       switch (type) {
         case 'connectionStarted':
+          BetaTelemetryService.event('native_connection_started');
           _reconnectAttempts = 0;
           _sessionMetrics.clear();
           _sessionMetricsStartedAt = DateTime.now();
@@ -648,9 +685,16 @@ class _GameStreamScreenState extends State<GameStreamScreen>
 
         case 'connectionTerminated':
           final errorCode = event['errorCode'] as int? ?? 0;
+          BetaTelemetryService.event('native_connection_terminated', {
+            'errorCode': errorCode,
+          });
           _onConnectionTerminated(errorCode);
         case 'stageStarting':
           final stageName = event['stageName'] as String? ?? '';
+          BetaTelemetryService.event('native_stage_starting', {
+            'stage': event['stage'] as int? ?? 0,
+            'name': stageName,
+          });
           setState(() {
             _currentStageName = stageName;
             _currentStageIndex = (event['stage'] as int? ?? 0);
@@ -663,7 +707,9 @@ class _GameStreamScreenState extends State<GameStreamScreen>
             setState(() {
               _isConnected = false;
               _isConnecting = true;
-              _reconnectMessage = AppLocalizations.of(context).reconnectingLabel;
+              _reconnectMessage = AppLocalizations.of(
+                context,
+              ).reconnectingLabel;
             });
             // Must stop the existing native session before starting a new one;
             // skipping this guarantees GS_WRONG_STATE (104) from the server.
@@ -691,9 +737,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
                   ? res
                   : '--';
               final c = event['codec']?.toString();
-              _codec = (c != null && c != 'unknown' && c.isNotEmpty)
-                  ? c
-                  : '--';
+              _codec = (c != null && c != 'unknown' && c.isNotEmpty) ? c : '--';
               final qd = (event['queueDepth'] is num)
                   ? (event['queueDepth'] as num).toInt()
                   : null;
@@ -701,8 +745,9 @@ class _GameStreamScreenState extends State<GameStreamScreen>
               final pendingAudio = (event['pendingAudioMs'] is num)
                   ? (event['pendingAudioMs'] as num).toInt()
                   : null;
-              _pendingAudioMs =
-                  pendingAudio != null ? '$pendingAudio ms' : '--';
+              _pendingAudioMs = pendingAudio != null
+                  ? '$pendingAudio ms'
+                  : '--';
               final rttVar = (event['rttVarianceMs'] is num)
                   ? (event['rttVarianceMs'] as num).toInt()
                   : null;
@@ -716,6 +761,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
             // Silently ignore malformed stats — the HUD keeps its last values.
           }
           _recordSessionMetrics(event);
+          _recordStatsTelemetry(event);
           _dynBitrate.evaluate(
             enabled: _config.dynamicBitrateEnabled,
             connected: _isConnected,
@@ -725,6 +771,21 @@ class _GameStreamScreenState extends State<GameStreamScreen>
             event: event,
           );
       }
+    });
+  }
+
+  void _recordStatsTelemetry(Map<String, dynamic> event) {
+    _statsTelemetryTicks++;
+    if (_statsTelemetryTicks % 60 != 0) return;
+    BetaTelemetryService.event('stream_stats_sample', {
+      'fps': event['fps'] ?? 0,
+      'decodeTime': event['decodeTime'] ?? 0,
+      'dropRate': event['dropRate'] ?? 0,
+      'queueDepth': event['queueDepth'] ?? 0,
+      'pendingAudioMs': event['pendingAudioMs'] ?? 0,
+      'codec': event['codec'] ?? '',
+      'renderPath': event['renderPath'] ?? '',
+      'isSoftwareDecoder': event['isSoftwareDecoder'] ?? false,
     });
   }
 
@@ -1111,6 +1172,11 @@ class _GameStreamScreenState extends State<GameStreamScreen>
     LogicalKeyboardKey.minus,
   };
 
+  static final Set<LogicalKeyboardKey> _desktopOverlaySafetyCombo = {
+    LogicalKeyboardKey.shift,
+    LogicalKeyboardKey.f1,
+  };
+
   // Desktop overlay combo hold timer — mirrors gamepad hold behavior.
   Timer? _desktopComboHoldTimer;
   bool _desktopComboHeld = false;
@@ -1164,9 +1230,57 @@ class _GameStreamScreenState extends State<GameStreamScreen>
     }
   }
 
+  static LogicalKeyboardKey _normalizeDesktopComboKey(LogicalKeyboardKey key) {
+    if (key == LogicalKeyboardKey.shiftLeft ||
+        key == LogicalKeyboardKey.shiftRight) {
+      return LogicalKeyboardKey.shift;
+    }
+    if (key == LogicalKeyboardKey.controlLeft ||
+        key == LogicalKeyboardKey.controlRight) {
+      return LogicalKeyboardKey.control;
+    }
+    if (key == LogicalKeyboardKey.altLeft ||
+        key == LogicalKeyboardKey.altRight) {
+      return LogicalKeyboardKey.alt;
+    }
+    if (key == LogicalKeyboardKey.metaLeft ||
+        key == LogicalKeyboardKey.metaRight) {
+      return LogicalKeyboardKey.meta;
+    }
+    if (key.keyLabel == '_') return LogicalKeyboardKey.minus;
+    return key;
+  }
+
+  bool _matchesDesktopOverlayCombo() {
+    bool containsAll(Set<LogicalKeyboardKey> combo) =>
+        combo.isNotEmpty && combo.every(_heldButtons.contains);
+    return containsAll(_desktopOverlayCombo) ||
+        containsAll(_desktopOverlaySafetyCombo);
+  }
+
+  void _releasePressedComboKeysToHost() {
+    if (!_isConnected) return;
+    final activeCombos = <Set<LogicalKeyboardKey>>[
+      _desktopOverlayCombo,
+      _desktopOverlaySafetyCombo,
+    ];
+    for (final rawKey in HardwareKeyboard.instance.logicalKeysPressed) {
+      final normalized = _normalizeDesktopComboKey(rawKey);
+      final belongsToCombo = activeCombos.any(
+        (combo) => combo.contains(normalized),
+      );
+      if (!belongsToCombo) continue;
+      final vk = logicalKeyToVk(rawKey);
+      if (vk != null) {
+        StreamingPlatformChannel.sendKeyboardInput(vk, false);
+      }
+    }
+  }
+
   void _rebuildDesktopCombo() {
     final keys = _config.desktopOverlayKeys
         .map(_labelToKey)
+        .map((key) => key == null ? null : _normalizeDesktopComboKey(key))
         .whereType<LogicalKeyboardKey>()
         .toSet();
     if (keys.isNotEmpty) _desktopOverlayCombo = keys;
@@ -1214,9 +1328,10 @@ class _GameStreamScreenState extends State<GameStreamScreen>
     }
 
     final key = event.logicalKey;
+    final comboKey = _normalizeDesktopComboKey(key);
 
     if (event is KeyDownEvent) {
-      _heldButtons.add(key);
+      _heldButtons.add(comboKey);
 
       if (key == LogicalKeyboardKey.gameButtonStart) {
         _startPressedAt = DateTime.now();
@@ -1232,8 +1347,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
       // Desktop overlay combo (default Shift+-, configurable in Settings).
       // ESC is intentionally NOT used here — most games use ESC for their own menus.
       // Supports optional hold duration (desktopOverlayHoldMs) — mirrors gamepad hold.
-      if (_desktopOverlayCombo.isNotEmpty &&
-          _desktopOverlayCombo.every((k) => _heldButtons.contains(k))) {
+      if (_matchesDesktopOverlayCombo()) {
         if (!_desktopComboHeld) {
           _desktopComboHeld = true;
           final holdMs = _config.desktopOverlayHoldMs;
@@ -1241,6 +1355,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
             // No hold required — trigger immediately
             _desktopComboHoldTimer?.cancel();
             _desktopComboHoldTimer = null;
+            _releasePressedComboKeysToHost();
             _heldButtons.clear();
             _desktopComboHeld = false;
             _setOverlayVisible(!_showOverlay);
@@ -1249,6 +1364,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
             _desktopComboHoldTimer?.cancel();
             _desktopComboHoldTimer = Timer(Duration(milliseconds: holdMs), () {
               if (!mounted) return;
+              _releasePressedComboKeysToHost();
               _heldButtons.clear();
               _desktopComboHeld = false;
               _desktopComboHoldTimer = null;
@@ -1345,10 +1461,12 @@ class _GameStreamScreenState extends State<GameStreamScreen>
     }
 
     if (event is KeyUpEvent) {
-      _heldButtons.remove(key);
+      _heldButtons.remove(comboKey);
 
       // Cancel desktop combo hold timer if a combo key was released early
-      if (_desktopComboHeld && _desktopOverlayCombo.contains(key)) {
+      if (_desktopComboHeld &&
+          (_desktopOverlayCombo.contains(comboKey) ||
+              _desktopOverlaySafetyCombo.contains(comboKey))) {
         _desktopComboHoldTimer?.cancel();
         _desktopComboHoldTimer = null;
         _desktopComboHeld = false;

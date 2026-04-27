@@ -8,8 +8,24 @@
 #include "moonlight_bridge_win.h"
 #include <Limelight.h>
 #include <Limelight-internal.h>
+#include <enet/enet.h>
 #include <string.h>
 #include <stdio.h>
+
+/* -----------------------------------------------------------------------
+ * Networking init (WinSock / ENet) — called once from the C++ plugin
+ * ----------------------------------------------------------------------- */
+static int g_netInitialized = 0;
+
+void moonlightWinInitNetworking(void) {
+    if (g_netInitialized) return;
+    if (enet_initialize() != 0) {
+        fprintf(stderr, "moonlight_bridge_win: enet_initialize (WSAStartup) failed\n");
+    } else {
+        fprintf(stderr, "moonlight_bridge_win: ENet/WinSock initialized\n");
+        g_netInitialized = 1;
+    }
+}
 
 /* -----------------------------------------------------------------------
  * Global callback table (set once by C++ at startup)
@@ -152,4 +168,15 @@ int moonlightWinSendControllerArrival(
 }
 void moonlightWinSendUtf8Text(const char *text) {
     LiSendUtf8TextEvent(text, (int)strlen(text));
+}
+int moonlightWinSendTouchEvent(uint8_t eventType, uint32_t pointerId,
+                                float x, float y,
+                                float pressureOrDistance,
+                                float contactAreaMajor,
+                                float contactAreaMinor,
+                                uint16_t rotation) {
+    return LiSendTouchEvent(eventType, pointerId, x, y,
+                            pressureOrDistance,
+                            contactAreaMajor, contactAreaMinor,
+                            rotation);
 }

@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <atomic>
 #include <string>
+#include <thread>
 
 namespace jujostream {
 
@@ -37,14 +38,36 @@ public:
         int      decodeTimeMs = 0;
         uint64_t framesDecoded= 0;
         uint64_t framesDropped= 0;
+        std::string codec;
+        bool     isSoftwareDecoder = false;
+        uint64_t packetsSubmitted = 0;
+        uint64_t bytesSubmitted = 0;
+        uint64_t inputsAccepted = 0;
+        uint64_t idrFrames = 0;
+        uint64_t outputSamples = 0;
+        uint64_t dxgiFrames = 0;
+        uint64_t dxgiMisses = 0;
+        uint64_t processInputFailures = 0;
+        uint64_t processOutputFailures = 0;
+        uint64_t streamChanges = 0;
+        uint64_t textureBlits = 0;
+        uint64_t textureBlitFailures = 0;
+        uint64_t textureFrameNotifications = 0;
+        uint64_t textureDescriptorCallbacks = 0;
+        uint64_t textureNullDescriptorCallbacks = 0;
     };
     Stats getVideoStats() const;
+    void startStatsEmitter();
+    void stopStatsEmitter();
 
 private:
     StreamingBridgeWin() = default;
+    void statsLoop();
 
     flutter::TextureRegistrar *texture_registrar_ = nullptr;
     std::atomic<bool>          streaming_{false};
+    std::atomic<bool>          stats_running_{false};
+    std::thread                stats_thread_;
 };
 
 }  // namespace jujostream

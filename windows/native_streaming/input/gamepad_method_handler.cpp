@@ -70,6 +70,9 @@ void GamepadMethodHandler::wireCallbacks() {
     // Dpad navigation while overlay is visible
     xi.setOverlayDpadCallback([this](const std::string &dir) { invokeOverlayDpad(dir); });
 
+    // UI navigation when NOT streaming (D-Pad + A/B → Dart focus system)
+    xi.setNavInputCallback([this](const std::string &key) { invokeNavInput(key); });
+
     // Controller connect/disconnect
     xi.onControllerConnected    = [this](int s){ invokeControllerConnected(s); };
     xi.onControllerDisconnected = [this](int s){ invokeControllerDisconnected(s); };
@@ -90,8 +93,10 @@ void GamepadMethodHandler::handleMethodCall(
         bool active = args ? getBool(*args, "active", false) : false;
         auto &xi = input::XInputHandler::instance();
         xi.setStreamingActive(active);
-        if (active) xi.startPolling();
-        else        xi.stopPolling();
+        // NEVER stop polling when streaming ends — the thread must stay alive
+        // so that D-Pad/A/B inputs continue to fire Dart UI navigation events.
+        // Start it only if it hasn't been started yet.
+        if (!xi.isPolling()) xi.startPolling();
         result->Success(flutter::EncodableValue(xi.getConnectedCount()));
 
     } else if (m == "setOverlayVisible") {
@@ -146,13 +151,12 @@ void GamepadMethodHandler::handleMethodCall(
 
     } else if (m == "getControllerInfo") {
         flutter::EncodableList list;
-        for (int i = 0; i < 4; ++i) {
-            // Check each XInput slot
-            // A simple live check — getConnectedCount uses XInputGetState
+        for (int i = 0; i < 8; ++i) {
+            bool connected = input::XInputHandler::instance().isSlotConnected(i);
             flutter::EncodableMap info;
             info[flutter::EncodableValue("slot")]      = flutter::EncodableValue(i);
-            info[flutter::EncodableValue("type")]      = flutter::EncodableValue(1); // Xbox
-            info[flutter::EncodableValue("connected")] = flutter::EncodableValue(false);
+            info[flutter::EncodableValue("type")]      = flutter::EncodableValue(i < 4 ? 1 : 2); // 1=Xbox, 2=Generic/PS
+            info[flutter::EncodableValue("connected")] = flutter::EncodableValue(connected);
             list.push_back(flutter::EncodableValue(info));
         }
         result->Success(flutter::EncodableValue(list));
@@ -174,35 +178,77 @@ void GamepadMethodHandler::handleMethodCall(
     }
 }
 
+// --- Main thread dispatch ---
+
+void GamepadMethodHandler::drainQueue() {
+    std::vector<std::function<void()>> local_queue;
+    {
+        std::lock_guard<std::mutex> lock(queue_mutex_);
+        local_queue.swap(task_queue_);
+    }
+    for (auto &task : local_queue) {
+        task();
+    }
+}
+
+void GamepadMethodHandler::dispatchToMainThread(std::function<void()> task) {
+    {
+        std::lock_guard<std::mutex> lock(queue_mutex_);
+        task_queue_.push_back(std::move(task));
+    }
+    // WM_APP + 100 will be hooked in plugin registration
+    if (hwnd_) {
+        PostMessage(hwnd_, WM_APP + 100, 0, 0);
+    }
+}
+
+
 // --- Native→Dart invocations ---
 
 void GamepadMethodHandler::invokeComboDetected() {
-    if (channel_) channel_->InvokeMethod("onComboDetected", nullptr);
+    dispatchToMainThread([this]() {
+        if (channel_) channel_->InvokeMethod("onComboDetected", nullptr);
+    });
 }
 
 void GamepadMethodHandler::invokeOverlayDpad(const std::string &direction) {
-    if (channel_) channel_->InvokeMethod("onOverlayDpad",
-        std::make_unique<flutter::EncodableValue>(direction));
+    dispatchToMainThread([this, direction]() {
+        if (channel_) channel_->InvokeMethod("onOverlayDpad",
+            std::make_unique<flutter::EncodableValue>(direction));
+    });
 }
 
 void GamepadMethodHandler::invokeMouseModeToggle() {
-    if (channel_) channel_->InvokeMethod("onMouseModeToggle", nullptr);
+    dispatchToMainThread([this]() {
+        if (channel_) channel_->InvokeMethod("onMouseModeToggle", nullptr);
+    });
 }
 
 void GamepadMethodHandler::invokeControllerConnected(int slot) {
-    if (!channel_) return;
-    flutter::EncodableMap args;
-    args[flutter::EncodableValue("slot")] = flutter::EncodableValue(slot);
-    channel_->InvokeMethod("onControllerConnected",
-        std::make_unique<flutter::EncodableValue>(args));
+    dispatchToMainThread([this, slot]() {
+        if (!channel_) return;
+        flutter::EncodableMap args;
+        args[flutter::EncodableValue("slot")] = flutter::EncodableValue(slot);
+        channel_->InvokeMethod("onControllerConnected",
+            std::make_unique<flutter::EncodableValue>(args));
+    });
 }
 
 void GamepadMethodHandler::invokeControllerDisconnected(int slot) {
-    if (!channel_) return;
-    flutter::EncodableMap args;
-    args[flutter::EncodableValue("slot")] = flutter::EncodableValue(slot);
-    channel_->InvokeMethod("onControllerDisconnected",
-        std::make_unique<flutter::EncodableValue>(args));
+    dispatchToMainThread([this, slot]() {
+        if (!channel_) return;
+        flutter::EncodableMap args;
+        args[flutter::EncodableValue("slot")] = flutter::EncodableValue(slot);
+        channel_->InvokeMethod("onControllerDisconnected",
+            std::make_unique<flutter::EncodableValue>(args));
+    });
+}
+
+void GamepadMethodHandler::invokeNavInput(const std::string &key) {
+    dispatchToMainThread([this, key]() {
+        if (channel_) channel_->InvokeMethod("onNavInput",
+            std::make_unique<flutter::EncodableValue>(key));
+    });
 }
 
 }  // namespace jujostream

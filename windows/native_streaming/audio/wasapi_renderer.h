@@ -3,7 +3,7 @@
  *
  * Responsibilities:
  *   - Acquire default render endpoint via IMMDeviceEnumerator.
- *   - Initialize IAudioClient with the engine mix format (no resampling).
+ *   - Initialize IAudioClient with a WASAPI-supported source or endpoint format.
  *   - Spin a render thread that waits on the audio event handle and pumps
  *     float samples from `AudioRingBuffer` into `IAudioRenderClient`.
  *   - Convert int16 input samples to float32 on the producer side.
@@ -57,6 +57,7 @@ public:
     // Telemetry snapshot (approximate — atomics, no lock).
     struct Stats {
         uint64_t droppedSamples;
+        uint64_t submittedSamples;
         uint64_t underruns;
         uint64_t reinitCount;
         int      channels;
@@ -102,6 +103,7 @@ private:
     std::atomic<State>               state_{State::Idle};
     std::atomic<bool>                needReinit_{false};
     std::atomic<uint64_t>            reinitCount_{0};
+    std::atomic<uint64_t>            submittedSamples_{0};
 };
 
 }  // namespace audio

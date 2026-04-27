@@ -1,15 +1,7 @@
 import 'package:flutter/material.dart';
 import '../models/nv_app.dart';
 
-enum LauncherThemeId {
-  classic,
-
-  backbone,
-
-  ps5,
-
-  hero,
-}
+enum LauncherThemeId { classic, backbone, ps5, hero }
 
 abstract class LauncherTheme {
   LauncherThemeId get id;
@@ -30,6 +22,7 @@ abstract class LauncherTheme {
     required bool isGridView,
     required Set<String> favoriteIds,
     required ValueChanged<NvApp> onToggleFavorite,
+    VoidCallback? onToggleView,
     Widget? videoWidget,
     int? videoForAppId,
     VoidCallback? onSearch,

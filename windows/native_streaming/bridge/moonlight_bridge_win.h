@@ -43,6 +43,10 @@ typedef struct {
 
 void moonlightWinRegisterCallbacks(const JujostreamWinCallbacks *cbs);
 
+// Must be called once at plugin startup (initialises WinSock / ENet).
+// Safe to call multiple times — subsequent calls are no-ops.
+void moonlightWinInitNetworking(void);
+
 int  moonlightWinStartConnection(
     const char *address, const char *appVersion, const char *gfeVersion,
     const char *rtspSessionUrl, int serverCodecModeSupport,
@@ -72,6 +76,16 @@ int  moonlightWinSendControllerArrival(
     short controllerNumber, short activeGamepadMask,
     uint8_t controllerType, short capabilities, int supportedButtonFlags);
 void moonlightWinSendUtf8Text(const char *text);
+
+// Touch event — normalized coords [0,1] relative to stream output area.
+// Returns 0 on success, LI_ERR_UNSUPPORTED if the host does not support
+// touch (GFE < 7.1.431; fall back to mouse events in that case).
+int  moonlightWinSendTouchEvent(uint8_t eventType, uint32_t pointerId,
+                                 float x, float y,
+                                 float pressureOrDistance,
+                                 float contactAreaMajor,
+                                 float contactAreaMinor,
+                                 uint16_t rotation);
 
 #ifdef __cplusplus
 }

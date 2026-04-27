@@ -33,6 +33,7 @@ class FlutterWindow : public Win32Window {
   // Plugin registrar wrappers (must outlive the plugins they register)
   std::unique_ptr<flutter::PluginRegistrarWindows> streaming_registrar_;
   std::unique_ptr<flutter::PluginRegistrarWindows> gamepad_registrar_;
+  std::unique_ptr<flutter::PluginRegistrarWindows> window_registrar_;
 };
 
 #endif  // RUNNER_FLUTTER_WINDOW_H_

@@ -525,10 +525,7 @@ class GamepadHandler(
     }
 
     private fun isJoyConDevice(dev: InputDevice): Boolean {
-        val name = dev.name?.lowercase() ?: ""
-        return name.contains("joy-con") ||
-            name.contains("joycon") ||
-            (dev.vendorId == 0x057e && name.contains("nintendo"))
+        return GamepadDevicePolicy.requiresJoyConOptIn(dev.vendorId, dev.name)
     }
 
     private fun isRelaxedUsbGamepad(dev: InputDevice): Boolean {

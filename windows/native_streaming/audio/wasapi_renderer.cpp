@@ -163,6 +163,37 @@ bool isFloatFormat(const WAVEFORMATEX *fmt) {
     return false;
 }
 
+DWORD channelMaskFor(int channels) {
+    if (channels == 6) return KSAUDIO_SPEAKER_5POINT1;
+    if (channels == 8) return KSAUDIO_SPEAKER_7POINT1;
+    return KSAUDIO_SPEAKER_STEREO;
+}
+
+WAVEFORMATEX *makeSourceFormat(int channels, int sampleRate) {
+    auto *wfx = reinterpret_cast<WAVEFORMATEXTENSIBLE *>(
+        ::CoTaskMemAlloc(sizeof(WAVEFORMATEXTENSIBLE)));
+    if (!wfx) return nullptr;
+    std::memset(wfx, 0, sizeof(WAVEFORMATEXTENSIBLE));
+    wfx->Format.wFormatTag      = WAVE_FORMAT_EXTENSIBLE;
+    wfx->Format.nChannels       = channels > 0 ? static_cast<WORD>(channels) : 2;
+    wfx->Format.nSamplesPerSec  = sampleRate > 0 ? static_cast<DWORD>(sampleRate) : 48000;
+    wfx->Format.wBitsPerSample  = 32;
+    wfx->Format.nBlockAlign     = (wfx->Format.nChannels * wfx->Format.wBitsPerSample) / 8;
+    wfx->Format.nAvgBytesPerSec = wfx->Format.nSamplesPerSec * wfx->Format.nBlockAlign;
+    wfx->Format.cbSize          = sizeof(WAVEFORMATEXTENSIBLE) - sizeof(WAVEFORMATEX);
+    wfx->Samples.wValidBitsPerSample = 32;
+    wfx->dwChannelMask          = channelMaskFor(wfx->Format.nChannels);
+    wfx->SubFormat              = KSDATAFORMAT_SUBTYPE_IEEE_FLOAT;
+    return reinterpret_cast<WAVEFORMATEX *>(wfx);
+}
+
+void freeWaveFormat(WAVEFORMATEX *&fmt) {
+    if (fmt) {
+        ::CoTaskMemFree(fmt);
+        fmt = nullptr;
+    }
+}
+
 }  // namespace
 
 // ---------------------------------------------------------------------------
@@ -192,6 +223,7 @@ bool WasapiRenderer::initialize(int channels, int sampleRate, int samplesPerFram
 
     srcChannels_   = channels;
     srcSampleRate_ = sampleRate;
+    submittedSamples_ = 0;
 
     if (!ring_) {
         ring_ = std::make_unique<AudioRingBuffer>(kRingCapacitySamples);
@@ -247,6 +279,7 @@ void WasapiRenderer::shutdown() {
 void WasapiRenderer::submitPcm(const int16_t *data, int sampleCount) {
     if (!data || sampleCount <= 0) return;
     if (state_.load() == State::Idle || !ring_) return;
+    submittedSamples_ += static_cast<uint64_t>(sampleCount);
 
     // Worst case: every src sample produces one dst sample (same channel count).
     // Buffer sized generously; we allocate on stack for small bursts.
@@ -283,6 +316,7 @@ WasapiRenderer::Stats WasapiRenderer::stats() const {
         s.droppedSamples = ring_->droppedSamples();
         s.underruns      = ring_->underruns();
     }
+    s.submittedSamples = submittedSamples_.load(std::memory_order_relaxed);
     s.reinitCount = reinitCount_.load(std::memory_order_relaxed);
     s.channels    = engineChannels_;
     s.sampleRate  = engineSampleRate_;
@@ -319,13 +353,49 @@ bool WasapiRenderer::acquireDevice() {
         return false;
     }
 
-    // Always match the engine mix format — avoids format conversion errors
-    // for exotic devices (Dolby Atmos endpoints, HDMI receivers, etc.).
-    hr = audioClient_->GetMixFormat(&engineFormat_);
-    if (FAILED(hr) || !engineFormat_) {
-        fprintf(stderr, "WasapiRenderer: GetMixFormat hr=0x%08lX\n", hr);
+    WAVEFORMATEX *desiredFormat = makeSourceFormat(srcChannels_, srcSampleRate_);
+    if (!desiredFormat) {
+        fprintf(stderr, "WasapiRenderer: CoTaskMemAlloc failed\n");
         return false;
     }
+
+    WAVEFORMATEX *mixFormat = nullptr;
+    hr = audioClient_->GetMixFormat(&mixFormat);
+    if (FAILED(hr)) {
+        fprintf(stderr, "WasapiRenderer: GetMixFormat hr=0x%08lX\n", hr);
+    }
+
+    WAVEFORMATEX *closestFormat = nullptr;
+    hr = audioClient_->IsFormatSupported(
+        AUDCLNT_SHAREMODE_SHARED, desiredFormat, &closestFormat);
+    if (hr == S_OK) {
+        engineFormat_ = desiredFormat;
+        desiredFormat = nullptr;
+    } else if (hr == S_FALSE && closestFormat) {
+        engineFormat_ = closestFormat;
+        closestFormat = nullptr;
+        fprintf(stderr,
+                "WasapiRenderer: using WASAPI closest format %u ch, %u Hz, %u bits\n",
+                engineFormat_->nChannels, engineFormat_->nSamplesPerSec,
+                engineFormat_->wBitsPerSample);
+    } else if (mixFormat) {
+        engineFormat_ = mixFormat;
+        mixFormat = nullptr;
+        fprintf(stderr,
+                "WasapiRenderer: source format unsupported hr=0x%08lX; using endpoint mix "
+                "format %u ch, %u Hz, %u bits\n",
+                hr, engineFormat_->nChannels, engineFormat_->nSamplesPerSec,
+                engineFormat_->wBitsPerSample);
+    } else {
+        fprintf(stderr, "WasapiRenderer: IsFormatSupported hr=0x%08lX and no mix format\n", hr);
+        freeWaveFormat(desiredFormat);
+        freeWaveFormat(closestFormat);
+        return false;
+    }
+
+    freeWaveFormat(desiredFormat);
+    freeWaveFormat(closestFormat);
+    freeWaveFormat(mixFormat);
 
     engineChannels_   = engineFormat_->nChannels;
     engineSampleRate_ = static_cast<int>(engineFormat_->nSamplesPerSec);

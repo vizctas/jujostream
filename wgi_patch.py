@@ -1,11 +1,8 @@
-/**
- * wgi_handler.cpp
- *
- * Windows.Gaming.Input — trigger rumble + controller LED.
- * Used alongside XInput for enhanced haptic feedback (trigger motors).
- * XInput handles standard left/right motor rumble natively.
- */
-#include "wgi_handler.h"
+import sys
+
+content = open("windows/native_streaming/input/wgi_handler.cpp", "r").read()
+
+new_includes = """#include "wgi_handler.h"
 #include <cstdio>
 #include <vector>
 #include <roapi.h>
@@ -27,30 +24,27 @@ static constexpr int LI_RS     = 0x0800;
 static constexpr int LI_START  = 0x0010;
 static constexpr int LI_BACK   = 0x0020;
 static constexpr int LI_GUIDE  = 0x0040;
+"""
 
+content = content.replace("""#include "wgi_handler.h"
+#include <cstdio>
+#include <roapi.h>
+#include <wrl/wrappers/corewrappers.h>
+#include <windows.gaming.input.h>""", new_includes)
 
-using namespace ABI::Windows::Gaming::Input;
-using namespace ABI::Windows::Foundation::Collections;
-using namespace Microsoft::WRL;
-using namespace Microsoft::WRL::Wrappers;
-
-namespace jujostream {
-namespace input {
-
-WgiHandler &WgiHandler::instance() {
-    static WgiHandler inst;
-    return inst;
-}
-
-bool WgiHandler::initialize() {
-    // WGI requires Windows Runtime
-    HRESULT hr = RoInitialize(RO_INIT_MULTITHREADED);
-    if (FAILED(hr) && hr != RPC_E_CHANGED_MODE) {
-        fprintf(stderr, "WgiHandler: RoInitialize FAILED hr=0x%08lX\n", hr);
+init_old = """    // Get IGamepadStatics
+    hr = RoGetActivationFactory(
+        HStringReference(RuntimeClass_Windows_Gaming_Input_Gamepad).Get(),
+        __uuidof(IGamepadStatics), (void**)&statics_);
+    if (FAILED(hr)) {
+        fprintf(stderr, "WgiHandler: IGamepadStatics not available (Win8.1+?)\\n");
         return false;
     }
 
-    // Get IGamepadStatics
+    initialized_ = true;
+    fprintf(stderr, "WgiHandler: initialized\\n");"""
+
+init_new = """    // Get IGamepadStatics
     hr = RoGetActivationFactory(
         HStringReference(RuntimeClass_Windows_Gaming_Input_Gamepad).Get(),
         __uuidof(IGamepadStatics), (void**)&statics_);
@@ -61,35 +55,16 @@ bool WgiHandler::initialize() {
         __uuidof(IRawGameControllerStatics), (void**)&raw_statics_);
 
     initialized_ = true;
-    fprintf(stderr, "WgiHandler: initialized\n");
-    return true;
-}
+    fprintf(stderr, "WgiHandler: initialized\\n");"""
 
-void WgiHandler::setVibration(int slot, uint16_t leftMotor, uint16_t rightMotor,
-                                uint16_t leftTrigger, uint16_t rightTrigger) {
-    if (!initialized_ || !statics_) return;
+content = content.replace(init_old, init_new)
 
-    ComPtr<IVectorView<Gamepad*>> pads;
-    if (FAILED(statics_->get_Gamepads(&pads))) return;
+shutdown_old = """void WgiHandler::shutdown() {
+    statics_.Reset();
+    initialized_ = false;
+}"""
 
-    unsigned int count = 0;
-    pads->get_Size(&count);
-    if (slot >= (int)count) return;
-
-    ComPtr<IGamepad> pad;
-    if (FAILED(pads->GetAt(static_cast<unsigned>(slot), &pad))) return;
-
-    // GamepadVibration includes LeftTrigger/RightTrigger since Windows 10 RS1
-    // — IGamepad::put_Vibration is sufficient for trigger motor support
-    GamepadVibration vib{};
-    vib.LeftMotor   = leftMotor   / 65535.0;
-    vib.RightMotor  = rightMotor  / 65535.0;
-    vib.LeftTrigger = leftTrigger / 65535.0;
-    vib.RightTrigger = rightTrigger / 65535.0;
-    pad->put_Vibration(vib);
-}
-
-void WgiHandler::shutdown() {
+shutdown_new = """void WgiHandler::shutdown() {
     statics_.Reset();
     raw_statics_.Reset();
     initialized_ = false;
@@ -108,12 +83,9 @@ int WgiHandler::getRawControllerCount() {
         if (SUCCEEDED(pads->GetAt(i, &raw))) {
             ComPtr<IGameController> gc;
             if (SUCCEEDED(raw.As(&gc))) {
-                ComPtr<IGamepadStatics2> statics2;
-                if (statics_ && SUCCEEDED(statics_.As(&statics2))) {
-                    ComPtr<IGamepad> gp;
-                    if (SUCCEEDED(statics2->FromGameController(gc.Get(), &gp)) && gp) {
-                        continue; // Skip XInput / standard WGI gamepad
-                    }
+                ComPtr<IGamepad> gp;
+                if (statics_ && SUCCEEDED(statics_->FromGameController(gc.Get(), &gp)) && gp) {
+                    continue; // Skip XInput / standard WGI gamepad
                 }
                 rawCount++;
             }
@@ -143,12 +115,9 @@ void WgiHandler::pollRawControllers(
         ComPtr<IGameController> gc;
         if (FAILED(raw.As(&gc))) continue;
         
-        ComPtr<IGamepadStatics2> statics2;
-        if (statics_ && SUCCEEDED(statics_.As(&statics2))) {
-            ComPtr<IGamepad> gp;
-            if (SUCCEEDED(statics2->FromGameController(gc.Get(), &gp)) && gp) {
-                continue; 
-            }
+        ComPtr<IGamepad> gp;
+        if (statics_ && SUCCEEDED(statics_->FromGameController(gc.Get(), &gp)) && gp) {
+            continue; 
         }
         
         int buttonCount = 0, axisCount = 0, switchCount = 0;
@@ -236,7 +205,8 @@ void WgiHandler::pollRawControllers(
         callback(currentSlot++, li, lt, rt, lx, ly, rx, ry);
     }
 }
+"""
 
+content = content.replace(shutdown_old, shutdown_new)
 
-}  // namespace input
-}  // namespace jujostream
+open("windows/native_streaming/input/wgi_handler.cpp", "w").write(content)

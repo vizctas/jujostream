@@ -22,6 +22,9 @@ import 'services/crypto/client_identity.dart';
 import 'services/preferences/launcher_preferences.dart';
 import 'services/database/app_override_service.dart';
 import 'services/input/gamepad_button_helper.dart';
+import 'services/input/gamepad_navigation_service.dart';
+import 'services/window/fullscreen_service.dart';
+import 'platform_channels/gamepad_channel.dart';
 import 'services/tv/tv_detector.dart';
 import 'screens/pc_view/focus_mode_screen.dart';
 import 'screens/pc_view/pc_view_screen.dart';
@@ -29,11 +32,14 @@ import 'widgets/tour_overlay.dart';
 import 'services/notifications/notification_service.dart';
 import 'services/pro/pro_service.dart';
 import 'services/crash/crash_service.dart';
+import 'services/telemetry/beta_telemetry_service.dart';
 
 class _AppHttpOverrides extends io.HttpOverrides {
   @override
   io.HttpClient createHttpClient(io.SecurityContext? context) {
-    final client = super.createHttpClient(ClientIdentity.buildSecurityContext());
+    final client = super.createHttpClient(
+      ClientIdentity.buildSecurityContext(),
+    );
     client.badCertificateCallback = (cert, host, port) => true;
     client.maxConnectionsPerHost = 4;
     return client;
@@ -53,6 +59,12 @@ void main() async {
     debugPaintPointersEnabled = false;
   }
   io.HttpOverrides.global = _AppHttpOverrides();
+  await BetaTelemetryService.initialize();
+  BetaTelemetryService.installDebugPrintCapture();
+  BetaTelemetryService.event('app_boot', {
+    'platform': io.Platform.operatingSystem,
+    'debug': kDebugMode,
+  });
 
   // Generate per-device identity (cert + key + uniqueId) on first launch.
   // Must complete before any HTTPS networking starts.
@@ -61,10 +73,15 @@ void main() async {
   unawaited(NotificationService.init());
   unawaited(UiSoundService.ensureInitialized());
   unawaited(ProService().initialize());
-  unawaited(CrashService.initialize());
+  await CrashService.initialize();
+  BetaTelemetryService.installGlobalHandlers();
 
   await TvDetector.instance.init();
   GamepadButtonHelper.instance.init();
+  if (io.Platform.isWindows) {
+    GamepadChannel.init();           // wire MethodCallHandler before first frame
+    GamepadNavigationService.init(); // map onNavInput → Flutter focus traversal
+  }
 
   final settingsProvider = SettingsProvider();
   await settingsProvider.loadSettings();
@@ -76,6 +93,13 @@ void main() async {
 
   final launcherPreferences = LauncherPreferences();
   await launcherPreferences.load(themeProvider.launcherThemeId.name);
+
+  if (io.Platform.isWindows) {
+    FullscreenService.init(initialState: launcherPreferences.desktopFullscreen);
+    FullscreenService.onF11Toggle = (bool newState) {
+      launcherPreferences.setDesktopFullscreen(newState);
+    };
+  }
 
   final authProvider = AuthProvider();
   unawaited(authProvider.trySilentSignIn());
@@ -108,6 +132,7 @@ void main() async {
       child: const JujostreamApp(),
     ),
   );
+  BetaTelemetryService.event('run_app');
 }
 
 class JujostreamApp extends StatelessWidget {

@@ -6,6 +6,7 @@
  * Fires Dart callbacks on connect/disconnect and combo detection.
  */
 #include "xinput_handler.h"
+#include "wgi_handler.h"
 #include "combo_detector.h"
 
 extern "C" {
@@ -17,6 +18,7 @@ extern "C" {
 #include <cmath>
 #include <cstdio>
 #include <timeapi.h>
+#include <windows.h>
 
 #pragma comment(lib, "xinput.lib")
 #pragma comment(lib, "winmm.lib")
@@ -64,6 +66,67 @@ static int xinputToMoonlight(WORD xi) {
     return li;
 }
 
+static bool isCurrentProcessForeground() {
+    HWND foreground = GetForegroundWindow();
+    if (!foreground) return false;
+
+    DWORD processId = 0;
+    GetWindowThreadProcessId(foreground, &processId);
+    return processId == GetCurrentProcessId();
+}
+
+static void sendKeyboardEdge(WORD vk, bool down) {
+    INPUT input{};
+    input.type = INPUT_KEYBOARD;
+    input.ki.wVk = vk;
+    input.ki.dwFlags = down ? 0 : KEYEVENTF_KEYUP;
+    SendInput(1, &input, sizeof(INPUT));
+}
+
+static void sendUiKeyEdges(int pressed, int released) {
+    struct Mapping {
+        int flag;
+        WORD vk;
+    };
+
+    static constexpr Mapping mappings[] = {
+        {LI_UP, VK_UP},
+        {LI_DOWN, VK_DOWN},
+        {LI_LEFT, VK_LEFT},
+        {LI_RIGHT, VK_RIGHT},
+        {LI_A, VK_RETURN},
+        {LI_B, VK_ESCAPE},
+    };
+
+    for (const auto& mapping : mappings) {
+        if (pressed & mapping.flag) sendKeyboardEdge(mapping.vk, true);
+        if (released & mapping.flag) sendKeyboardEdge(mapping.vk, false);
+    }
+}
+
+static void emitDartNavEdges(
+    const std::function<void(const std::string&)>& navCb,
+    int pressed) {
+    if (!navCb) return;
+    if (pressed & LI_UP)    navCb("up");
+    if (pressed & LI_DOWN)  navCb("down");
+    if (pressed & LI_LEFT)  navCb("left");
+    if (pressed & LI_RIGHT) navCb("right");
+    if (pressed & LI_A)     navCb("select");
+    if (pressed & LI_B)     navCb("back");
+}
+
+static void dispatchUiNavigation(
+    const std::function<void(const std::string&)>& navCb,
+    int pressed,
+    int released) {
+    if (isCurrentProcessForeground()) {
+        sendUiKeyEdges(pressed, released);
+        return;
+    }
+    emitDartNavEdges(navCb, pressed);
+}
+
 // Radial deadzone + response curve on a single axis pair
 static void applyDeadzone(SHORT &x, SHORT &y, int deadzonePercent, double curve) {
     double fx = x / 32767.0;
@@ -103,6 +166,9 @@ int XInputHandler::getConnectedCount() const {
     for (int i = 0; i < XUSER_MAX_COUNT; ++i) {
         XINPUT_STATE s{}; if (XInputGetState(i, &s) == ERROR_SUCCESS) ++count;
     }
+    if (WgiHandler::instance().isInitialized()) {
+        count += WgiHandler::instance().getRawControllerCount();
+    }
     return count;
 }
 
@@ -129,6 +195,7 @@ void XInputHandler::pollLoop() {
                     fprintf(stderr, "XInputHandler: controller %d disconnected\n", slot);
                     if (onControllerDisconnected) onControllerDisconnected(slot);
                     prev_buttons_[slot] = 0;
+                    prev_li_buttons_[slot] = 0;
                 }
             }
 
@@ -152,7 +219,7 @@ void XInputHandler::pollLoop() {
             int liButtons = xinputToMoonlight(state.Gamepad.wButtons);
             ComboDetector::instance().update(static_cast<uint32_t>(liButtons));
 
-            // Stream input forwarding
+            // Stream input forwarding / UI navigation
             if (streaming_active_) {
                 SHORT lx = state.Gamepad.sThumbLX;
                 SHORT ly = state.Gamepad.sThumbLY;
@@ -168,9 +235,74 @@ void XInputHandler::pollLoop() {
                     state.Gamepad.bLeftTrigger,
                     state.Gamepad.bRightTrigger,
                     lx, ly, rx, ry);
+            } else {
+                int pressed = liButtons & ~static_cast<int>(prev_li_buttons_[slot]);
+                int released = static_cast<int>(prev_li_buttons_[slot]) & ~liButtons;
+                dispatchUiNavigation(nav_input_cb_, pressed, released);
             }
 
             prev_buttons_[slot] = state.Gamepad.wButtons;
+            prev_li_buttons_[slot] = liButtons;
+        }
+
+        // WGI RawGameControllers (DualSense, DS4, Switch Pro, etc)
+        if (WgiHandler::instance().isInitialized()) {
+            bool wgi_connected[4] = {false, false, false, false};
+
+            WgiHandler::instance().pollRawControllers(XUSER_MAX_COUNT, [&](int slot, int liButtons, uint8_t lt, uint8_t rt, int16_t lx, int16_t ly, int16_t rx, int16_t ry) {
+                if (slot >= 8) return; 
+                wgi_connected[slot - XUSER_MAX_COUNT] = true;
+                
+                if (!prev_connected_[slot]) {
+                    prev_connected_[slot] = true;
+                    fprintf(stderr, "XInputHandler: WGI raw controller %d connected\n", slot);
+                    if (onControllerConnected) onControllerConnected(slot);
+                }
+                
+                activeMask |= (1 << slot);
+
+                // Dpad overlay navigation
+                if (overlay_visible_ && overlay_dpad_cb_) {
+                    if ((liButtons & LI_UP)    && !(prev_buttons_[slot] & LI_UP))    overlay_dpad_cb_("up");
+                    if ((liButtons & LI_DOWN)  && !(prev_buttons_[slot] & LI_DOWN))  overlay_dpad_cb_("down");
+                    if ((liButtons & LI_LEFT)  && !(prev_buttons_[slot] & LI_LEFT))  overlay_dpad_cb_("left");
+                    if ((liButtons & LI_RIGHT) && !(prev_buttons_[slot] & LI_RIGHT)) overlay_dpad_cb_("right");
+                }
+
+                ComboDetector::instance().update(static_cast<uint32_t>(liButtons));
+
+                if (streaming_active_) {
+                    SHORT slx = lx, sly = ly, srx = rx, sry = ry;
+                    applyDeadzone(slx, sly, deadzone_percent_, response_curve_);
+                    applyDeadzone(srx, sry, deadzone_percent_, response_curve_);
+
+                    moonlightWinSendControllerInput(
+                        static_cast<short>(slot),
+                        activeMask,
+                        liButtons,
+                        lt, rt,
+                        slx, sly, srx, sry);
+                } else {
+                    int pressed = liButtons & ~static_cast<int>(prev_li_buttons_[slot]);
+                    int released = static_cast<int>(prev_li_buttons_[slot]) & ~liButtons;
+                    dispatchUiNavigation(nav_input_cb_, pressed, released);
+                }
+
+                prev_buttons_[slot] = liButtons;
+                prev_li_buttons_[slot] = liButtons;
+            });
+
+            // Handle WGI disconnects
+            for (int i = 0; i < 4; ++i) {
+                int slot = XUSER_MAX_COUNT + i;
+                if (prev_connected_[slot] && !wgi_connected[i]) {
+                    prev_connected_[slot] = false;
+                    prev_buttons_[slot] = 0;
+                    prev_li_buttons_[slot] = 0;
+                    fprintf(stderr, "XInputHandler: WGI raw controller %d disconnected\n", slot);
+                    if (onControllerDisconnected) onControllerDisconnected(slot);
+                }
+            }
         }
 
         Sleep(kPollIntervalMs);
