@@ -90,6 +90,7 @@ class VideoDecoderRenderer(
     private var activeRenderPath = "texture"
     private var isMediaTekDecoder = false
     private var isExynosDecoder = false
+    private var isQualcommDecoder = false
 
     @Volatile private var startTimeNs = 0L
     private var zeroOutputWarningEmitted = false
@@ -181,9 +182,7 @@ class VideoDecoderRenderer(
             val nameLower = decoderName.lowercase()
             isMediaTekDecoder = nameLower.contains("mtk") || nameLower.contains("mediatek")
             isExynosDecoder = nameLower.contains("exynos")
-
-            // Internal telemetry not yet used ... Maybe later will add some export functions to share on github.
-            // Gonna need more test if the telemetry may cause some perfomance issues.
+            isQualcommDecoder = nameLower.contains("qcom") || nameLower.contains("c2.qti")
 
             val socModel = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) Build.SOC_MODEL else "unknown"
             Log.i(TAG, "┌─── DECODER DIAGNOSTIC ───────────────────────────")
@@ -192,57 +191,17 @@ class VideoDecoderRenderer(
             Log.i(TAG, "│ Android: API ${Build.VERSION.SDK_INT} (${Build.VERSION.RELEASE})")
             Log.i(TAG, "│ Decoder: $decoderName")
             Log.i(TAG, "│ MIME: $mimeType")
-            Log.i(TAG, "│ Quirks: mtk=$isMediaTekDecoder exynos=$isExynosDecoder weak=$isWeakDevice")
+            Log.i(TAG, "│ Quirks: mtk=$isMediaTekDecoder exynos=$isExynosDecoder qcom=$isQualcommDecoder weak=$isWeakDevice")
             Log.i(TAG, "└──────────────────────────────────────────────────")
 
-            val format = MediaFormat.createVideoFormat(mimeType, width, height)
+            // --- Build the MediaFormat with multi-try vendor low-latency strategy ---
+            // Each SoC family requires different keys to enable real-time decode mode.
+            // Without the correct key, the decoder buffers frames indefinitely (black screen).
+            // Strategy: try the most aggressive format first, fall back on configure() failure.
 
-            format.setInteger(MediaFormat.KEY_MAX_WIDTH, width)
-            format.setInteger(MediaFormat.KEY_MAX_HEIGHT, height)
+            val configResult = configureDecoderWithFallback(mimeType, width, height, redrawRate)
+            if (configResult != 0) return configResult
 
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                format.setInteger(MediaFormat.KEY_FRAME_RATE, redrawRate)
-                if (isWeakDevice) {
-                    format.setFloat(MediaFormat.KEY_OPERATING_RATE, minOf(redrawRate, 30).toFloat())
-                    format.setInteger(MediaFormat.KEY_PRIORITY, 1)
-                } else {
-
-                    format.setFloat(MediaFormat.KEY_OPERATING_RATE, Short.MAX_VALUE.toFloat())
-                    format.setInteger(MediaFormat.KEY_PRIORITY, 0)
-                }
-            }
-            val applyLowLatency = !isWeakDevice &&
-                !isMediaTekDecoder &&
-                !isExynosDecoder &&
-                Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
-            if (applyLowLatency) {
-                format.setInteger(MediaFormat.KEY_LOW_LATENCY, 1)
-            }
-            Log.i(TAG, "MediaFormat: lowLatency=$applyLowLatency opRate=${
-                if (isWeakDevice) "capped" else "MAX"} priority=${if (isWeakDevice) 1 else 0}")
-
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                val colorRange = if (fullRange) MediaFormat.COLOR_RANGE_FULL
-                                 else MediaFormat.COLOR_RANGE_LIMITED
-
-                if (enableHdr && (mimeType == "video/hevc" || mimeType == "video/av01")) {
-                    format.setInteger(MediaFormat.KEY_COLOR_RANGE, colorRange)
-                    format.setInteger(MediaFormat.KEY_COLOR_STANDARD,
-                        MediaFormat.COLOR_STANDARD_BT2020)
-                    format.setInteger(MediaFormat.KEY_COLOR_TRANSFER,
-                        MediaFormat.COLOR_TRANSFER_ST2084)
-                    Log.i(TAG, "HDR10 color metadata applied (BT.2020 / PQ, range=${if (fullRange) "FULL" else "LIMITED"})")
-                } else {
-                    format.setInteger(MediaFormat.KEY_COLOR_RANGE, colorRange)
-                    format.setInteger(MediaFormat.KEY_COLOR_STANDARD,
-                        MediaFormat.COLOR_STANDARD_BT709)
-                    format.setInteger(MediaFormat.KEY_COLOR_TRANSFER,
-                        MediaFormat.COLOR_TRANSFER_SDR_VIDEO)
-                    Log.i(TAG, "SDR color metadata applied (BT.709, range=${if (fullRange) "FULL" else "LIMITED"})")
-                }
-            }
-
-            videoDecoder!!.configure(format, renderSurface, null, 0)
             videoDecoder!!.start()
 
             Log.i(TAG, "Decoder started: $decoderName via $activeRenderPath")
@@ -251,6 +210,174 @@ class VideoDecoderRenderer(
         } catch (e: Exception) {
             Log.e(TAG, "Failed to set up decoder", e)
             return -1
+        }
+    }
+
+    /**
+     * Builds a MediaFormat with SoC-specific vendor low-latency keys and attempts
+     * configure() with progressive fallback. Each SoC family needs different keys
+     * to enable real-time decode mode:
+     *
+     * - Qualcomm (omx.qcom / c2.qti): KEY_LOW_LATENCY + KEY_OPERATING_RATE=MAX
+     *     + vendor.qti-ext-dec-low-latency.enable + vendor.qti-ext-dec-picture-order.enable
+     * - MediaTek (omx.mtk / c2.mtk): "vdec-lowlatency" (AOSP fork key)
+     *     Maps to OMX.MTK.index.param.video.LowLatencyDecode internally.
+     * - Exynos/Tensor (c2.exynos): "vendor.rtc-ext-dec-low-latency.enable"
+     * - Amlogic (omx.amlogic): "vendor.low-latency.enable" + "vdec-lowlatency"
+     *
+     * Without the correct vendor key, MTK/Exynos decoders buffer frames indefinitely
+     * in "normal playback" mode → zero output → black screen.
+     *
+     * Fallback order:
+     *   Try 0: All vendor keys + standard low-latency + operating rate
+     *   Try 1: Vendor keys only (no KEY_LOW_LATENCY)
+     *   Try 2: Operating rate / priority only (no vendor keys)
+     *   Try 3: Bare minimum (resolution + fps only)
+     */
+    private fun configureDecoderWithFallback(
+        mimeType: String, width: Int, height: Int, redrawRate: Int
+    ): Int {
+        val decoder = videoDecoder ?: return -1
+        val maxTries = 4
+
+        for (tryNumber in 0 until maxTries) {
+            try {
+                val format = buildMediaFormat(mimeType, width, height, redrawRate, tryNumber)
+                Log.i(TAG, "configure() attempt $tryNumber for $decoderName")
+                decoder.configure(format, renderSurface, null, 0)
+                Log.i(TAG, "configure() succeeded on attempt $tryNumber")
+                return 0
+            } catch (e: Exception) {
+                Log.w(TAG, "configure() attempt $tryNumber failed: ${e.message}")
+                // MediaCodec enters Error state after a failed configure — must reset before retry
+                try { decoder.reset() } catch (_: Exception) { }
+                if (tryNumber == maxTries - 1) {
+                    Log.e(TAG, "All configure() attempts exhausted for $decoderName", e)
+                    return -1
+                }
+            }
+        }
+        return -1
+    }
+
+    /**
+     * Constructs a MediaFormat for the given try number. Higher try numbers
+     * strip progressively more vendor-specific keys for maximum compatibility.
+     */
+    private fun buildMediaFormat(
+        mimeType: String, width: Int, height: Int, redrawRate: Int, tryNumber: Int
+    ): MediaFormat {
+        val format = MediaFormat.createVideoFormat(mimeType, width, height)
+        format.setInteger(MediaFormat.KEY_MAX_WIDTH, width)
+        format.setInteger(MediaFormat.KEY_MAX_HEIGHT, height)
+
+        // --- Layer 1: Frame rate + operating rate (try 0-2) ---
+        if (tryNumber <= 2 && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            format.setInteger(MediaFormat.KEY_FRAME_RATE, redrawRate)
+            if (isWeakDevice) {
+                format.setFloat(MediaFormat.KEY_OPERATING_RATE, minOf(redrawRate, 30).toFloat())
+                format.setInteger(MediaFormat.KEY_PRIORITY, 1)
+            } else if (isQualcommDecoder) {
+                // Qualcomm decoders respond well to MAX operating rate for lowest latency.
+                // Other SoC families may silently reject this value or misbehave.
+                format.setFloat(MediaFormat.KEY_OPERATING_RATE, Short.MAX_VALUE.toFloat())
+                format.setInteger(MediaFormat.KEY_PRIORITY, 0)
+            } else {
+                // Non-Qualcomm: use realtime priority without ludicrous operating rate
+                format.setInteger(MediaFormat.KEY_PRIORITY, 0)
+            }
+        }
+
+        // --- Layer 2: Standard Android R+ low-latency flag (try 0 only) ---
+        // Only for decoders where KEY_LOW_LATENCY is known safe.
+        // MTK and Exynos decoders may crash or silently ignore this flag.
+        if (tryNumber == 0 && !isWeakDevice && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val safeForStandardLowLatency = !isMediaTekDecoder && !isExynosDecoder
+            if (safeForStandardLowLatency) {
+                format.setInteger(MediaFormat.KEY_LOW_LATENCY, 1)
+                Log.i(TAG, "  + KEY_LOW_LATENCY=1 (standard)")
+            }
+        }
+
+        // --- Layer 3: Vendor-specific low-latency keys (try 0-1) ---
+        if (tryNumber <= 1 && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            applyVendorLowLatencyKeys(format, mimeType, tryNumber)
+        }
+
+        // --- Layer 4: Color metadata (always applied — never causes configure failure) ---
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            val colorRange = if (fullRange) MediaFormat.COLOR_RANGE_FULL
+                             else MediaFormat.COLOR_RANGE_LIMITED
+
+            if (enableHdr && (mimeType == "video/hevc" || mimeType == "video/av01")) {
+                format.setInteger(MediaFormat.KEY_COLOR_RANGE, colorRange)
+                format.setInteger(MediaFormat.KEY_COLOR_STANDARD,
+                    MediaFormat.COLOR_STANDARD_BT2020)
+                format.setInteger(MediaFormat.KEY_COLOR_TRANSFER,
+                    MediaFormat.COLOR_TRANSFER_ST2084)
+            } else {
+                format.setInteger(MediaFormat.KEY_COLOR_RANGE, colorRange)
+                format.setInteger(MediaFormat.KEY_COLOR_STANDARD,
+                    MediaFormat.COLOR_STANDARD_BT709)
+                format.setInteger(MediaFormat.KEY_COLOR_TRANSFER,
+                    MediaFormat.COLOR_TRANSFER_SDR_VIDEO)
+            }
+        }
+
+        Log.i(TAG, "  MediaFormat[try=$tryNumber]: $format")
+        return format
+    }
+
+    /**
+     * Applies SoC-family-specific vendor low-latency keys to the MediaFormat.
+     * These are the keys that actually make the hardware decoder output frames
+     * in real-time streaming mode instead of buffering for normal playback.
+     *
+     * Reference: moonlight-android MediaCodecHelper.setDecoderLowLatencyOptions()
+     */
+    private fun applyVendorLowLatencyKeys(format: MediaFormat, mimeType: String, tryNumber: Int) {
+        if (isQualcommDecoder) {
+            // Qualcomm vendor extensions (Snapdragon 845+)
+            // vendor.qti-ext-dec-picture-order.enable: disables frame reordering
+            // vendor.qti-ext-dec-low-latency.enable: enables low-latency decode path
+            if (tryNumber == 0) {
+                format.setInteger("vendor.qti-ext-dec-picture-order.enable", 1)
+            }
+            format.setInteger("vendor.qti-ext-dec-low-latency.enable", 1)
+            Log.i(TAG, "  + Qualcomm vendor low-latency keys (try=$tryNumber)")
+        }
+
+        if (isMediaTekDecoder) {
+            // MediaTek (Dimensity) vendor key — maps to OMX.MTK.index.param.video.LowLatencyDecode.
+            // Without this, MTK decoders in streaming mode buffer frames indefinitely (black screen).
+            // Also used by Amazon Fire TV (Amlogic) where it maps to
+            // OMX.amazon.fireos.index.video.lowLatencyDecode.
+            // Reference: https://github.com/yuan1617/Framwork/blob/master/frameworks/av/media/libstagefright/ACodec.cpp
+            format.setInteger("vdec-lowlatency", 1)
+            Log.i(TAG, "  + MediaTek vdec-lowlatency=1")
+        }
+
+        if (isExynosDecoder) {
+            // Samsung Exynos / Google Tensor vendor extension for low-latency H.264/HEVC decode.
+            // Tensor chips use Samsung MFC (Multi-Format Codec) hardware with c2.exynos.* naming.
+            format.setInteger("vendor.rtc-ext-dec-low-latency.enable", 1)
+            Log.i(TAG, "  + Exynos/Tensor vendor.rtc-ext-dec-low-latency.enable=1")
+        }
+
+        // Amlogic decoders (Fire TV, some Android TV boxes) — detect by name prefix
+        val nameLower = decoderName.lowercase()
+        if (nameLower.contains("amlogic")) {
+            format.setInteger("vendor.low-latency.enable", 1)
+            // Amlogic also responds to vdec-lowlatency on Fire TV
+            format.setInteger("vdec-lowlatency", 1)
+            Log.i(TAG, "  + Amlogic vendor.low-latency.enable=1 + vdec-lowlatency=1")
+        }
+
+        // Kirin (Huawei) vendor extension
+        if (nameLower.contains("hisi") || nameLower.contains("kirin")) {
+            format.setInteger("vendor.hisi-ext-low-latency-video-dec.video-scene-for-low-latency-req", 1)
+            format.setInteger("vendor.hisi-ext-low-latency-video-dec.video-scene-for-low-latency-rdy", -1)
+            Log.i(TAG, "  + Kirin/HiSilicon vendor low-latency keys")
         }
     }
 

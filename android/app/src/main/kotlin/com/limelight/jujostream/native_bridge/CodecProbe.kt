@@ -49,11 +49,47 @@ object CodecProbe {
         return findBestDecoder(mcl, mime, width, height, fps, hdr)?.decoderName
     }
 
+    /**
+     * Two-pass decoder selection (modeled after moonlight-android's findKnownSafeDecoder):
+     *
+     * Pass 1: Only consider decoders that advertise FEATURE_LowLatency.
+     *   These are guaranteed to output frames immediately in streaming mode.
+     *   On Tensor/Exynos, the low-latency variant (e.g. c2.exynos.*.decoder.low_latency)
+     *   is listed AFTER the standard one — this two-pass approach ensures we pick it.
+     *
+     * Pass 2: If no FEATURE_LowLatency decoder found, consider all HW decoders.
+     *   Vendor low-latency keys (vdec-lowlatency, vendor.rtc-ext-dec-low-latency.enable)
+     *   will be applied at configure() time by VideoDecoderRenderer.
+     *
+     * This prevents selecting a decoder that silently buffers frames (black screen).
+     */
     private fun findBestDecoder(
         mcl: MediaCodecList,
         mime: String,
         w: Int, h: Int, fps: Int,
         hdr: Boolean
+    ): CodecScore? {
+        // Pass 1: prefer decoders with FEATURE_LowLatency
+        val pass1 = findBestDecoderInternal(mcl, mime, w, h, fps, hdr, requireLowLatency = true)
+        if (pass1 != null) {
+            Log.i(TAG, "Pass 1 (FEATURE_LowLatency): selected ${pass1.decoderName} score=${pass1.score}")
+            return pass1
+        }
+
+        // Pass 2: all eligible HW decoders
+        val pass2 = findBestDecoderInternal(mcl, mime, w, h, fps, hdr, requireLowLatency = false)
+        if (pass2 != null) {
+            Log.i(TAG, "Pass 2 (all HW): selected ${pass2.decoderName} score=${pass2.score}")
+        }
+        return pass2
+    }
+
+    private fun findBestDecoderInternal(
+        mcl: MediaCodecList,
+        mime: String,
+        w: Int, h: Int, fps: Int,
+        hdr: Boolean,
+        requireLowLatency: Boolean
     ): CodecScore? {
         var topScore = -1
         var topName = ""
@@ -70,6 +106,17 @@ object CodecProbe {
             } catch (_: Exception) { continue }
 
             if (!isClearPlaybackDecoder(info, caps)) continue
+
+            // Pass 1 filter: only decoders that advertise FEATURE_LowLatency
+            if (requireLowLatency && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                val hasLowLatency = try {
+                    caps.isFeatureSupported(MediaCodecInfo.CodecCapabilities.FEATURE_LowLatency)
+                } catch (_: Exception) { false }
+                if (!hasLowLatency) continue
+            } else if (requireLowLatency) {
+                // FEATURE_LowLatency not available before Android R — skip pass 1
+                continue
+            }
 
             val vidCaps = caps.videoCapabilities ?: continue
 
@@ -95,6 +142,14 @@ object CodecProbe {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 val headroom = measurePerfHeadroom(vidCaps, w, h, fps)
                 score += headroom
+            }
+
+            // Bonus for FEATURE_LowLatency support (even in pass 2)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                val hasLowLatency = try {
+                    caps.isFeatureSupported(MediaCodecInfo.CodecCapabilities.FEATURE_LowLatency)
+                } catch (_: Exception) { false }
+                if (hasLowLatency) score += 250
             }
 
             if (score > topScore) {
