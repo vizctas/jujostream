@@ -33,6 +33,12 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
 
         @Volatile var isStreamingActive = false
 
+        /** True only after the native connection's onConnectionStarted callback fires.
+         *  Unlike [isStreamingActive] (set before the RTSP handshake), this flag
+         *  guarantees the stream is actually established and frames are flowing.
+         *  Used to guard PiP entry and input forwarding during the connection phase. */
+        @Volatile var isConnectionEstablished = false
+
         @Volatile var isPipMode = false
         @Volatile var reconnectAfterPip = false
 
@@ -648,6 +654,7 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
     }
 
     override fun onConnectionStarted() {
+        isConnectionEstablished = true
         videoRenderer?.resetStats()
         videoRenderer?.start()
         audioRenderer?.start()
@@ -779,6 +786,7 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
 
     private fun cleanup() {
         isStreamingActive = false
+        isConnectionEstablished = false
         directSubmitActive = false
         DisplayModeHelper.restore(activity)
         DirectSubmitViewFactory.reset()

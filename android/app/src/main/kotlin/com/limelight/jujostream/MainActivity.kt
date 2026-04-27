@@ -112,11 +112,15 @@ class MainActivity : FlutterActivity() {
 
     private fun refreshPipParams() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
-        val active = StreamingPlugin.isStreamingActive
-        val ratio = if (StreamingPlugin.isStreamingActive) Rational(16, 9) else Rational(9, 16)
+        // Use isConnectionEstablished (not isStreamingActive) to prevent
+        // auto-PiP during the RTSP handshake phase. isStreamingActive is
+        // set before the connection completes, so auto-enter would fire
+        // on any Activity pause (e.g., keyboard/mouse plug) during setup.
+        val established = StreamingPlugin.isConnectionEstablished
+        val ratio = if (established) Rational(16, 9) else Rational(9, 16)
         val params = PictureInPictureParams.Builder()
             .setAspectRatio(ratio)
-            .setAutoEnterEnabled(active)
+            .setAutoEnterEnabled(established)
             .build()
         runCatching { setPictureInPictureParams(params) }
     }
@@ -303,7 +307,12 @@ class MainActivity : FlutterActivity() {
 
     private fun tryEnterPip() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
-        if (!StreamingPlugin.isStreamingActive) return
+        // Guard: only enter PiP when the stream connection is fully established
+        // (onConnectionStarted has fired). Using isStreamingActive alone is too
+        // early — it's set before the RTSP handshake completes. Entering PiP
+        // during the handshake (e.g., triggered by a keyboard/mouse connection
+        // causing a brief Activity pause) creates a stale-connection death spiral.
+        if (!StreamingPlugin.isConnectionEstablished) return
         if (isInPictureInPictureMode) return
         val ratio = if (StreamingPlugin.isStreamingActive) Rational(16, 9) else Rational(9, 16)
         val params = PictureInPictureParams.Builder()
