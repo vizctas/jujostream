@@ -31,7 +31,6 @@ import javax.crypto.spec.SecretKeySpec
 import javax.net.ssl.HttpsURLConnection
 import javax.net.ssl.SSLContext
 import javax.net.ssl.TrustManager
-import javax.net.ssl.X509TrustManager
 
 
 class PairingForegroundService : Service() {
@@ -381,7 +380,7 @@ class PairingForegroundService : Service() {
 
         Log.i(TAG, "Phase 5 (HTTPS): pairchallenge")
         try {
-            val body = httpsGetWithClientCert(httpsPairChallengeUrl, certPem, keyPem, 5000)
+            val body = httpsGetWithClientCert(httpsPairChallengeUrl, certPem, keyPem, 5000, serverCertPemString)
             if (extractXmlValue(body, "paired") == "1") {
                 phase5Completed = true
             } else {
@@ -407,7 +406,7 @@ class PairingForegroundService : Service() {
             Log.w(TAG, "Phase 5 challenge failed, verifying via HTTPS serverinfo")
             try {
                 val serverInfoUrl = "$httpsBaseUrl/serverinfo?uniqueid=$uniqueId"
-                val body = httpsGetWithClientCert(serverInfoUrl, certPem, keyPem, 5000)
+                val body = httpsGetWithClientCert(serverInfoUrl, certPem, keyPem, 5000, serverCertPemString)
                 val pairStatus = extractXmlValue(body, "PairStatus")
                 if (pairStatus == "1") {
                     phase5Completed = true
@@ -489,19 +488,50 @@ class PairingForegroundService : Service() {
         }
     }
 
+    /**
+     * Performs an HTTPS GET using the client certificate for mutual TLS,
+     * pinning trust to the server certificate obtained during Phase 1.
+     *
+     * This avoids an unsafe "trust-all" TrustManager (Play Store policy
+     * violation) by only accepting the exact server certificate we already
+     * received and validated during the pairing handshake.
+     */
     private fun httpsGetWithClientCert(
         url: String,
         certPem: String,
         keyPem: String,
-        timeoutMs: Int
+        timeoutMs: Int,
+        pinnedServerCertPem: String? = null
     ): String {
-        val trustAllCerts = arrayOf<TrustManager>(object : X509TrustManager {
-            override fun checkClientTrusted(chain: Array<X509Certificate>?, authType: String?) {}
-            override fun checkServerTrusted(chain: Array<X509Certificate>?, authType: String?) {}
-            override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
-        })
+        // --- TrustManager: pin to the known server certificate ----------
+        val trustManagers: Array<TrustManager> = if (pinnedServerCertPem != null) {
+            // Build a TrustStore containing only the server cert from Phase 1
+            val certFactory = CertificateFactory.getInstance("X.509")
+            val serverCert = certFactory.generateCertificate(
+                ByteArrayInputStream(pinnedServerCertPem.toByteArray(Charsets.UTF_8))
+            ) as X509Certificate
 
-        // Build KeyManager with client cert + key
+            val trustStore = java.security.KeyStore.getInstance(java.security.KeyStore.getDefaultType())
+            trustStore.load(null, null)
+            trustStore.setCertificateEntry("pinnedServer", serverCert)
+
+            val tmf = javax.net.ssl.TrustManagerFactory.getInstance(
+                javax.net.ssl.TrustManagerFactory.getDefaultAlgorithm()
+            )
+            tmf.init(trustStore)
+            tmf.trustManagers
+        } else {
+            // Fallback: use system default trust store (public CAs).
+            // This path is only hit if we somehow lack the server cert,
+            // and will correctly reject untrusted certificates.
+            val tmf = javax.net.ssl.TrustManagerFactory.getInstance(
+                javax.net.ssl.TrustManagerFactory.getDefaultAlgorithm()
+            )
+            tmf.init(null as java.security.KeyStore?)
+            tmf.trustManagers
+        }
+
+        // --- KeyManager: client cert + key for mutual TLS ---------------
         val keyStore = java.security.KeyStore.getInstance("PKCS12")
         keyStore.load(null, null)
 
@@ -517,12 +547,31 @@ class PairingForegroundService : Service() {
         )
         kmf.init(keyStore, charArrayOf())
 
+        // --- SSLContext with pinned trust + client identity --------------
         val sslContext = SSLContext.getInstance("TLS")
-        sslContext.init(kmf.keyManagers, trustAllCerts, java.security.SecureRandom())
+        sslContext.init(kmf.keyManagers, trustManagers, java.security.SecureRandom())
 
         val conn = URL(url).openConnection() as HttpsURLConnection
         conn.sslSocketFactory = sslContext.socketFactory
-        conn.hostnameVerifier = javax.net.ssl.HostnameVerifier { _, _ -> true }
+        // Hostname verification is relaxed because the self-signed server
+        // cert's CN/SAN won't match the LAN IP. Trust is established via
+        // certificate pinning above, not hostname matching.
+        conn.hostnameVerifier = javax.net.ssl.HostnameVerifier { _, session ->
+            if (pinnedServerCertPem == null) return@HostnameVerifier false
+            try {
+                val peerCerts = session.peerCertificates
+                if (peerCerts.isNullOrEmpty()) return@HostnameVerifier false
+                val peerCert = peerCerts[0] as X509Certificate
+                val cf = CertificateFactory.getInstance("X.509")
+                val expected = cf.generateCertificate(
+                    ByteArrayInputStream(pinnedServerCertPem.toByteArray(Charsets.UTF_8))
+                ) as X509Certificate
+                peerCert.encoded.contentEquals(expected.encoded)
+            } catch (e: Exception) {
+                Log.w(TAG, "Hostname verifier cert comparison failed: $e")
+                false
+            }
+        }
         conn.connectTimeout = timeoutMs
         conn.readTimeout = timeoutMs
         conn.setRequestProperty("Connection", "close")
