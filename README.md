@@ -22,6 +22,10 @@
 
 ## What is JUJO Stream?
 
+**IMPORTANT**
+>Since multiple bugfixes and features are being implemented, these changes will hit the Play Store first. Alternatively, you can clone the repository and build your own APK if you prefer not to join the Play Store beta.
+
+
 JUJO Stream is a game streaming client that gives your library a proper console feel. Connect it to a Sunshine, Apollo any sunshine server running on your PC, and you can browse and launch games from your phone, TV, or desktop  entirely with a gamepad if you want.
 
 ---
@@ -31,8 +35,8 @@ JUJO Stream is a game streaming client that gives your library a proper console 
 <p align="center">
   <img src="https://img.shields.io/badge/Android-Stable-4CAF50?style=flat-square&logo=android&logoColor=white" alt="Android"/>
   <img src="https://img.shields.io/badge/macOS-Stable-4CAF50?style=flat-square&logo=apple&logoColor=white" alt="macOS"/>
-  <img src="https://img.shields.io/badge/Android_TV-Stable*-FFC107?style=flat-square&logo=androidtv&logoColor=white" alt="Android TV"/>
-  <img src="https://img.shields.io/badge/Windows-Pending-9E9E9E?style=flat-square&logo=windows&logoColor=white" alt="Windows"/>
+  <img src="https://img.shields.io/badge/Android_TV-Stable-4CAF50?style=flat-square&logo=androidtv&logoColor=white" alt="Android TV"/>
+  <img src="https://img.shields.io/badge/Windows-Unstable-FFC107?style=flat-square&logo=windows&logoColor=white" alt="Windows"/>
   <img src="https://img.shields.io/badge/Linux-Pending-9E9E9E?style=flat-square&logo=linux&logoColor=white" alt="Linux"/>
 </p>
 
