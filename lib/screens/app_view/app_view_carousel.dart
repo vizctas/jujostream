@@ -275,16 +275,7 @@ class _CarouselCardState extends State<_CarouselCard>
               decoration: BoxDecoration(
                 color: _tp.background,
                 borderRadius: BorderRadius.circular(widget.cardRadius),
-                boxShadow: active
-                    ? [
-                        BoxShadow(
-                          color: _tp.accent.withValues(alpha: 0.35),
-                          blurRadius: 14,
-                          spreadRadius: 1,
-                        ),
-                      ]
-                    : null,
-              ),
+                              ),
               clipBehavior: Clip.antiAlias,
               child: Stack(
                 fit: StackFit.expand,
