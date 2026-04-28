@@ -71,6 +71,12 @@ It's not the main screen. You have to activated it, by going to app options (thr
 
  More interesting functions and personalization will be added in future updates.
 
+## JUJO Big picture
+
+It's not Steam big picture. Is JUJO Big picture. **Standalone launcher with news/events/deals.**
+
+ <img src="https://github.com/vizctas/jujostream/blob/master/assets/ss/JUJO_bigpicture.png" alt="jujo bp theme" />
+
 ### Launcher Styles
 
 Four launcher layouts to choose from: **Classic**, **Backbone**, **Hero**, and **PS5-style**. Each one changes the layout, card style, and overall feel of the main library screen. Pick what fits your setup.
