@@ -86,7 +86,7 @@ First boot will probably cause problem with the streaming. Give around 1 minute 
 
 It's not Steam big picture. Is JUJO Big picture. **Standalone launcher with news/events/deals.**
 
- <img src="https://github.com/vizctas/jujostream/blob/feature/master/assets/ss/JUJO_bigpicture.png"  alt="JUJO BP theme"/>
+ <img src="https://github.com/vizctas/jujostream/blob/master/assets/ss/JUJO_bigpicture.png"  alt="JUJO BP theme"/>
 
 
 ### Color Schemes
