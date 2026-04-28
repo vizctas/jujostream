@@ -4,10 +4,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../../l10n/app_localizations.dart';
+import '../../models/gaming_news_item.dart';
 import '../../models/nv_app.dart';
 import '../../providers/theme_provider.dart';
 import '../../services/audio/ui_sound_service.dart';
 import '../../services/input/gamepad_button_helper.dart';
+import '../../widgets/news_carousel/news_carousel_widget.dart';
 import '../../widgets/poster_image.dart';
 import '../../widgets/trailer_modal.dart';
 import '../../services/metadata/steam_video_client.dart';
@@ -86,7 +88,7 @@ class HeroTheme extends LauncherTheme {
   }
 }
 
-enum _HeroView { home, detail }
+enum _HeroView { news, home, detail }
 
 class _HeroBody extends StatefulWidget {
   final List<NvApp> apps;
@@ -136,11 +138,18 @@ class _HeroBodyState extends State<_HeroBody>
   late int _idx;
   late ScrollController _iconSc;
   final FocusNode _fn = FocusNode(debugLabel: 'hero');
+  final GlobalKey<NewsCarouselWidgetState> _newsKey =
+      GlobalKey<NewsCarouselWidgetState>(debugLabel: 'hero-news');
   _HeroView _view = _HeroView.home;
   Timer? _bgDebounce;
   int? _bgAppId;
   int _detailBtnIdx = 0;
   static const int _detailBtnCount = 4;
+
+  // News carousel state
+  GamingNewsType? _activeNewsType;
+  int _newsIndex = 0;
+  bool _newsTabsFocused = true;
 
   static const double _iconSize = 64;
   static const double _iconSelSize = 80;
@@ -269,6 +278,14 @@ class _HeroBodyState extends State<_HeroBody>
         _move(-1);
         return KeyEventResult.handled;
       }
+      if (k == LogicalKeyboardKey.arrowUp) {
+        _action();
+        setState(() {
+          _view = _HeroView.news;
+          _newsTabsFocused = true;
+        });
+        return KeyEventResult.handled;
+      }
       if (k == LogicalKeyboardKey.arrowDown) {
         _action();
         setState(() {
@@ -331,6 +348,55 @@ class _HeroBodyState extends State<_HeroBody>
           k == LogicalKeyboardKey.goBack) {
         Navigator.maybePop(context);
         return KeyEventResult.handled;
+      }
+    }
+
+    // ── News view ──
+    if (_view == _HeroView.news) {
+      if (_newsTabsFocused) {
+        if (k == LogicalKeyboardKey.arrowRight) {
+          _newsKey.currentState?.moveTab(1);
+          return KeyEventResult.handled;
+        }
+        if (k == LogicalKeyboardKey.arrowLeft) {
+          _newsKey.currentState?.moveTab(-1);
+          return KeyEventResult.handled;
+        }
+        if (k == LogicalKeyboardKey.arrowDown) {
+          _action();
+          setState(() => _newsTabsFocused = false);
+          return KeyEventResult.handled;
+        }
+        if (k == LogicalKeyboardKey.arrowUp ||
+            k == LogicalKeyboardKey.gameButtonB ||
+            k == LogicalKeyboardKey.escape ||
+            k == LogicalKeyboardKey.goBack) {
+          _action();
+          setState(() => _view = _HeroView.home);
+          return KeyEventResult.handled;
+        }
+      } else {
+        if (k == LogicalKeyboardKey.arrowRight) {
+          _newsKey.currentState?.moveCard(1);
+          return KeyEventResult.handled;
+        }
+        if (k == LogicalKeyboardKey.arrowLeft) {
+          _newsKey.currentState?.moveCard(-1);
+          return KeyEventResult.handled;
+        }
+        if (k == LogicalKeyboardKey.arrowUp) {
+          _action();
+          setState(() => _newsTabsFocused = true);
+          return KeyEventResult.handled;
+        }
+        if (k == LogicalKeyboardKey.arrowDown ||
+            k == LogicalKeyboardKey.gameButtonB ||
+            k == LogicalKeyboardKey.escape ||
+            k == LogicalKeyboardKey.goBack) {
+          _action();
+          setState(() => _view = _HeroView.home);
+          return KeyEventResult.handled;
+        }
       }
     }
 
@@ -496,13 +562,56 @@ class _HeroBodyState extends State<_HeroBody>
 
             AnimatedSwitcher(
               duration: const Duration(milliseconds: 300),
-              child: _view == _HeroView.home
-                  ? _buildHome(tp, s, l)
-                  : _buildDetail(tp, s, l),
+              child: switch (_view) {
+                _HeroView.news => _buildNews(tp),
+                _HeroView.home => _buildHome(tp, s, l),
+                _HeroView.detail => _buildDetail(tp, s, l),
+              },
             ),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildNews(ThemeProvider tp) {
+    final l = AppLocalizations.of(context);
+    return Column(
+      key: const ValueKey('hero_news'),
+      children: [
+        const Spacer(),
+        NewsCarouselWidget(
+          key: _newsKey,
+          apps: widget.apps,
+          allApps: widget.allApps,
+          tabsFocused: _newsTabsFocused,
+          cardsFocused: !_newsTabsFocused,
+          newsIndex: _newsIndex,
+          activeNewsType: _activeNewsType,
+          onNewsTypeChanged: (type) =>
+              setState(() => _activeNewsType = type),
+          onNewsIndexChanged: (index) =>
+              setState(() => _newsIndex = index),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(24, 8, 24, 14),
+          child: Row(
+            children: [
+              _badgeMini('◀▶'),
+              const SizedBox(width: 4),
+              Text(
+                'Navigate',
+                style: const TextStyle(color: Colors.white24, fontSize: 9),
+              ),
+              const Spacer(),
+              _tappableHint('B', l.back, () {
+                _action();
+                setState(() => _view = _HeroView.home);
+              }),
+            ],
+          ),
+        ),
+      ],
     );
   }
 

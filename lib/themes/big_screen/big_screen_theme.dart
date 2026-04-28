@@ -122,6 +122,9 @@ class _BigScreenBodyState extends State<_BigScreenBody> {
   final ScrollController _gameScrollController = ScrollController();
   final ScrollController _pageScrollController = ScrollController();
   final ScrollController _newsScrollController = ScrollController();
+  final GlobalKey _carouselKey = GlobalKey(debugLabel: 'carousel-section');
+  final GlobalKey _tabsKey = GlobalKey(debugLabel: 'tabs-section');
+  final GlobalKey _newsKey = GlobalKey(debugLabel: 'news-section');
   final SteamVideoClient _steamClient = const SteamVideoClient();
   final Map<int, String> _posterOverrides = <int, String>{};
   final Set<int> _posterLookups = <int>{};
@@ -155,6 +158,7 @@ class _BigScreenBodyState extends State<_BigScreenBody> {
       if (!mounted) return;
       _focusNode.requestFocus();
       _scrollGamesToSelection(animate: false);
+      _schedulePageScroll(_BigScreenArea.carousel);
     });
     _loadNews();
     _recoverMissingPosterArtwork();
@@ -365,14 +369,45 @@ class _BigScreenBodyState extends State<_BigScreenBody> {
   void _schedulePageScroll(_BigScreenArea area) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || !_pageScrollController.hasClients) return;
-      final maxScroll = _pageScrollController.position.maxScrollExtent;
-      final target = switch (area) {
-        _BigScreenArea.carousel => 0.0,
-        _BigScreenArea.tabs => maxScroll < 1 ? 0.0 : maxScroll * 0.55,
-        _BigScreenArea.news => maxScroll,
+
+      final GlobalKey sectionKey = switch (area) {
+        _BigScreenArea.carousel => _carouselKey,
+        _BigScreenArea.tabs => _tabsKey,
+        _BigScreenArea.news => _newsKey,
       };
+
+      final sectionContext = sectionKey.currentContext;
+      if (sectionContext == null) return;
+
+      final renderBox = sectionContext.findRenderObject() as RenderBox?;
+      if (renderBox == null || !renderBox.hasSize) return;
+
+      final scrollPosition = _pageScrollController.position;
+      final viewportHeight = scrollPosition.viewportDimension;
+      final usableHeight = viewportHeight - _footerHeight;
+      final sectionHeight = renderBox.size.height;
+
+      // Get the section's Y position on screen (relative to viewport top)
+      final sectionScreenY = renderBox.localToGlobal(Offset.zero).dy;
+
+      // Convert screen position to absolute content position
+      final currentScroll = scrollPosition.pixels;
+      final sectionTopInContent = currentScroll + sectionScreenY;
+
+      double target;
+      if (sectionHeight >= usableHeight) {
+        // Section is taller than viewport — align to top with small padding
+        target = sectionTopInContent - 8;
+      } else {
+        // Center the section vertically in the usable viewport area
+        target =
+            sectionTopInContent - (usableHeight - sectionHeight) / 2;
+      }
+
+      target = target.clamp(0.0, scrollPosition.maxScrollExtent);
+
       _pageScrollController.animateTo(
-        target.clamp(0.0, maxScroll),
+        target,
         duration: const Duration(milliseconds: 240),
         curve: Curves.easeOutCubic,
       );
@@ -492,7 +527,10 @@ class _BigScreenBodyState extends State<_BigScreenBody> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   _buildHeader(context),
-                  _buildTopCarousel(context),
+                  KeyedSubtree(
+                    key: _carouselKey,
+                    child: _buildTopCarousel(context),
+                  ),
                   _buildNewsArea(context),
                 ],
               ),
@@ -742,13 +780,19 @@ class _BigScreenBodyState extends State<_BigScreenBody> {
       ),
       child: Column(
         children: [
-          _buildNewsTabs(),
+          KeyedSubtree(
+            key: _tabsKey,
+            child: _buildNewsTabs(),
+          ),
           if (_newsLoading)
             _buildNewsSkeletons()
           else if (items.isEmpty)
             _buildNewsSkeletons()
           else
-            _buildNewsCards(items),
+            KeyedSubtree(
+              key: _newsKey,
+              child: _buildNewsCards(items),
+            ),
         ],
       ),
     );

@@ -4,10 +4,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../../l10n/app_localizations.dart';
+import '../../models/gaming_news_item.dart';
 import '../../models/nv_app.dart';
 import '../../providers/theme_provider.dart';
 import '../../services/audio/ui_sound_service.dart';
 import '../../services/input/gamepad_button_helper.dart';
+import '../../widgets/news_carousel/news_carousel_widget.dart';
 import '../../widgets/poster_image.dart';
 import '../../widgets/trailer_modal.dart';
 import '../../services/metadata/steam_video_client.dart';
@@ -87,7 +89,7 @@ class BackboneTheme extends LauncherTheme {
   }
 }
 
-enum _View { carousel, detail }
+enum _View { news, carousel, detail }
 
 class _Body extends StatefulWidget {
   final List<NvApp> apps;
@@ -136,11 +138,18 @@ class _BodyState extends State<_Body> {
   late int _idx;
   late ScrollController _sc;
   final FocusNode _fn = FocusNode(debugLabel: 'backbone');
+  final GlobalKey<NewsCarouselWidgetState> _newsKey =
+      GlobalKey<NewsCarouselWidgetState>(debugLabel: 'backbone-news');
   _View _view = _View.carousel;
   Timer? _bgDebounce;
   int? _bgAppId;
   Timer? _idleTimer;
   bool _isIdle = false;
+
+  // News carousel state — lifted here so the host controls focus routing.
+  GamingNewsType? _activeNewsType;
+  int _newsIndex = 0;
+  bool _newsTabsFocused = true; // start on tabs when entering news view
 
   static const double _cw = 140, _ch = 80, _gap = 16;
   static const double _selW = 168, _selH = 96;
@@ -260,6 +269,14 @@ class _BodyState extends State<_Body> {
             _move(-1);
             return KeyEventResult.handled;
           }
+          if (k == LogicalKeyboardKey.arrowUp) {
+            _action();
+            setState(() {
+              _view = _View.news;
+              _newsTabsFocused = true;
+            });
+            return KeyEventResult.handled;
+          }
           if (k == LogicalKeyboardKey.arrowDown) {
             _action();
             setState(() => _view = _View.detail);
@@ -320,6 +337,56 @@ class _BodyState extends State<_Body> {
               k == LogicalKeyboardKey.goBack) {
             Navigator.maybePop(context);
             return KeyEventResult.handled;
+          }
+        }
+        // ── News view ──
+        if (_view == _View.news) {
+          if (_newsTabsFocused) {
+            // Tabs row focused
+            if (k == LogicalKeyboardKey.arrowRight) {
+              _newsKey.currentState?.moveTab(1);
+              return KeyEventResult.handled;
+            }
+            if (k == LogicalKeyboardKey.arrowLeft) {
+              _newsKey.currentState?.moveTab(-1);
+              return KeyEventResult.handled;
+            }
+            if (k == LogicalKeyboardKey.arrowDown) {
+              _action();
+              setState(() => _newsTabsFocused = false);
+              return KeyEventResult.handled;
+            }
+            if (k == LogicalKeyboardKey.arrowUp ||
+                k == LogicalKeyboardKey.gameButtonB ||
+                k == LogicalKeyboardKey.escape ||
+                k == LogicalKeyboardKey.goBack) {
+              _action();
+              setState(() => _view = _View.carousel);
+              return KeyEventResult.handled;
+            }
+          } else {
+            // Cards row focused
+            if (k == LogicalKeyboardKey.arrowRight) {
+              _newsKey.currentState?.moveCard(1);
+              return KeyEventResult.handled;
+            }
+            if (k == LogicalKeyboardKey.arrowLeft) {
+              _newsKey.currentState?.moveCard(-1);
+              return KeyEventResult.handled;
+            }
+            if (k == LogicalKeyboardKey.arrowUp) {
+              _action();
+              setState(() => _newsTabsFocused = true);
+              return KeyEventResult.handled;
+            }
+            if (k == LogicalKeyboardKey.arrowDown ||
+                k == LogicalKeyboardKey.gameButtonB ||
+                k == LogicalKeyboardKey.escape ||
+                k == LogicalKeyboardKey.goBack) {
+              _action();
+              setState(() => _view = _View.carousel);
+              return KeyEventResult.handled;
+            }
           }
         }
         if (_view == _View.detail) {
@@ -456,9 +523,11 @@ class _BodyState extends State<_Body> {
                   ),
                   AnimatedSwitcher(
                     duration: const Duration(milliseconds: 300),
-                    child: _view == _View.carousel
-                        ? _carousel(tp, s, l)
-                        : _detail(tp, s, l),
+                    child: switch (_view) {
+                      _View.news => _newsView(tp),
+                      _View.carousel => _carousel(tp, s, l),
+                      _View.detail => _detail(tp, s, l),
+                    },
                   ),
                 ],
               ),
@@ -466,6 +535,46 @@ class _BodyState extends State<_Body> {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _newsView(ThemeProvider tp) {
+    return Column(
+      key: const ValueKey('n'),
+      children: [
+        const Spacer(),
+        NewsCarouselWidget(
+          key: _newsKey,
+          apps: widget.apps,
+          allApps: widget.allApps,
+          tabsFocused: _newsTabsFocused,
+          cardsFocused: !_newsTabsFocused,
+          newsIndex: _newsIndex,
+          activeNewsType: _activeNewsType,
+          onNewsTypeChanged: (type) =>
+              setState(() => _activeNewsType = type),
+          onNewsIndexChanged: (index) =>
+              setState(() => _newsIndex = index),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(24, 8, 24, 14),
+          child: Row(
+            children: [
+              _badgeMini('◀▶'),
+              const SizedBox(width: 4),
+              Text(
+                'Navigate',
+                style: const TextStyle(color: Colors.white24, fontSize: 9),
+              ),
+              const Spacer(),
+              _tappableHint('B', AppLocalizations.of(context).back, () {
+                _action();
+                setState(() => _view = _View.carousel);
+              }),
+            ],
+          ),
+        ),
+      ],
     );
   }
 

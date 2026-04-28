@@ -4,10 +4,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../../l10n/app_localizations.dart';
+import '../../models/gaming_news_item.dart';
 import '../../models/nv_app.dart';
 import '../../providers/theme_provider.dart';
 import '../../services/audio/ui_sound_service.dart';
 import '../../services/input/gamepad_button_helper.dart';
+import '../../widgets/news_carousel/news_carousel_widget.dart';
 import '../../widgets/poster_image.dart';
 import '../../widgets/trailer_modal.dart';
 import '../../services/metadata/steam_video_client.dart';
@@ -85,7 +87,7 @@ class Ps5Theme extends LauncherTheme {
   }
 }
 
-enum _Ps5Area { icons, buttons }
+enum _Ps5Area { news, icons, buttons }
 
 class _Ps5Body extends StatefulWidget {
   final List<NvApp> apps;
@@ -134,11 +136,18 @@ class _Ps5BodyState extends State<_Ps5Body> {
   int _idx = 0;
   late ScrollController _iconSc;
   final FocusNode _fn = FocusNode(debugLabel: 'ps5');
+  final GlobalKey<NewsCarouselWidgetState> _newsKey =
+      GlobalKey<NewsCarouselWidgetState>(debugLabel: 'ps5-news');
   _Ps5Area _area = _Ps5Area.icons;
   Timer? _bgDebounce;
   int? _bgAppId;
   int _btnIdx = 0;
   static const int _btnCount = 2;
+
+  // News carousel state
+  GamingNewsType? _activeNewsType;
+  int _newsIndex = 0;
+  bool _newsTabsFocused = true;
 
   static const double _iconSize = 80;
   static const double _iconSelSize = 100;
@@ -292,6 +301,14 @@ class _Ps5BodyState extends State<_Ps5Body> {
         _move(-1);
         return KeyEventResult.handled;
       }
+      if (k == LogicalKeyboardKey.arrowUp) {
+        _tap();
+        setState(() {
+          _area = _Ps5Area.news;
+          _newsTabsFocused = true;
+        });
+        return KeyEventResult.handled;
+      }
       if (k == LogicalKeyboardKey.arrowDown) {
         _tap();
         setState(() {
@@ -353,6 +370,55 @@ class _Ps5BodyState extends State<_Ps5Body> {
           k == LogicalKeyboardKey.goBack) {
         Navigator.maybePop(context);
         return KeyEventResult.handled;
+      }
+    }
+
+    // ── News area ──
+    if (_area == _Ps5Area.news) {
+      if (_newsTabsFocused) {
+        if (k == LogicalKeyboardKey.arrowRight) {
+          _newsKey.currentState?.moveTab(1);
+          return KeyEventResult.handled;
+        }
+        if (k == LogicalKeyboardKey.arrowLeft) {
+          _newsKey.currentState?.moveTab(-1);
+          return KeyEventResult.handled;
+        }
+        if (k == LogicalKeyboardKey.arrowDown) {
+          _tap();
+          setState(() => _newsTabsFocused = false);
+          return KeyEventResult.handled;
+        }
+        if (k == LogicalKeyboardKey.arrowUp ||
+            k == LogicalKeyboardKey.gameButtonB ||
+            k == LogicalKeyboardKey.escape ||
+            k == LogicalKeyboardKey.goBack) {
+          _tap();
+          setState(() => _area = _Ps5Area.icons);
+          return KeyEventResult.handled;
+        }
+      } else {
+        if (k == LogicalKeyboardKey.arrowRight) {
+          _newsKey.currentState?.moveCard(1);
+          return KeyEventResult.handled;
+        }
+        if (k == LogicalKeyboardKey.arrowLeft) {
+          _newsKey.currentState?.moveCard(-1);
+          return KeyEventResult.handled;
+        }
+        if (k == LogicalKeyboardKey.arrowUp) {
+          _tap();
+          setState(() => _newsTabsFocused = true);
+          return KeyEventResult.handled;
+        }
+        if (k == LogicalKeyboardKey.arrowDown ||
+            k == LogicalKeyboardKey.gameButtonB ||
+            k == LogicalKeyboardKey.escape ||
+            k == LogicalKeyboardKey.goBack) {
+          _tap();
+          setState(() => _area = _Ps5Area.icons);
+          return KeyEventResult.handled;
+        }
       }
     }
 
@@ -530,8 +596,25 @@ class _Ps5BodyState extends State<_Ps5Body> {
                   _buildEmpty(tp, l)
                 else ...[
                   _buildIconStrip(tp, s),
+                  if (_area == _Ps5Area.news) ...[
+                    const SizedBox(height: 8),
+                    NewsCarouselWidget(
+                      key: _newsKey,
+                      apps: widget.apps,
+                      allApps: widget.allApps,
+                      tabsFocused: _newsTabsFocused,
+                      cardsFocused: !_newsTabsFocused,
+                      newsIndex: _newsIndex,
+                      activeNewsType: _activeNewsType,
+                      onNewsTypeChanged: (type) =>
+                          setState(() => _activeNewsType = type),
+                      onNewsIndexChanged: (index) =>
+                          setState(() => _newsIndex = index),
+                    ),
+                  ],
                   const Spacer(),
-                  if (s != null) _buildBottomPanel(tp, s, l),
+                  if (s != null && _area != _Ps5Area.news)
+                    _buildBottomPanel(tp, s, l),
                   _buildHints(tp, s, l),
                 ],
               ],
