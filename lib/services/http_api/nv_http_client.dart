@@ -69,7 +69,7 @@ class NvHttpClient {
         'serverinfo HTTP ${response.statusCode} from $resolvedAddress:$port',
       );
     } catch (e) {
-      _log.e('Failed to get server info (HTTP) from $resolvedAddress: $e');
+      _log.w('Failed to get server info (HTTP) from $resolvedAddress: $e');
     }
     return null;
   }

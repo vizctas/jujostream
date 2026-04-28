@@ -5,7 +5,6 @@ import 'package:pointycastle/export.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 enum ProFeature {
-
   gameStreaming,
   serverDiscovery,
   manualVideoSettings,
@@ -47,7 +46,6 @@ enum ProFeature {
 enum ProFeatureTier { free, premium, partial }
 
 class ProService extends ChangeNotifier {
-
   static const bool kDevMode = true;
 
   static const String _prefKey = '_jjs_pro_lk';
@@ -62,7 +60,6 @@ class ProService extends ChangeNotifier {
 
   static ProFeatureTier tierOf(ProFeature feature) {
     switch (feature) {
-
       case ProFeature.gameStreaming:
       case ProFeature.serverDiscovery:
       case ProFeature.manualVideoSettings:
@@ -118,7 +115,12 @@ class ProService extends ChangeNotifier {
 
   static const Set<String> freeColorSchemeIds = {'jujo', 'midnight'};
 
-  static const Set<String> freeLauncherThemeIds = {'classic', 'ps5', 'backbone'};
+  static const Set<String> freeLauncherThemeIds = {
+    'classic',
+    'ps5',
+    'backbone',
+    'bigScreen',
+  };
 
   static const Set<String> freeArtQualities = {'medium', 'low'};
 
@@ -161,9 +163,7 @@ class ProService extends ChangeNotifier {
         _licenseValidated = _verifyLicenseSignature(stored);
         notifyListeners();
       }
-    } catch (_) {
-
-    }
+    } catch (_) {}
   }
 
   Future<bool> activateLicense(String licenseKey) async {
@@ -184,9 +184,7 @@ class ProService extends ChangeNotifier {
     notifyListeners();
   }
 
-  static const List<int> _publicKeyDer = [
-    0x00,
-  ];
+  static const List<int> _publicKeyDer = [0x00];
 
   bool _verifyLicenseSignature(String licenseKey) {
     try {
