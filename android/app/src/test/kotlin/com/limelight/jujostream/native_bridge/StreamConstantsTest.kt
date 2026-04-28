@@ -23,8 +23,9 @@ class StreamConstantsTest {
     }
 
     @Test
-    fun `videoFormatFor H265 HDR returns H265_HDR bitmask`() {
-        assertEquals(StreamConstants.VIDEO_FORMAT_H265_HDR, StreamConstants.videoFormatFor("H265", true))
+    fun `videoFormatFor H265 HDR returns combined SDR+HDR bitmask`() {
+        val expected = StreamConstants.VIDEO_FORMAT_H265 or StreamConstants.VIDEO_FORMAT_H265_HDR
+        assertEquals(expected, StreamConstants.videoFormatFor("H265", true))
     }
 
     @Test
@@ -33,8 +34,9 @@ class StreamConstantsTest {
     }
 
     @Test
-    fun `videoFormatFor AV1 HDR returns AV1_HDR bitmask`() {
-        assertEquals(StreamConstants.VIDEO_FORMAT_AV1_HDR, StreamConstants.videoFormatFor("AV1", true))
+    fun `videoFormatFor AV1 HDR returns combined SDR+HDR bitmask`() {
+        val expected = StreamConstants.VIDEO_FORMAT_AV1 or StreamConstants.VIDEO_FORMAT_AV1_HDR
+        assertEquals(expected, StreamConstants.videoFormatFor("AV1", true))
     }
 
     @Test
@@ -113,11 +115,14 @@ class StreamConstantsTest {
     }
 
     @Test
-    fun `HDR variants include their SDR base bits`() {
-        // H265_HDR should have H265 bit set
-        assertNotEquals(0, StreamConstants.VIDEO_FORMAT_H265_HDR and StreamConstants.VIDEO_FORMAT_H265)
-        // AV1_HDR should have AV1 bit set
-        assertNotEquals(0, StreamConstants.VIDEO_FORMAT_AV1_HDR and StreamConstants.VIDEO_FORMAT_AV1)
+    fun `HDR videoFormatFor includes SDR base bits`() {
+        // When HDR is requested, the returned bitmask must include the SDR base bit
+        val h265Hdr = StreamConstants.videoFormatFor("H265", true)
+        assertNotEquals(0, h265Hdr and StreamConstants.VIDEO_FORMAT_H265)
+        assertNotEquals(0, h265Hdr and StreamConstants.VIDEO_FORMAT_H265_HDR)
+        val av1Hdr = StreamConstants.videoFormatFor("AV1", true)
+        assertNotEquals(0, av1Hdr and StreamConstants.VIDEO_FORMAT_AV1)
+        assertNotEquals(0, av1Hdr and StreamConstants.VIDEO_FORMAT_AV1_HDR)
     }
 
     // ── Network defaults ────────────────────────────────────────────────

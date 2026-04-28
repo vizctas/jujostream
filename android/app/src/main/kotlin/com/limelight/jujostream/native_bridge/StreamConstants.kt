@@ -9,10 +9,15 @@ object StreamConstants {
     const val VIDEO_FORMAT_AV1       = 0x1000 // AV1 Main 8-bit profile
     const val VIDEO_FORMAT_AV1_HDR   = 0x2000 // AV1 Main 10-bit profile
 
-    /** Resolve the video format bitmask for a codec tag + HDR flag. */
+    /** Resolve the video format bitmask for a codec tag + HDR flag.
+     *  When HDR is requested we advertise BOTH the SDR base profile AND the
+     *  10-bit HDR profile so the server knows we can decode either.
+     *  This matches the moonlight-common-c mask constants:
+     *    VIDEO_FORMAT_MASK_H265 = 0x0F00
+     *    VIDEO_FORMAT_MASK_AV1  = 0xF000                                   */
     fun videoFormatFor(codec: String, hdr: Boolean): Int = when (codec) {
-        "H265" -> if (hdr) VIDEO_FORMAT_H265_HDR else VIDEO_FORMAT_H265
-        "AV1"  -> if (hdr) VIDEO_FORMAT_AV1_HDR  else VIDEO_FORMAT_AV1
+        "H265" -> if (hdr) (VIDEO_FORMAT_H265 or VIDEO_FORMAT_H265_HDR) else VIDEO_FORMAT_H265
+        "AV1"  -> if (hdr) (VIDEO_FORMAT_AV1  or VIDEO_FORMAT_AV1_HDR)  else VIDEO_FORMAT_AV1
         else   -> VIDEO_FORMAT_H264
     }
 

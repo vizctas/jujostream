@@ -221,47 +221,102 @@ Widget buildKeyChip(
   String? subtitle,
 }) {
   final chipAccent = accentColor ?? Colors.white54;
-  return GestureDetector(
+  return _TapFeedbackChip(
     onTap: onTap,
-    child: AnimatedContainer(
-      duration: const Duration(milliseconds: 120),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: focused
-            ? chipAccent.withValues(alpha: 0.18)
-            : Colors.white.withValues(alpha: 0.07),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(
-          color: focused ? chipAccent : Colors.white12,
-          width: focused ? 2 : 1,
-        ),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            label,
-            style: TextStyle(
-              color: focused ? Colors.white : Colors.white70,
-              fontSize: 12,
-              fontWeight: focused ? FontWeight.w700 : FontWeight.w500,
+    focused: focused,
+    chipAccent: chipAccent,
+    label: label,
+    subtitle: subtitle,
+  );
+}
+
+/// Animated chip with tap feedback (brief scale + brightness pulse).
+class _TapFeedbackChip extends StatefulWidget {
+  final VoidCallback onTap;
+  final bool focused;
+  final Color chipAccent;
+  final String label;
+  final String? subtitle;
+
+  const _TapFeedbackChip({
+    required this.onTap,
+    required this.focused,
+    required this.chipAccent,
+    required this.label,
+    this.subtitle,
+  });
+
+  @override
+  State<_TapFeedbackChip> createState() => _TapFeedbackChipState();
+}
+
+class _TapFeedbackChipState extends State<_TapFeedbackChip>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 120),
+  );
+  late final Animation<double> _scale = Tween<double>(begin: 1.0, end: 0.90)
+      .animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut));
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  void _handleTap() {
+    _ctrl.forward().then((_) => _ctrl.reverse());
+    widget.onTap();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: _handleTap,
+      child: ScaleTransition(
+        scale: _scale,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 120),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: widget.focused
+                ? widget.chipAccent.withValues(alpha: 0.18)
+                : Colors.white.withValues(alpha: 0.07),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: widget.focused ? widget.chipAccent : Colors.white12,
+              width: widget.focused ? 2 : 1,
             ),
           ),
-          if (subtitle != null) ...[
-            const SizedBox(height: 2),
-            Text(
-              subtitle,
-              style: TextStyle(
-                color: focused ? Colors.white54 : Colors.white30,
-                fontSize: 9,
-                fontWeight: FontWeight.w400,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                widget.label,
+                style: TextStyle(
+                  color: widget.focused ? Colors.white : Colors.white70,
+                  fontSize: 12,
+                  fontWeight: widget.focused ? FontWeight.w700 : FontWeight.w500,
+                ),
               ),
-            ),
-          ],
-        ],
+              if (widget.subtitle != null) ...[
+                const SizedBox(height: 2),
+                Text(
+                  widget.subtitle!,
+                  style: TextStyle(
+                    color: widget.focused ? Colors.white54 : Colors.white30,
+                    fontSize: 9,
+                    fontWeight: FontWeight.w400,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 class _CloseTile extends StatelessWidget {

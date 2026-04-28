@@ -2179,7 +2179,9 @@ class _SettingsScreenState extends State<SettingsScreen>
     // Portrait / vertical
     ('720×1280', 720, 1280),
     ('1080×1920', 1080, 1920),
+    ('1080×2400', 1080, 2400),
     ('1440×2560', 1440, 2560),
+    ('1440×3200', 1440, 3200),
     // Retro / low
     ('480p', 854, 480),
     ('576p', 1024, 576),
@@ -4696,13 +4698,19 @@ class _CustomResolutionTileState extends State<_CustomResolutionTile> {
                   ],
                 ),
               ),
-              ExcludeFocus(
-                excluding: !_editing,
-                child: _buildField(
-                  _wCtrl,
-                  _wFocus,
-                  isEs ? 'Ancho' : 'Width',
-                  accent,
+              GestureDetector(
+                onTap: () {
+                  setState(() => _editing = true);
+                  _wFocus.requestFocus();
+                },
+                child: ExcludeFocus(
+                  excluding: !_editing,
+                  child: _buildField(
+                    _wCtrl,
+                    _wFocus,
+                    isEs ? 'Ancho' : 'Width',
+                    accent,
+                  ),
                 ),
               ),
               Padding(
@@ -4716,13 +4724,19 @@ class _CustomResolutionTileState extends State<_CustomResolutionTile> {
                   ),
                 ),
               ),
-              ExcludeFocus(
-                excluding: !_editing,
-                child: _buildField(
-                  _hCtrl,
-                  _hFocus,
-                  isEs ? 'Alto' : 'Height',
-                  accent,
+              GestureDetector(
+                onTap: () {
+                  setState(() => _editing = true);
+                  _hFocus.requestFocus();
+                },
+                child: ExcludeFocus(
+                  excluding: !_editing,
+                  child: _buildField(
+                    _hCtrl,
+                    _hFocus,
+                    isEs ? 'Alto' : 'Height',
+                    accent,
+                  ),
                 ),
               ),
             ],
@@ -4941,12 +4955,27 @@ class _ResolutionPickerDialogState extends State<_ResolutionPickerDialog> {
                       child: ListView.builder(
                         shrinkWrap: true,
                         padding: const EdgeInsets.only(bottom: 8),
-                        itemCount: filtered.length,
+                        itemCount: filtered.length + 1,
                         itemBuilder: (ctx, i) {
-                          final p = filtered[i];
+                          if (i == 0) {
+                            final mq = MediaQuery.of(ctx);
+                            final dpr = mq.devicePixelRatio;
+                            final physW = (mq.size.width * dpr).round();
+                            final physH = (mq.size.height * dpr).round();
+                            final lbl = isEs
+                                ? '\u{1f4f1} Pantalla  (${physW}x$physH)'
+                                : '\u{1f4f1} Match Display  (${physW}x$physH)';
+                            return _FocusablePickerOption(
+                              label: lbl,
+                              autofocus: true,
+                              enabled: true,
+                              onTap: () => widget.onSelect(physW, physH),
+                            );
+                          }
+                          final p = filtered[i - 1];
                           return _FocusablePickerOption(
                             label: '${p.$1}  (${p.$2}x${p.$3})',
-                            autofocus: i == 0,
+                            autofocus: false,
                             enabled: true,
                             onTap: () => widget.onSelect(p.$2, p.$3),
                           );

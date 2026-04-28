@@ -1589,13 +1589,21 @@ class _GameStreamScreenState extends State<GameStreamScreen>
       );
     }
     if (_textureId != null) {
-      return SizedBox.expand(
-        child: FittedBox(
-          fit: _videoBoxFit,
-          child: SizedBox(
-            width: _config.width.toDouble(),
-            height: _config.height.toDouble(),
-            child: Texture(textureId: _textureId!),
+      // Black background prevents green flicker from codec alignment padding.
+      // MediaCodec may output frames padded to macroblock boundaries (e.g.
+      // 1080→1088 for H.264 16-px alignment). The SurfaceTexture contains
+      // the full padded buffer; ClipRect hides the uninitialised green edge.
+      return ColoredBox(
+        color: Colors.black,
+        child: SizedBox.expand(
+          child: FittedBox(
+            fit: _videoBoxFit,
+            clipBehavior: Clip.hardEdge,
+            child: SizedBox(
+              width: _config.width.toDouble(),
+              height: _config.height.toDouble(),
+              child: Texture(textureId: _textureId!),
+            ),
           ),
         ),
       );

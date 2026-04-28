@@ -696,6 +696,10 @@ class AppListProvider extends ChangeNotifier {
           height: streamConfig?.height ?? 1080,
           fps: streamConfig?.fps ?? 60,
           bitrate: streamConfig?.bitrate ?? 20000,
+          sops: streamConfig?.enableSops ?? true,
+          enableHdr: streamConfig?.enableHdr ?? false,
+          localAudio: streamConfig?.playLocalAudio ?? false,
+          surroundAudioInfo: audioStr,
           extraLaunchParams: hostPresetParams,
         );
       } else {

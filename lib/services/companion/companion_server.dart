@@ -460,26 +460,24 @@ class CompanionServer {
         );
       }
       if (data.containsKey('video_trigger')) {
-        await prefs.setString(
-          PluginsProvider.settingPref('startup_intro_video', 'video_trigger'),
+        await plugins.setSetting(
+          'startup_intro_video',
+          'video_trigger',
           data['video_trigger'] as String,
         );
       }
       if (data.containsKey('microtrailer_muted')) {
-        await prefs.setBool(
-          'microtrailer_muted',
-          data['microtrailer_muted'] as bool,
-        );
+        await plugins.setMicrotrailerMuted(data['microtrailer_muted'] as bool);
       }
       if (data.containsKey('microtrailer_delay_secs')) {
-        await prefs.setInt(
-          'microtrailer_delay_secs',
+        await plugins.setVideoDelaySeconds(
           (data['microtrailer_delay_secs'] as num).toInt(),
         );
       }
       if (data.containsKey('screensaver_timeout_sec')) {
-        await prefs.setString(
-          PluginsProvider.settingPref('screensaver', 'timeout_sec'),
+        await plugins.setSetting(
+          'screensaver',
+          'timeout_sec',
           (data['screensaver_timeout_sec'] as num).toInt().toString(),
         );
       }
@@ -728,6 +726,7 @@ class CompanionServer {
         'uuid': c.uuid,
         'paired': c.pairState.name == 'paired',
         'online': c.state.name == 'online',
+        'httpPort': c.externalPort > 0 ? c.externalPort : 47989,
       };
     }).toList();
 

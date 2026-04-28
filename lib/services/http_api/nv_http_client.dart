@@ -390,6 +390,10 @@ class NvHttpClient {
     int height = 1080,
     int fps = 60,
     int bitrate = 20000,
+    bool sops = true,
+    bool enableHdr = false,
+    bool localAudio = false,
+    String surroundAudioInfo = '1',
     Map<String, String> extraLaunchParams = const <String, String>{},
   }) async {
     final riKeyBytes = _randomBytes(16);
@@ -403,13 +407,15 @@ class NvHttpClient {
       'appid': appId.toString(),
       'mode': '${width}x${height}x$fps',
       'additionalStates': '1',
+      'sops': sops ? '1' : '0',
       'rikey': riKeyHex,
       'rikeyid': riKeyId.toString(),
-      'localAudioPlayMode': '0',
-      'surroundAudioInfo': '1',
+      'localAudioPlayMode': localAudio ? '1' : '0',
+      'surroundAudioInfo': surroundAudioInfo,
       'remoteControllersBitmap': '0',
       'gcmap': '0',
     };
+    if (enableHdr) params['enableHdr'] = '1';
     if (extraLaunchParams.isNotEmpty) params.addAll(extraLaunchParams);
     final queryString = Uri(queryParameters: params).query;
     final url = '${_baseUrl(address, port)}/resume?$queryString';
