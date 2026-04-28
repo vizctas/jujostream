@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
@@ -123,8 +124,10 @@ class _BigScreenBodyState extends State<_BigScreenBody> {
   final ScrollController _pageScrollController = ScrollController();
   final ScrollController _newsScrollController = ScrollController();
   final GlobalKey _carouselKey = GlobalKey(debugLabel: 'carousel-section');
+  final GlobalKey _carouselCardsKey = GlobalKey(debugLabel: 'carousel-cards');
   final GlobalKey _tabsKey = GlobalKey(debugLabel: 'tabs-section');
   final GlobalKey _newsKey = GlobalKey(debugLabel: 'news-section');
+  final GlobalKey _newsCardsKey = GlobalKey(debugLabel: 'news-cards');
   final SteamVideoClient _steamClient = const SteamVideoClient();
   final Map<int, String> _posterOverrides = <int, String>{};
   final Set<int> _posterLookups = <int>{};
@@ -370,38 +373,40 @@ class _BigScreenBodyState extends State<_BigScreenBody> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || !_pageScrollController.hasClients) return;
 
-      final GlobalKey sectionKey = switch (area) {
-        _BigScreenArea.carousel => _carouselKey,
+      // Use the inner "cards" key for carousel and news so we center on the
+      // actual visual content the user interacts with, not the entire section
+      // (which includes headers, meta text, etc.).
+      final GlobalKey focusKey = switch (area) {
+        _BigScreenArea.carousel => _carouselCardsKey,
         _BigScreenArea.tabs => _tabsKey,
-        _BigScreenArea.news => _newsKey,
+        _BigScreenArea.news => _newsCardsKey,
       };
 
-      final sectionContext = sectionKey.currentContext;
-      if (sectionContext == null) return;
+      final focusContext = focusKey.currentContext;
+      if (focusContext == null) return;
 
-      final renderBox = sectionContext.findRenderObject() as RenderBox?;
-      if (renderBox == null || !renderBox.hasSize) return;
+      final renderObject = focusContext.findRenderObject();
+      if (renderObject == null) return;
 
       final scrollPosition = _pageScrollController.position;
       final viewportHeight = scrollPosition.viewportDimension;
       final usableHeight = viewportHeight - _footerHeight;
-      final sectionHeight = renderBox.size.height;
 
-      // Get the section's Y position on screen (relative to viewport top)
-      final sectionScreenY = renderBox.localToGlobal(Offset.zero).dy;
-
-      // Convert screen position to absolute content position
-      final currentScroll = scrollPosition.pixels;
-      final sectionTopInContent = currentScroll + sectionScreenY;
+      // Use getOffsetToReveal to get the correct content offset for the
+      // focused element. alignment=0.0 means top-aligned; we then adjust
+      // to center it within the usable viewport area.
+      final viewport = RenderAbstractViewport.of(renderObject);
+      final topReveal = viewport.getOffsetToReveal(renderObject, 0.0);
+      final focusTopInContent = topReveal.offset;
+      final focusHeight = topReveal.rect.height;
 
       double target;
-      if (sectionHeight >= usableHeight) {
-        // Section is taller than viewport — align to top with small padding
-        target = sectionTopInContent - 8;
+      if (focusHeight >= usableHeight) {
+        // Element is taller than viewport — align to top with small padding
+        target = focusTopInContent - 8;
       } else {
-        // Center the section vertically in the usable viewport area
-        target =
-            sectionTopInContent - (usableHeight - sectionHeight) / 2;
+        // Center the element vertically in the usable viewport area
+        target = focusTopInContent - (usableHeight - focusHeight) / 2;
       }
 
       target = target.clamp(0.0, scrollPosition.maxScrollExtent);
@@ -623,6 +628,7 @@ class _BigScreenBodyState extends State<_BigScreenBody> {
           ),
           const SizedBox(height: 22),
           SizedBox(
+            key: _carouselCardsKey,
             height: _cardHeight,
             child: ListView.separated(
               controller: _gameScrollController,
@@ -850,6 +856,7 @@ class _BigScreenBodyState extends State<_BigScreenBody> {
 
   Widget _buildNewsCards(List<GamingNewsItem> items) {
     return SizedBox(
+      key: _newsCardsKey,
       height: 320,
       child: ListView.separated(
         controller: _newsScrollController,

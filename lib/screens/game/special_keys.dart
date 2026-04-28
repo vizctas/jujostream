@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../../l10n/app_localizations.dart';
 import '../../platform_channels/streaming_channel.dart';
 
 const int vkEscape = 0x1B;
@@ -115,6 +116,9 @@ List<SpecialKeyEntry> buildSpecialKeysList() => [
 /// [onCloseOverlay] — called when "Close menu" is tapped.
 /// [closeMenuLabel] — localized label for the close-menu tile.
 /// [specialKeysLabel] — localized label for the panel title.
+/// Maximum number of user-selected favourite special keys.
+const int maxFavoriteSpecialKeys = 5;
+
 Widget buildSpecialKeysPanel({
   required List<SpecialKeyEntry> specialKeys,
   required int focusedIndex,
@@ -124,6 +128,8 @@ Widget buildSpecialKeysPanel({
   required VoidCallback onCloseOverlay,
   required String closeMenuLabel,
   required String specialKeysLabel,
+  List<int> favoriteIndices = const <int>[],
+  ValueChanged<int>? onToggleFavorite,
 }) {
   Widget sectionHeader(String title) {
     return Padding(
@@ -140,6 +146,8 @@ Widget buildSpecialKeysPanel({
     );
   }
 
+  final favSet = favoriteIndices.toSet();
+
   Widget chipAt(int flatIdx) {
     final entry = specialKeys[flatIdx];
     return buildKeyChip(
@@ -147,6 +155,10 @@ Widget buildSpecialKeysPanel({
       () => onActivate(flatIdx),
       focused: flatIdx == focusedIndex,
       subtitle: entry.$2,
+      isFavorite: favSet.contains(flatIdx),
+      onLongPress: onToggleFavorite != null
+          ? () => onToggleFavorite(flatIdx)
+          : null,
     );
   }
 
@@ -219,6 +231,8 @@ Widget buildKeyChip(
   bool focused = false,
   Color? accentColor,
   String? subtitle,
+  bool isFavorite = false,
+  VoidCallback? onLongPress,
 }) {
   final chipAccent = accentColor ?? Colors.white54;
   return _TapFeedbackChip(
@@ -227,6 +241,8 @@ Widget buildKeyChip(
     chipAccent: chipAccent,
     label: label,
     subtitle: subtitle,
+    isFavorite: isFavorite,
+    onLongPress: onLongPress,
   );
 }
 
@@ -237,6 +253,8 @@ class _TapFeedbackChip extends StatefulWidget {
   final Color chipAccent;
   final String label;
   final String? subtitle;
+  final bool isFavorite;
+  final VoidCallback? onLongPress;
 
   const _TapFeedbackChip({
     required this.onTap,
@@ -244,6 +262,8 @@ class _TapFeedbackChip extends StatefulWidget {
     required this.chipAccent,
     required this.label,
     this.subtitle,
+    this.isFavorite = false,
+    this.onLongPress,
   });
 
   @override
@@ -251,7 +271,7 @@ class _TapFeedbackChip extends StatefulWidget {
 }
 
 class _TapFeedbackChipState extends State<_TapFeedbackChip>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   late final AnimationController _ctrl = AnimationController(
     vsync: this,
     duration: const Duration(milliseconds: 120),
@@ -259,14 +279,29 @@ class _TapFeedbackChipState extends State<_TapFeedbackChip>
   late final Animation<double> _scale = Tween<double>(begin: 1.0, end: 0.90)
       .animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut));
 
+  late final AnimationController _shakeCtrl = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 220),
+  );
+  late final Animation<double> _shakeOffset = TweenSequence<double>([
+    TweenSequenceItem(tween: Tween(begin: 0, end: 3), weight: 1),
+    TweenSequenceItem(tween: Tween(begin: 3, end: -3), weight: 2),
+    TweenSequenceItem(tween: Tween(begin: -3, end: 2), weight: 2),
+    TweenSequenceItem(tween: Tween(begin: 2, end: -1), weight: 2),
+    TweenSequenceItem(tween: Tween(begin: -1, end: 0), weight: 1),
+  ]).animate(CurvedAnimation(parent: _shakeCtrl, curve: Curves.easeOut));
+
   @override
   void dispose() {
     _ctrl.dispose();
+    _shakeCtrl.dispose();
     super.dispose();
   }
 
   void _handleTap() {
     _ctrl.forward().then((_) => _ctrl.reverse());
+    _shakeCtrl.forward(from: 0);
+    HapticFeedback.lightImpact();
     widget.onTap();
   }
 
@@ -274,44 +309,68 @@ class _TapFeedbackChipState extends State<_TapFeedbackChip>
   Widget build(BuildContext context) {
     return GestureDetector(
       onTap: _handleTap,
-      child: ScaleTransition(
-        scale: _scale,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 120),
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          decoration: BoxDecoration(
-            color: widget.focused
-                ? widget.chipAccent.withValues(alpha: 0.18)
-                : Colors.white.withValues(alpha: 0.07),
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(
-              color: widget.focused ? widget.chipAccent : Colors.white12,
-              width: widget.focused ? 2 : 1,
-            ),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                widget.label,
-                style: TextStyle(
-                  color: widget.focused ? Colors.white : Colors.white70,
-                  fontSize: 12,
-                  fontWeight: widget.focused ? FontWeight.w700 : FontWeight.w500,
-                ),
+      onLongPress: widget.onLongPress,
+      child: AnimatedBuilder(
+        animation: _shakeOffset,
+        builder: (context, child) => Transform.translate(
+          offset: Offset(_shakeOffset.value, 0),
+          child: child,
+        ),
+        child: ScaleTransition(
+          scale: _scale,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 120),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: widget.focused
+                  ? widget.chipAccent.withValues(alpha: 0.18)
+                  : Colors.white.withValues(alpha: 0.07),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: widget.isFavorite
+                    ? Colors.amber.withValues(alpha: 0.55)
+                    : (widget.focused ? widget.chipAccent : Colors.white12),
+                width: widget.focused ? 2 : 1,
               ),
-              if (widget.subtitle != null) ...[
-                const SizedBox(height: 2),
-                Text(
-                  widget.subtitle!,
-                  style: TextStyle(
-                    color: widget.focused ? Colors.white54 : Colors.white30,
-                    fontSize: 9,
-                    fontWeight: FontWeight.w400,
-                  ),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (widget.isFavorite) ...[
+                      Icon(
+                        Icons.star_rounded,
+                        size: 12,
+                        color: Colors.amber.withValues(alpha: 0.80),
+                      ),
+                      const SizedBox(width: 4),
+                    ],
+                    Text(
+                      widget.label,
+                      style: TextStyle(
+                        color: widget.focused ? Colors.white : Colors.white70,
+                        fontSize: 12,
+                        fontWeight:
+                            widget.focused ? FontWeight.w700 : FontWeight.w500,
+                      ),
+                    ),
+                  ],
                 ),
+                if (widget.subtitle != null) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    widget.subtitle!,
+                    style: TextStyle(
+                      color: widget.focused ? Colors.white54 : Colors.white30,
+                      fontSize: 9,
+                      fontWeight: FontWeight.w400,
+                    ),
+                  ),
+                ],
               ],
-            ],
+            ),
           ),
         ),
       ),
@@ -340,6 +399,11 @@ class _CloseTile extends StatelessWidget {
     );
   }
 }
+
+/// Resolves a special key localization key (e.g. 'skStartMenu') to a
+/// human-readable label using [AppLocalizations.specialKeyDesc].
+String resolveSpecialKeyLocalization(AppLocalizations l, String key) =>
+    l.specialKeyDesc(key);
 
 // LogicalKeyboardKey to Windows VK code mapping
 //

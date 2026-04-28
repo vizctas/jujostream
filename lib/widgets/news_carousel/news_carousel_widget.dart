@@ -8,6 +8,7 @@ import '../../models/nv_app.dart';
 import '../../providers/plugins_provider.dart';
 import '../../providers/theme_provider.dart';
 import '../../services/audio/ui_sound_service.dart';
+import '../../services/metadata/steam_video_client.dart';
 import '../../services/news/gaming_news_service.dart';
 import '../poster_image.dart';
 
@@ -141,7 +142,10 @@ class NewsCarouselWidgetState extends State<NewsCarouselWidget> {
     if (plugins.isEnabled('steam_connect')) {
       steamApiKey = await plugins.getApiKey('steam_connect');
     }
-    final steamAppIds = _steamAppIdsForNews();
+    final steamAppIds =
+        steamApiKey != null && steamApiKey.trim().isNotEmpty
+            ? await _steamAppIdsWithFallback()
+            : _directSteamAppIds();
     if (!mounted) return;
     final items = await GamingNewsService.fetchDashboardItems(
       steamAppIds: steamAppIds,
@@ -154,7 +158,8 @@ class NewsCarouselWidgetState extends State<NewsCarouselWidget> {
     });
   }
 
-  List<int> _steamAppIdsForNews() {
+  /// Extract Steam App IDs directly from poster URLs.
+  List<int> _directSteamAppIds() {
     return widget.allApps
         .followedBy(widget.apps)
         .map((app) => app.steamAppId)
@@ -163,6 +168,34 @@ class NewsCarouselWidgetState extends State<NewsCarouselWidget> {
         .toSet()
         .take(6)
         .toList(growable: false);
+  }
+
+  /// Try direct IDs first, then fall back to Steam Store search by name
+  /// for apps whose poster URL doesn't contain a Steam App ID.
+  Future<List<int>> _steamAppIdsWithFallback() async {
+    final ids = _directSteamAppIds().toSet();
+    if (ids.length >= 6) return ids.take(6).toList(growable: false);
+
+    final candidates = widget.allApps
+        .followedBy(widget.apps)
+        .where((app) => app.steamAppId == null && app.appName.trim().isNotEmpty)
+        .take(8)
+        .toList(growable: false);
+    if (candidates.isEmpty) return ids.toList(growable: false);
+
+    const client = SteamVideoClient();
+    final lookups = await Future.wait(
+      candidates.map(
+        (app) async => (app: app, result: await client.searchApp(app.appName)),
+      ),
+    );
+    for (final lookup in lookups) {
+      if (ids.length >= 6) break;
+      final result = lookup.result;
+      if (result == null) continue;
+      ids.add(result.appId);
+    }
+    return ids.take(6).toList(growable: false);
   }
 
   String? _resolvedPosterUrl(NvApp app) {
@@ -180,27 +213,44 @@ class NewsCarouselWidgetState extends State<NewsCarouselWidget> {
     final tp = context.watch<ThemeProvider>();
     final items = filteredItems;
 
-    return Container(
-      constraints: const BoxConstraints(minHeight: 380),
-      decoration: BoxDecoration(
-        color: tp.surface.withValues(alpha: 0.80),
-        border: Border(
-          top: BorderSide(
-            color: tp.accentLight.withValues(alpha: 0.06),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // When placed inside Expanded the parent gives a bounded maxHeight;
+        // use Expanded for the cards so they fill the available space.
+        // Otherwise fall back to the fixed 320px height.
+        final bounded = constraints.maxHeight.isFinite;
+
+        Widget cardsSection;
+        if (_newsLoading || items.isEmpty) {
+          cardsSection = bounded
+              ? Expanded(child: _buildSkeletons(tp, bounded: true))
+              : _buildSkeletons(tp);
+        } else {
+          cardsSection = bounded
+              ? Expanded(child: _buildCards(tp, items, bounded: true))
+              : _buildCards(tp, items);
+        }
+
+        return Container(
+          constraints: bounded
+              ? null
+              : const BoxConstraints(minHeight: 380),
+          decoration: BoxDecoration(
+            color: tp.surface.withValues(alpha: 0.80),
+            border: Border(
+              top: BorderSide(
+                color: tp.accentLight.withValues(alpha: 0.06),
+              ),
+            ),
           ),
-        ),
-      ),
-      child: Column(
-        children: [
-          _buildTabs(tp),
-          if (_newsLoading)
-            _buildSkeletons(tp)
-          else if (items.isEmpty)
-            _buildSkeletons(tp)
-          else
-            _buildCards(tp, items),
-        ],
-      ),
+          child: Column(
+            children: [
+              _buildTabs(tp),
+              cardsSection,
+            ],
+          ),
+        );
+      },
     );
   }
 
@@ -253,27 +303,31 @@ class NewsCarouselWidgetState extends State<NewsCarouselWidget> {
     );
   }
 
-  Widget _buildCards(ThemeProvider tp, List<GamingNewsItem> items) {
-    return SizedBox(
-      height: 320,
-      child: ListView.separated(
-        controller: _newsScrollController,
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.fromLTRB(28, 14, 28, 24),
-        itemCount: items.length,
-        separatorBuilder: (_, _) => const SizedBox(width: 16),
-        itemBuilder: (context, index) {
-          return GestureDetector(
-            onTap: () => widget.onNewsIndexChanged(index),
-            child: _buildCard(
-              tp,
-              items[index],
-              widget.cardsFocused && index == widget.newsIndex,
-            ),
-          );
-        },
-      ),
+  Widget _buildCards(
+    ThemeProvider tp,
+    List<GamingNewsItem> items, {
+    bool bounded = false,
+  }) {
+    final list = ListView.separated(
+      controller: _newsScrollController,
+      scrollDirection: Axis.horizontal,
+      padding: const EdgeInsets.fromLTRB(28, 14, 28, 24),
+      itemCount: items.length,
+      separatorBuilder: (_, _) => const SizedBox(width: 16),
+      itemBuilder: (context, index) {
+        return GestureDetector(
+          onTap: () => widget.onNewsIndexChanged(index),
+          child: _buildCard(
+            tp,
+            items[index],
+            widget.cardsFocused && index == widget.newsIndex,
+          ),
+        );
+      },
     );
+    // When bounded (inside Expanded), let the ListView fill available space.
+    // Otherwise use the fixed 320px height for themes that don't expand.
+    return bounded ? list : SizedBox(height: 320, child: list);
   }
 
   Widget _buildCard(ThemeProvider tp, GamingNewsItem item, bool focused) {
@@ -400,67 +454,65 @@ class NewsCarouselWidgetState extends State<NewsCarouselWidget> {
     );
   }
 
-  Widget _buildSkeletons(ThemeProvider tp) {
-    return SizedBox(
-      height: 320,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.fromLTRB(28, 14, 28, 24),
-        itemCount: 4,
-        separatorBuilder: (_, _) => const SizedBox(width: 16),
-        itemBuilder: (_, index) {
-          return Container(
-            width: _newsCardWidth,
-            decoration: BoxDecoration(
-              color: tp.surface,
-              borderRadius: BorderRadius.circular(3),
-              border: Border.all(
-                color: tp.accentLight.withValues(alpha: 0.08),
+  Widget _buildSkeletons(ThemeProvider tp, {bool bounded = false}) {
+    final list = ListView.separated(
+      scrollDirection: Axis.horizontal,
+      padding: const EdgeInsets.fromLTRB(28, 14, 28, 24),
+      itemCount: 4,
+      separatorBuilder: (_, _) => const SizedBox(width: 16),
+      itemBuilder: (_, index) {
+        return Container(
+          width: _newsCardWidth,
+          decoration: BoxDecoration(
+            color: tp.surface,
+            borderRadius: BorderRadius.circular(3),
+            border: Border.all(
+              color: tp.accentLight.withValues(alpha: 0.08),
+            ),
+          ),
+          child: Column(
+            children: [
+              Expanded(
+                flex: 3,
+                child: _SkeletonBlock(
+                  color: tp.surfaceVariant,
+                  delay: Duration(milliseconds: index * 90),
+                ),
               ),
-            ),
-            child: Column(
-              children: [
-                Expanded(
-                  flex: 3,
-                  child: _SkeletonBlock(
-                    color: tp.surfaceVariant,
-                    delay: Duration(milliseconds: index * 90),
+              Expanded(
+                flex: 2,
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      SizedBox(
+                        width: 70,
+                        height: 12,
+                        child: _SkeletonBlock(color: tp.surfaceVariant),
+                      ),
+                      const SizedBox(height: 12),
+                      SizedBox(
+                        width: 240,
+                        height: 16,
+                        child: _SkeletonBlock(color: tp.surfaceVariant),
+                      ),
+                      const SizedBox(height: 12),
+                      SizedBox(
+                        width: 120,
+                        height: 12,
+                        child: _SkeletonBlock(color: tp.surfaceVariant),
+                      ),
+                    ],
                   ),
                 ),
-                Expanded(
-                  flex: 2,
-                  child: Padding(
-                    padding: const EdgeInsets.all(14),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        SizedBox(
-                          width: 70,
-                          height: 12,
-                          child: _SkeletonBlock(color: tp.surfaceVariant),
-                        ),
-                        const SizedBox(height: 12),
-                        SizedBox(
-                          width: 240,
-                          height: 16,
-                          child: _SkeletonBlock(color: tp.surfaceVariant),
-                        ),
-                        const SizedBox(height: 12),
-                        SizedBox(
-                          width: 120,
-                          height: 12,
-                          child: _SkeletonBlock(color: tp.surfaceVariant),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          );
-        },
-      ),
+              ),
+            ],
+          ),
+        );
+      },
     );
+    return bounded ? list : SizedBox(height: 320, child: list);
   }
 }
 

@@ -1221,6 +1221,31 @@ class _SettingsScreenState extends State<SettingsScreen>
                           ),
                         ),
 
+                        _choiceTile(
+                          context,
+                          _tr(
+                            context,
+                            'Quick Keys Trigger',
+                            'Trigger de Quick Keys',
+                          ),
+                          _quickKeysComboLabel(
+                            context,
+                            c.quickKeysCombo,
+                            c.quickKeysHoldMs,
+                          ),
+                          () => _showQuickKeysComboDialog(
+                            context,
+                            settings,
+                            c,
+                            preferences.buttonScheme,
+                          ),
+                          leading: const Icon(
+                            Icons.keyboard_command_key,
+                            color: Colors.white54,
+                            size: 18,
+                          ),
+                        ),
+
                         _toggle(
                           _tr(
                             context,
@@ -2678,6 +2703,23 @@ class _SettingsScreenState extends State<SettingsScreen>
     return '${names.join(' + ')} • $holdLabel';
   }
 
+  String _quickKeysComboLabel(BuildContext context, int combo, int holdMs) {
+    if (combo == 0) {
+      return _tr(context, 'Disabled', 'Desactivado');
+    }
+    final names = <String>[];
+    for (final entry in _SettingsScreenState._overlayButtonDefs) {
+      if ((combo & entry.value) == entry.value) {
+        names.add(entry.key);
+      }
+    }
+    if (holdMs <= 0) {
+      return '${names.join(' + ')} • ${_tr(context, 'Instant', 'Instantáneo')}';
+    }
+    final holdLabel = '${(holdMs / 1000).toStringAsFixed(1)}s';
+    return '${names.join(' + ')} • $holdLabel';
+  }
+
   void _showOverlayTriggerDialog(
     BuildContext ctx,
     SettingsProvider settings,
@@ -3108,6 +3150,81 @@ class _SettingsScreenState extends State<SettingsScreen>
                     config.copyWith(
                       mouseModeCombo: combo,
                       mouseModeHoldMs: holdMs,
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showQuickKeysComboDialog(
+    BuildContext ctx,
+    SettingsProvider settings,
+    StreamConfiguration config,
+    String buttonScheme,
+  ) {
+    final tp = ctx.read<ThemeProvider>();
+    final size = MediaQuery.sizeOf(ctx);
+    final dialogWidth = size.width > 720 ? 460.0 : size.width - 40;
+
+    showGeneralDialog(
+      context: ctx,
+      barrierDismissible: true,
+      barrierLabel: MaterialLocalizations.of(ctx).modalBarrierDismissLabel,
+      barrierColor: Colors.black.withValues(alpha: 0.55),
+      transitionDuration: const Duration(milliseconds: 200),
+      transitionBuilder: (_, anim, _, child) =>
+          FadeTransition(opacity: anim, child: child),
+      pageBuilder: (dCtx, _, _) => Focus(
+        skipTraversal: true,
+        onKeyEvent: (_, event) {
+          if (event is! KeyDownEvent) return KeyEventResult.ignored;
+          final key = event.logicalKey;
+          if (key == LogicalKeyboardKey.gameButtonB ||
+              key == LogicalKeyboardKey.escape ||
+              key == LogicalKeyboardKey.goBack) {
+            Navigator.pop(dCtx);
+            return KeyEventResult.handled;
+          }
+          return KeyEventResult.ignored;
+        },
+        child: Center(
+          child: Material(
+            color: Colors.transparent,
+            child: Container(
+              width: dialogWidth,
+              constraints: BoxConstraints(maxHeight: size.height * 0.80),
+              margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 32),
+              decoration: BoxDecoration(
+                color: tp.surface,
+                borderRadius: BorderRadius.circular(22),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.45),
+                    blurRadius: 28,
+                    offset: const Offset(0, 10),
+                  ),
+                ],
+              ),
+              child: _OverlayTriggerDialog(
+                combo: config.quickKeysCombo,
+                holdMs: config.quickKeysHoldMs,
+                buttonScheme: buttonScheme,
+                titleEn: 'Quick Keys Trigger',
+                titleEs: 'Trigger de Quick Keys',
+                descEn:
+                    'Choose the buttons that open the Quick Special Keys overlay during streaming.',
+                descEs:
+                    'Elige los botones que abren el overlay de Quick Special Keys durante el streaming.',
+                onChanged: (combo, holdMs) {
+                  settings.updateConfig(
+                    config.copyWith(
+                      quickKeysCombo: combo,
+                      quickKeysHoldMs: holdMs,
                     ),
                   );
                 },
@@ -4649,6 +4766,9 @@ class _CustomResolutionTileState extends State<_CustomResolutionTile> {
             key == LogicalKeyboardKey.gameButtonA) {
           setState(() => _editing = true);
           _wFocus.requestFocus();
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            SystemChannels.textInput.invokeMethod('TextInput.show');
+          });
           return KeyEventResult.handled;
         }
         return KeyEventResult.ignored;
@@ -4702,6 +4822,9 @@ class _CustomResolutionTileState extends State<_CustomResolutionTile> {
                 onTap: () {
                   setState(() => _editing = true);
                   _wFocus.requestFocus();
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    SystemChannels.textInput.invokeMethod('TextInput.show');
+                  });
                 },
                 child: ExcludeFocus(
                   excluding: !_editing,
@@ -4728,6 +4851,9 @@ class _CustomResolutionTileState extends State<_CustomResolutionTile> {
                 onTap: () {
                   setState(() => _editing = true);
                   _hFocus.requestFocus();
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    SystemChannels.textInput.invokeMethod('TextInput.show');
+                  });
                 },
                 child: ExcludeFocus(
                   excluding: !_editing,
@@ -4963,8 +5089,8 @@ class _ResolutionPickerDialogState extends State<_ResolutionPickerDialog> {
                             final physW = (mq.size.width * dpr).round();
                             final physH = (mq.size.height * dpr).round();
                             final lbl = isEs
-                                ? '\u{1f4f1} Pantalla  (${physW}x$physH)'
-                                : '\u{1f4f1} Match Display  (${physW}x$physH)';
+                                ? 'Pantalla  (${physW}x$physH)'
+                                : 'Match Display  (${physW}x$physH)';
                             return _FocusablePickerOption(
                               label: lbl,
                               autofocus: true,

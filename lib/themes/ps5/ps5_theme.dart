@@ -598,21 +598,23 @@ class _Ps5BodyState extends State<_Ps5Body> {
                   _buildIconStrip(tp, s),
                   if (_area == _Ps5Area.news) ...[
                     const SizedBox(height: 8),
-                    NewsCarouselWidget(
-                      key: _newsKey,
-                      apps: widget.apps,
-                      allApps: widget.allApps,
-                      tabsFocused: _newsTabsFocused,
-                      cardsFocused: !_newsTabsFocused,
-                      newsIndex: _newsIndex,
-                      activeNewsType: _activeNewsType,
-                      onNewsTypeChanged: (type) =>
-                          setState(() => _activeNewsType = type),
-                      onNewsIndexChanged: (index) =>
-                          setState(() => _newsIndex = index),
+                    Expanded(
+                      child: NewsCarouselWidget(
+                        key: _newsKey,
+                        apps: widget.apps,
+                        allApps: widget.allApps,
+                        tabsFocused: _newsTabsFocused,
+                        cardsFocused: !_newsTabsFocused,
+                        newsIndex: _newsIndex,
+                        activeNewsType: _activeNewsType,
+                        onNewsTypeChanged: (type) =>
+                            setState(() => _activeNewsType = type),
+                        onNewsIndexChanged: (index) =>
+                            setState(() => _newsIndex = index),
+                      ),
                     ),
                   ],
-                  const Spacer(),
+                  if (_area != _Ps5Area.news) const Spacer(),
                   if (s != null && _area != _Ps5Area.news)
                     _buildBottomPanel(tp, s, l),
                   _buildHints(tp, s, l),

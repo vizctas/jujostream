@@ -23,6 +23,7 @@ import '../../widgets/virtual_gamepad/virtual_gamepad_overlay.dart';
 import 'direct_touch_handler.dart';
 import 'dynamic_bitrate_controller.dart';
 import 'perf_stats_overlay.dart';
+import 'quick_keys_overlay.dart';
 import 'special_keys.dart';
 import 'stream_overlay_widgets.dart';
 import 'trackpad_input_handler.dart';
@@ -70,6 +71,10 @@ class _GameStreamScreenState extends State<GameStreamScreen>
   bool _showGamepad = false;
   bool _showSpecialKeys = false;
   int _specialKeyIdx = 0;
+
+  bool _showQuickKeys = false;
+  final GlobalKey<QuickKeysOverlayState> _quickKeysKey =
+      GlobalKey<QuickKeysOverlayState>();
 
   bool _showQuitConfirm = false;
   int _quitConfirmSelection = 0;
@@ -188,6 +193,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
     GamepadChannel.onControllerConnected = _onControllerConnected;
     GamepadChannel.onControllerDisconnected = _onControllerDisconnected;
     GamepadChannel.onPanicComboDetected = _onPanicComboDetected;
+    GamepadChannel.onQuickKeysComboDetected = _onQuickKeysComboDetected;
 
     if (_config.enableDirectSubmit) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -211,6 +217,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
     GamepadChannel.onControllerConnected = null;
     GamepadChannel.onControllerDisconnected = null;
     GamepadChannel.onPanicComboDetected = null;
+    GamepadChannel.onQuickKeysComboDetected = null;
 
     if (_gamepadMouseActive) {
       GamepadChannel.setMouseEmulation(false);
@@ -623,6 +630,10 @@ class _GameStreamScreenState extends State<GameStreamScreen>
       cfg.mouseModeHoldMs,
     );
     await GamepadChannel.setPanicComboConfig(cfg.panicCombo, cfg.panicHoldMs);
+    await GamepadChannel.setQuickKeysComboConfig(
+      cfg.quickKeysCombo,
+      cfg.quickKeysHoldMs,
+    );
 
     if (!cfg.mouseEmulation || !_gamepadMouseActive) {
       await GamepadChannel.setMouseEmulation(false);
@@ -915,6 +926,13 @@ class _GameStreamScreenState extends State<GameStreamScreen>
 
   void _onControllerDisconnected(int controllerNumber) {}
 
+  /// Quick Keys combo detected — toggle the quick keys overlay.
+  void _onQuickKeysComboDetected() {
+    if (!mounted) return;
+    if (_showOverlay) return; // don't open quick keys while overlay is visible
+    _setQuickKeysVisible(!_showQuickKeys);
+  }
+
   /// Panic combo detected — emergency session kill without confirmation.
   void _onPanicComboDetected() {
     if (!mounted) return;
@@ -1108,9 +1126,53 @@ class _GameStreamScreenState extends State<GameStreamScreen>
   // and buildSpecialKeysPanel now live in special_keys.dart.
   late final List<SpecialKeyEntry> _specialKeys = buildSpecialKeysList();
 
+  void _toggleFavoriteSpecialKey(int index) {
+    if (index < 0 || index >= _specialKeys.length) return;
+    final current = List<int>.from(_config.favoriteSpecialKeys);
+    if (current.contains(index)) {
+      current.remove(index);
+    } else {
+      if (current.length >= maxFavoriteSpecialKeys) {
+        HapticFeedback.heavyImpact();
+        return;
+      }
+      current.add(index);
+    }
+    HapticFeedback.lightImpact();
+    _config = _config.copyWith(favoriteSpecialKeys: current);
+    _settingsProvider.updateConfig(_config);
+    setState(() {});
+  }
+
   void _activateSpecialKey(int index) {
     if (index < 0 || index >= _specialKeys.length) return;
+    HapticFeedback.lightImpact();
     _specialKeys[index].$3();
+  }
+
+  // ── Quick Keys overlay helpers ──────────────────────────────────────
+
+  void _setQuickKeysVisible(bool visible) {
+    if (visible == _showQuickKeys) return;
+    setState(() => _showQuickKeys = visible);
+    if (!visible) {
+      _streamFocusNode.requestFocus();
+    }
+  }
+
+  /// Resolves a localization key (e.g. 'skStartMenu') to a human label.
+  String _resolveSpecialKeyLabel(String key) {
+    final l = AppLocalizations.of(context);
+    return resolveSpecialKeyLocalization(l, key);
+  }
+
+  /// Called when the user activates a key from the Quick Keys overlay.
+  /// Fires the key action, then auto-dismisses after 300ms.
+  void _onQuickKeyActivated(int keyIndex) {
+    _activateSpecialKey(keyIndex);
+    Future.delayed(const Duration(milliseconds: 300), () {
+      if (mounted) _setQuickKeysVisible(false);
+    });
   }
 
   @override
@@ -1156,6 +1218,15 @@ class _GameStreamScreenState extends State<GameStreamScreen>
                   activeGamepadMask: _activeGamepadMask,
                 ),
               if (_showPerfStats && _isConnected) _buildPerfOverlay(),
+              if (_showQuickKeys && _isConnected && !_showOverlay)
+                QuickKeysOverlay(
+                  key: _quickKeysKey,
+                  favoriteIndices: _config.favoriteSpecialKeys,
+                  specialKeys: _specialKeys,
+                  descriptionResolver: _resolveSpecialKeyLabel,
+                  onActivate: _onQuickKeyActivated,
+                  onClose: () => _setQuickKeysVisible(false),
+                ),
 
               if (_keyboardVisible) _buildHiddenKeyboardField(),
             ],
@@ -2029,6 +2100,12 @@ class _GameStreamScreenState extends State<GameStreamScreen>
       }
     }
 
+    // Y button toggles favourite when in special keys view
+    if (_showSpecialKeys && key == LogicalKeyboardKey.gameButtonY) {
+      _toggleFavoriteSpecialKey(_specialKeyIdx);
+      return KeyEventResult.handled;
+    }
+
     if (key == LogicalKeyboardKey.enter ||
         key == LogicalKeyboardKey.gameButtonA ||
         key == LogicalKeyboardKey.select) {
@@ -2685,6 +2762,8 @@ class _GameStreamScreenState extends State<GameStreamScreen>
       onCloseOverlay: () => _setOverlayVisible(false),
       closeMenuLabel: AppLocalizations.of(context).closeMenu,
       specialKeysLabel: AppLocalizations.of(context).specialKeys,
+      favoriteIndices: _config.favoriteSpecialKeys,
+      onToggleFavorite: _toggleFavoriteSpecialKey,
     );
   }
 

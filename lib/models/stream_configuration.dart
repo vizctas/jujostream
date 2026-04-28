@@ -79,6 +79,17 @@ class StreamConfiguration {
   final int overlayTriggerCombo;
   final int overlayTriggerHoldMs;
 
+  /// Indices into [buildSpecialKeysList] that the user marked as favourites.
+  /// Max 5 entries.  The Quick Keys overlay always prepends "Win" (index 16).
+  final List<int> favoriteSpecialKeys;
+
+  /// Gamepad button bitmask that opens the Quick Keys overlay.
+  /// Default: START (0x0010) + RB (0x0200) = 0x0210.
+  final int quickKeysCombo;
+
+  /// Hold duration in ms before the Quick Keys combo fires (0 = instant).
+  final int quickKeysHoldMs;
+
   /// Desktop keyboard combo to open the in-stream overlay (macOS/Windows).
   /// Stored as a List of key labels, e.g. ['Shift', '-'].
   /// Default matches the hard-coded Shift+- shortcut.
@@ -164,6 +175,9 @@ class StreamConfiguration {
     this.screenshotHoldMs = 2500,
     this.overlayTriggerCombo = 0x00C0,
     this.overlayTriggerHoldMs = 2000,
+    this.favoriteSpecialKeys = const <int>[],
+    this.quickKeysCombo = 0x0210,
+    this.quickKeysHoldMs = 0,
     this.desktopOverlayKeys = const ['Shift', '-'],
     this.desktopOverlayHoldMs = 0,
     this.panicCombo = 0,
@@ -244,6 +258,9 @@ class StreamConfiguration {
     int? screenshotHoldMs,
     int? overlayTriggerCombo,
     int? overlayTriggerHoldMs,
+    List<int>? favoriteSpecialKeys,
+    int? quickKeysCombo,
+    int? quickKeysHoldMs,
     List<String>? desktopOverlayKeys,
     int? desktopOverlayHoldMs,
     int? panicCombo,
@@ -331,6 +348,9 @@ class StreamConfiguration {
       screenshotHoldMs: screenshotHoldMs ?? this.screenshotHoldMs,
       overlayTriggerCombo: overlayTriggerCombo ?? this.overlayTriggerCombo,
       overlayTriggerHoldMs: overlayTriggerHoldMs ?? this.overlayTriggerHoldMs,
+      favoriteSpecialKeys: favoriteSpecialKeys ?? this.favoriteSpecialKeys,
+      quickKeysCombo: quickKeysCombo ?? this.quickKeysCombo,
+      quickKeysHoldMs: quickKeysHoldMs ?? this.quickKeysHoldMs,
       desktopOverlayKeys: desktopOverlayKeys ?? this.desktopOverlayKeys,
       desktopOverlayHoldMs: desktopOverlayHoldMs ?? this.desktopOverlayHoldMs,
       panicCombo: panicCombo ?? this.panicCombo,
@@ -415,6 +435,9 @@ class StreamConfiguration {
     'screenshotHoldMs': screenshotHoldMs,
     'overlayTriggerCombo': overlayTriggerCombo,
     'overlayTriggerHoldMs': overlayTriggerHoldMs,
+    'favoriteSpecialKeys': favoriteSpecialKeys,
+    'quickKeysCombo': quickKeysCombo,
+    'quickKeysHoldMs': quickKeysHoldMs,
     'desktopOverlayKeys': desktopOverlayKeys,
     'desktopOverlayHoldMs': desktopOverlayHoldMs,
     'panicCombo': panicCombo,
@@ -517,6 +540,12 @@ class StreamConfiguration {
       screenshotHoldMs: json['screenshotHoldMs'] ?? 2500,
       overlayTriggerCombo: json['overlayTriggerCombo'] ?? 0x00C0,
       overlayTriggerHoldMs: json['overlayTriggerHoldMs'] ?? 2000,
+      favoriteSpecialKeys: (json['favoriteSpecialKeys'] as List<dynamic>?)
+              ?.map((e) => (e as num).toInt())
+              .toList() ??
+          const <int>[],
+      quickKeysCombo: json['quickKeysCombo'] ?? 0x0210,
+      quickKeysHoldMs: json['quickKeysHoldMs'] ?? 0,
       desktopOverlayKeys: (json['desktopOverlayKeys'] as List<dynamic>?)
               ?.map((e) => e.toString())
               .toList() ??

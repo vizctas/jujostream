@@ -1731,6 +1731,9 @@ class _ApiKeyFieldState extends State<_ApiKeyField> {
                 key == LogicalKeyboardKey.select)) {
           setState(() => _editing = true);
           widget.focusNode?.requestFocus();
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            SystemChannels.textInput.invokeMethod('TextInput.show');
+          });
           return KeyEventResult.handled;
         }
 
@@ -1921,6 +1924,9 @@ class _FocusableTextFieldState extends State<_FocusableTextField> {
                 key == LogicalKeyboardKey.select)) {
           setState(() => _editing = true);
           widget.focusNode.requestFocus();
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            SystemChannels.textInput.invokeMethod('TextInput.show');
+          });
           return KeyEventResult.handled;
         }
         if (_editing &&
