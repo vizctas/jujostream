@@ -83,6 +83,12 @@ The design is very heavy for android tv. Tried to do my best and with the suppor
 
 First boot will probably cause problem with the streaming. Give around 1 minute depending your internet connection, to fully load all posters, metadata and more. 
 
+
+It's not Steam big picture. Is JUJO Big picture. **Standalone launcher with news/events/deals.**
+
+ <img src="https://github.com/vizctas/jujostream/blob/feature/master/assets/ss/JUJO_bigpicture.png"  alt="JUJO BP theme"/>
+
+
 ### Color Schemes
 
 5+ Color schemes tailored for the launcher best fit. You'll make me happy if you choose to use "Debossy", "ShioryPan" or "Lazy Ankui". Based on my cats colors. 
