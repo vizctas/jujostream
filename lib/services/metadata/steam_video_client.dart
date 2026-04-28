@@ -2,19 +2,25 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 class SteamVideoClient {
-  static const _searchBase =
-      'https://store.steampowered.com/api/storesearch/';
+  static const _searchBase = 'https://store.steampowered.com/api/storesearch/';
   static const _appDetailsBase =
       'https://store.steampowered.com/api/appdetails';
 
-  Future<int?> searchAppId(String gameName) async {
+  final http.Client? client;
+
+  const SteamVideoClient({this.client});
+
+  Future<http.Response> _get(Uri uri, {Duration? timeout}) {
+    final request = client == null ? http.get(uri) : client!.get(uri);
+    return request.timeout(timeout ?? const Duration(seconds: 8));
+  }
+
+  Future<SteamAppSearchResult?> searchApp(String gameName) async {
     try {
-      final uri = Uri.parse(_searchBase).replace(queryParameters: {
-        'term': gameName,
-        'cc': 'US',
-        'l': 'english',
-      });
-      final response = await http.get(uri).timeout(const Duration(seconds: 8));
+      final uri = Uri.parse(_searchBase).replace(
+        queryParameters: {'term': gameName, 'cc': 'US', 'l': 'english'},
+      );
+      final response = await _get(uri);
       if (response.statusCode != 200) return null;
 
       final data = jsonDecode(response.body) as Map<String, dynamic>;
@@ -22,17 +28,36 @@ class SteamVideoClient {
       if (items == null || items.isEmpty) return null;
 
       final norm = _normalize(gameName);
-      for (final item in items) {
-        final name = _normalize((item as Map<String, dynamic>)['name'] as String? ?? '');
+      Map<String, dynamic>? best;
+      for (final item in items.whereType<Map<String, dynamic>>()) {
+        final name = _normalize(item['name'] as String? ?? '');
         if (name == norm) {
-          return (item['id'] as num?)?.toInt();
+          best = item;
+          break;
         }
       }
+      if (best == null) {
+        for (final item in items.whereType<Map<String, dynamic>>()) {
+          best = item;
+          break;
+        }
+      }
+      if (best == null) return null;
 
-      return ((items.first as Map<String, dynamic>)['id'] as num?)?.toInt();
+      final appId = (best['id'] as num?)?.toInt();
+      if (appId == null) return null;
+      final image = best['tiny_image'] as String?;
+      return SteamAppSearchResult(
+        appId: appId,
+        imageUrl: image != null && image.isNotEmpty ? image : null,
+      );
     } catch (_) {
       return null;
     }
+  }
+
+  Future<int?> searchAppId(String gameName) async {
+    return (await searchApp(gameName))?.appId;
   }
 
   Future<List<SteamMovie>> getMovies(int appId) async {
@@ -42,13 +67,13 @@ class SteamVideoClient {
 
   Future<SteamStoreDetails> getStoreData(int appId) async {
     try {
-      final uri = Uri.parse(_appDetailsBase).replace(queryParameters: {
-        'appids': '$appId',
-        'cc': 'US',
-        'l': 'english',
-      });
-      final response = await http.get(uri).timeout(const Duration(seconds: 10));
-      if (response.statusCode != 200) return const SteamStoreDetails(movies: []);
+      final uri = Uri.parse(_appDetailsBase).replace(
+        queryParameters: {'appids': '$appId', 'cc': 'US', 'l': 'english'},
+      );
+      final response = await _get(uri, timeout: const Duration(seconds: 10));
+      if (response.statusCode != 200) {
+        return const SteamStoreDetails(movies: []);
+      }
 
       final root = jsonDecode(response.body) as Map<String, dynamic>;
       final appData = root['$appId'] as Map<String, dynamic>?;
@@ -70,10 +95,10 @@ class SteamVideoClient {
       final genres = genresList == null
           ? <String>[]
           : genresList
-              .whereType<Map<String, dynamic>>()
-              .map((g) => g['description'] as String? ?? '')
-              .where((g) => g.isNotEmpty)
-              .toList();
+                .whereType<Map<String, dynamic>>()
+                .map((g) => g['description'] as String? ?? '')
+                .where((g) => g.isNotEmpty)
+                .toList();
 
       return SteamStoreDetails(
         movies: movies,
@@ -95,6 +120,13 @@ class SteamVideoClient {
 
   static String _normalize(String s) =>
       s.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '').trim();
+}
+
+class SteamAppSearchResult {
+  final int appId;
+  final String? imageUrl;
+
+  const SteamAppSearchResult({required this.appId, this.imageUrl});
 }
 
 class SteamStoreDetails {
@@ -133,18 +165,18 @@ class SteamMovie {
   });
 
   factory SteamMovie.fromJson(Map<String, dynamic> json) {
-    final mp4  = json['mp4']  as Map<String, dynamic>? ?? {};
+    final mp4 = json['mp4'] as Map<String, dynamic>? ?? {};
     final webm = json['webm'] as Map<String, dynamic>? ?? {};
     return SteamMovie(
-      id:        json['id']        as int?    ?? 0,
-      name:      json['name']      as String? ?? '',
+      id: json['id'] as int? ?? 0,
+      name: json['name'] as String? ?? '',
       thumbnail: json['thumbnail'] as String?,
 
-      mp4Sd:  _toHttps(mp4['480']  as String?),
-      mp4Hd:  _toHttps(mp4['max']  as String?),
+      mp4Sd: _toHttps(mp4['480'] as String?),
+      mp4Hd: _toHttps(mp4['max'] as String?),
       webmSd: _toHttps(webm['480'] as String?),
 
-      hlsH264:  _toHttps(json['hls_h264']  as String?),
+      hlsH264: _toHttps(json['hls_h264'] as String?),
       dashH264: _toHttps(json['dash_h264'] as String?),
     );
   }

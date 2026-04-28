@@ -3,12 +3,14 @@ import 'classic/classic_theme.dart';
 import 'backbone/backbone_theme.dart';
 import 'ps5/ps5_theme.dart';
 import 'hero/hero_theme.dart';
+import 'big_screen/big_screen_theme.dart';
 
 class LauncherThemeRegistry {
   LauncherThemeRegistry._();
 
   static final Map<LauncherThemeId, LauncherTheme> _themes = {
     LauncherThemeId.classic: ClassicTheme(),
+    LauncherThemeId.bigScreen: BigScreenTheme(),
     LauncherThemeId.backbone: BackboneTheme(),
     LauncherThemeId.ps5: Ps5Theme(),
     LauncherThemeId.hero: HeroTheme(),
@@ -36,6 +38,7 @@ class LauncherThemeRegistry {
       LauncherThemeId.backbone => 'Backbone',
       LauncherThemeId.ps5 => 'PS5',
       LauncherThemeId.hero => 'Hero',
+      LauncherThemeId.bigScreen => 'Big Screen',
     };
   }
 }

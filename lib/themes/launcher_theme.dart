@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import '../models/nv_app.dart';
 
-enum LauncherThemeId { classic, backbone, ps5, hero }
+enum LauncherThemeId { classic, backbone, ps5, hero, bigScreen }
 
 abstract class LauncherTheme {
   LauncherThemeId get id;

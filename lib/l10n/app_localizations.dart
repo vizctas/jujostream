@@ -727,6 +727,13 @@ class AppLocalizations {
       'es':
           'Arte de fondo completo, barra inferior de iconos, panel deslizable. Premium.',
     },
+    'launcherThemeBigScreen': {'en': 'Big Screen', 'es': 'Big Screen'},
+    'launcherThemeBigScreenDesc': {
+      'en':
+          'TV-first launcher with wide focused artwork, news cards, and a fixed gamepad footer.',
+      'es':
+          'Launcher para TV con arte enfocado horizontal, novedades y barra fija de controles.',
+    },
     'launcherThemeLabel': {'en': 'Layout Style', 'es': 'Estilo de Layout'},
 
     'presAppearance': {
@@ -1320,6 +1327,8 @@ class AppLocalizations {
   String get launcherThemePs5Desc => _s('launcherThemePs5Desc');
   String get launcherThemeHero => _s('launcherThemeHero');
   String get launcherThemeHeroDesc => _s('launcherThemeHeroDesc');
+  String get launcherThemeBigScreen => _s('launcherThemeBigScreen');
+  String get launcherThemeBigScreenDesc => _s('launcherThemeBigScreenDesc');
   String get launcherThemeLabel => _s('launcherThemeLabel');
 
   String get presAppearance => _s('presAppearance');

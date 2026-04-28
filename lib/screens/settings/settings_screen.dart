@@ -8,6 +8,7 @@ import '../../models/theme_config.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/locale_provider.dart';
 import '../../providers/settings_provider.dart';
+import '../../providers/plugins_provider.dart';
 import '../../providers/theme_provider.dart';
 import '../../services/input/gamepad_button_helper.dart';
 import '../../services/tv/tv_detector.dart';
@@ -1874,6 +1875,7 @@ class _SettingsScreenState extends State<SettingsScreen>
   Widget _buildLauncherThemePicker(BuildContext context, ThemeProvider tp) {
     final l = AppLocalizations.of(context);
     final themes = LauncherThemeRegistry.all;
+    final plugins = context.read<PluginsProvider>();
     return FocusTraversalGroup(
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -1910,11 +1912,27 @@ class _SettingsScreenState extends State<SettingsScreen>
                 itemBuilder: (ctx, i) {
                   final theme = themes[i];
                   final active = tp.launcherThemeId == theme.id;
+                  final isBigScreen = theme.id == LauncherThemeId.bigScreen;
+                  final needsApiSetup =
+                      isBigScreen && !plugins.hasApiKey('steam_connect');
                   return _LauncherThemeCard(
                     theme: theme,
                     active: active,
                     autofocus: active,
+                    requiresSetup: needsApiSetup,
                     onSelect: () {
+                      if (needsApiSetup) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text(
+                              'Steam API key required for Big Screen mode. '
+                              'Configure it in Plugins \u2192 Steam Connect.',
+                            ),
+                            duration: Duration(seconds: 4),
+                          ),
+                        );
+                        return;
+                      }
                       tp.setLauncherTheme(theme.id);
                       context.read<LauncherPreferences>().switchProfile(
                         theme.id.name,
@@ -3416,6 +3434,7 @@ class _LauncherThemeCard extends StatefulWidget {
   final LauncherTheme theme;
   final bool active;
   final bool autofocus;
+  final bool requiresSetup;
   final VoidCallback onSelect;
 
   const _LauncherThemeCard({
@@ -3423,6 +3442,7 @@ class _LauncherThemeCard extends StatefulWidget {
     required this.active,
     required this.autofocus,
     required this.onSelect,
+    this.requiresSetup = false,
   });
 
   @override
@@ -3437,6 +3457,7 @@ class _LauncherThemeCardState extends State<_LauncherThemeCard> {
     LauncherThemeId.backbone => Icons.dashboard_outlined,
     LauncherThemeId.ps5 => Icons.gamepad_outlined,
     LauncherThemeId.hero => Icons.auto_awesome,
+    LauncherThemeId.bigScreen => Icons.tv_rounded,
   };
 
   @override
@@ -3486,6 +3507,16 @@ class _LauncherThemeCardState extends State<_LauncherThemeCard> {
                     color: highlighted ? tp.accent : Colors.white38,
                     size: 20,
                   ),
+                  if (widget.requiresSetup)
+                    const Positioned(
+                      top: -4,
+                      right: -8,
+                      child: Icon(
+                        Icons.lock_outline,
+                        size: 11,
+                        color: Colors.amberAccent,
+                      ),
+                    ),
                 ],
               ),
               const SizedBox(height: 6),

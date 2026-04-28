@@ -52,6 +52,7 @@ Thumbs.db
 # AI tooling & agent configs
 .agents/
 .qodo/
+.superpowers/
 .github/agents/
 .github/prompts/
 .github/instructions/
