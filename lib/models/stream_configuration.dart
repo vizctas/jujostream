@@ -91,6 +91,11 @@ class StreamConfiguration {
   final int mouseModeCombo;
   final int mouseModeHoldMs;
 
+  /// Quick Favorites combo — opens the quick-access favorite special keys panel.
+  /// Default: Start + Select + LT + RT = 0x30030.
+  final int quickFavCombo;
+  final int quickFavHoldMs;
+
   final int frameQueueDepth;
   final bool choreographerVsync;
   final bool enableVrr;
@@ -170,6 +175,8 @@ class StreamConfiguration {
     this.panicHoldMs = 2000,
     this.mouseModeCombo = 0x0020,
     this.mouseModeHoldMs = 2000,
+    this.quickFavCombo = 0x30030,
+    this.quickFavHoldMs = 500,
     this.frameQueueDepth = 0,
     this.choreographerVsync = false,
     this.enableVrr = false,
@@ -250,6 +257,8 @@ class StreamConfiguration {
     int? panicHoldMs,
     int? mouseModeCombo,
     int? mouseModeHoldMs,
+    int? quickFavCombo,
+    int? quickFavHoldMs,
     int? frameQueueDepth,
     bool? choreographerVsync,
     bool? enableVrr,
@@ -337,6 +346,8 @@ class StreamConfiguration {
       panicHoldMs: panicHoldMs ?? this.panicHoldMs,
       mouseModeCombo: mouseModeCombo ?? this.mouseModeCombo,
       mouseModeHoldMs: mouseModeHoldMs ?? this.mouseModeHoldMs,
+      quickFavCombo: quickFavCombo ?? this.quickFavCombo,
+      quickFavHoldMs: quickFavHoldMs ?? this.quickFavHoldMs,
       frameQueueDepth: frameQueueDepth ?? this.frameQueueDepth,
       choreographerVsync: choreographerVsync ?? this.choreographerVsync,
       enableVrr: enableVrr ?? this.enableVrr,
@@ -421,6 +432,8 @@ class StreamConfiguration {
     'panicHoldMs': panicHoldMs,
     'mouseModeCombo': mouseModeCombo,
     'mouseModeHoldMs': mouseModeHoldMs,
+    'quickFavCombo': quickFavCombo,
+    'quickFavHoldMs': quickFavHoldMs,
     'frameQueueDepth': frameQueueDepth,
     'choreographerVsync': choreographerVsync,
     'enableVrr': enableVrr,
@@ -526,6 +539,8 @@ class StreamConfiguration {
       panicHoldMs: json['panicHoldMs'] ?? 2000,
       mouseModeCombo: json['mouseModeCombo'] ?? 0x0020,
       mouseModeHoldMs: json['mouseModeHoldMs'] ?? 2000,
+      quickFavCombo: json['quickFavCombo'] ?? 0x30030,
+      quickFavHoldMs: json['quickFavHoldMs'] ?? 500,
       frameQueueDepth: json['frameQueueDepth'] ?? 0,
       choreographerVsync: json['choreographerVsync'] ?? false,
       enableVrr: json['enableVrr'] ?? false,

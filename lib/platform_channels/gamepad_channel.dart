@@ -14,6 +14,8 @@ class GamepadChannel {
 
   static VoidCallback? onPanicComboDetected;
 
+  static VoidCallback? onQuickFavComboDetected;
+
   static void Function(int controllerNumber)? onControllerConnected;
 
   static void Function(int controllerNumber)? onControllerDisconnected;
@@ -33,6 +35,8 @@ class GamepadChannel {
         onMouseModeToggle?.call();
       } else if (call.method == 'onPanicComboDetected') {
         onPanicComboDetected?.call();
+      } else if (call.method == 'onQuickFavComboDetected') {
+        onQuickFavComboDetected?.call();
       } else if (call.method == 'onControllerConnected') {
         final args = call.arguments;
         final int? slot = args is Map ? args['slot'] as int? : args as int?;
@@ -191,6 +195,13 @@ class GamepadChannel {
 
   static Future<void> setPanicComboConfig(int combo, int holdMs) async {
     await _invoke('setPanicComboConfig', {
+      'combo': combo,
+      'holdMs': holdMs.clamp(300, 8000),
+    });
+  }
+
+  static Future<void> setQuickFavComboConfig(int combo, int holdMs) async {
+    await _invoke('setQuickFavComboConfig', {
       'combo': combo,
       'holdMs': holdMs.clamp(300, 8000),
     });

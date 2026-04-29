@@ -232,6 +232,11 @@ class GamepadHandler(
     private var panicHoldMs: Long = 2000L
     private var panicHeldRunnable: Runnable? = null
 
+    // Quick Favorites combo — opens quick-access favorite special keys panel
+    private var quickFavCombo: Int = 0x30030  // Start + Select + LT + RT
+    private var quickFavHoldMs: Long = 500L
+    private var quickFavHeldRunnable: Runnable? = null
+
     private var sensorManager: SensorManager? = null
     private var motionReportRateHz: Int = 0
     private var motionControllerNumber: Int = 0
@@ -435,6 +440,16 @@ class GamepadHandler(
                     panicHeldRunnable?.let { mainHandler.removeCallbacks(it) }
                     panicHeldRunnable = null
                     Log.i(TAG, "PANIC_COMBO: combo=0x${combo.toString(16)}, holdMs=$panicHoldMs")
+                    result.success(null)
+                }
+                "setQuickFavComboConfig" -> {
+                    val combo = call.argument<Int>("combo") ?: 0x30030
+                    val holdMs = call.argument<Int>("holdMs") ?: 500
+                    quickFavCombo = combo
+                    quickFavHoldMs = holdMs.toLong().coerceIn(300, 8000)
+                    quickFavHeldRunnable?.let { mainHandler.removeCallbacks(it) }
+                    quickFavHeldRunnable = null
+                    Log.i(TAG, "QUICK_FAV_COMBO: combo=0x${combo.toString(16)}, holdMs=$quickFavHoldMs")
                     result.success(null)
                 }
                 else -> result.notImplemented()
@@ -777,6 +792,34 @@ class GamepadHandler(
         }
     }
 
+    private fun checkQuickFavCombo(state: ControllerState) {
+        if (quickFavCombo == 0) return
+        var effective = state.buttonFlags
+        if (state.leftTrigger.toInt() and 0xFF > 100) effective = effective or LT_VIRTUAL_FLAG
+        if (state.rightTrigger.toInt() and 0xFF > 100) effective = effective or RT_VIRTUAL_FLAG
+        val allHeld = (effective and quickFavCombo) == quickFavCombo
+        if (allHeld) {
+            if (quickFavHeldRunnable == null) {
+                quickFavHeldRunnable = Runnable {
+                    quickFavHeldRunnable = null
+                    var eff = state.buttonFlags
+                    if (state.leftTrigger.toInt() and 0xFF > 100) eff = eff or LT_VIRTUAL_FLAG
+                    if (state.rightTrigger.toInt() and 0xFF > 100) eff = eff or RT_VIRTUAL_FLAG
+                    if ((eff and quickFavCombo) == quickFavCombo) {
+                        Log.i(TAG, "QUICK_FAV_COMBO: triggered after ${quickFavHoldMs}ms hold")
+                        mainHandler.post {
+                            methodChannel.invokeMethod("onQuickFavComboDetected", null)
+                        }
+                    }
+                }
+                mainHandler.postDelayed(quickFavHeldRunnable!!, quickFavHoldMs)
+            }
+        } else {
+            quickFavHeldRunnable?.let { mainHandler.removeCallbacks(it) }
+            quickFavHeldRunnable = null
+        }
+    }
+
     private fun handleButtonDown(event: KeyEvent, state: ControllerState, slot: Int, flag: Int): Boolean {
 
         if (mouseEmulationActive) {
@@ -829,6 +872,7 @@ class GamepadHandler(
         checkOverlayTriggerCombo(state)
         checkMouseModeCombo(state)
         checkPanicCombo(state)
+        checkQuickFavCombo(state)
         return true
     }
 
@@ -1108,6 +1152,7 @@ class GamepadHandler(
         checkOverlayTriggerCombo(state)
         checkMouseModeCombo(state)
         checkPanicCombo(state)
+        checkQuickFavCombo(state)
         return true
     }
 
