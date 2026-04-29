@@ -836,10 +836,10 @@ class _FocusServerCardState extends State<_FocusServerCard>
     );
 
     _glowController = AnimationController(
-      duration: const Duration(milliseconds: 1500),
+      duration: const Duration(milliseconds: 1800),
       vsync: this,
     );
-    _glowAnimation = Tween<double>(begin: 0.25, end: 0.58).animate(
+    _glowAnimation = Tween<double>(begin: 0.35, end: 0.70).animate(
       CurvedAnimation(parent: _glowController, curve: Curves.easeInOut),
     );
 
@@ -875,7 +875,6 @@ class _FocusServerCardState extends State<_FocusServerCard>
       if (!_glowController.isAnimating) _glowController.repeat(reverse: true);
     } else {
       _glowController.stop();
-      _glowController.value = 0.0;
     }
   }
 
@@ -946,9 +945,11 @@ class _FocusServerCardState extends State<_FocusServerCard>
                   child: AnimatedBuilder(
                     animation: _glowAnimation,
                     builder: (context, child) {
+                      // Dynamic bloom: low static glow when unfocused,
+                      // high + breathe animation when focused.
                       final glowAlpha = widget.isSelected
                           ? _glowAnimation.value
-                          : 0.0;
+                          : 0.12;
                       return Container(
                         margin: const EdgeInsets.symmetric(
                           horizontal: 12,
@@ -967,12 +968,11 @@ class _FocusServerCardState extends State<_FocusServerCard>
                               blurRadius: 32,
                               offset: const Offset(0, 12),
                             ),
-                            if (widget.isSelected)
-                              BoxShadow(
-                                color: tp.accent.withValues(alpha: glowAlpha),
-                                blurRadius: 22,
-                                spreadRadius: 4,
-                              ),
+                            BoxShadow(
+                              color: tp.accent.withValues(alpha: glowAlpha),
+                              blurRadius: widget.isSelected ? 28 : 14,
+                              spreadRadius: widget.isSelected ? 6 : 1,
+                            ),
                           ],
                         ),
                         clipBehavior: Clip.antiAlias,
@@ -1147,10 +1147,10 @@ class _FocusServerCircleState extends State<_FocusServerCircle>
       CurvedAnimation(parent: _floatController, curve: Curves.easeInOutSine),
     );
     _glowController = AnimationController(
-      duration: const Duration(milliseconds: 1500),
+      duration: const Duration(milliseconds: 1800),
       vsync: this,
     );
-    _glowAnimation = Tween<double>(begin: 0.25, end: 0.58).animate(
+    _glowAnimation = Tween<double>(begin: 0.35, end: 0.70).animate(
       CurvedAnimation(parent: _glowController, curve: Curves.easeInOut),
     );
     final tp = context.read<ThemeProvider>();
@@ -1183,7 +1183,6 @@ class _FocusServerCircleState extends State<_FocusServerCircle>
       if (!_glowController.isAnimating) _glowController.repeat(reverse: true);
     } else {
       _glowController.stop();
-      _glowController.value = 0.0;
     }
   }
 
@@ -1244,9 +1243,11 @@ class _FocusServerCircleState extends State<_FocusServerCircle>
               AnimatedBuilder(
                 animation: _glowAnimation,
                 builder: (context, child) {
+                  // Dynamic bloom: low static glow when unfocused,
+                  // high + breathe animation when focused.
                   final glowAlpha = widget.isSelected
                       ? _glowAnimation.value
-                      : 0.0;
+                      : 0.12;
                   return Container(
                     width: circleSize + borderWidth * 2,
                     height: circleSize + borderWidth * 2,
@@ -1259,12 +1260,11 @@ class _FocusServerCircleState extends State<_FocusServerCircle>
                           blurRadius: 24,
                           spreadRadius: 2,
                         ),
-                        if (widget.isSelected)
-                          BoxShadow(
-                            color: tp.accent.withValues(alpha: glowAlpha),
-                            blurRadius: 22,
-                            spreadRadius: 4,
-                          ),
+                        BoxShadow(
+                          color: tp.accent.withValues(alpha: glowAlpha),
+                          blurRadius: widget.isSelected ? 28 : 14,
+                          spreadRadius: widget.isSelected ? 6 : 1,
+                        ),
                       ],
                     ),
                     child: child,

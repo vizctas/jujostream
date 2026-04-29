@@ -377,13 +377,13 @@ class CompanionServer {
       'stream_custom_remap':
           streamConfig?['customRemapTable'] ?? const <String, dynamic>{},
       'stream_overlay_trigger_combo':
-          streamConfig?['overlayTriggerCombo'] ?? 0x00C0,
+          streamConfig?['overlayTriggerCombo'] ?? 0x0330,
       'stream_overlay_trigger_hold_ms':
-          streamConfig?['overlayTriggerHoldMs'] ?? 2000,
+          streamConfig?['overlayTriggerHoldMs'] ?? 0,
       'stream_quick_fav_combo':
           streamConfig?['quickFavCombo'] ?? 0x30030,
       'stream_quick_fav_hold_ms':
-          streamConfig?['quickFavHoldMs'] ?? 500,
+          streamConfig?['quickFavHoldMs'] ?? 0,
 
       'stream_rumble': streamConfig?['enableRumble'] ?? true,
       'stream_vibrate_fallback': streamConfig?['vibrateFallback'] ?? false,

@@ -2166,7 +2166,26 @@ class _GameStreamScreenState extends State<GameStreamScreen>
     final isLandscape =
         MediaQuery.orientationOf(context) == Orientation.landscape;
     return GestureDetector(
-      onTap: () => _setOverlayVisible(false),
+      onTap: () {
+        // If special keys or quit confirm is showing, dismiss that sub-panel
+        // first instead of closing the entire overlay.
+        if (_showSpecialKeys) {
+          setState(() {
+            _showSpecialKeys = false;
+            _overlayRow = 2; // return focus to "Special Keys" row
+            _overlayCol = 0;
+          });
+          return;
+        }
+        if (_showQuitConfirm) {
+          setState(() {
+            _showQuitConfirm = false;
+            _overlayRow = 5;
+          });
+          return;
+        }
+        _setOverlayVisible(false);
+      },
       child: Container(
         color: Colors.black54,
         child: Center(
@@ -2737,18 +2756,24 @@ class _GameStreamScreenState extends State<GameStreamScreen>
   }
 
   Widget _buildSpecialKeysPanel() {
-    return buildSpecialKeysPanel(
-      specialKeys: _specialKeys,
-      focusedIndex: _specialKeyIdx,
-      descriptionResolver: (key) =>
-          AppLocalizations.of(context).specialKeyDesc(key),
-      onActivate: _activateSpecialKey,
-      onBack: () => setState(() => _showSpecialKeys = false),
-      onCloseOverlay: () => _setOverlayVisible(false),
-      closeMenuLabel: AppLocalizations.of(context).closeMenu,
-      specialKeysLabel: AppLocalizations.of(context).specialKeys,
-      favoriteIndices: _quickFavIndices,
-      favoriteHint: 'Ⓨ Toggle Favorite  (${_quickFavIndices.length}/$_maxQuickFavs)',
+    // Wrap in ExcludeFocus so that the IconButton (back) and ListTile (close)
+    // inside the panel cannot steal focus from _overlayFocusNode.  This keeps
+    // _onOverlayKeyEvent as the sole key-event handler, ensuring D-pad
+    // navigation and B-button close work correctly via gamepad.
+    return ExcludeFocus(
+      child: buildSpecialKeysPanel(
+        specialKeys: _specialKeys,
+        focusedIndex: _specialKeyIdx,
+        descriptionResolver: (key) =>
+            AppLocalizations.of(context).specialKeyDesc(key),
+        onActivate: _activateSpecialKey,
+        onBack: () => setState(() => _showSpecialKeys = false),
+        onCloseOverlay: () => _setOverlayVisible(false),
+        closeMenuLabel: AppLocalizations.of(context).closeMenu,
+        specialKeysLabel: AppLocalizations.of(context).specialKeys,
+        favoriteIndices: _quickFavIndices,
+        favoriteHint: 'Ⓨ Toggle Favorite  (${_quickFavIndices.length}/$_maxQuickFavs)',
+      ),
     );
   }
 

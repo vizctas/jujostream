@@ -182,28 +182,28 @@ class GamepadChannel {
   static Future<void> setOverlayTriggerConfig(int combo, int holdMs) async {
     await _invoke('setOverlayTriggerConfig', {
       'combo': combo,
-      'holdMs': holdMs.clamp(300, 8000),
+      'holdMs': holdMs.clamp(0, 8000),
     });
   }
 
   static Future<void> setMouseModeConfig(int combo, int holdMs) async {
     await _invoke('setMouseModeConfig', {
       'combo': combo,
-      'holdMs': holdMs.clamp(300, 8000),
+      'holdMs': holdMs.clamp(0, 8000),
     });
   }
 
   static Future<void> setPanicComboConfig(int combo, int holdMs) async {
     await _invoke('setPanicComboConfig', {
       'combo': combo,
-      'holdMs': holdMs.clamp(300, 8000),
+      'holdMs': holdMs.clamp(0, 8000),
     });
   }
 
   static Future<void> setQuickFavComboConfig(int combo, int holdMs) async {
     await _invoke('setQuickFavComboConfig', {
       'combo': combo,
-      'holdMs': holdMs.clamp(300, 8000),
+      'holdMs': holdMs.clamp(0, 8000),
     });
   }
 }

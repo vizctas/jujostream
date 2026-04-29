@@ -1244,34 +1244,6 @@ class _SettingsScreenState extends State<SettingsScreen>
 
                           _choiceTile(
                             context,
-                            _tr(context, 'Panic Combo', 'Combo del pánico'),
-                            _overlayTriggerLabel(
-                              context,
-                              c.panicCombo,
-                              c.panicHoldMs,
-                            ),
-                            () => _showOverlayTriggerDialog(
-                              context,
-                              settings,
-                              c,
-                              preferences.buttonScheme,
-                              isPanicCombo: true,
-                              titleEn: 'Panic Combo',
-                              titleEs: 'Combo del pánico',
-                              descEn:
-                                  'Emergency combo that instantly terminates the running game session on the server. Use when a game is unresponsive.',
-                              descEs:
-                                  'Combo de emergencia que termina instantáneamente la sesión del juego en el servidor. Úsalo cuando un juego no responde.',
-                            ),
-                            leading: const Icon(
-                              Icons.warning_amber_outlined,
-                              color: Colors.white54,
-                              size: 18,
-                            ),
-                          ),
-
-                          _choiceTile(
-                            context,
                             _tr(
                               context,
                               'Mouse Mode Trigger',
@@ -2709,8 +2681,6 @@ class _SettingsScreenState extends State<SettingsScreen>
     MapEntry('RB', 0x0200),
     MapEntry('LT', 0x10000),
     MapEntry('RT', 0x20000),
-    MapEntry('L3', 0x0040),
-    MapEntry('R3', 0x0080),
     MapEntry('Start', 0x0010),
     MapEntry('Select', 0x0020),
     MapEntry('Guide', 0x0400),
@@ -2785,7 +2755,6 @@ class _SettingsScreenState extends State<SettingsScreen>
     SettingsProvider settings,
     StreamConfiguration config,
     String buttonScheme, {
-    bool isPanicCombo = false,
     String? titleEn,
     String? titleEs,
     String? descEn,
@@ -2841,30 +2810,20 @@ class _SettingsScreenState extends State<SettingsScreen>
                 ],
               ),
               child: _OverlayTriggerDialog(
-                combo: isPanicCombo
-                    ? config.panicCombo
-                    : config.overlayTriggerCombo,
-                holdMs: isPanicCombo
-                    ? config.panicHoldMs
-                    : config.overlayTriggerHoldMs,
+                combo: config.overlayTriggerCombo,
+                holdMs: config.overlayTriggerHoldMs,
                 buttonScheme: buttonScheme,
                 titleEn: titleEn,
                 titleEs: titleEs,
                 descEn: descEn,
                 descEs: descEs,
                 onChanged: (combo, holdMs) {
-                  if (isPanicCombo) {
-                    settings.updateConfig(
-                      config.copyWith(panicCombo: combo, panicHoldMs: holdMs),
-                    );
-                  } else {
-                    settings.updateConfig(
-                      config.copyWith(
-                        overlayTriggerCombo: combo,
-                        overlayTriggerHoldMs: holdMs,
-                      ),
-                    );
-                  }
+                  settings.updateConfig(
+                    config.copyWith(
+                      overlayTriggerCombo: combo,
+                      overlayTriggerHoldMs: holdMs,
+                    ),
+                  );
                 },
               ),
             ),
