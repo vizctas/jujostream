@@ -2807,7 +2807,17 @@ class _GameStreamScreenState extends State<GameStreamScreen>
         closeMenuLabel: AppLocalizations.of(context).closeMenu,
         specialKeysLabel: AppLocalizations.of(context).specialKeys,
         favoriteIndices: _quickFavIndices,
-        favoriteHint: 'Ⓨ Toggle Favorite  (${_quickFavIndices.length}/$_maxQuickFavs)',
+        favoriteHintWidget: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            GamepadHintIcon('Y', size: 16),
+            const SizedBox(width: 4),
+            Text(
+              'Toggle Favorite  (${_quickFavIndices.length}/$_maxQuickFavs)',
+              style: const TextStyle(color: Colors.white24, fontSize: 10),
+            ),
+          ],
+        ),
       ),
     );
   }

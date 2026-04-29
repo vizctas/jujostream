@@ -4849,6 +4849,7 @@ class _CustomResolutionTileState extends State<_CustomResolutionTile> {
                 ),
               ),
               GestureDetector(
+                behavior: HitTestBehavior.opaque,
                 onTap: () {
                   setState(() => _editing = true);
                   WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -4882,6 +4883,7 @@ class _CustomResolutionTileState extends State<_CustomResolutionTile> {
                 ),
               ),
               GestureDetector(
+                behavior: HitTestBehavior.opaque,
                 onTap: () {
                   setState(() => _editing = true);
                   WidgetsBinding.instance.addPostFrameCallback((_) {

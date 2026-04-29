@@ -1820,6 +1820,7 @@ class _ApiKeyFieldState extends State<_ApiKeyField> {
             ),
             const SizedBox(height: 6),
             GestureDetector(
+              behavior: HitTestBehavior.opaque,
               onTap: () {
                 setState(() => _editing = true);
                 WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -2025,6 +2026,7 @@ class _FocusableTextFieldState extends State<_FocusableTextField> {
             ),
             const SizedBox(height: 4),
             GestureDetector(
+              behavior: HitTestBehavior.opaque,
               onTap: () {
                 setState(() => _editing = true);
                 WidgetsBinding.instance.addPostFrameCallback((_) {

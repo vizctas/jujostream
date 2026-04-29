@@ -210,7 +210,7 @@ Widget buildSpecialKeysPanel({
   required String closeMenuLabel,
   required String specialKeysLabel,
   Set<int> favoriteIndices = const {},
-  String? favoriteHint,
+  Widget? favoriteHintWidget,
 }) {
   Widget sectionHeader(String title) {
     return Padding(
@@ -292,6 +292,12 @@ Widget buildSpecialKeysPanel({
         ],
       ),
 
+      if (favoriteHintWidget != null) ...[
+        const SizedBox(height: 4),
+        Center(child: favoriteHintWidget),
+        const SizedBox(height: 4),
+      ],
+
       sectionHeader('WINDOW'),
       sectionGrid(0, 10),
 
@@ -304,15 +310,6 @@ Widget buildSpecialKeysPanel({
       sectionHeader('MEDIA'),
       sectionGrid(22, 26),
 
-      if (favoriteHint != null) ...[
-        const SizedBox(height: 8),
-        Center(
-          child: Text(
-            favoriteHint,
-            style: const TextStyle(color: Colors.white24, fontSize: 10),
-          ),
-        ),
-      ],
       const SizedBox(height: 16),
       _CloseTile(label: closeMenuLabel, onTap: onCloseOverlay),
     ],
