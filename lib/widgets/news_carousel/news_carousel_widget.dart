@@ -20,7 +20,9 @@ enum NewsCarouselArea { tabs, cards }
 ///
 /// - **Lazy:** fetches data only when [visible] becomes `true`.
 /// - **Rotation:** each time [rotationSeed] changes the starting card shifts.
-/// - **Gamepad-first:** LEFT/RIGHT navigate cards, UP from tabs calls [onDismiss].
+/// - **Gamepad-first:** LEFT/RIGHT navigate cards, UP/DOWN between rows,
+///   UP from tabs calls [onDismiss].
+/// - **Two-row grid:** items are laid out in two rows for denser content.
 /// - **Colors:** all derived from [ThemeProvider].
 class NewsCarouselWidget extends StatefulWidget {
   /// Full app list used to resolve Steam IDs and poster images.
@@ -56,8 +58,11 @@ class NewsCarouselWidget extends StatefulWidget {
 }
 
 class NewsCarouselWidgetState extends State<NewsCarouselWidget> {
-  static const double _cardWidth = 340;
-  static const double _cardGap = 16;
+  static const double _cardWidth = 320;
+  static const double _cardHeight = 220;
+  static const double _cardGap = 14;
+  static const double _rowGap = 12;
+  static const int _rowCount = 2;
 
   static const List<(String, GamingNewsType?)> _tabs = [
     ("WHAT'S NEW", null),
@@ -74,7 +79,13 @@ class NewsCarouselWidgetState extends State<NewsCarouselWidget> {
   bool _loading = true;
   bool _fetched = false;
   GamingNewsType? _activeType;
-  int _cardIndex = 0;
+
+  /// Current focused card column (horizontal index).
+  int _cardCol = 0;
+
+  /// Current focused card row (0 = top, 1 = bottom).
+  int _cardRow = 0;
+
   NewsCarouselArea _area = NewsCarouselArea.tabs;
 
   @override
@@ -135,18 +146,18 @@ class NewsCarouselWidgetState extends State<NewsCarouselWidget> {
         .whereType<int>()
         .where((id) => id > 0)
         .toSet()
-        .take(6)
+        .take(12)
         .toList(growable: false);
   }
 
   Future<List<int>> _steamAppIdsWithFallback() async {
     final ids = _directSteamAppIds().toSet();
-    if (ids.length >= 6) return ids.take(6).toList(growable: false);
+    if (ids.length >= 12) return ids.take(12).toList(growable: false);
 
     final candidates = widget.allApps
         .followedBy(widget.apps)
         .where((app) => app.steamAppId == null && app.appName.trim().isNotEmpty)
-        .take(8)
+        .take(14)
         .toList(growable: false);
 
     final lookups = await Future.wait(
@@ -157,13 +168,13 @@ class NewsCarouselWidgetState extends State<NewsCarouselWidget> {
     );
 
     for (final lookup in lookups) {
-      if (ids.length >= 6) break;
+      if (ids.length >= 12) break;
       final result = lookup.result;
       if (result == null) continue;
       ids.add(result.appId);
     }
 
-    return ids.take(6).toList(growable: false);
+    return ids.take(12).toList(growable: false);
   }
 
   // ---------------------------------------------------------------------------
@@ -177,18 +188,59 @@ class NewsCarouselWidgetState extends State<NewsCarouselWidget> {
   }
 
   // ---------------------------------------------------------------------------
+  // Two-row grid helpers
+  // ---------------------------------------------------------------------------
+
+  /// Number of columns in the grid (items per row).
+  int _colCount(List<GamingNewsItem> items) {
+    return (items.length / _rowCount).ceil().clamp(1, items.length);
+  }
+
+  /// Map (row, col) → flat index into items list.
+  int? _gridToIndex(int row, int col, int itemCount) {
+    final cols = (itemCount / _rowCount).ceil();
+    final index = row * cols + col;
+    return index < itemCount ? index : null;
+  }
+
+  
+  // ---------------------------------------------------------------------------
   // Navigation helpers
   // ---------------------------------------------------------------------------
 
-  void _moveCard(int delta) {
+  void _moveCard(int dCol, int dRow) {
     final items = _filteredItems();
     if (items.isEmpty) return;
-    final next = (_cardIndex + delta).clamp(0, items.length - 1);
-    if (next == _cardIndex) return;
+    final cols = _colCount(items);
+
+    var nextCol = _cardCol + dCol;
+    var nextRow = _cardRow + dRow;
+
+    // Vertical: UP from row 0 → go to tabs
+    if (nextRow < 0) {
+      setState(() => _area = NewsCarouselArea.tabs);
+      return;
+    }
+    nextRow = nextRow.clamp(0, _rowCount - 1);
+    nextCol = nextCol.clamp(0, cols - 1);
+
+    // Ensure the target cell has an item
+    final targetIdx = _gridToIndex(nextRow, nextCol, items.length);
+    if (targetIdx == null) {
+      // Try staying in same column but clamp row
+      nextRow = 0;
+      final fallback = _gridToIndex(nextRow, nextCol, items.length);
+      if (fallback == null) return;
+    }
+
+    if (nextCol == _cardCol && nextRow == _cardRow) return;
     UiSoundService.playClick();
     HapticFeedback.lightImpact();
-    setState(() => _cardIndex = next);
-    _scrollToCard(next);
+    setState(() {
+      _cardCol = nextCol;
+      _cardRow = nextRow;
+    });
+    _scrollToCol(nextCol);
   }
 
   void _moveTab(int delta) {
@@ -199,14 +251,15 @@ class NewsCarouselWidgetState extends State<NewsCarouselWidget> {
     HapticFeedback.lightImpact();
     setState(() {
       _activeType = _tabs[next].$2;
-      _cardIndex = 0;
+      _cardCol = 0;
+      _cardRow = 0;
     });
   }
 
-  void _scrollToCard(int index) {
+  void _scrollToCol(int col) {
     if (!_scrollController.hasClients) return;
     _scrollController.animateTo(
-      index * (_cardWidth + _cardGap),
+      col * (_cardWidth + _cardGap),
       duration: const Duration(milliseconds: 180),
       curve: Curves.easeOutCubic,
     );
@@ -241,17 +294,21 @@ class NewsCarouselWidgetState extends State<NewsCarouselWidget> {
         return true;
       }
     } else {
-      // cards area
+      // cards area — 2D grid navigation
       if (key == LogicalKeyboardKey.arrowRight) {
-        _moveCard(1);
+        _moveCard(1, 0);
         return true;
       }
       if (key == LogicalKeyboardKey.arrowLeft) {
-        _moveCard(-1);
+        _moveCard(-1, 0);
         return true;
       }
       if (key == LogicalKeyboardKey.arrowUp) {
-        setState(() => _area = NewsCarouselArea.tabs);
+        _moveCard(0, -1);
+        return true;
+      }
+      if (key == LogicalKeyboardKey.arrowDown) {
+        _moveCard(0, 1);
         return true;
       }
     }
@@ -262,7 +319,8 @@ class NewsCarouselWidgetState extends State<NewsCarouselWidget> {
   void resetFocus() {
     setState(() {
       _area = NewsCarouselArea.tabs;
-      _cardIndex = 0;
+      _cardCol = 0;
+      _cardRow = 0;
     });
   }
 
@@ -276,7 +334,6 @@ class NewsCarouselWidgetState extends State<NewsCarouselWidget> {
     final items = _filteredItems();
 
     return Container(
-      constraints: const BoxConstraints(minHeight: 340),
       decoration: BoxDecoration(
         color: tp.background.withValues(alpha: 0.80),
         border: Border(
@@ -286,19 +343,18 @@ class NewsCarouselWidgetState extends State<NewsCarouselWidget> {
       child: Column(
         children: [
           _buildTabs(tp),
-          if (_loading)
-            _buildSkeletons(tp)
-          else if (items.isEmpty)
-            _buildSkeletons(tp)
-          else
-            _buildCards(tp, items),
+          Expanded(
+            child: _loading || items.isEmpty
+                ? _buildSkeletons(tp)
+                : _buildCards(tp, items),
+          ),
         ],
       ),
     );
   }
 
   // ---------------------------------------------------------------------------
-  // Tabs
+  // Tabs with animated underline
   // ---------------------------------------------------------------------------
 
   Widget _buildTabs(ThemeProvider tp) {
@@ -307,9 +363,9 @@ class NewsCarouselWidgetState extends State<NewsCarouselWidget> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          for (final tab in _tabs) ...[
-            _tab(tp, tab.$1, tab.$2),
-            const SizedBox(width: 10),
+          for (int i = 0; i < _tabs.length; i++) ...[
+            _tab(tp, _tabs[i].$1, _tabs[i].$2),
+            if (i < _tabs.length - 1) const SizedBox(width: 10),
           ],
         ],
       ),
@@ -324,11 +380,13 @@ class NewsCarouselWidgetState extends State<NewsCarouselWidget> {
       onTap: () {
         setState(() {
           _activeType = type;
-          _cardIndex = 0;
+          _cardCol = 0;
+          _cardRow = 0;
         });
       },
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 140),
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOutCubic,
         padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 9),
         decoration: BoxDecoration(
           color: active
@@ -339,114 +397,141 @@ class NewsCarouselWidgetState extends State<NewsCarouselWidget> {
               ? Border.all(color: tp.accent.withValues(alpha: 0.40))
               : null,
         ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: active
-                ? tp.accentLight
-                : Colors.white.withValues(alpha: 0.68),
-            fontSize: 12,
-            fontWeight: FontWeight.w900,
-          ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              label,
+              style: TextStyle(
+                color: active
+                    ? tp.accentLight
+                    : Colors.white.withValues(alpha: 0.68),
+                fontSize: 12,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 4),
+            // Animated underline indicator
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 220),
+              curve: Curves.easeOutCubic,
+              height: 2,
+              width: active ? 24 : 0,
+              decoration: BoxDecoration(
+                color: active ? tp.accent : Colors.transparent,
+                borderRadius: BorderRadius.circular(1),
+              ),
+            ),
+          ],
         ),
       ),
     );
   }
 
   // ---------------------------------------------------------------------------
-  // Cards
+  // Cards — two-row horizontal grid
   // ---------------------------------------------------------------------------
 
   Widget _buildCards(ThemeProvider tp, List<GamingNewsItem> items) {
-    return SizedBox(
-      height: 290,
-      child: ListView.separated(
-        controller: _scrollController,
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.fromLTRB(24, 10, 24, 20),
-        itemCount: items.length,
-        separatorBuilder: (_, _) => const SizedBox(width: _cardGap),
-        itemBuilder: (context, index) {
-          final isFocused =
-              widget.hasFocus &&
-              _area == NewsCarouselArea.cards &&
-              index == _cardIndex;
-          return GestureDetector(
-            onTap: () {
-              setState(() => _cardIndex = index);
-            },
-            child: NewsCarouselCard(
-              item: items[index],
-              focused: isFocused,
-              cardWidth: _cardWidth,
-              tp: tp,
-              allApps: widget.allApps,
-            ),
-          );
-        },
+    final cols = _colCount(items);
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Compute card height from available space: fill the area evenly.
+        final available = constraints.maxHeight - 22; // padding top+bottom
+        final cellH = ((available - _rowGap) / _rowCount)
+            .clamp(_cardHeight * 0.6, _cardHeight);
+
+        return ListView.separated(
+          controller: _scrollController,
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.fromLTRB(24, 8, 24, 14),
+          itemCount: cols,
+          separatorBuilder: (_, _) => const SizedBox(width: _cardGap),
+          itemBuilder: (context, col) {
+            return SizedBox(
+              width: _cardWidth,
+              child: Column(
+                children: [
+                  for (int row = 0; row < _rowCount; row++) ...[
+                    if (row > 0) const SizedBox(height: _rowGap),
+                    _buildGridCell(tp, items, row, col, cellH),
+                  ],
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildGridCell(
+    ThemeProvider tp,
+    List<GamingNewsItem> items,
+    int row,
+    int col, [
+    double cellHeight = _cardHeight,
+  ]) {
+    final index = _gridToIndex(row, col, items.length);
+    if (index == null) {
+      // Empty cell — transparent placeholder
+      return SizedBox(height: cellHeight);
+    }
+
+    final isFocused = widget.hasFocus &&
+        _area == NewsCarouselArea.cards &&
+        col == _cardCol &&
+        row == _cardRow;
+
+    return GestureDetector(
+      onTap: () {
+        setState(() {
+          _cardCol = col;
+          _cardRow = row;
+        });
+      },
+      child: SizedBox(
+        height: cellHeight,
+        child: NewsCarouselCard(
+          item: items[index],
+          focused: isFocused,
+          cardWidth: _cardWidth,
+          tp: tp,
+          allApps: widget.allApps,
+        ),
       ),
     );
   }
 
   // ---------------------------------------------------------------------------
-  // Skeletons
+  // Shimmer Skeletons
   // ---------------------------------------------------------------------------
 
   Widget _buildSkeletons(ThemeProvider tp) {
+    final gridHeight = (_cardHeight * _rowCount) + _rowGap + 30;
+
     return SizedBox(
-      height: 290,
+      height: gridHeight,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.fromLTRB(24, 10, 24, 20),
+        padding: const EdgeInsets.fromLTRB(24, 8, 24, 14),
         itemCount: 4,
         separatorBuilder: (_, _) => const SizedBox(width: _cardGap),
-        itemBuilder: (_, index) {
-          return Container(
+        itemBuilder: (_, col) {
+          return SizedBox(
             width: _cardWidth,
-            decoration: BoxDecoration(
-              color: tp.surface,
-              borderRadius: BorderRadius.circular(6),
-              border: Border.all(
-                color: Colors.white.withValues(alpha: 0.08),
-              ),
-            ),
             child: Column(
               children: [
-                Expanded(
-                  flex: 3,
-                  child: _SkeletonBlock(
-                    color: tp.surfaceVariant,
-                    delay: Duration(milliseconds: index * 90),
+                for (int row = 0; row < _rowCount; row++) ...[
+                  if (row > 0) const SizedBox(height: _rowGap),
+                  _ShimmerCard(
+                    width: _cardWidth,
+                    height: _cardHeight,
+                    tp: tp,
+                    delay: Duration(milliseconds: (col * _rowCount + row) * 80),
                   ),
-                ),
-                Expanded(
-                  flex: 2,
-                  child: Padding(
-                    padding: const EdgeInsets.all(14),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        SizedBox(
-                          width: 70,
-                          height: 12,
-                          child: _SkeletonBlock(color: tp.surfaceVariant),
-                        ),
-                        const SizedBox(height: 12),
-                        SizedBox(
-                          width: 200,
-                          height: 16,
-                          child: _SkeletonBlock(color: tp.surfaceVariant),
-                        ),
-                        const SizedBox(height: 12),
-                        SizedBox(
-                          width: 100,
-                          height: 12,
-                          child: _SkeletonBlock(color: tp.surfaceVariant),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
+                ],
               ],
             ),
           );
@@ -457,25 +542,109 @@ class NewsCarouselWidgetState extends State<NewsCarouselWidget> {
 }
 
 // -----------------------------------------------------------------------------
-// Skeleton placeholder
+// Shimmer skeleton card — animated sweep
 // -----------------------------------------------------------------------------
 
-class _SkeletonBlock extends StatelessWidget {
-  final Color color;
+class _ShimmerCard extends StatefulWidget {
+  final double width;
+  final double height;
+  final ThemeProvider tp;
   final Duration delay;
 
-  const _SkeletonBlock({
-    required this.color,
+  const _ShimmerCard({
+    required this.width,
+    required this.height,
+    required this.tp,
     this.delay = Duration.zero,
   });
 
   @override
+  State<_ShimmerCard> createState() => _ShimmerCardState();
+}
+
+class _ShimmerCardState extends State<_ShimmerCard>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1400),
+    );
+    // Stagger start based on delay
+    Future.delayed(widget.delay, () {
+      if (mounted) _ctrl.repeat();
+    });
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final tint = 0.08 + ((delay.inMilliseconds ~/ 90) % 3) * 0.03;
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: tint + 0.15),
-        borderRadius: BorderRadius.circular(3),
+    final base = widget.tp.surfaceVariant.withValues(alpha: 0.18);
+    final shimmer = widget.tp.surfaceVariant.withValues(alpha: 0.38);
+
+    return AnimatedBuilder(
+      animation: _ctrl,
+      builder: (context, child) {
+        return Container(
+          width: widget.width,
+          height: widget.height,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(
+              color: Colors.white.withValues(alpha: 0.06),
+            ),
+            gradient: LinearGradient(
+              begin: Alignment(-1.0 + 2.0 * _ctrl.value, 0),
+              end: Alignment(-0.4 + 2.0 * _ctrl.value, 0),
+              colors: [base, shimmer, base],
+              stops: const [0.0, 0.5, 1.0],
+            ),
+          ),
+          child: child,
+        );
+      },
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Spacer(flex: 3),
+            Container(
+              width: 60,
+              height: 10,
+              decoration: BoxDecoration(
+                color: widget.tp.surfaceVariant.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(3),
+              ),
+            ),
+            const SizedBox(height: 10),
+            Container(
+              width: 180,
+              height: 14,
+              decoration: BoxDecoration(
+                color: widget.tp.surfaceVariant.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(3),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Container(
+              width: 90,
+              height: 10,
+              decoration: BoxDecoration(
+                color: widget.tp.surfaceVariant.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(3),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

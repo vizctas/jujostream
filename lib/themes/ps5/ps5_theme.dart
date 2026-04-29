@@ -560,18 +560,19 @@ class _Ps5BodyState extends State<_Ps5Body> {
               Column(
                 key: const ValueKey('ps5_news'),
                 children: [
-                  const Spacer(),
-                  NewsCarouselWidget(
-                    key: _newsKey,
-                    allApps: widget.allApps,
-                    apps: widget.apps,
-                    visible: _area == _Ps5Area.news,
-                    hasFocus: _area == _Ps5Area.news,
-                    rotationSeed: _newsRotation,
-                    onDismiss: () {
-                      _tap();
-                      setState(() => _area = _Ps5Area.icons);
-                    },
+                  Expanded(
+                    child: NewsCarouselWidget(
+                      key: _newsKey,
+                      allApps: widget.allApps,
+                      apps: widget.apps,
+                      visible: _area == _Ps5Area.news,
+                      hasFocus: _area == _Ps5Area.news,
+                      rotationSeed: _newsRotation,
+                      onDismiss: () {
+                        _tap();
+                        setState(() => _area = _Ps5Area.icons);
+                      },
+                    ),
                   ),
                 ],
               )

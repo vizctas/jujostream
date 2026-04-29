@@ -4791,7 +4791,13 @@ class _CustomResolutionTileState extends State<_CustomResolutionTile> {
             key == LogicalKeyboardKey.select ||
             key == LogicalKeyboardKey.gameButtonA) {
           setState(() => _editing = true);
-          _wFocus.requestFocus();
+          // Defer focus until ExcludeFocus rebuilds with excluding: false,
+          // then explicitly show the soft keyboard.
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) return;
+            _wFocus.requestFocus();
+            SystemChannels.textInput.invokeMethod('TextInput.show');
+          });
           return KeyEventResult.handled;
         }
         return KeyEventResult.ignored;
@@ -4845,7 +4851,9 @@ class _CustomResolutionTileState extends State<_CustomResolutionTile> {
                 onTap: () {
                   setState(() => _editing = true);
                   WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (!mounted) return;
                     _wFocus.requestFocus();
+                    SystemChannels.textInput.invokeMethod('TextInput.show');
                   });
                 },
                 child: ExcludeFocus(
@@ -4873,7 +4881,9 @@ class _CustomResolutionTileState extends State<_CustomResolutionTile> {
                 onTap: () {
                   setState(() => _editing = true);
                   WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (!mounted) return;
                     _hFocus.requestFocus();
+                    SystemChannels.textInput.invokeMethod('TextInput.show');
                   });
                 },
                 child: ExcludeFocus(

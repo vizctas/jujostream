@@ -839,7 +839,7 @@ class _FocusServerCardState extends State<_FocusServerCard>
       duration: const Duration(milliseconds: 1800),
       vsync: this,
     );
-    _glowAnimation = Tween<double>(begin: 0.35, end: 0.70).animate(
+    _glowAnimation = Tween<double>(begin: 0.18, end: 0.40).animate(
       CurvedAnimation(parent: _glowController, curve: Curves.easeInOut),
     );
 
@@ -945,11 +945,11 @@ class _FocusServerCardState extends State<_FocusServerCard>
                   child: AnimatedBuilder(
                     animation: _glowAnimation,
                     builder: (context, child) {
-                      // Dynamic bloom: low static glow when unfocused,
-                      // high + breathe animation when focused.
+                      // Dynamic bloom: zero glow when unfocused,,
+                      // breathe animation only when focused/hovered.
                       final glowAlpha = widget.isSelected
                           ? _glowAnimation.value
-                          : 0.12;
+                          : 0.0;
                       return Container(
                         margin: const EdgeInsets.symmetric(
                           horizontal: 12,
@@ -970,8 +970,8 @@ class _FocusServerCardState extends State<_FocusServerCard>
                             ),
                             BoxShadow(
                               color: tp.accent.withValues(alpha: glowAlpha),
-                              blurRadius: widget.isSelected ? 28 : 14,
-                              spreadRadius: widget.isSelected ? 6 : 1,
+                              blurRadius: widget.isSelected ? 18 : 0,
+                              spreadRadius: widget.isSelected ? 3 : 0,
                             ),
                           ],
                         ),
@@ -1150,7 +1150,7 @@ class _FocusServerCircleState extends State<_FocusServerCircle>
       duration: const Duration(milliseconds: 1800),
       vsync: this,
     );
-    _glowAnimation = Tween<double>(begin: 0.35, end: 0.70).animate(
+    _glowAnimation = Tween<double>(begin: 0.18, end: 0.40).animate(
       CurvedAnimation(parent: _glowController, curve: Curves.easeInOut),
     );
     final tp = context.read<ThemeProvider>();
@@ -1243,11 +1243,11 @@ class _FocusServerCircleState extends State<_FocusServerCircle>
               AnimatedBuilder(
                 animation: _glowAnimation,
                 builder: (context, child) {
-                  // Dynamic bloom: low static glow when unfocused,
-                  // high + breathe animation when focused.
+                  // Dynamic bloom: zero glow when unfocused,,
+                  // breathe animation only when focused/hovered.
                   final glowAlpha = widget.isSelected
                       ? _glowAnimation.value
-                      : 0.12;
+                      : 0.0;
                   return Container(
                     width: circleSize + borderWidth * 2,
                     height: circleSize + borderWidth * 2,
@@ -1262,8 +1262,8 @@ class _FocusServerCircleState extends State<_FocusServerCircle>
                         ),
                         BoxShadow(
                           color: tp.accent.withValues(alpha: glowAlpha),
-                          blurRadius: widget.isSelected ? 28 : 14,
-                          spreadRadius: widget.isSelected ? 6 : 1,
+                          blurRadius: widget.isSelected ? 18 : 0,
+                          spreadRadius: widget.isSelected ? 3 : 0,
                         ),
                       ],
                     ),

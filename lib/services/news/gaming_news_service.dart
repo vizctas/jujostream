@@ -10,7 +10,7 @@ class GamingNewsService {
   static final Uri _dealsUri = Uri.https(
     'www.cheapshark.com',
     '/api/1.0/deals',
-    {'sortBy': 'Deal Rating', 'pageSize': '12', 'onSale': '1'},
+    {'sortBy': 'Deal Rating', 'pageSize': '20', 'onSale': '1'},
   );
   static final Uri _giveawaysUri = Uri.https(
     'www.gamerpower.com',
@@ -101,7 +101,7 @@ class GamingNewsService {
           .whereType<Map<String, dynamic>>()
           .map(_fromCheapSharkJson)
           .whereType<GamingNewsItem>()
-          .take(12)
+          .take(20)
           .toList(growable: false);
       if (client == null) {
         _cachedDealsAt = DateTime.now();
@@ -138,7 +138,7 @@ class GamingNewsService {
           .whereType<Map<String, dynamic>>()
           .map(_fromGamerPowerJson)
           .whereType<GamingNewsItem>()
-          .take(12)
+          .take(20)
           .toList(growable: false);
       if (client == null) {
         _cachedGiveawaysAt = DateTime.now();
@@ -161,7 +161,7 @@ class GamingNewsService {
     final uniqueAppIds = steamAppIds
         .where((appId) => appId > 0)
         .toSet()
-        .take(6)
+        .take(12)
         .toList(growable: false);
     if (trimmedApiKey == null ||
         trimmedApiKey.isEmpty ||
@@ -188,7 +188,7 @@ class GamingNewsService {
           '/ISteamNews/GetNewsForApp/v2/',
           {
             'appid': '$appId',
-            'count': '2',
+            'count': '3',
             'maxlength': '220',
             'format': 'json',
           },
@@ -210,7 +210,7 @@ class GamingNewsService {
               .whereType<GamingNewsItem>(),
         );
       }
-      final limited = items.take(12).toList(growable: false);
+      final limited = items.take(24).toList(growable: false);
       if (client == null) {
         _cachedSteamNewsAt = DateTime.now();
         _cachedSteamNewsKey = cacheKey;

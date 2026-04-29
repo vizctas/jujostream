@@ -1730,7 +1730,10 @@ class _ApiKeyFieldState extends State<_ApiKeyField> {
                 key == LogicalKeyboardKey.enter ||
                 key == LogicalKeyboardKey.select)) {
           setState(() => _editing = true);
-          widget.focusNode?.requestFocus();
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            widget.focusNode?.requestFocus();
+            SystemChannels.textInput.invokeMethod('TextInput.show');
+          });
           return KeyEventResult.handled;
         }
 
@@ -1821,6 +1824,7 @@ class _ApiKeyFieldState extends State<_ApiKeyField> {
                 setState(() => _editing = true);
                 WidgetsBinding.instance.addPostFrameCallback((_) {
                   widget.focusNode?.requestFocus();
+                  SystemChannels.textInput.invokeMethod('TextInput.show');
                 });
               },
               child: ExcludeFocus(
@@ -1929,7 +1933,10 @@ class _FocusableTextFieldState extends State<_FocusableTextField> {
                 key == LogicalKeyboardKey.enter ||
                 key == LogicalKeyboardKey.select)) {
           setState(() => _editing = true);
-          widget.focusNode.requestFocus();
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            widget.focusNode.requestFocus();
+            SystemChannels.textInput.invokeMethod('TextInput.show');
+          });
           return KeyEventResult.handled;
         }
         if (_editing &&

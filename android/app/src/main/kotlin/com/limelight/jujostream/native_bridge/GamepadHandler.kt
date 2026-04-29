@@ -283,7 +283,42 @@ class GamepadHandler(
                     }
                 }
                 "setOverlayVisible" -> {
+                    val wasVisible = overlayVisible
                     overlayVisible = call.argument<Boolean>("visible") ?: false
+                    // When the overlay closes, button-up events that arrived while
+                    // overlayVisible was true were silently dropped (handleKeyEvent
+                    // returns false).  The ControllerState still has those buttons
+                    // flagged as held → the game sees a stuck gamepad.  Fix: send
+                    // a zero-state input for every active controller so the host
+                    // sees all buttons released.
+                    if (wasVisible && !overlayVisible) {
+                        for ((deviceId, state) in controllers) {
+                            val slot = deviceSlots[deviceId] ?: continue
+                            state.buttonFlags = 0
+                            state.leftTrigger = 0
+                            state.rightTrigger = 0
+                            state.leftStickX = 0
+                            state.leftStickY = 0
+                            state.rightStickX = 0
+                            state.rightStickY = 0
+                            state.emulatingButtonFlags = 0
+                            state.pendingExit = false
+                            state.pendingComboFlags = 0
+                            // Reset dedup so the zero-state is guaranteed to be sent
+                            state.hasSentInput = false
+                            sendInput(slot, state)
+                        }
+                        // Cancel any pending combo runnables that may have been
+                        // scheduled before the overlay opened.
+                        comboHeldRunnable?.let { mainHandler.removeCallbacks(it) }
+                        comboHeldRunnable = null
+                        mouseModeHeldRunnable?.let { mainHandler.removeCallbacks(it) }
+                        mouseModeHeldRunnable = null
+                        panicHeldRunnable?.let { mainHandler.removeCallbacks(it) }
+                        panicHeldRunnable = null
+                        quickFavHeldRunnable?.let { mainHandler.removeCallbacks(it) }
+                        quickFavHeldRunnable = null
+                    }
                     result.success(null)
                 }
                 "getConnectedGamepadCount" -> {

@@ -919,18 +919,19 @@ class _HeroBodyState extends State<_HeroBody>
     return Column(
       key: const ValueKey('hero_news'),
       children: [
-        const Spacer(),
-        NewsCarouselWidget(
-          key: _newsKey,
-          allApps: widget.allApps,
-          apps: widget.apps,
-          visible: _view == _HeroView.news,
-          hasFocus: _view == _HeroView.news,
-          rotationSeed: _newsRotation,
-          onDismiss: () {
-            _action();
-            setState(() => _view = _HeroView.home);
-          },
+        Expanded(
+          child: NewsCarouselWidget(
+            key: _newsKey,
+            allApps: widget.allApps,
+            apps: widget.apps,
+            visible: _view == _HeroView.news,
+            hasFocus: _view == _HeroView.news,
+            rotationSeed: _newsRotation,
+            onDismiss: () {
+              _action();
+              setState(() => _view = _HeroView.home);
+            },
+          ),
         ),
       ],
     );

@@ -902,18 +902,19 @@ class _BodyState extends State<_Body> {
     return Column(
       key: const ValueKey('n'),
       children: [
-        const Spacer(),
-        NewsCarouselWidget(
-          key: _newsKey,
-          allApps: widget.allApps,
-          apps: widget.apps,
-          visible: _view == _View.news,
-          hasFocus: _view == _View.news,
-          rotationSeed: _newsRotation,
-          onDismiss: () {
-            _action();
-            setState(() => _view = _View.carousel);
-          },
+        Expanded(
+          child: NewsCarouselWidget(
+            key: _newsKey,
+            allApps: widget.allApps,
+            apps: widget.apps,
+            visible: _view == _View.news,
+            hasFocus: _view == _View.news,
+            rotationSeed: _newsRotation,
+            onDismiss: () {
+              _action();
+              setState(() => _view = _View.carousel);
+            },
+          ),
         ),
       ],
     );

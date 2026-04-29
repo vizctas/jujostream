@@ -260,7 +260,14 @@ class _GameStreamScreenState extends State<GameStreamScreen>
         SystemChannels.textInput.invokeMethod('TextInput.hide');
         _keyboardFocusNode.unfocus();
       }
-      _streamFocusNode.requestFocus();
+      // Only reclaim focus when no dialog (e.g. SessionMetricsDialog) is
+      // on top.  The share sheet pauses/resumes the Activity; blindly
+      // calling requestFocus here steals it from the dialog's FocusNode,
+      // making the B-button dismiss unreachable.
+      final hasDialogOnTop = ModalRoute.of(context)?.isCurrent == false;
+      if (!hasDialogOnTop) {
+        _streamFocusNode.requestFocus();
+      }
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
 
       if (_isConnected) {
@@ -955,7 +962,22 @@ class _GameStreamScreenState extends State<GameStreamScreen>
   }
 
   void _onNativeOverlayDpad(String direction) {
-    if (!mounted || !_showOverlay) return;
+    if (!mounted) return;
+
+    // Route D-pad to quick fav panel when it's visible (it uses
+    // overlayVisible=true in native but _showOverlay=false in Dart).
+    if (_showQuickFavPanel) {
+      final favCount = _quickFavIndices.length;
+      if (favCount == 0) return;
+      if (direction == 'down') {
+        setState(() => _quickFavFocusIdx = (_quickFavFocusIdx + 1) % favCount);
+      } else if (direction == 'up') {
+        setState(() => _quickFavFocusIdx = (_quickFavFocusIdx - 1 + favCount) % favCount);
+      }
+      return;
+    }
+
+    if (!_showOverlay) return;
 
     if (_showSpecialKeys) {
       setState(
@@ -1022,7 +1044,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
       _showQuitConfirm =
           false; // always reset so quit-confirm doesn't persist across open/close cycles
       if (visible) {
-        _overlayRow = 0;
+        _overlayRow = 2; // Special Keys row — most-used action
         _overlayCol = 0;
       }
     });

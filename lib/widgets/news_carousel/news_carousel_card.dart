@@ -8,6 +8,7 @@ import '../poster_image.dart';
 /// A single news/deal/event card used inside [NewsCarouselWidget].
 ///
 /// All colours are derived from [ThemeProvider] — nothing is hardcoded.
+/// Focused cards scale up slightly (no glow) for a clean lift effect.
 class NewsCarouselCard extends StatelessWidget {
   final GamingNewsItem item;
   final bool focused;
@@ -28,71 +29,78 @@ class NewsCarouselCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedContainer(
+    return AnimatedScale(
+      scale: focused ? 1.03 : 1.0,
       duration: const Duration(milliseconds: 160),
-      width: cardWidth,
-      decoration: BoxDecoration(
-        color: tp.surface,
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(
-          color: focused
-              ? tp.accent.withValues(alpha: 0.58)
-              : Colors.white.withValues(alpha: 0.08),
-          width: focused ? 2 : 1,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: focused ? 0.40 : 0.28),
-            blurRadius: focused ? 22 : 14,
-            offset: const Offset(0, 14),
+      curve: Curves.easeOutCubic,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 160),
+        width: cardWidth,
+        decoration: BoxDecoration(
+          color: tp.surface,
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(
+            color: focused
+                ? tp.accent.withValues(alpha: 0.58)
+                : Colors.white.withValues(alpha: 0.08),
+            width: focused ? 2 : 1,
           ),
-        ],
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(6),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            SizedBox(height: 150, child: _buildImage()),
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.all(14),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      item.typeLabel,
-                      style: TextStyle(
-                        color: tp.warm,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      item.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 17,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      item.dateLabel,
-                      style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.42),
-                        fontSize: 12,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+          // Subtle depth shadow — no accent glow
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: focused ? 0.36 : 0.22),
+              blurRadius: focused ? 18 : 10,
+              offset: Offset(0, focused ? 8 : 4),
             ),
           ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(6),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(flex: 3, child: _buildImage()),
+              Expanded(
+                flex: 2,
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        item.typeLabel,
+                        style: TextStyle(
+                          color: tp.warm,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        item.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        item.dateLabel,
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.42),
+                          fontSize: 11,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
