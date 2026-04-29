@@ -91,6 +91,11 @@ class StreamConfiguration {
   final int mouseModeCombo;
   final int mouseModeHoldMs;
 
+  /// Quick Favorites combo — opens the quick-access favorite special keys panel.
+  /// Default: Start + Select + LT + RT = 0x30030.
+  final int quickFavCombo;
+  final int quickFavHoldMs;
+
   final int frameQueueDepth;
   final bool choreographerVsync;
   final bool enableVrr;
@@ -99,9 +104,18 @@ class StreamConfiguration {
   final bool hostPresetOverrideEnabled;
   final String hostPresetOverrideId;
 
+  /// True when width/height are 0×0 (sentinel for "match display").
+  bool get isMatchDisplay => width == 0 || height == 0;
+
+  /// Returns a copy with 0×0 resolved to the given display dimensions.
+  StreamConfiguration resolveMatchDisplay(int displayWidth, int displayHeight) {
+    if (!isMatchDisplay) return this;
+    return copyWith(width: displayWidth, height: displayHeight);
+  }
+
   const StreamConfiguration({
-    this.width = 1920,
-    this.height = 1080,
+    this.width = 0,
+    this.height = 0,
     this.fps = 60,
     this.bitrate = 20000,
     this.enableHdr = false,
@@ -162,14 +176,16 @@ class StreamConfiguration {
     this.screenshotEnabled = true,
     this.screenshotCombo = 0x0220,
     this.screenshotHoldMs = 2500,
-    this.overlayTriggerCombo = 0x00C0,
-    this.overlayTriggerHoldMs = 2000,
+    this.overlayTriggerCombo = 0x0330,
+    this.overlayTriggerHoldMs = 0,
     this.desktopOverlayKeys = const ['Shift', '-'],
     this.desktopOverlayHoldMs = 0,
     this.panicCombo = 0,
-    this.panicHoldMs = 2000,
+    this.panicHoldMs = 0,
     this.mouseModeCombo = 0x0020,
     this.mouseModeHoldMs = 2000,
+    this.quickFavCombo = 0x30030,
+    this.quickFavHoldMs = 0,
     this.frameQueueDepth = 0,
     this.choreographerVsync = false,
     this.enableVrr = false,
@@ -250,6 +266,8 @@ class StreamConfiguration {
     int? panicHoldMs,
     int? mouseModeCombo,
     int? mouseModeHoldMs,
+    int? quickFavCombo,
+    int? quickFavHoldMs,
     int? frameQueueDepth,
     bool? choreographerVsync,
     bool? enableVrr,
@@ -337,6 +355,8 @@ class StreamConfiguration {
       panicHoldMs: panicHoldMs ?? this.panicHoldMs,
       mouseModeCombo: mouseModeCombo ?? this.mouseModeCombo,
       mouseModeHoldMs: mouseModeHoldMs ?? this.mouseModeHoldMs,
+      quickFavCombo: quickFavCombo ?? this.quickFavCombo,
+      quickFavHoldMs: quickFavHoldMs ?? this.quickFavHoldMs,
       frameQueueDepth: frameQueueDepth ?? this.frameQueueDepth,
       choreographerVsync: choreographerVsync ?? this.choreographerVsync,
       enableVrr: enableVrr ?? this.enableVrr,
@@ -421,6 +441,8 @@ class StreamConfiguration {
     'panicHoldMs': panicHoldMs,
     'mouseModeCombo': mouseModeCombo,
     'mouseModeHoldMs': mouseModeHoldMs,
+    'quickFavCombo': quickFavCombo,
+    'quickFavHoldMs': quickFavHoldMs,
     'frameQueueDepth': frameQueueDepth,
     'choreographerVsync': choreographerVsync,
     'enableVrr': enableVrr,
@@ -432,8 +454,8 @@ class StreamConfiguration {
 
   factory StreamConfiguration.fromJson(Map<String, dynamic> json) {
     return StreamConfiguration(
-      width: json['width'] ?? 1920,
-      height: json['height'] ?? 1080,
+      width: json['width'] ?? 0,
+      height: json['height'] ?? 0,
       fps: json['fps'] ?? 60,
       bitrate: json['bitrate'] ?? 20000,
       enableHdr: json['enableHdr'] ?? false,
@@ -515,17 +537,19 @@ class StreamConfiguration {
       // Default: RB (0x0200) + START (0x0020) = 0x0220
       screenshotCombo: json['screenshotCombo'] ?? 0x0220,
       screenshotHoldMs: json['screenshotHoldMs'] ?? 2500,
-      overlayTriggerCombo: json['overlayTriggerCombo'] ?? 0x00C0,
-      overlayTriggerHoldMs: json['overlayTriggerHoldMs'] ?? 2000,
+      overlayTriggerCombo: json['overlayTriggerCombo'] ?? 0x0330,
+      overlayTriggerHoldMs: json['overlayTriggerHoldMs'] ?? 0,
       desktopOverlayKeys: (json['desktopOverlayKeys'] as List<dynamic>?)
               ?.map((e) => e.toString())
               .toList() ??
           const ['Shift', '-'],
       desktopOverlayHoldMs: json['desktopOverlayHoldMs'] ?? 0,
       panicCombo: json['panicCombo'] ?? 0,
-      panicHoldMs: json['panicHoldMs'] ?? 2000,
+      panicHoldMs: json['panicHoldMs'] ?? 0,
       mouseModeCombo: json['mouseModeCombo'] ?? 0x0020,
       mouseModeHoldMs: json['mouseModeHoldMs'] ?? 2000,
+      quickFavCombo: json['quickFavCombo'] ?? 0x30030,
+      quickFavHoldMs: json['quickFavHoldMs'] ?? 0,
       frameQueueDepth: json['frameQueueDepth'] ?? 0,
       choreographerVsync: json['choreographerVsync'] ?? false,
       enableVrr: json['enableVrr'] ?? false,

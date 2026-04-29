@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../l10n/app_localizations.dart';
 import '../../models/computer_details.dart';
 import '../../models/nv_app.dart';
@@ -23,6 +24,7 @@ import '../../widgets/virtual_gamepad/virtual_gamepad_overlay.dart';
 import 'direct_touch_handler.dart';
 import 'dynamic_bitrate_controller.dart';
 import 'perf_stats_overlay.dart';
+import 'quick_fav_keys_panel.dart';
 import 'special_keys.dart';
 import 'stream_overlay_widgets.dart';
 import 'trackpad_input_handler.dart';
@@ -188,6 +190,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
     GamepadChannel.onControllerConnected = _onControllerConnected;
     GamepadChannel.onControllerDisconnected = _onControllerDisconnected;
     GamepadChannel.onPanicComboDetected = _onPanicComboDetected;
+    GamepadChannel.onQuickFavComboDetected = _onQuickFavComboDetected;
 
     if (_config.enableDirectSubmit) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -197,12 +200,18 @@ class _GameStreamScreenState extends State<GameStreamScreen>
       _startStreaming();
     }
     _listenToStats();
+    _loadQuickFavIndices();
     // Stop UI ambience while actively streaming — resume when session ends
     UiSoundService.enterStreamSession();
   }
 
   @override
   void dispose() {
+    // Cancel stats subscription FIRST to prevent connectionTerminated events
+    // from firing during teardown (which can cause double-pop crashes).
+    _statsSubscription?.cancel();
+    _statsSubscription = null;
+
     WidgetsBinding.instance.removeObserver(this);
     _settingsProvider.removeListener(_handleSettingsConfigChanged);
     GamepadChannel.onComboDetected = null;
@@ -211,6 +220,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
     GamepadChannel.onControllerConnected = null;
     GamepadChannel.onControllerDisconnected = null;
     GamepadChannel.onPanicComboDetected = null;
+    GamepadChannel.onQuickFavComboDetected = null;
 
     if (_gamepadMouseActive) {
       GamepadChannel.setMouseEmulation(false);
@@ -223,11 +233,10 @@ class _GameStreamScreenState extends State<GameStreamScreen>
     }
     _streamFocusNode.dispose();
     _overlayFocusNode.dispose();
+    _quickFavFocusNode.dispose();
     _overlayScrollController.dispose();
     _keyboardFocusNode.dispose();
     _keyboardController.dispose();
-    _statsSubscription?.cancel();
-    _statsSubscription = null;
     _desktopComboHoldTimer?.cancel();
     _desktopComboHoldTimer = null;
     _panZoomCtrl.dispose();
@@ -254,7 +263,14 @@ class _GameStreamScreenState extends State<GameStreamScreen>
         SystemChannels.textInput.invokeMethod('TextInput.hide');
         _keyboardFocusNode.unfocus();
       }
-      _streamFocusNode.requestFocus();
+      // Only reclaim focus when no dialog (e.g. SessionMetricsDialog) is
+      // on top.  The share sheet pauses/resumes the Activity; blindly
+      // calling requestFocus here steals it from the dialog's FocusNode,
+      // making the B-button dismiss unreachable.
+      final hasDialogOnTop = ModalRoute.of(context)?.isCurrent == false;
+      if (!hasDialogOnTop) {
+        _streamFocusNode.requestFocus();
+      }
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
 
       if (_isConnected) {
@@ -298,6 +314,15 @@ class _GameStreamScreenState extends State<GameStreamScreen>
 
       await GamepadChannel.setStreamingActive(false);
 
+      // Resolve "Match display" sentinel (0×0) to actual physical pixels.
+      if (_config.isMatchDisplay && mounted) {
+        final mq = MediaQuery.of(context);
+        final dpr = mq.devicePixelRatio;
+        _config = _config.resolveMatchDisplay(
+          (mq.size.width * dpr).round(),
+          (mq.size.height * dpr).round(),
+        );
+      }
       final cfg = _config;
       final address = widget.computer.activeAddress.isNotEmpty
           ? widget.computer.activeAddress
@@ -623,6 +648,10 @@ class _GameStreamScreenState extends State<GameStreamScreen>
       cfg.mouseModeHoldMs,
     );
     await GamepadChannel.setPanicComboConfig(cfg.panicCombo, cfg.panicHoldMs);
+    await GamepadChannel.setQuickFavComboConfig(
+      cfg.quickFavCombo,
+      cfg.quickFavHoldMs,
+    );
 
     if (!cfg.mouseEmulation || !_gamepadMouseActive) {
       await GamepadChannel.setMouseEmulation(false);
@@ -835,7 +864,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
 
     if (_isReconnecting) return;
 
-    if (_userInitiatedQuit) return;
+    if (_userInitiatedQuit || _streamStopped) return;
 
     if (_ignoreTerminationUntil != null &&
         DateTime.now().isBefore(_ignoreTerminationUntil!)) {
@@ -915,6 +944,26 @@ class _GameStreamScreenState extends State<GameStreamScreen>
 
   void _onControllerDisconnected(int controllerNumber) {}
 
+  /// Quick Fav combo detected — toggle the quick favorites panel.
+  void _onQuickFavComboDetected() {
+    if (!mounted) return;
+    if (_showOverlay) return; // don't open while overlay is visible
+    setState(() {
+      _showQuickFavPanel = !_showQuickFavPanel;
+      if (_showQuickFavPanel) {
+        _quickFavFocusIdx = 0;
+      }
+    });
+    GamepadChannel.setOverlayVisible(_showQuickFavPanel);
+    if (_showQuickFavPanel) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _quickFavFocusNode.requestFocus();
+      });
+    } else {
+      _streamFocusNode.requestFocus();
+    }
+  }
+
   /// Panic combo detected — emergency session kill without confirmation.
   void _onPanicComboDetected() {
     if (!mounted) return;
@@ -925,32 +974,27 @@ class _GameStreamScreenState extends State<GameStreamScreen>
   }
 
   void _onNativeOverlayDpad(String direction) {
-    if (!mounted || !_showOverlay) return;
+    if (!mounted) return;
+
+    // Route D-pad to quick fav panel when it's visible (it uses
+    // overlayVisible=true in native but _showOverlay=false in Dart).
+    if (_showQuickFavPanel) {
+      final favCount = _quickFavIndices.length;
+      if (favCount == 0) return;
+      if (direction == 'down') {
+        setState(() => _quickFavFocusIdx = (_quickFavFocusIdx + 1) % favCount);
+      } else if (direction == 'up') {
+        setState(() => _quickFavFocusIdx = (_quickFavFocusIdx - 1 + favCount) % favCount);
+      }
+      return;
+    }
+
+    if (!_showOverlay) return;
 
     if (_showSpecialKeys) {
-      switch (direction) {
-        case 'left':
-          setState(
-            () => _specialKeyIdx =
-                (_specialKeyIdx - 1 + specialKeyCount) % specialKeyCount,
-          );
-        case 'right':
-          setState(
-            () => _specialKeyIdx = (_specialKeyIdx + 1) % specialKeyCount,
-          );
-        case 'down':
-          final next = specialKeySections.firstWhere(
-            (s) => s > _specialKeyIdx,
-            orElse: () => specialKeySections.first,
-          );
-          setState(() => _specialKeyIdx = next);
-        case 'up':
-          final prev = specialKeySections.lastWhere(
-            (s) => s < _specialKeyIdx,
-            orElse: () => specialKeySections.last,
-          );
-          setState(() => _specialKeyIdx = prev);
-      }
+      setState(
+        () => _specialKeyIdx = specialKeyGridMove(_specialKeyIdx, direction),
+      );
       _scrollToFocusedSpecialKey();
       return;
     }
@@ -1012,7 +1056,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
       _showQuitConfirm =
           false; // always reset so quit-confirm doesn't persist across open/close cycles
       if (visible) {
-        _overlayRow = 0;
+        _overlayRow = 2; // Special Keys row — most-used action
         _overlayCol = 0;
       }
     });
@@ -1108,6 +1152,64 @@ class _GameStreamScreenState extends State<GameStreamScreen>
   // and buildSpecialKeysPanel now live in special_keys.dart.
   late final List<SpecialKeyEntry> _specialKeys = buildSpecialKeysList();
 
+  // ── Quick Favorite Keys ───────────────────────────────────────────────
+  static const String _quickFavPrefsKey = 'quick_fav_key_indices';
+  static const int _maxQuickFavs = 5;
+  Set<int> _quickFavIndices = {};
+  bool _showQuickFavPanel = false;
+  int _quickFavFocusIdx = 0;
+  final FocusNode _quickFavFocusNode = FocusNode(debugLabel: 'quick-fav-panel');
+
+  Future<void> _loadQuickFavIndices() async {
+    final prefs = await SharedPreferences.getInstance();
+    final stored = prefs.getStringList(_quickFavPrefsKey);
+    if (stored != null) {
+      setState(() {
+        _quickFavIndices = stored
+            .map((s) => int.tryParse(s))
+            .whereType<int>()
+            .where((i) => i >= 0 && i < specialKeyCount)
+            .toSet();
+      });
+    }
+  }
+
+  Future<void> _saveQuickFavIndices() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(
+      _quickFavPrefsKey,
+      _quickFavIndices.map((i) => i.toString()).toList(),
+    );
+  }
+
+  void _toggleQuickFav(int index) {
+    if (index < 0 || index >= specialKeyCount) return;
+    setState(() {
+      if (_quickFavIndices.contains(index)) {
+        _quickFavIndices.remove(index);
+      } else {
+        if (_quickFavIndices.length >= _maxQuickFavs) {
+          // Show toast — max reached
+          ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Max 5 favorites',
+                style: TextStyle(color: Colors.white),
+                textAlign: TextAlign.center,
+              ),
+              duration: Duration(seconds: 1),
+              backgroundColor: Colors.black87,
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+          return;
+        }
+        _quickFavIndices.add(index);
+      }
+    });
+    unawaited(_saveQuickFavIndices());
+  }
+
   void _activateSpecialKey(int index) {
     if (index < 0 || index >= _specialKeys.length) return;
     _specialKeys[index].$3();
@@ -1156,7 +1258,8 @@ class _GameStreamScreenState extends State<GameStreamScreen>
                   activeGamepadMask: _activeGamepadMask,
                 ),
               if (_showPerfStats && _isConnected) _buildPerfOverlay(),
-
+              if (_showQuickFavPanel && _isConnected && !_showOverlay)
+                _buildQuickFavPanel(),
               if (_keyboardVisible) _buildHiddenKeyboardField(),
             ],
           ),
@@ -1589,13 +1692,21 @@ class _GameStreamScreenState extends State<GameStreamScreen>
       );
     }
     if (_textureId != null) {
-      return SizedBox.expand(
-        child: FittedBox(
-          fit: _videoBoxFit,
-          child: SizedBox(
-            width: _config.width.toDouble(),
-            height: _config.height.toDouble(),
-            child: Texture(textureId: _textureId!),
+      // Black background prevents green flicker from codec alignment padding.
+      // MediaCodec may output frames padded to macroblock boundaries (e.g.
+      // 1080→1088 for H.264 16-px alignment). The SurfaceTexture contains
+      // the full padded buffer; ClipRect hides the uninitialised green edge.
+      return ColoredBox(
+        color: Colors.black,
+        child: SizedBox.expand(
+          child: FittedBox(
+            fit: _videoBoxFit,
+            clipBehavior: Clip.hardEdge,
+            child: SizedBox(
+              width: _config.width.toDouble(),
+              height: _config.height.toDouble(),
+              child: Texture(textureId: _textureId!),
+            ),
           ),
         ),
       );
@@ -1992,33 +2103,26 @@ class _GameStreamScreenState extends State<GameStreamScreen>
         return KeyEventResult.handled;
       }
     } else {
-      if (key == LogicalKeyboardKey.arrowLeft) {
+      final dir = switch (key) {
+        LogicalKeyboardKey.arrowLeft => 'left',
+        LogicalKeyboardKey.arrowRight => 'right',
+        LogicalKeyboardKey.arrowDown => 'down',
+        LogicalKeyboardKey.arrowUp => 'up',
+        _ => null,
+      };
+      if (dir != null) {
         setState(
-          () => _specialKeyIdx =
-              (_specialKeyIdx - 1 + specialKeyCount) % specialKeyCount,
+          () => _specialKeyIdx = specialKeyGridMove(_specialKeyIdx, dir),
         );
+        _scrollToFocusedSpecialKey();
         return KeyEventResult.handled;
       }
-      if (key == LogicalKeyboardKey.arrowRight) {
-        setState(() => _specialKeyIdx = (_specialKeyIdx + 1) % specialKeyCount);
-        return KeyEventResult.handled;
-      }
-      if (key == LogicalKeyboardKey.arrowDown) {
-        final next = specialKeySections.firstWhere(
-          (s) => s > _specialKeyIdx,
-          orElse: () => specialKeySections.first,
-        );
-        setState(() => _specialKeyIdx = next);
-        return KeyEventResult.handled;
-      }
-      if (key == LogicalKeyboardKey.arrowUp) {
-        final prev = specialKeySections.lastWhere(
-          (s) => s < _specialKeyIdx,
-          orElse: () => specialKeySections.last,
-        );
-        setState(() => _specialKeyIdx = prev);
-        return KeyEventResult.handled;
-      }
+    }
+
+    // Y-button toggles favorite when special keys grid is visible
+    if (key == LogicalKeyboardKey.gameButtonY && _showSpecialKeys) {
+      _toggleQuickFav(_specialKeyIdx);
+      return KeyEventResult.handled;
     }
 
     if (key == LogicalKeyboardKey.enter ||
@@ -2096,7 +2200,26 @@ class _GameStreamScreenState extends State<GameStreamScreen>
     final isLandscape =
         MediaQuery.orientationOf(context) == Orientation.landscape;
     return GestureDetector(
-      onTap: () => _setOverlayVisible(false),
+      onTap: () {
+        // If special keys or quit confirm is showing, dismiss that sub-panel
+        // first instead of closing the entire overlay.
+        if (_showSpecialKeys) {
+          setState(() {
+            _showSpecialKeys = false;
+            _overlayRow = 2; // return focus to "Special Keys" row
+            _overlayCol = 0;
+          });
+          return;
+        }
+        if (_showQuitConfirm) {
+          setState(() {
+            _showQuitConfirm = false;
+            _overlayRow = 5;
+          });
+          return;
+        }
+        _setOverlayVisible(false);
+      },
       child: Container(
         color: Colors.black54,
         child: Center(
@@ -2265,6 +2388,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
   }
 
   Future<void> _closeSessionAndExit() async {
+    _userInitiatedQuit = true;
     await _stopStreaming(clearActiveSession: false);
     if (mounted) Navigator.pop(context);
   }
@@ -2667,17 +2791,106 @@ class _GameStreamScreenState extends State<GameStreamScreen>
   }
 
   Widget _buildSpecialKeysPanel() {
-    return buildSpecialKeysPanel(
-      specialKeys: _specialKeys,
-      focusedIndex: _specialKeyIdx,
-      descriptionResolver: (key) =>
-          AppLocalizations.of(context).specialKeyDesc(key),
-      onActivate: _activateSpecialKey,
-      onBack: () => setState(() => _showSpecialKeys = false),
-      onCloseOverlay: () => _setOverlayVisible(false),
-      closeMenuLabel: AppLocalizations.of(context).closeMenu,
-      specialKeysLabel: AppLocalizations.of(context).specialKeys,
+    // Wrap in ExcludeFocus so that the IconButton (back) and ListTile (close)
+    // inside the panel cannot steal focus from _overlayFocusNode.  This keeps
+    // _onOverlayKeyEvent as the sole key-event handler, ensuring D-pad
+    // navigation and B-button close work correctly via gamepad.
+    return ExcludeFocus(
+      child: buildSpecialKeysPanel(
+        specialKeys: _specialKeys,
+        focusedIndex: _specialKeyIdx,
+        descriptionResolver: (key) =>
+            AppLocalizations.of(context).specialKeyDesc(key),
+        onActivate: _activateSpecialKey,
+        onBack: () => setState(() => _showSpecialKeys = false),
+        onCloseOverlay: () => _setOverlayVisible(false),
+        closeMenuLabel: AppLocalizations.of(context).closeMenu,
+        specialKeysLabel: AppLocalizations.of(context).specialKeys,
+        favoriteIndices: _quickFavIndices,
+        favoriteHintWidget: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            GamepadHintIcon('Y', size: 16),
+            const SizedBox(width: 4),
+            Text(
+              'Toggle Favorite  (${_quickFavIndices.length}/$_maxQuickFavs)',
+              style: const TextStyle(color: Colors.white24, fontSize: 10),
+            ),
+          ],
+        ),
+      ),
     );
+  }
+
+  Widget _buildQuickFavPanel() {
+    final favList = _quickFavIndices.toList();
+    return Focus(
+      focusNode: _quickFavFocusNode,
+      autofocus: true,
+      onKeyEvent: _onQuickFavKeyEvent,
+      child: QuickFavKeysPanel(
+        favoriteIndices: favList,
+        specialKeys: _specialKeys,
+        descriptionResolver: (key) =>
+            AppLocalizations.of(context).specialKeyDesc(key),
+        onActivate: (keyIdx) {
+          _activateSpecialKey(keyIdx);
+          setState(() => _showQuickFavPanel = false);
+          GamepadChannel.setOverlayVisible(false);
+          _streamFocusNode.requestFocus();
+        },
+        onClose: () {
+          setState(() => _showQuickFavPanel = false);
+          GamepadChannel.setOverlayVisible(false);
+          _streamFocusNode.requestFocus();
+        },
+        focusedIndex: _quickFavFocusIdx,
+      ),
+    );
+  }
+
+  KeyEventResult _onQuickFavKeyEvent(FocusNode node, KeyEvent event) {
+    if (event is! KeyDownEvent) return KeyEventResult.handled;
+    final key = event.logicalKey;
+    final favCount = _quickFavIndices.length;
+
+    if (key == LogicalKeyboardKey.gameButtonB ||
+        key == LogicalKeyboardKey.escape ||
+        key == LogicalKeyboardKey.goBack) {
+      setState(() => _showQuickFavPanel = false);
+      GamepadChannel.setOverlayVisible(false);
+      _streamFocusNode.requestFocus();
+      return KeyEventResult.handled;
+    }
+
+    if (key == LogicalKeyboardKey.arrowDown) {
+      if (favCount > 0) {
+        setState(() => _quickFavFocusIdx = (_quickFavFocusIdx + 1) % favCount);
+      }
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.arrowUp) {
+      if (favCount > 0) {
+        setState(() =>
+            _quickFavFocusIdx = (_quickFavFocusIdx - 1 + favCount) % favCount);
+      }
+      return KeyEventResult.handled;
+    }
+
+    if (key == LogicalKeyboardKey.enter ||
+        key == LogicalKeyboardKey.gameButtonA ||
+        key == LogicalKeyboardKey.select) {
+      if (favCount > 0 && _quickFavFocusIdx < favCount) {
+        final keyIdx = _quickFavIndices.toList()[_quickFavFocusIdx];
+        _activateSpecialKey(keyIdx);
+        setState(() => _showQuickFavPanel = false);
+        GamepadChannel.setOverlayVisible(false);
+        _streamFocusNode.requestFocus();
+      }
+      return KeyEventResult.handled;
+    }
+
+    return KeyEventResult.handled;
   }
 
   void _confirmQuit() {

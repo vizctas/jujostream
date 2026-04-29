@@ -46,7 +46,7 @@ class DiscoveryService {
     late final String normalizedAddress;
     if (resolvedIps.isNotEmpty) {
       normalizedAddress = resolvedIps.first.address;
-      _log.d('Using nsd-resolved IP ${normalizedAddress} for ${service.name}');
+      _log.d('Using nsd-resolved IP $normalizedAddress for ${service.name}');
     } else {
       final raw = service.host ?? '';
       if (raw.isEmpty) return;

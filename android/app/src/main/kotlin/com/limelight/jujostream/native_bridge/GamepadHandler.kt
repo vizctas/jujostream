@@ -232,6 +232,11 @@ class GamepadHandler(
     private var panicHoldMs: Long = 2000L
     private var panicHeldRunnable: Runnable? = null
 
+    // Quick Favorites combo — opens quick-access favorite special keys panel
+    private var quickFavCombo: Int = 0x30030  // Start + Select + LT + RT
+    private var quickFavHoldMs: Long = 500L
+    private var quickFavHeldRunnable: Runnable? = null
+
     private var sensorManager: SensorManager? = null
     private var motionReportRateHz: Int = 0
     private var motionControllerNumber: Int = 0
@@ -278,7 +283,42 @@ class GamepadHandler(
                     }
                 }
                 "setOverlayVisible" -> {
+                    val wasVisible = overlayVisible
                     overlayVisible = call.argument<Boolean>("visible") ?: false
+                    // When the overlay closes, button-up events that arrived while
+                    // overlayVisible was true were silently dropped (handleKeyEvent
+                    // returns false).  The ControllerState still has those buttons
+                    // flagged as held → the game sees a stuck gamepad.  Fix: send
+                    // a zero-state input for every active controller so the host
+                    // sees all buttons released.
+                    if (wasVisible && !overlayVisible) {
+                        for ((deviceId, state) in controllers) {
+                            val slot = deviceSlots[deviceId] ?: continue
+                            state.buttonFlags = 0
+                            state.leftTrigger = 0
+                            state.rightTrigger = 0
+                            state.leftStickX = 0
+                            state.leftStickY = 0
+                            state.rightStickX = 0
+                            state.rightStickY = 0
+                            state.emulatingButtonFlags = 0
+                            state.pendingExit = false
+                            state.pendingComboFlags = 0
+                            // Reset dedup so the zero-state is guaranteed to be sent
+                            state.hasSentInput = false
+                            sendInput(slot, state)
+                        }
+                        // Cancel any pending combo runnables that may have been
+                        // scheduled before the overlay opened.
+                        comboHeldRunnable?.let { mainHandler.removeCallbacks(it) }
+                        comboHeldRunnable = null
+                        mouseModeHeldRunnable?.let { mainHandler.removeCallbacks(it) }
+                        mouseModeHeldRunnable = null
+                        panicHeldRunnable?.let { mainHandler.removeCallbacks(it) }
+                        panicHeldRunnable = null
+                        quickFavHeldRunnable?.let { mainHandler.removeCallbacks(it) }
+                        quickFavHeldRunnable = null
+                    }
                     result.success(null)
                 }
                 "getConnectedGamepadCount" -> {
@@ -411,7 +451,7 @@ class GamepadHandler(
                     val combo = call.argument<Int>("combo") ?: (LS_CLK_FLAG or RS_CLK_FLAG)
                     val holdMs = call.argument<Int>("holdMs") ?: 2000
                     overlayTriggerCombo = combo
-                    overlayTriggerHoldMs = holdMs.toLong().coerceIn(300, 8000)
+                    overlayTriggerHoldMs = holdMs.toLong().coerceIn(0, 8000)
                     comboHeldRunnable?.let { mainHandler.removeCallbacks(it) }
                     comboHeldRunnable = null
                     Log.i(TAG, "OVERLAY_TRIGGER: combo=0x${combo.toString(16)}, holdMs=$overlayTriggerHoldMs")
@@ -421,7 +461,7 @@ class GamepadHandler(
                     val combo = call.argument<Int>("combo") ?: BACK_FLAG
                     val holdMs = call.argument<Int>("holdMs") ?: 2000
                     mouseModeCombo = combo
-                    mouseModeHoldMs = holdMs.toLong().coerceIn(300, 8000)
+                    mouseModeHoldMs = holdMs.toLong().coerceIn(0, 8000)
                     mouseModeHeldRunnable?.let { mainHandler.removeCallbacks(it) }
                     mouseModeHeldRunnable = null
                     Log.i(TAG, "MOUSE_MODE_TRIGGER: combo=0x${combo.toString(16)}, holdMs=$mouseModeHoldMs")
@@ -431,10 +471,20 @@ class GamepadHandler(
                     val combo = call.argument<Int>("combo") ?: 0
                     val holdMs = call.argument<Int>("holdMs") ?: 2000
                     panicCombo = combo
-                    panicHoldMs = holdMs.toLong().coerceIn(300, 8000)
+                    panicHoldMs = holdMs.toLong().coerceIn(0, 8000)
                     panicHeldRunnable?.let { mainHandler.removeCallbacks(it) }
                     panicHeldRunnable = null
                     Log.i(TAG, "PANIC_COMBO: combo=0x${combo.toString(16)}, holdMs=$panicHoldMs")
+                    result.success(null)
+                }
+                "setQuickFavComboConfig" -> {
+                    val combo = call.argument<Int>("combo") ?: 0x30030
+                    val holdMs = call.argument<Int>("holdMs") ?: 500
+                    quickFavCombo = combo
+                    quickFavHoldMs = holdMs.toLong().coerceIn(0, 8000)
+                    quickFavHeldRunnable?.let { mainHandler.removeCallbacks(it) }
+                    quickFavHeldRunnable = null
+                    Log.i(TAG, "QUICK_FAV_COMBO: combo=0x${combo.toString(16)}, holdMs=$quickFavHoldMs")
                     result.success(null)
                 }
                 else -> result.notImplemented()
@@ -692,6 +742,22 @@ class GamepadHandler(
         sendInput(slot, state)
     }
 
+    /**
+     * Mutual exclusion: returns true if [combo] is a strict subset of another
+     * enabled combo that is also fully held in [effective].  When true the
+     * caller must NOT fire — the more-specific combo owns the input.
+     */
+    private fun isShadowedBySuperset(combo: Int, effective: Int): Boolean {
+        val others = intArrayOf(overlayTriggerCombo, mouseModeCombo, panicCombo, quickFavCombo)
+        for (other in others) {
+            if (other == 0 || other == combo) continue
+            // 'other' is a strict superset if it contains all bits of combo AND has extra bits
+            val isSuperset = (other and combo) == combo && other != combo
+            if (isSuperset && (effective and other) == other) return true
+        }
+        return false
+    }
+
     private fun checkOverlayTriggerCombo(state: ControllerState) {
         if (overlayTriggerCombo == 0) return
         // Build effective flags including virtual trigger bits
@@ -699,14 +765,15 @@ class GamepadHandler(
         if (state.leftTrigger.toInt() and 0xFF > 100) effective = effective or LT_VIRTUAL_FLAG
         if (state.rightTrigger.toInt() and 0xFF > 100) effective = effective or RT_VIRTUAL_FLAG
         val allHeld = (effective and overlayTriggerCombo) == overlayTriggerCombo
-        if (allHeld) {
+        if (allHeld && !isShadowedBySuperset(overlayTriggerCombo, effective)) {
             if (comboHeldRunnable == null) {
                 comboHeldRunnable = Runnable {
                     comboHeldRunnable = null
                     var eff = state.buttonFlags
                     if (state.leftTrigger.toInt() and 0xFF > 100) eff = eff or LT_VIRTUAL_FLAG
                     if (state.rightTrigger.toInt() and 0xFF > 100) eff = eff or RT_VIRTUAL_FLAG
-                    if ((eff and overlayTriggerCombo) == overlayTriggerCombo) {
+                    if ((eff and overlayTriggerCombo) == overlayTriggerCombo
+                        && !isShadowedBySuperset(overlayTriggerCombo, eff)) {
                         overlayVisible = true
                         mainHandler.post {
                             methodChannel.invokeMethod("onComboDetected", null)
@@ -727,14 +794,15 @@ class GamepadHandler(
         if (state.leftTrigger.toInt() and 0xFF > 100) effective = effective or LT_VIRTUAL_FLAG
         if (state.rightTrigger.toInt() and 0xFF > 100) effective = effective or RT_VIRTUAL_FLAG
         val allHeld = (effective and mouseModeCombo) == mouseModeCombo
-        if (allHeld) {
+        if (allHeld && !isShadowedBySuperset(mouseModeCombo, effective)) {
             if (mouseModeHeldRunnable == null) {
                 mouseModeHeldRunnable = Runnable {
                     mouseModeHeldRunnable = null
                     var eff = state.buttonFlags
                     if (state.leftTrigger.toInt() and 0xFF > 100) eff = eff or LT_VIRTUAL_FLAG
                     if (state.rightTrigger.toInt() and 0xFF > 100) eff = eff or RT_VIRTUAL_FLAG
-                    if ((eff and mouseModeCombo) == mouseModeCombo) {
+                    if ((eff and mouseModeCombo) == mouseModeCombo
+                        && !isShadowedBySuperset(mouseModeCombo, eff)) {
                         Log.i(TAG, "MOUSE_MODE_TOGGLE: combo triggered after ${mouseModeHoldMs}ms hold")
                         mainHandler.post {
                             methodChannel.invokeMethod("onMouseModeToggle", null)
@@ -755,14 +823,15 @@ class GamepadHandler(
         if (state.leftTrigger.toInt() and 0xFF > 100) effective = effective or LT_VIRTUAL_FLAG
         if (state.rightTrigger.toInt() and 0xFF > 100) effective = effective or RT_VIRTUAL_FLAG
         val allHeld = (effective and panicCombo) == panicCombo
-        if (allHeld) {
+        if (allHeld && !isShadowedBySuperset(panicCombo, effective)) {
             if (panicHeldRunnable == null) {
                 panicHeldRunnable = Runnable {
                     panicHeldRunnable = null
                     var eff = state.buttonFlags
                     if (state.leftTrigger.toInt() and 0xFF > 100) eff = eff or LT_VIRTUAL_FLAG
                     if (state.rightTrigger.toInt() and 0xFF > 100) eff = eff or RT_VIRTUAL_FLAG
-                    if ((eff and panicCombo) == panicCombo) {
+                    if ((eff and panicCombo) == panicCombo
+                        && !isShadowedBySuperset(panicCombo, eff)) {
                         Log.i(TAG, "PANIC_COMBO: triggered after ${panicHoldMs}ms hold — emergency session kill")
                         mainHandler.post {
                             methodChannel.invokeMethod("onPanicComboDetected", null)
@@ -774,6 +843,35 @@ class GamepadHandler(
         } else {
             panicHeldRunnable?.let { mainHandler.removeCallbacks(it) }
             panicHeldRunnable = null
+        }
+    }
+
+    private fun checkQuickFavCombo(state: ControllerState) {
+        if (quickFavCombo == 0) return
+        var effective = state.buttonFlags
+        if (state.leftTrigger.toInt() and 0xFF > 100) effective = effective or LT_VIRTUAL_FLAG
+        if (state.rightTrigger.toInt() and 0xFF > 100) effective = effective or RT_VIRTUAL_FLAG
+        val allHeld = (effective and quickFavCombo) == quickFavCombo
+        if (allHeld && !isShadowedBySuperset(quickFavCombo, effective)) {
+            if (quickFavHeldRunnable == null) {
+                quickFavHeldRunnable = Runnable {
+                    quickFavHeldRunnable = null
+                    var eff = state.buttonFlags
+                    if (state.leftTrigger.toInt() and 0xFF > 100) eff = eff or LT_VIRTUAL_FLAG
+                    if (state.rightTrigger.toInt() and 0xFF > 100) eff = eff or RT_VIRTUAL_FLAG
+                    if ((eff and quickFavCombo) == quickFavCombo
+                        && !isShadowedBySuperset(quickFavCombo, eff)) {
+                        Log.i(TAG, "QUICK_FAV_COMBO: triggered after ${quickFavHoldMs}ms hold")
+                        mainHandler.post {
+                            methodChannel.invokeMethod("onQuickFavComboDetected", null)
+                        }
+                    }
+                }
+                mainHandler.postDelayed(quickFavHeldRunnable!!, quickFavHoldMs)
+            }
+        } else {
+            quickFavHeldRunnable?.let { mainHandler.removeCallbacks(it) }
+            quickFavHeldRunnable = null
         }
     }
 
@@ -819,9 +917,8 @@ class GamepadHandler(
 
         state.buttonFlags = state.buttonFlags or flag
 
-        if (state.buttonFlags and QUIT_COMBO_MASK == QUIT_COMBO_MASK) {
-            state.pendingExit = true
-        }
+        // QUIT_COMBO_MASK release-based overlay removed — unified through
+        // checkOverlayTriggerCombo() hold-based detection only.
 
         runEmulationChecks(state, event.eventTime)
 
@@ -829,6 +926,7 @@ class GamepadHandler(
         checkOverlayTriggerCombo(state)
         checkMouseModeCombo(state)
         checkPanicCombo(state)
+        checkQuickFavCombo(state)
         return true
     }
 
@@ -891,19 +989,8 @@ class GamepadHandler(
             }
         }
 
-        if (state.pendingExit) {
-            if ((state.buttonFlags and QUIT_COMBO_MASK) == 0) {
-
-                state.pendingExit = false
-                state.buttonFlags = 0
-                sendInput(slot, state)
-                overlayVisible = true
-                mainHandler.post {
-                    methodChannel.invokeMethod("onComboDetected", null)
-                }
-                return true
-            }
-        }
+        // QUIT_COMBO_MASK release-based overlay removed — unified through
+        // checkOverlayTriggerCombo() hold-based detection only.
 
         sendInput(slot, state)
         checkOverlayTriggerCombo(state)
@@ -1108,6 +1195,7 @@ class GamepadHandler(
         checkOverlayTriggerCombo(state)
         checkMouseModeCombo(state)
         checkPanicCombo(state)
+        checkQuickFavCombo(state)
         return true
     }
 
@@ -1801,7 +1889,10 @@ class GamepadHandler(
         // connection is fully established. Sending input during the RTSP
         // handshake can cause protocol errors or undefined behavior in
         // moonlight-common-c.
-        if (!StreamingPlugin.isConnectionEstablished) return false
+        // Return true (consumed) to prevent Flutter from processing the event
+        // during handshake — stray key events can trigger navigation or focus
+        // changes that disrupt the stream surface lifecycle.
+        if (!StreamingPlugin.isConnectionEstablished) return true
 
         val vk = when {
             forceQwertyLayoutEnabled -> scanCodeToQwertyVk(event.scanCode) ?: androidKeyToVk(event.keyCode)

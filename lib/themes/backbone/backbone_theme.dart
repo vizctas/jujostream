@@ -8,6 +8,7 @@ import '../../models/nv_app.dart';
 import '../../providers/theme_provider.dart';
 import '../../services/audio/ui_sound_service.dart';
 import '../../services/input/gamepad_button_helper.dart';
+import '../../widgets/news_carousel/news_carousel_widget.dart';
 import '../../widgets/poster_image.dart';
 import '../../widgets/trailer_modal.dart';
 import '../../services/metadata/steam_video_client.dart';
@@ -87,7 +88,7 @@ class BackboneTheme extends LauncherTheme {
   }
 }
 
-enum _View { carousel, detail }
+enum _View { carousel, detail, news }
 
 class _Body extends StatefulWidget {
   final List<NvApp> apps;
@@ -136,11 +137,13 @@ class _BodyState extends State<_Body> {
   late int _idx;
   late ScrollController _sc;
   final FocusNode _fn = FocusNode(debugLabel: 'backbone');
+  final GlobalKey<NewsCarouselWidgetState> _newsKey = GlobalKey();
   _View _view = _View.carousel;
   Timer? _bgDebounce;
   int? _bgAppId;
   Timer? _idleTimer;
   bool _isIdle = false;
+  int _newsRotation = 0;
 
   static const double _cw = 140, _ch = 80, _gap = 16;
   static const double _selW = 168, _selH = 96;
@@ -251,6 +254,18 @@ class _BodyState extends State<_Body> {
           return KeyEventResult.ignored;
         }
         final k = e.logicalKey;
+        if (_view == _View.news) {
+          final consumed = _newsKey.currentState?.handleKeyEvent(k) ?? false;
+          if (consumed) return KeyEventResult.handled;
+          if (k == LogicalKeyboardKey.gameButtonB ||
+              k == LogicalKeyboardKey.escape ||
+              k == LogicalKeyboardKey.goBack) {
+            _action();
+            setState(() => _view = _View.carousel);
+            return KeyEventResult.handled;
+          }
+          return KeyEventResult.ignored;
+        }
         if (_view == _View.carousel) {
           if (k == LogicalKeyboardKey.arrowRight) {
             _move(1);
@@ -258,6 +273,13 @@ class _BodyState extends State<_Body> {
           }
           if (k == LogicalKeyboardKey.arrowLeft) {
             _move(-1);
+            return KeyEventResult.handled;
+          }
+          if (k == LogicalKeyboardKey.arrowUp) {
+            _action();
+            _newsRotation++;
+            _newsKey.currentState?.resetFocus();
+            setState(() => _view = _View.news);
             return KeyEventResult.handled;
           }
           if (k == LogicalKeyboardKey.arrowDown) {
@@ -391,7 +413,10 @@ class _BodyState extends State<_Body> {
           _resetIdleTimer();
           final v = details.primaryVelocity ?? 0;
           if (v > 300) {
-            if (_view == _View.carousel) {
+            if (_view == _View.news) {
+              _action();
+              setState(() => _view = _View.carousel);
+            } else if (_view == _View.carousel) {
               _action();
               setState(() => _view = _View.detail);
               widget.onDetailViewChanged?.call(true);
@@ -401,8 +426,13 @@ class _BodyState extends State<_Body> {
               _action();
               setState(() => _view = _View.carousel);
               widget.onDetailViewChanged?.call(false);
-            } else {
-              Navigator.maybePop(context);
+            } else if (_view == _View.carousel) {
+              _action();
+              _newsRotation++;
+              _newsKey.currentState?.resetFocus();
+              setState(() => _view = _View.news);
+            } else if (_view == _View.news) {
+              // Already at top — no-op
             }
           }
         },
@@ -456,9 +486,11 @@ class _BodyState extends State<_Body> {
                   ),
                   AnimatedSwitcher(
                     duration: const Duration(milliseconds: 300),
-                    child: _view == _View.carousel
-                        ? _carousel(tp, s, l)
-                        : _detail(tp, s, l),
+                    child: _view == _View.news
+                        ? _newsView(tp)
+                        : _view == _View.carousel
+                            ? _carousel(tp, s, l)
+                            : _detail(tp, s, l),
                   ),
                 ],
               ),
@@ -862,6 +894,28 @@ class _BodyState extends State<_Body> {
             ),
           ),
         ],
+      ],
+    );
+  }
+
+  Widget _newsView(ThemeProvider tp) {
+    return Column(
+      key: const ValueKey('n'),
+      children: [
+        Expanded(
+          child: NewsCarouselWidget(
+            key: _newsKey,
+            allApps: widget.allApps,
+            apps: widget.apps,
+            visible: _view == _View.news,
+            hasFocus: _view == _View.news,
+            rotationSeed: _newsRotation,
+            onDismiss: () {
+              _action();
+              setState(() => _view = _View.carousel);
+            },
+          ),
+        ),
       ],
     );
   }

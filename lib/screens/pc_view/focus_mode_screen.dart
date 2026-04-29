@@ -817,9 +817,11 @@ class _FocusServerCard extends StatefulWidget {
 }
 
 class _FocusServerCardState extends State<_FocusServerCard>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   late AnimationController _floatController;
   late Animation<double> _floatAnimation;
+  late AnimationController _glowController;
+  late Animation<double> _glowAnimation;
 
   @override
   void initState() {
@@ -833,18 +835,28 @@ class _FocusServerCardState extends State<_FocusServerCard>
       CurvedAnimation(parent: _floatController, curve: Curves.easeInOutSine),
     );
 
+    _glowController = AnimationController(
+      duration: const Duration(milliseconds: 1800),
+      vsync: this,
+    );
+    _glowAnimation = Tween<double>(begin: 0.18, end: 0.40).animate(
+      CurvedAnimation(parent: _glowController, curve: Curves.easeInOut),
+    );
+
     // Animation start/stop handled in build via didChangeDependencies-like
     // watch on ThemeProvider.reduceEffects so toggling takes effect live.
     final tp = context.read<ThemeProvider>();
     if (!tp.reduceEffects) {
       _floatController.repeat(reverse: true);
     }
+    _syncGlow();
   }
 
   @override
   void didUpdateWidget(covariant _FocusServerCard oldWidget) {
     super.didUpdateWidget(oldWidget);
     _syncAnimation();
+    if (oldWidget.isSelected != widget.isSelected) _syncGlow();
   }
 
   void _syncAnimation() {
@@ -857,9 +869,19 @@ class _FocusServerCardState extends State<_FocusServerCard>
     }
   }
 
+  void _syncGlow() {
+    final reduce = context.read<ThemeProvider>().reduceEffects;
+    if (widget.isSelected && !reduce) {
+      if (!_glowController.isAnimating) _glowController.repeat(reverse: true);
+    } else {
+      _glowController.stop();
+    }
+  }
+
   @override
   void dispose() {
     _floatController.dispose();
+    _glowController.dispose();
     super.dispose();
   }
 
@@ -920,27 +942,43 @@ class _FocusServerCardState extends State<_FocusServerCard>
                 ),
                 child: AspectRatio(
                   aspectRatio: 1.55,
-                  child: Container(
-                    margin: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 24,
-                    ),
-                    decoration: BoxDecoration(
-                      color: tp.surface.withValues(
-                        alpha: isLight ? 0.92 : 0.85,
-                      ),
-                      borderRadius: BorderRadius.circular(24),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(
-                            alpha: isLight ? 0.12 : 0.4,
-                          ),
-                          blurRadius: 32,
-                          offset: const Offset(0, 12),
+                  child: AnimatedBuilder(
+                    animation: _glowAnimation,
+                    builder: (context, child) {
+                      // Dynamic bloom: zero glow when unfocused,,
+                      // breathe animation only when focused/hovered.
+                      final glowAlpha = widget.isSelected
+                          ? _glowAnimation.value
+                          : 0.0;
+                      return Container(
+                        margin: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 24,
                         ),
-                      ],
-                    ),
-                    clipBehavior: Clip.antiAlias,
+                        decoration: BoxDecoration(
+                          color: tp.surface.withValues(
+                            alpha: isLight ? 0.92 : 0.85,
+                          ),
+                          borderRadius: BorderRadius.circular(24),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(
+                                alpha: isLight ? 0.12 : 0.4,
+                              ),
+                              blurRadius: 32,
+                              offset: const Offset(0, 12),
+                            ),
+                            BoxShadow(
+                              color: tp.accent.withValues(alpha: glowAlpha),
+                              blurRadius: widget.isSelected ? 18 : 0,
+                              spreadRadius: widget.isSelected ? 3 : 0,
+                            ),
+                          ],
+                        ),
+                        clipBehavior: Clip.antiAlias,
+                        child: child,
+                      );
+                    },
                     child: Stack(
                       children: [
                         // ── Background image: custom or asset fallback ──
@@ -1092,9 +1130,11 @@ class _FocusServerCircle extends StatefulWidget {
 }
 
 class _FocusServerCircleState extends State<_FocusServerCircle>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   late AnimationController _floatController;
   late Animation<double> _floatAnimation;
+  late AnimationController _glowController;
+  late Animation<double> _glowAnimation;
 
   @override
   void initState() {
@@ -1106,16 +1146,25 @@ class _FocusServerCircleState extends State<_FocusServerCircle>
     _floatAnimation = Tween<double>(begin: 0, end: 1).animate(
       CurvedAnimation(parent: _floatController, curve: Curves.easeInOutSine),
     );
+    _glowController = AnimationController(
+      duration: const Duration(milliseconds: 1800),
+      vsync: this,
+    );
+    _glowAnimation = Tween<double>(begin: 0.18, end: 0.40).animate(
+      CurvedAnimation(parent: _glowController, curve: Curves.easeInOut),
+    );
     final tp = context.read<ThemeProvider>();
     if (!tp.reduceEffects) {
       _floatController.repeat(reverse: true);
     }
+    _syncGlow();
   }
 
   @override
   void didUpdateWidget(covariant _FocusServerCircle oldWidget) {
     super.didUpdateWidget(oldWidget);
     _syncAnimation();
+    if (oldWidget.isSelected != widget.isSelected) _syncGlow();
   }
 
   void _syncAnimation() {
@@ -1128,9 +1177,19 @@ class _FocusServerCircleState extends State<_FocusServerCircle>
     }
   }
 
+  void _syncGlow() {
+    final reduce = context.read<ThemeProvider>().reduceEffects;
+    if (widget.isSelected && !reduce) {
+      if (!_glowController.isAnimating) _glowController.repeat(reverse: true);
+    } else {
+      _glowController.stop();
+    }
+  }
+
   @override
   void dispose() {
     _floatController.dispose();
+    _glowController.dispose();
     super.dispose();
   }
 
@@ -1181,20 +1240,36 @@ class _FocusServerCircleState extends State<_FocusServerCircle>
             mainAxisSize: MainAxisSize.min,
             children: [
               // ── Circular server portrait ──
-              Container(
-                width: circleSize + borderWidth * 2,
-                height: circleSize + borderWidth * 2,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  border: Border.all(color: borderColor, width: borderWidth),
-                  boxShadow: [
-                    BoxShadow(
-                      color: borderColor.withValues(alpha: 0.35),
-                      blurRadius: 24,
-                      spreadRadius: 2,
+              AnimatedBuilder(
+                animation: _glowAnimation,
+                builder: (context, child) {
+                  // Dynamic bloom: zero glow when unfocused,,
+                  // breathe animation only when focused/hovered.
+                  final glowAlpha = widget.isSelected
+                      ? _glowAnimation.value
+                      : 0.0;
+                  return Container(
+                    width: circleSize + borderWidth * 2,
+                    height: circleSize + borderWidth * 2,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(color: borderColor, width: borderWidth),
+                      boxShadow: [
+                        BoxShadow(
+                          color: borderColor.withValues(alpha: 0.35),
+                          blurRadius: 24,
+                          spreadRadius: 2,
+                        ),
+                        BoxShadow(
+                          color: tp.accent.withValues(alpha: glowAlpha),
+                          blurRadius: widget.isSelected ? 18 : 0,
+                          spreadRadius: widget.isSelected ? 3 : 0,
+                        ),
+                      ],
                     ),
-                  ],
-                ),
+                    child: child,
+                  );
+                },
                 child: ClipOval(
                   child: SizedBox(
                     width: circleSize,

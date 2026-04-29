@@ -129,10 +129,13 @@ class VideoDecoderRenderer(
                 Log.i(TAG, "Using direct submit surface (SurfaceControl path)")
                 activeRenderPath = if (useChoreographerVsync) "direct-submit-vsync" else "direct-submit"
                 externalSurface
-            } else {
+            } else if (flutterSurface != null && flutterSurface.isValid) {
                 Log.i(TAG, "Using Flutter SurfaceProducer path")
                 activeRenderPath = if (useChoreographerVsync) "texture-vsync" else "texture"
                 flutterSurface
+            } else {
+                Log.e(TAG, "No valid render surface available — both direct-submit and Flutter surfaces are null/invalid")
+                return -1
             }
 
             // VRR: hint compositor about ideal cadence

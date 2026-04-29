@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../platform_channels/streaming_channel.dart';
@@ -48,6 +50,9 @@ void sendCombo(List<int> keys) {
     }
   });
 }
+
+/// Number of columns in the special-keys grid.
+const int specialKeyCols = 3;
 
 /// Section boundaries for gamepad D-pad navigation.
 const List<int> specialKeySections = [0, 10, 16, 22];
@@ -105,6 +110,86 @@ List<SpecialKeyEntry> buildSpecialKeysList() => [
   ('skMute', 'Mute', () => sendKey(vkMute)),
 ];
 
+// ─── Grid navigation helpers ────────────────────────────────────────────────
+
+/// Returns the flat index after moving [direction] from [current] inside the
+/// special-keys grid (3 columns, sections at [specialKeySections]).
+///
+/// [direction] is one of `'left'`, `'right'`, `'up'`, `'down'`.
+int specialKeyGridMove(int current, String direction) {
+  // Determine which section the current index belongs to.
+  int secStart = specialKeySections.last;
+  int secEnd = specialKeyCount;
+  for (int i = specialKeySections.length - 1; i >= 0; i--) {
+    if (current >= specialKeySections[i]) {
+      secStart = specialKeySections[i];
+      secEnd = (i + 1 < specialKeySections.length)
+          ? specialKeySections[i + 1]
+          : specialKeyCount;
+      break;
+    }
+  }
+
+  final localIdx = current - secStart;
+  final sectionLen = secEnd - secStart;
+  final col = localIdx % specialKeyCols;
+  final row = localIdx ~/ specialKeyCols;
+  final totalRows = (sectionLen + specialKeyCols - 1) ~/ specialKeyCols;
+
+  switch (direction) {
+    case 'left':
+      if (col > 0) return current - 1;
+      return current; // already leftmost
+    case 'right':
+      if (col < specialKeyCols - 1 && localIdx + 1 < sectionLen) {
+        return current + 1;
+      }
+      return current; // already rightmost or last in section
+    case 'down':
+      // Try moving down within section
+      final nextRow = row + 1;
+      if (nextRow < totalRows) {
+        final nextLocal = nextRow * specialKeyCols + col;
+        if (nextLocal < sectionLen) return secStart + nextLocal;
+        // Column doesn't exist in last row — clamp to last item in section
+        return secStart + sectionLen - 1;
+      }
+      // Jump to next section (same column or clamped)
+      final secIdx = specialKeySections.indexOf(secStart);
+      if (secIdx + 1 < specialKeySections.length) {
+        final nextSecStart = specialKeySections[secIdx + 1];
+        final nextSecEnd = (secIdx + 2 < specialKeySections.length)
+            ? specialKeySections[secIdx + 2]
+            : specialKeyCount;
+        final nextSecLen = nextSecEnd - nextSecStart;
+        return nextSecStart + col.clamp(0, nextSecLen - 1);
+      }
+      return current; // already in last section, last row
+    case 'up':
+      // Try moving up within section
+      final prevRow = row - 1;
+      if (prevRow >= 0) {
+        return secStart + prevRow * specialKeyCols + col;
+      }
+      // Jump to previous section (same column, last row)
+      final secIdx = specialKeySections.indexOf(secStart);
+      if (secIdx > 0) {
+        final prevSecStart = specialKeySections[secIdx - 1];
+        final prevSecEnd = specialKeySections[secIdx];
+        final prevSecLen = prevSecEnd - prevSecStart;
+        final prevTotalRows =
+            (prevSecLen + specialKeyCols - 1) ~/ specialKeyCols;
+        final targetLocal = (prevTotalRows - 1) * specialKeyCols + col;
+        if (targetLocal < prevSecLen) return prevSecStart + targetLocal;
+        return prevSecStart + prevSecLen - 1;
+      }
+      return current; // already in first section, first row
+  }
+  return current;
+}
+
+// ─── Panel builder ──────────────────────────────────────────────────────────
+
 /// Builds the special-keys grid panel shown inside the stream overlay.
 ///
 /// [specialKeys] — the key list (from [buildSpecialKeysList]).
@@ -124,6 +209,8 @@ Widget buildSpecialKeysPanel({
   required VoidCallback onCloseOverlay,
   required String closeMenuLabel,
   required String specialKeysLabel,
+  Set<int> favoriteIndices = const {},
+  Widget? favoriteHintWidget,
 }) {
   Widget sectionHeader(String title) {
     return Padding(
@@ -140,13 +227,43 @@ Widget buildSpecialKeysPanel({
     );
   }
 
-  Widget chipAt(int flatIdx) {
-    final entry = specialKeys[flatIdx];
-    return buildKeyChip(
-      descriptionResolver(entry.$1),
-      () => onActivate(flatIdx),
-      focused: flatIdx == focusedIndex,
-      subtitle: entry.$2,
+  /// Builds a 3-column grid for a range of key indices [start]..[end).
+  Widget sectionGrid(int start, int end) {
+    final count = end - start;
+    final rows = (count + specialKeyCols - 1) ~/ specialKeyCols;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (int r = 0; r < rows; r++)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Row(
+              children: [
+                for (int c = 0; c < specialKeyCols; c++)
+                  Expanded(
+                    child: () {
+                      final flatIdx = start + r * specialKeyCols + c;
+                      if (flatIdx >= end) return const SizedBox.shrink();
+                      final entry = specialKeys[flatIdx];
+                      return Padding(
+                        padding: EdgeInsets.only(
+                          left: c == 0 ? 0 : 4,
+                          right: c == specialKeyCols - 1 ? 0 : 4,
+                        ),
+                        child: buildKeyChip(
+                          descriptionResolver(entry.$1),
+                          () => onActivate(flatIdx),
+                          focused: flatIdx == focusedIndex,
+                          subtitle: entry.$2,
+                          isFavorite: favoriteIndices.contains(flatIdx),
+                        ),
+                      );
+                    }(),
+                  ),
+              ],
+            ),
+          ),
+      ],
     );
   }
 
@@ -175,42 +292,31 @@ Widget buildSpecialKeysPanel({
         ],
       ),
 
+      if (favoriteHintWidget != null) ...[
+        const SizedBox(height: 4),
+        Center(child: favoriteHintWidget),
+        const SizedBox(height: 4),
+      ],
+
       sectionHeader('WINDOW'),
-      Wrap(
-        spacing: 8,
-        runSpacing: 8,
-        alignment: WrapAlignment.start,
-        children: [for (int i = 0; i < 10; i++) chipAt(i)],
-      ),
+      sectionGrid(0, 10),
 
       sectionHeader('INPUT'),
-      Wrap(
-        spacing: 8,
-        runSpacing: 8,
-        alignment: WrapAlignment.start,
-        children: [for (int i = 10; i < 16; i++) chipAt(i)],
-      ),
+      sectionGrid(10, 16),
 
       sectionHeader('SYSTEM'),
-      Wrap(
-        spacing: 8,
-        runSpacing: 8,
-        alignment: WrapAlignment.start,
-        children: [for (int i = 16; i < 22; i++) chipAt(i)],
-      ),
+      sectionGrid(16, 22),
 
       sectionHeader('MEDIA'),
-      Wrap(
-        spacing: 8,
-        runSpacing: 8,
-        alignment: WrapAlignment.start,
-        children: [for (int i = 22; i < 26; i++) chipAt(i)],
-      ),
+      sectionGrid(22, 26),
+
       const SizedBox(height: 16),
       _CloseTile(label: closeMenuLabel, onTap: onCloseOverlay),
     ],
   );
 }
+
+// ─── Key chip ───────────────────────────────────────────────────────────────
 
 /// A single key chip used in the special-keys grid.
 Widget buildKeyChip(
@@ -219,49 +325,158 @@ Widget buildKeyChip(
   bool focused = false,
   Color? accentColor,
   String? subtitle,
+  bool isFavorite = false,
 }) {
   final chipAccent = accentColor ?? Colors.white54;
-  return GestureDetector(
+  return _TapFeedbackChip(
     onTap: onTap,
-    child: AnimatedContainer(
-      duration: const Duration(milliseconds: 120),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: focused
-            ? chipAccent.withValues(alpha: 0.18)
-            : Colors.white.withValues(alpha: 0.07),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(
-          color: focused ? chipAccent : Colors.white12,
-          width: focused ? 2 : 1,
-        ),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            label,
-            style: TextStyle(
-              color: focused ? Colors.white : Colors.white70,
-              fontSize: 12,
-              fontWeight: focused ? FontWeight.w700 : FontWeight.w500,
-            ),
-          ),
-          if (subtitle != null) ...[
-            const SizedBox(height: 2),
-            Text(
-              subtitle,
-              style: TextStyle(
-                color: focused ? Colors.white54 : Colors.white30,
-                fontSize: 9,
-                fontWeight: FontWeight.w400,
+    focused: focused,
+    chipAccent: chipAccent,
+    label: label,
+    subtitle: subtitle,
+    isFavorite: isFavorite,
+  );
+}
+
+/// Animated chip with tap feedback: scale pulse + horizontal shake.
+///
+/// On activation the chip briefly scales down (90%) then shakes horizontally
+/// (±3 px, 3 oscillations over 300 ms) so the user gets clear visual
+/// confirmation the key was sent.
+class _TapFeedbackChip extends StatefulWidget {
+  final VoidCallback onTap;
+  final bool focused;
+  final Color chipAccent;
+  final String label;
+  final String? subtitle;
+  final bool isFavorite;
+
+  const _TapFeedbackChip({
+    required this.onTap,
+    required this.focused,
+    required this.chipAccent,
+    required this.label,
+    this.subtitle,
+    this.isFavorite = false,
+  });
+
+  @override
+  State<_TapFeedbackChip> createState() => _TapFeedbackChipState();
+}
+
+class _TapFeedbackChipState extends State<_TapFeedbackChip>
+    with TickerProviderStateMixin {
+  // ── Scale pulse ──
+  late final AnimationController _scaleCtrl = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 120),
+  );
+  late final Animation<double> _scale = Tween<double>(begin: 1.0, end: 0.90)
+      .animate(CurvedAnimation(parent: _scaleCtrl, curve: Curves.easeInOut));
+
+  // ── Horizontal shake ──
+  late final AnimationController _shakeCtrl = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 300),
+  );
+
+  @override
+  void dispose() {
+    _scaleCtrl.dispose();
+    _shakeCtrl.dispose();
+    super.dispose();
+  }
+
+  void _handleTap() {
+    // Scale pulse
+    _scaleCtrl.forward().then((_) => _scaleCtrl.reverse());
+    // Shake — reset if already running
+    _shakeCtrl.reset();
+    _shakeCtrl.forward();
+    // Haptic
+    HapticFeedback.lightImpact();
+    widget.onTap();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: _handleTap,
+      child: AnimatedBuilder(
+        animation: _shakeCtrl,
+        builder: (context, child) {
+          // 3 oscillations over 0→1: sin(3 * 2π * t) * amplitude * (1-t)
+          final t = _shakeCtrl.value;
+          final dx = t == 0.0
+              ? 0.0
+              : math.sin(3 * 2 * math.pi * t) * 3.0 * (1.0 - t);
+          return Transform.translate(
+            offset: Offset(dx, 0),
+            child: child,
+          );
+        },
+        child: ScaleTransition(
+          scale: _scale,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 120),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            decoration: BoxDecoration(
+              color: widget.focused
+                  ? widget.chipAccent.withValues(alpha: 0.18)
+                  : Colors.white.withValues(alpha: 0.07),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: widget.focused ? widget.chipAccent : Colors.white12,
+                width: widget.focused ? 2 : 1,
               ),
             ),
-          ],
-        ],
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    if (widget.isFavorite) ...[
+                      const Text('⭐', style: TextStyle(fontSize: 9)),
+                      const SizedBox(width: 3),
+                    ],
+                    Flexible(
+                      child: Text(
+                        widget.label,
+                        style: TextStyle(
+                          color: widget.focused ? Colors.white : Colors.white70,
+                          fontSize: 12,
+                          fontWeight:
+                              widget.focused ? FontWeight.w700 : FontWeight.w500,
+                        ),
+                        textAlign: TextAlign.center,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+                if (widget.subtitle != null) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    widget.subtitle!,
+                    style: TextStyle(
+                      color:
+                          widget.focused ? Colors.white54 : Colors.white30,
+                      fontSize: 9,
+                      fontWeight: FontWeight.w400,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 class _CloseTile extends StatelessWidget {

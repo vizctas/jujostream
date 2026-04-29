@@ -79,3 +79,7 @@ build_releases.sh
 # Local dev scripts (not tracked)
 dev_tools.ps1
 devtools_options.yaml
+
+
+#Ignore vscode AI rules
+.github/instructions/codacy.instructions.md
