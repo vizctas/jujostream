@@ -944,7 +944,22 @@ class _GameStreamScreenState extends State<GameStreamScreen>
   }
 
   void _onNativeOverlayDpad(String direction) {
-    if (!mounted || !_showOverlay) return;
+    if (!mounted) return;
+
+    // Route D-pad to Quick Keys overlay when it is visible.
+    if (_showQuickKeys) {
+      switch (direction) {
+        case 'up':
+          _quickKeysKey.currentState?.moveFocus(-1);
+        case 'down':
+          _quickKeysKey.currentState?.moveFocus(1);
+        case 'select':
+          _quickKeysKey.currentState?.activateFocused();
+      }
+      return;
+    }
+
+    if (!_showOverlay) return;
 
     if (_showSpecialKeys) {
       switch (direction) {
@@ -1156,6 +1171,8 @@ class _GameStreamScreenState extends State<GameStreamScreen>
   void _setQuickKeysVisible(bool visible) {
     if (visible == _showQuickKeys) return;
     setState(() => _showQuickKeys = visible);
+    // Tell native to route D-pad events to Flutter while Quick Keys is open.
+    GamepadChannel.setOverlayVisible(visible);
     if (!visible) {
       _streamFocusNode.requestFocus();
     }

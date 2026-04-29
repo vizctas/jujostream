@@ -57,6 +57,9 @@ class QuickKeysOverlayState extends State<QuickKeysOverlay>
   /// Ordered list of special key indices shown in the overlay.
   late List<int> _visibleKeys;
 
+  /// GlobalKeys for each pill so we can trigger shake from activateFocused().
+  final List<GlobalKey<_QuickKeyPillState>> _pillKeys = [];
+
   final FocusNode _focusNode = FocusNode(debugLabel: 'quick-keys-overlay');
 
   @override
@@ -84,6 +87,13 @@ class QuickKeysOverlayState extends State<QuickKeysOverlay>
       quickKeysDefaultIndex,
       ...widget.favoriteIndices.where((i) => i != quickKeysDefaultIndex),
     ];
+    // Keep pill GlobalKeys in sync with visible keys count.
+    while (_pillKeys.length < _visibleKeys.length) {
+      _pillKeys.add(GlobalKey<_QuickKeyPillState>());
+    }
+    if (_pillKeys.length > _visibleKeys.length) {
+      _pillKeys.length = _visibleKeys.length;
+    }
   }
 
   @override
@@ -105,6 +115,10 @@ class QuickKeysOverlayState extends State<QuickKeysOverlay>
   void activateFocused() {
     if (_visibleKeys.isEmpty) return;
     final keyIdx = _visibleKeys[_focusedIdx];
+    // Trigger the pill's shake animation so the user sees visual feedback.
+    if (_focusedIdx < _pillKeys.length) {
+      _pillKeys[_focusedIdx].currentState?.triggerShake();
+    }
     HapticFeedback.lightImpact();
     widget.onActivate(keyIdx);
   }
@@ -162,6 +176,7 @@ class QuickKeysOverlayState extends State<QuickKeysOverlay>
                     Padding(
                       padding: const EdgeInsets.symmetric(vertical: 4),
                       child: _QuickKeyPill(
+                        key: _pillKeys[i],
                         label: _labelFor(_visibleKeys[i]),
                         subtitle: _subtitleFor(_visibleKeys[i]),
                         focused: i == _focusedIdx,
@@ -200,6 +215,7 @@ class _QuickKeyPill extends StatefulWidget {
   final VoidCallback onTap;
 
   const _QuickKeyPill({
+    super.key,
     required this.label,
     required this.subtitle,
     required this.focused,
@@ -229,6 +245,11 @@ class _QuickKeyPillState extends State<_QuickKeyPill>
   void dispose() {
     _shakeCtrl.dispose();
     super.dispose();
+  }
+
+  /// Public API so the parent can trigger shake via GlobalKey.
+  void triggerShake() {
+    _shakeCtrl.forward(from: 0);
   }
 
   void _handleTap() {

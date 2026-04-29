@@ -13,6 +13,7 @@ import '../../l10n/app_localizations.dart';
 import '../../models/computer_details.dart';
 import '../../models/game_collection.dart';
 import '../../models/nv_app.dart';
+import '../../platform_channels/gamepad_channel.dart';
 import '../../providers/app_list_provider.dart';
 import '../../providers/computer_provider.dart';
 
@@ -2626,6 +2627,13 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
     if (mounted) {
       _isLaunching = false;
       _startAutoRefreshTimer();
+      // Safety: ensure native gamepad handler is no longer in streaming mode.
+      // The stream screen's dispose() calls setStreamingActive(false) but it
+      // runs as unawaited — the native side may still be intercepting D-pad
+      // events when we get here.  This redundant call guarantees the native
+      // GamepadHandler routes events back to Flutter's key event system.
+      unawaited(GamepadChannel.setStreamingActive(false));
+      GamepadChannel.redetectControllers();
       // Restore focus so the gamepad can navigate the launcher immediately
       // after returning from the stream screen.
       WidgetsBinding.instance.addPostFrameCallback((_) {

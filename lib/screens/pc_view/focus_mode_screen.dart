@@ -1092,9 +1092,21 @@ class _FocusServerCircle extends StatefulWidget {
 }
 
 class _FocusServerCircleState extends State<_FocusServerCircle>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   late AnimationController _floatController;
   late Animation<double> _floatAnimation;
+
+  // Breathing glow animation — only active when selected.
+  late final AnimationController _breatheController = AnimationController(
+    duration: const Duration(milliseconds: 2200),
+    vsync: this,
+  );
+  late final Animation<double> _breatheAnimation = Tween<double>(
+    begin: 0.20,
+    end: 0.50,
+  ).animate(
+    CurvedAnimation(parent: _breatheController, curve: Curves.easeInOut),
+  );
 
   @override
   void initState() {
@@ -1110,27 +1122,41 @@ class _FocusServerCircleState extends State<_FocusServerCircle>
     if (!tp.reduceEffects) {
       _floatController.repeat(reverse: true);
     }
+    _syncBreathe();
   }
 
   @override
   void didUpdateWidget(covariant _FocusServerCircle oldWidget) {
     super.didUpdateWidget(oldWidget);
     _syncAnimation();
+    _syncBreathe();
   }
 
   void _syncAnimation() {
     final reduce = context.read<ThemeProvider>().reduceEffects;
-    if (!reduce && !_floatController.isAnimating) {
+    // Stop float animation when selected (per FEAT-02 spec).
+    final shouldFloat = !reduce && !widget.isSelected;
+    if (shouldFloat && !_floatController.isAnimating) {
       _floatController.repeat(reverse: true);
-    } else if (reduce && _floatController.isAnimating) {
+    } else if (!shouldFloat && _floatController.isAnimating) {
       _floatController.stop();
       _floatController.reset();
+    }
+  }
+
+  void _syncBreathe() {
+    if (widget.isSelected && !_breatheController.isAnimating) {
+      _breatheController.repeat(reverse: true);
+    } else if (!widget.isSelected && _breatheController.isAnimating) {
+      _breatheController.stop();
+      _breatheController.reset();
     }
   }
 
   @override
   void dispose() {
     _floatController.dispose();
+    _breatheController.dispose();
     super.dispose();
   }
 
@@ -1181,20 +1207,30 @@ class _FocusServerCircleState extends State<_FocusServerCircle>
             mainAxisSize: MainAxisSize.min,
             children: [
               // ── Circular server portrait ──
-              Container(
-                width: circleSize + borderWidth * 2,
-                height: circleSize + borderWidth * 2,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  border: Border.all(color: borderColor, width: borderWidth),
-                  boxShadow: [
-                    BoxShadow(
-                      color: borderColor.withValues(alpha: 0.35),
-                      blurRadius: 24,
-                      spreadRadius: 2,
+              AnimatedBuilder(
+                animation: _breatheAnimation,
+                builder: (context, child) {
+                  return Container(
+                    width: circleSize + borderWidth * 2,
+                    height: circleSize + borderWidth * 2,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(color: borderColor, width: borderWidth),
+                      boxShadow: widget.isSelected
+                          ? [
+                              BoxShadow(
+                                color: borderColor.withValues(
+                                  alpha: _breatheAnimation.value,
+                                ),
+                                blurRadius: 24,
+                                spreadRadius: 2,
+                              ),
+                            ]
+                          : [],
                     ),
-                  ],
-                ),
+                    child: child,
+                  );
+                },
                 child: ClipOval(
                   child: SizedBox(
                     width: circleSize,

@@ -55,14 +55,23 @@ class _SettingsScreenState extends State<SettingsScreen>
   void _cycleTab(int delta) {
     final next = (_tabController.index + delta) % _kTabCount;
     _tabController.animateTo(next);
-    // After the tab switches, scroll to top and move focus into the new
-    // tab's first focusable child so the gamepad D-pad works immediately.
+    // After the tab switches, scroll to top and reset focus to the FIRST
+    // focusable child in the new tab.  The previous approach used
+    // `scope.nextFocus()` which continued from the current focus position
+    // — if the user was on item 5 in the old tab, focus would land on
+    // item 5 (or beyond) in the new tab instead of the first item.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _scrollToTop(context);
-      // Push focus into the new tab's traversal group.
+      // 1. Unfocus whatever is currently focused so nextFocus() starts
+      //    from the scope root rather than from the old item's position.
       final scope = FocusScope.of(context);
-      scope.nextFocus();
+      scope.unfocus();
+      // 2. After unfocusing, push focus into the new tab's first child.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        FocusScope.of(context).nextFocus();
+      });
     });
   }
 
