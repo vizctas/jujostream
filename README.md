@@ -128,7 +128,7 @@ Map button combinations of most used shorcuts while streaming. Some client limit
 
 By default the resolution will auto-match to your TV/monitor resolution. You can still manually set it in the settings.
 
- <img src="https://github.com/vizctas/jujostream/blob/master/assets/ss/auto_match.jpg"  alt="AutoMatch"/>
+ <img src="https://github.com/vizctas/jujostream/blob/master/assets/ss/auto-match.jpg"  alt="AutoMatch"/>
 
 
 ## News/Events/Updates... 
