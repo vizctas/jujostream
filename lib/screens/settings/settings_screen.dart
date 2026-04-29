@@ -324,10 +324,18 @@ class _SettingsScreenState extends State<SettingsScreen>
                             _resLabel(c),
                             () => _pickResolution(context, settings, c),
                           ),
-                          _CustomResolutionTile(
-                            currentWidth: c.width,
-                            currentHeight: c.height,
-                            onApply: (w, h) => settings.setResolution(w, h),
+                          Builder(
+                            builder: (ctx) {
+                              final mq = MediaQuery.of(ctx);
+                              final dpr = mq.devicePixelRatio;
+                              return _CustomResolutionTile(
+                                currentWidth: c.width,
+                                currentHeight: c.height,
+                                matchDisplayWidth: (mq.size.width * dpr).round(),
+                                matchDisplayHeight: (mq.size.height * dpr).round(),
+                                onApply: (w, h) => settings.setResolution(w, h),
+                              );
+                            },
                           ),
                           _choiceTile(
                             context,
@@ -1282,6 +1290,31 @@ class _SettingsScreenState extends State<SettingsScreen>
                             ),
                             leading: const Icon(
                               Icons.mouse_outlined,
+                              color: Colors.white54,
+                              size: 18,
+                            ),
+                          ),
+
+                          _choiceTile(
+                            context,
+                            _tr(
+                              context,
+                              'Quick Favorites Trigger',
+                              'Trigger de favoritos rápidos',
+                            ),
+                            _overlayTriggerLabel(
+                              context,
+                              c.quickFavCombo,
+                              c.quickFavHoldMs,
+                            ),
+                            () => _showQuickFavComboDialog(
+                              context,
+                              settings,
+                              c,
+                              preferences.buttonScheme,
+                            ),
+                            leading: const Icon(
+                              Icons.star_outline_rounded,
                               color: Colors.white54,
                               size: 18,
                             ),
@@ -3187,6 +3220,81 @@ class _SettingsScreenState extends State<SettingsScreen>
       ),
     );
   }
+
+  void _showQuickFavComboDialog(
+    BuildContext ctx,
+    SettingsProvider settings,
+    StreamConfiguration config,
+    String buttonScheme,
+  ) {
+    final tp = ctx.read<ThemeProvider>();
+    final size = MediaQuery.sizeOf(ctx);
+    final dialogWidth = size.width > 720 ? 460.0 : size.width - 40;
+
+    showGeneralDialog(
+      context: ctx,
+      barrierDismissible: true,
+      barrierLabel: MaterialLocalizations.of(ctx).modalBarrierDismissLabel,
+      barrierColor: Colors.black.withValues(alpha: 0.55),
+      transitionDuration: const Duration(milliseconds: 200),
+      transitionBuilder: (_, anim, _, child) =>
+          FadeTransition(opacity: anim, child: child),
+      pageBuilder: (dCtx, _, _) => Focus(
+        skipTraversal: true,
+        onKeyEvent: (_, event) {
+          if (event is! KeyDownEvent) return KeyEventResult.ignored;
+          final key = event.logicalKey;
+          if (key == LogicalKeyboardKey.gameButtonB ||
+              key == LogicalKeyboardKey.escape ||
+              key == LogicalKeyboardKey.goBack) {
+            Navigator.pop(dCtx);
+            return KeyEventResult.handled;
+          }
+          return KeyEventResult.ignored;
+        },
+        child: Center(
+          child: Material(
+            color: Colors.transparent,
+            child: Container(
+              width: dialogWidth,
+              constraints: BoxConstraints(maxHeight: size.height * 0.80),
+              margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 32),
+              decoration: BoxDecoration(
+                color: tp.surface,
+                borderRadius: BorderRadius.circular(22),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.45),
+                    blurRadius: 28,
+                    offset: const Offset(0, 10),
+                  ),
+                ],
+              ),
+              child: _OverlayTriggerDialog(
+                combo: config.quickFavCombo,
+                holdMs: config.quickFavHoldMs,
+                buttonScheme: buttonScheme,
+                titleEn: 'Quick Favorites Trigger',
+                titleEs: 'Trigger de favoritos rápidos',
+                descEn:
+                    'Choose the buttons that open the quick favorites panel during gameplay.',
+                descEs:
+                    'Elige los botones que abren el panel de favoritos rápidos durante el juego.',
+                onChanged: (combo, holdMs) {
+                  settings.updateConfig(
+                    config.copyWith(
+                      quickFavCombo: combo,
+                      quickFavHoldMs: holdMs,
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _SliderTile extends StatefulWidget {
@@ -4603,11 +4711,15 @@ class _OverlayTriggerDialogState extends State<_OverlayTriggerDialog> {
 class _CustomResolutionTile extends StatefulWidget {
   final int currentWidth;
   final int currentHeight;
+  final int matchDisplayWidth;
+  final int matchDisplayHeight;
   final void Function(int width, int height) onApply;
 
   const _CustomResolutionTile({
     required this.currentWidth,
     required this.currentHeight,
+    required this.matchDisplayWidth,
+    required this.matchDisplayHeight,
     required this.onApply,
   });
 
@@ -4626,6 +4738,9 @@ class _CustomResolutionTileState extends State<_CustomResolutionTile> {
   bool _editing = false;
 
   bool _isPreset(int w, int h) {
+    if (w == widget.matchDisplayWidth && h == widget.matchDisplayHeight) {
+      return true;
+    }
     for (final p in _SettingsScreenState._resolutionPresets) {
       if (p.$2 == w && p.$3 == h) return true;
     }
@@ -4770,7 +4885,9 @@ class _CustomResolutionTileState extends State<_CustomResolutionTile> {
               GestureDetector(
                 onTap: () {
                   setState(() => _editing = true);
-                  _wFocus.requestFocus();
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    _wFocus.requestFocus();
+                  });
                 },
                 child: ExcludeFocus(
                   excluding: !_editing,
@@ -4796,7 +4913,9 @@ class _CustomResolutionTileState extends State<_CustomResolutionTile> {
               GestureDetector(
                 onTap: () {
                   setState(() => _editing = true);
-                  _hFocus.requestFocus();
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    _hFocus.requestFocus();
+                  });
                 },
                 child: ExcludeFocus(
                   excluding: !_editing,
@@ -5032,8 +5151,8 @@ class _ResolutionPickerDialogState extends State<_ResolutionPickerDialog> {
                             final physW = (mq.size.width * dpr).round();
                             final physH = (mq.size.height * dpr).round();
                             final lbl = isEs
-                                ? '\u{1f4f1} Pantalla  (${physW}x$physH)'
-                                : '\u{1f4f1} Match Display  (${physW}x$physH)';
+                                ? 'Pantalla  (${physW}x$physH)'
+                                : 'Match Display  (${physW}x$physH)';
                             return _FocusablePickerOption(
                               label: lbl,
                               autofocus: true,

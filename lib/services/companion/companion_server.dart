@@ -380,6 +380,10 @@ class CompanionServer {
           streamConfig?['overlayTriggerCombo'] ?? 0x00C0,
       'stream_overlay_trigger_hold_ms':
           streamConfig?['overlayTriggerHoldMs'] ?? 2000,
+      'stream_quick_fav_combo':
+          streamConfig?['quickFavCombo'] ?? 0x30030,
+      'stream_quick_fav_hold_ms':
+          streamConfig?['quickFavHoldMs'] ?? 500,
 
       'stream_rumble': streamConfig?['enableRumble'] ?? true,
       'stream_vibrate_fallback': streamConfig?['vibrateFallback'] ?? false,
@@ -669,6 +673,8 @@ class CompanionServer {
         'stream_custom_remap': 'customRemapTable',
         'stream_overlay_trigger_combo': 'overlayTriggerCombo',
         'stream_overlay_trigger_hold_ms': 'overlayTriggerHoldMs',
+        'stream_quick_fav_combo': 'quickFavCombo',
+        'stream_quick_fav_hold_ms': 'quickFavHoldMs',
 
         'stream_rumble': 'enableRumble',
         'stream_vibrate_fallback': 'vibrateFallback',

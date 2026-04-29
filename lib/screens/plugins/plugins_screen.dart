@@ -1816,48 +1816,57 @@ class _ApiKeyFieldState extends State<_ApiKeyField> {
               ],
             ),
             const SizedBox(height: 6),
-            ExcludeFocus(
-              child: TextField(
-                controller: widget.controller,
-                focusNode: widget.focusNode,
-                obscureText: widget.obscure,
-                style: const TextStyle(color: Colors.white, fontSize: 13),
-                decoration: InputDecoration(
-                  hintText: widget.hint,
-                  hintStyle: const TextStyle(
-                    color: Colors.white24,
-                    fontSize: 13,
-                  ),
-                  filled: true,
-                  fillColor: Colors.white.withValues(alpha: 0.04),
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 10,
-                  ),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: const BorderSide(color: Colors.white12),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: const BorderSide(color: Colors.white12),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: BorderSide(color: tp.accent, width: 1.5),
-                  ),
-                  suffixIcon: IconButton(
-                    icon: Icon(
-                      widget.obscure
-                          ? Icons.visibility_off_outlined
-                          : Icons.visibility_outlined,
-                      size: 18,
-                      color: Colors.white38,
+            GestureDetector(
+              onTap: () {
+                setState(() => _editing = true);
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  widget.focusNode?.requestFocus();
+                });
+              },
+              child: ExcludeFocus(
+                excluding: !_editing,
+                child: TextField(
+                  controller: widget.controller,
+                  focusNode: widget.focusNode,
+                  obscureText: widget.obscure,
+                  style: const TextStyle(color: Colors.white, fontSize: 13),
+                  decoration: InputDecoration(
+                    hintText: widget.hint,
+                    hintStyle: const TextStyle(
+                      color: Colors.white24,
+                      fontSize: 13,
                     ),
-                    onPressed: widget.onToggleObscure,
+                    filled: true,
+                    fillColor: Colors.white.withValues(alpha: 0.04),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: const BorderSide(color: Colors.white12),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: const BorderSide(color: Colors.white12),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: BorderSide(color: tp.accent, width: 1.5),
+                    ),
+                    suffixIcon: IconButton(
+                      icon: Icon(
+                        widget.obscure
+                            ? Icons.visibility_off_outlined
+                            : Icons.visibility_outlined,
+                        size: 18,
+                        color: Colors.white38,
+                      ),
+                      onPressed: widget.onToggleObscure,
+                    ),
                   ),
+                  onChanged: widget.onChanged,
                 ),
-                onChanged: widget.onChanged,
               ),
             ),
             const SizedBox(height: 4),
