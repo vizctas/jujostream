@@ -2469,6 +2469,17 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
         await _gamePreferencesStore.loadProfile(_hostId, app.appId);
     if (!mounted) return;
     var effectiveConfig = profile.resolve(baseConfig);
+
+    // Resolve "Match display" sentinel (0×0) to actual physical pixels.
+    if (effectiveConfig.isMatchDisplay) {
+      final mq = MediaQuery.of(context);
+      final dpr = mq.devicePixelRatio;
+      effectiveConfig = effectiveConfig.resolveMatchDisplay(
+        (mq.size.width * dpr).round(),
+        (mq.size.height * dpr).round(),
+      );
+    }
+
     var startingOverlayVisible = false;
 
     if (effectiveConfig.smartBitrateEnabled) {

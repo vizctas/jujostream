@@ -207,6 +207,11 @@ class _GameStreamScreenState extends State<GameStreamScreen>
 
   @override
   void dispose() {
+    // Cancel stats subscription FIRST to prevent connectionTerminated events
+    // from firing during teardown (which can cause double-pop crashes).
+    _statsSubscription?.cancel();
+    _statsSubscription = null;
+
     WidgetsBinding.instance.removeObserver(this);
     _settingsProvider.removeListener(_handleSettingsConfigChanged);
     GamepadChannel.onComboDetected = null;
@@ -232,8 +237,6 @@ class _GameStreamScreenState extends State<GameStreamScreen>
     _overlayScrollController.dispose();
     _keyboardFocusNode.dispose();
     _keyboardController.dispose();
-    _statsSubscription?.cancel();
-    _statsSubscription = null;
     _desktopComboHoldTimer?.cancel();
     _desktopComboHoldTimer = null;
     _panZoomCtrl.dispose();
@@ -311,6 +314,15 @@ class _GameStreamScreenState extends State<GameStreamScreen>
 
       await GamepadChannel.setStreamingActive(false);
 
+      // Resolve "Match display" sentinel (0×0) to actual physical pixels.
+      if (_config.isMatchDisplay && mounted) {
+        final mq = MediaQuery.of(context);
+        final dpr = mq.devicePixelRatio;
+        _config = _config.resolveMatchDisplay(
+          (mq.size.width * dpr).round(),
+          (mq.size.height * dpr).round(),
+        );
+      }
       final cfg = _config;
       final address = widget.computer.activeAddress.isNotEmpty
           ? widget.computer.activeAddress
@@ -852,7 +864,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
 
     if (_isReconnecting) return;
 
-    if (_userInitiatedQuit) return;
+    if (_userInitiatedQuit || _streamStopped) return;
 
     if (_ignoreTerminationUntil != null &&
         DateTime.now().isBefore(_ignoreTerminationUntil!)) {
@@ -2376,6 +2388,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
   }
 
   Future<void> _closeSessionAndExit() async {
+    _userInitiatedQuit = true;
     await _stopStreaming(clearActiveSession: false);
     if (mounted) Navigator.pop(context);
   }

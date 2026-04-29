@@ -104,9 +104,18 @@ class StreamConfiguration {
   final bool hostPresetOverrideEnabled;
   final String hostPresetOverrideId;
 
+  /// True when width/height are 0×0 (sentinel for "match display").
+  bool get isMatchDisplay => width == 0 || height == 0;
+
+  /// Returns a copy with 0×0 resolved to the given display dimensions.
+  StreamConfiguration resolveMatchDisplay(int displayWidth, int displayHeight) {
+    if (!isMatchDisplay) return this;
+    return copyWith(width: displayWidth, height: displayHeight);
+  }
+
   const StreamConfiguration({
-    this.width = 1920,
-    this.height = 1080,
+    this.width = 0,
+    this.height = 0,
     this.fps = 60,
     this.bitrate = 20000,
     this.enableHdr = false,
@@ -445,8 +454,8 @@ class StreamConfiguration {
 
   factory StreamConfiguration.fromJson(Map<String, dynamic> json) {
     return StreamConfiguration(
-      width: json['width'] ?? 1920,
-      height: json['height'] ?? 1080,
+      width: json['width'] ?? 0,
+      height: json['height'] ?? 0,
       fps: json['fps'] ?? 60,
       bitrate: json['bitrate'] ?? 20000,
       enableHdr: json['enableHdr'] ?? false,

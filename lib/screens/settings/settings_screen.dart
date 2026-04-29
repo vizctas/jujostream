@@ -2591,6 +2591,7 @@ class _SettingsScreenState extends State<SettingsScreen>
   }
 
   String _resLabel(StreamConfiguration c) {
+    if (c.isMatchDisplay) return 'Match display';
     for (final p in _SettingsScreenState._resolutionPresets) {
       if (p.$2 == c.width && p.$3 == c.height) {
         return '${p.$1} (${c.width}×${c.height})';
@@ -4858,11 +4859,14 @@ class _CustomResolutionTileState extends State<_CustomResolutionTile> {
                 },
                 child: ExcludeFocus(
                   excluding: !_editing,
-                  child: _buildField(
-                    _wCtrl,
-                    _wFocus,
-                    isEs ? 'Ancho' : 'Width',
-                    accent,
+                  child: IgnorePointer(
+                    ignoring: !_editing,
+                    child: _buildField(
+                      _wCtrl,
+                      _wFocus,
+                      isEs ? 'Ancho' : 'Width',
+                      accent,
+                    ),
                   ),
                 ),
               ),
@@ -4888,11 +4892,14 @@ class _CustomResolutionTileState extends State<_CustomResolutionTile> {
                 },
                 child: ExcludeFocus(
                   excluding: !_editing,
-                  child: _buildField(
-                    _hCtrl,
-                    _hFocus,
-                    isEs ? 'Alto' : 'Height',
-                    accent,
+                  child: IgnorePointer(
+                    ignoring: !_editing,
+                    child: _buildField(
+                      _hCtrl,
+                      _hFocus,
+                      isEs ? 'Alto' : 'Height',
+                      accent,
+                    ),
                   ),
                 ),
               ),
