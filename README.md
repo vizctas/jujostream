@@ -113,6 +113,30 @@ Map button combinations of most used shorcuts while streaming. Some client limit
 
  <img src="https://github.com/vizctas/jujostream/blob/feature/r1/assets/ss/cfg_combos.jpg"  alt="combos cfg"/>
 
+ ## Special keys : Quick access
+ 
+ Added a sidebar to store maximum of 5 quick special keys. First register as favorite by invoke the overlay -> special key. Using Triangle/Y you can set favorite 5 special keys. Then with **START + SELECT + RT + LT** you can access the sidebar. 
+
+
+ <img src="https://github.com/vizctas/jujostream/blob/master/assets/ss/favs.png"  alt="special keys sidebar"/>
+
+
+ <img src="https://github.com/vizctas/jujostream/blob/master/assets/ss/side_bar.png"  alt="special keys sidebar 2"/>
+
+
+## Resolution AUTO-MATCH 
+
+By default the resolution will auto-match to your TV/monitor resolution. You can still manually set it in the settings.
+
+ <img src="https://github.com/vizctas/jujostream/blob/master/assets/ss/auto_match.png"  alt="AutoMatch"/>
+
+
+## News/Events/Updates... 
+
+New section was added to display news, events and updates on almost every theme. Free api keys are used, but to really enjoy it; set your STEAM API key in the settings/labs/plugin. The APP will get all your apps APPID and make a LAZY SEARCH on steam, to bring you the lastest news/events/updates of your games! 
+
+ <img src="https://github.com/vizctas/jujostream/blob/master/assets/ss/news_updates_events_deals.png"  alt="news_updates_events_deals"/>
+
 ### Everything Else
 
 - Full gamepad navigation across every screen  built from the ground up for TV and mobile
