@@ -84,7 +84,7 @@ class StreamConfiguration {
   final List<int> favoriteSpecialKeys;
 
   /// Gamepad button bitmask that opens the Quick Keys overlay.
-  /// Default: START (0x0010) + RB (0x0200) = 0x0210.
+  /// Default: LB (0x0100) + RB (0x0200) + START (0x0010) = 0x0310.
   final int quickKeysCombo;
 
   /// Hold duration in ms before the Quick Keys combo fires (0 = instant).
@@ -176,8 +176,8 @@ class StreamConfiguration {
     this.overlayTriggerCombo = 0x00C0,
     this.overlayTriggerHoldMs = 2000,
     this.favoriteSpecialKeys = const <int>[],
-    this.quickKeysCombo = 0x0210,
-    this.quickKeysHoldMs = 0,
+    this.quickKeysCombo = 0x0310,
+    this.quickKeysHoldMs = 1500,
     this.desktopOverlayKeys = const ['Shift', '-'],
     this.desktopOverlayHoldMs = 0,
     this.panicCombo = 0,
@@ -544,8 +544,8 @@ class StreamConfiguration {
               ?.map((e) => (e as num).toInt())
               .toList() ??
           const <int>[],
-      quickKeysCombo: json['quickKeysCombo'] ?? 0x0210,
-      quickKeysHoldMs: json['quickKeysHoldMs'] ?? 0,
+      quickKeysCombo: json['quickKeysCombo'] ?? 0x0310,
+      quickKeysHoldMs: json['quickKeysHoldMs'] ?? 1500,
       desktopOverlayKeys: (json['desktopOverlayKeys'] as List<dynamic>?)
               ?.map((e) => e.toString())
               .toList() ??

@@ -192,7 +192,7 @@ class QuickKeysOverlayState extends State<QuickKeysOverlay>
   }
 }
 
-class _QuickKeyPill extends StatelessWidget {
+class _QuickKeyPill extends StatefulWidget {
   final String label;
   final String subtitle;
   final bool focused;
@@ -208,10 +208,45 @@ class _QuickKeyPill extends StatelessWidget {
   });
 
   @override
+  State<_QuickKeyPill> createState() => _QuickKeyPillState();
+}
+
+class _QuickKeyPillState extends State<_QuickKeyPill>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _shakeCtrl = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 220),
+  );
+  late final Animation<double> _shakeOffset = TweenSequence<double>([
+    TweenSequenceItem(tween: Tween(begin: 0, end: 4), weight: 1),
+    TweenSequenceItem(tween: Tween(begin: 4, end: -4), weight: 2),
+    TweenSequenceItem(tween: Tween(begin: -4, end: 2), weight: 2),
+    TweenSequenceItem(tween: Tween(begin: 2, end: -1), weight: 2),
+    TweenSequenceItem(tween: Tween(begin: -1, end: 0), weight: 1),
+  ]).animate(CurvedAnimation(parent: _shakeCtrl, curve: Curves.easeOut));
+
+  @override
+  void dispose() {
+    _shakeCtrl.dispose();
+    super.dispose();
+  }
+
+  void _handleTap() {
+    _shakeCtrl.forward(from: 0);
+    widget.onTap();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTap: onTap,
-      child: ClipRRect(
+      onTap: _handleTap,
+      child: AnimatedBuilder(
+        animation: _shakeOffset,
+        builder: (context, child) => Transform.translate(
+          offset: Offset(_shakeOffset.value, 0),
+          child: child,
+        ),
+        child: ClipRRect(
         borderRadius: BorderRadius.circular(14),
         child: BackdropFilter(
           filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
@@ -219,21 +254,21 @@ class _QuickKeyPill extends StatelessWidget {
             duration: const Duration(milliseconds: 120),
             padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
             decoration: BoxDecoration(
-              color: focused
+              color: widget.focused
                   ? Colors.white.withValues(alpha: 0.18)
                   : Colors.white.withValues(alpha: 0.08),
               borderRadius: BorderRadius.circular(14),
               border: Border.all(
-                color: focused
+                color: widget.focused
                     ? Colors.white.withValues(alpha: 0.45)
                     : Colors.white.withValues(alpha: 0.12),
-                width: focused ? 1.5 : 1,
+                width: widget.focused ? 1.5 : 1,
               ),
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                if (isDefault) ...[
+                if (widget.isDefault) ...[
                   Icon(
                     Icons.window_rounded,
                     size: 14,
@@ -242,18 +277,18 @@ class _QuickKeyPill extends StatelessWidget {
                   const SizedBox(width: 8),
                 ],
                 Text(
-                  label,
+                  widget.label,
                   style: TextStyle(
-                    color: focused ? Colors.white : Colors.white70,
+                    color: widget.focused ? Colors.white : Colors.white70,
                     fontSize: 13,
-                    fontWeight: focused ? FontWeight.w700 : FontWeight.w500,
+                    fontWeight: widget.focused ? FontWeight.w700 : FontWeight.w500,
                   ),
                 ),
                 const SizedBox(width: 8),
                 Text(
-                  subtitle,
+                  widget.subtitle,
                   style: TextStyle(
-                    color: focused
+                    color: widget.focused
                         ? Colors.white.withValues(alpha: 0.50)
                         : Colors.white.withValues(alpha: 0.30),
                     fontSize: 10,
@@ -264,6 +299,7 @@ class _QuickKeyPill extends StatelessWidget {
             ),
           ),
         ),
+      ),
       ),
     );
   }

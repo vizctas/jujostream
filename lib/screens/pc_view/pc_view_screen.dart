@@ -1451,11 +1451,44 @@ class _GridFocusableCard extends StatefulWidget {
   State<_GridFocusableCard> createState() => _GridFocusableCardState();
 }
 
-class _GridFocusableCardState extends State<_GridFocusableCard> {
+class _GridFocusableCardState extends State<_GridFocusableCard>
+    with SingleTickerProviderStateMixin {
   bool _hasFocus = false;
+
+  late final AnimationController _shakeCtrl = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 220),
+  );
+  late final Animation<double> _shakeOffset = TweenSequence<double>([
+    TweenSequenceItem(tween: Tween(begin: 0, end: 4), weight: 1),
+    TweenSequenceItem(tween: Tween(begin: 4, end: -4), weight: 2),
+    TweenSequenceItem(tween: Tween(begin: -4, end: 2), weight: 2),
+    TweenSequenceItem(tween: Tween(begin: 2, end: -1), weight: 2),
+    TweenSequenceItem(tween: Tween(begin: -1, end: 0), weight: 1),
+  ]).animate(CurvedAnimation(parent: _shakeCtrl, curve: Curves.easeOut));
+
+  @override
+  void dispose() {
+    _shakeCtrl.dispose();
+    super.dispose();
+  }
+
+  void _handleSelect() {
+    if (widget.onSelect == null) return;
+    HapticFeedback.lightImpact();
+    _shakeCtrl.forward(from: 0);
+    // Fire callback after shake peaks so the user sees the feedback.
+    Future.delayed(const Duration(milliseconds: 100), () {
+      widget.onSelect?.call();
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
+    final tp = context.watch<ThemeProvider>();
+    final accent = tp.accent;
+    final active = _hasFocus || widget.isSelected;
+
     return Focus(
       focusNode: widget.focusNode,
       onFocusChange: (f) => setState(() => _hasFocus = f),
@@ -1466,7 +1499,7 @@ class _GridFocusableCardState extends State<_GridFocusableCard> {
         if (key == LogicalKeyboardKey.enter ||
             key == LogicalKeyboardKey.select ||
             key == LogicalKeyboardKey.gameButtonA) {
-          widget.onSelect?.call();
+          _handleSelect();
           return KeyEventResult.handled;
         }
 
@@ -1498,22 +1531,46 @@ class _GridFocusableCardState extends State<_GridFocusableCard> {
         return KeyEventResult.ignored;
       },
       child: GestureDetector(
-        onTap: widget.onSelect,
+        onTap: _handleSelect,
         onLongPress: widget.onLongPress,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 150),
-          decoration: BoxDecoration(borderRadius: BorderRadius.circular(12)),
-          foregroundDecoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-            color: (_hasFocus || widget.isSelected)
-                ? Colors.white.withValues(alpha: 0.06)
-                : Colors.transparent,
+        child: AnimatedBuilder(
+          animation: _shakeOffset,
+          builder: (context, child) => Transform.translate(
+            offset: Offset(_shakeOffset.value, 0),
+            child: child,
           ),
-          transform: (_hasFocus || widget.isSelected)
-              ? (Matrix4.identity()..scale(1.01))
-              : Matrix4.identity(),
-          transformAlignment: Alignment.center,
-          child: widget.child,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              border: active
+                  ? Border.all(
+                      color: accent.withValues(alpha: 0.55),
+                      width: 2,
+                    )
+                  : Border.all(color: Colors.transparent, width: 2),
+              boxShadow: active
+                  ? [
+                      BoxShadow(
+                        color: accent.withValues(alpha: 0.30),
+                        blurRadius: 18,
+                        spreadRadius: 2,
+                      ),
+                    ]
+                  : [],
+            ),
+            foregroundDecoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              color: active
+                  ? Colors.white.withValues(alpha: 0.04)
+                  : Colors.transparent,
+            ),
+            transform: active
+                ? (Matrix4.identity()..scale(1.02))
+                : Matrix4.identity(),
+            transformAlignment: Alignment.center,
+            child: widget.child,
+          ),
         ),
       ),
     );

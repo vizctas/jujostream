@@ -55,6 +55,15 @@ class _SettingsScreenState extends State<SettingsScreen>
   void _cycleTab(int delta) {
     final next = (_tabController.index + delta) % _kTabCount;
     _tabController.animateTo(next);
+    // After the tab switches, scroll to top and move focus into the new
+    // tab's first focusable child so the gamepad D-pad works immediately.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _scrollToTop(context);
+      // Push focus into the new tab's traversal group.
+      final scope = FocusScope.of(context);
+      scope.nextFocus();
+    });
   }
 
   void _scrollToTop(BuildContext context) {
@@ -4818,23 +4827,11 @@ class _CustomResolutionTileState extends State<_CustomResolutionTile> {
                   ],
                 ),
               ),
-              GestureDetector(
-                onTap: () {
-                  setState(() => _editing = true);
-                  _wFocus.requestFocus();
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                    SystemChannels.textInput.invokeMethod('TextInput.show');
-                  });
-                },
-                child: ExcludeFocus(
-                  excluding: !_editing,
-                  child: _buildField(
-                    _wCtrl,
-                    _wFocus,
-                    isEs ? 'Ancho' : 'Width',
-                    accent,
-                  ),
-                ),
+              _buildField(
+                _wCtrl,
+                _wFocus,
+                isEs ? 'Ancho' : 'Width',
+                accent,
               ),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 6),
@@ -4847,23 +4844,11 @@ class _CustomResolutionTileState extends State<_CustomResolutionTile> {
                   ),
                 ),
               ),
-              GestureDetector(
-                onTap: () {
-                  setState(() => _editing = true);
-                  _hFocus.requestFocus();
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                    SystemChannels.textInput.invokeMethod('TextInput.show');
-                  });
-                },
-                child: ExcludeFocus(
-                  excluding: !_editing,
-                  child: _buildField(
-                    _hCtrl,
-                    _hFocus,
-                    isEs ? 'Alto' : 'Height',
-                    accent,
-                  ),
-                ),
+              _buildField(
+                _hCtrl,
+                _hFocus,
+                isEs ? 'Alto' : 'Height',
+                accent,
               ),
             ],
           ),
@@ -4922,6 +4907,12 @@ class _CustomResolutionTileState extends State<_CustomResolutionTile> {
             ),
             isDense: true,
           ),
+          onTap: () {
+            setState(() => _editing = true);
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              SystemChannels.textInput.invokeMethod('TextInput.show');
+            });
+          },
           onChanged: (_) {
             setState(() {});
             _tryApply();

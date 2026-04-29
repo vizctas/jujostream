@@ -2626,6 +2626,11 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
     if (mounted) {
       _isLaunching = false;
       _startAutoRefreshTimer();
+      // Restore focus so the gamepad can navigate the launcher immediately
+      // after returning from the stream screen.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _screenFocusNode.requestFocus();
+      });
       // Give Sunshine 2 seconds to cleanly close the RTSP session ports
       // before polling the HTTP API to prevent 'Connection refused' errors.
       await Future.delayed(const Duration(milliseconds: 2000));

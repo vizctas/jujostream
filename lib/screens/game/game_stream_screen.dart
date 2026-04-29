@@ -873,6 +873,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
     }
 
     if (errorCode == 0) {
+      await _stopStreaming();
       await _showSessionMetricsIfNeeded();
       if (mounted) Navigator.of(context).pop();
       return;

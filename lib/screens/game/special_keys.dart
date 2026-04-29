@@ -130,6 +130,7 @@ Widget buildSpecialKeysPanel({
   required String specialKeysLabel,
   List<int> favoriteIndices = const <int>[],
   ValueChanged<int>? onToggleFavorite,
+  ValueNotifier<int>? shakeNotifier,
 }) {
   Widget sectionHeader(String title) {
     return Padding(
