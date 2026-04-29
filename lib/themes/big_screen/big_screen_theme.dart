@@ -111,17 +111,25 @@ class _BigScreenBody extends StatefulWidget {
 
 class _BigScreenBodyState extends State<_BigScreenBody> {
   static const double _footerHeight = 46;
-  static const double _selectedCardWidth = 560;
   static const double _cardHeight = 266;
-  static const double _posterCardWidth = 176;
   static const double _cardGap = 18;
-  static const double _newsCardWidth = 390;
+  static const double _headerHeight = 72;
+
+  double _screenWidth = 1920;
+  double get _selectedCardWidth => (_screenWidth * 0.292).clamp(360.0, 600.0);
+  double get _posterCardWidth => (_screenWidth * 0.092).clamp(130.0, 190.0);
+  double get _newsCardWidth => (_screenWidth * 0.203).clamp(300.0, 420.0);
 
   late int _idx;
   final FocusNode _focusNode = FocusNode(debugLabel: 'big-screen-theme');
   final ScrollController _gameScrollController = ScrollController();
-  final ScrollController _pageScrollController = ScrollController();
+  final ScrollController _pageScrollController = ScrollController(
+    initialScrollOffset: _headerHeight,
+  );
   final ScrollController _newsScrollController = ScrollController();
+  final GlobalKey _carouselRowKey = GlobalKey();
+  final GlobalKey _newsTabsKey = GlobalKey();
+  final GlobalKey _newsCardsKey = GlobalKey();
   final SteamVideoClient _steamClient = const SteamVideoClient();
   final Map<int, String> _posterOverrides = <int, String>{};
   final Set<int> _posterLookups = <int>{};
@@ -155,6 +163,7 @@ class _BigScreenBodyState extends State<_BigScreenBody> {
       if (!mounted) return;
       _focusNode.requestFocus();
       _scrollGamesToSelection(animate: false);
+      _schedulePageScroll(_BigScreenArea.carousel);
     });
     _loadNews();
     _recoverMissingPosterArtwork();
@@ -180,11 +189,10 @@ class _BigScreenBodyState extends State<_BigScreenBody> {
 
   void _scrollGamesToSelection({bool animate = true}) {
     if (!_gameScrollController.hasClients || widget.apps.isEmpty) return;
-    final selectedOffset = _idx * (_posterCardWidth + _cardGap);
-    final target = selectedOffset.clamp(
-      0.0,
-      _gameScrollController.position.maxScrollExtent,
-    );
+    final pos = _gameScrollController.position;
+    final itemLeft = _idx * (_posterCardWidth + _cardGap);
+    final target = (itemLeft - (pos.viewportDimension - _selectedCardWidth) / 2)
+        .clamp(0.0, pos.maxScrollExtent);
     if (animate) {
       _gameScrollController.animateTo(
         target,
@@ -335,8 +343,13 @@ class _BigScreenBodyState extends State<_BigScreenBody> {
     HapticFeedback.lightImpact();
     setState(() => _newsIndex = next);
     if (_newsScrollController.hasClients) {
+      final pos = _newsScrollController.position;
+      final target =
+          (next * (_newsCardWidth + 16.0) -
+                  (pos.viewportDimension - _newsCardWidth) / 2)
+              .clamp(0.0, pos.maxScrollExtent);
       _newsScrollController.animateTo(
-        next * (_newsCardWidth + 16),
+        target,
         duration: const Duration(milliseconds: 180),
         curve: Curves.easeOutCubic,
       );
@@ -364,15 +377,16 @@ class _BigScreenBodyState extends State<_BigScreenBody> {
 
   void _schedulePageScroll(_BigScreenArea area) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || !_pageScrollController.hasClients) return;
-      final maxScroll = _pageScrollController.position.maxScrollExtent;
-      final target = switch (area) {
-        _BigScreenArea.carousel => 0.0,
-        _BigScreenArea.tabs => maxScroll < 1 ? 0.0 : maxScroll * 0.55,
-        _BigScreenArea.news => maxScroll,
+      if (!mounted) return;
+      final ctx = switch (area) {
+        _BigScreenArea.carousel => _carouselRowKey.currentContext,
+        _BigScreenArea.tabs => _newsTabsKey.currentContext,
+        _BigScreenArea.news => _newsCardsKey.currentContext,
       };
-      _pageScrollController.animateTo(
-        target.clamp(0.0, maxScroll),
+      if (ctx == null) return;
+      Scrollable.ensureVisible(
+        ctx,
+        alignment: 0.5,
         duration: const Duration(milliseconds: 240),
         curve: Curves.easeOutCubic,
       );
@@ -473,6 +487,7 @@ class _BigScreenBodyState extends State<_BigScreenBody> {
 
   @override
   Widget build(BuildContext context) {
+    _screenWidth = MediaQuery.of(context).size.width;
     final selected = _selected;
     final selectedPoster = selected == null ? null : _posterUrlForApp(selected);
     return Focus(
@@ -585,6 +600,7 @@ class _BigScreenBodyState extends State<_BigScreenBody> {
           ),
           const SizedBox(height: 22),
           SizedBox(
+            key: _carouselRowKey,
             height: _cardHeight,
             child: ListView.separated(
               controller: _gameScrollController,
@@ -701,7 +717,7 @@ class _BigScreenBodyState extends State<_BigScreenBody> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: _selectedCardWidth),
+            constraints: BoxConstraints(maxWidth: _selectedCardWidth),
             child: Text(
               app.appName,
               maxLines: 1,
@@ -756,6 +772,7 @@ class _BigScreenBodyState extends State<_BigScreenBody> {
 
   Widget _buildNewsTabs() {
     return SizedBox(
+      key: _newsTabsKey,
       height: 70,
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -806,6 +823,7 @@ class _BigScreenBodyState extends State<_BigScreenBody> {
 
   Widget _buildNewsCards(List<GamingNewsItem> items) {
     return SizedBox(
+      key: _newsCardsKey,
       height: 320,
       child: ListView.separated(
         controller: _newsScrollController,
@@ -959,6 +977,7 @@ class _BigScreenBodyState extends State<_BigScreenBody> {
 
   Widget _buildNewsSkeletons() {
     return SizedBox(
+      key: _newsCardsKey,
       height: 320,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,

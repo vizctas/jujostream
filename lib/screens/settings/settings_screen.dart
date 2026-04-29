@@ -306,6 +306,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                             _artQualityLabel(context, themeProvider.artQuality),
                             () => _pickArtQuality(context, themeProvider),
                           ),
+                          _buildKofiSection(context),
                         ],
                       ),
                     ),
@@ -331,8 +332,10 @@ class _SettingsScreenState extends State<SettingsScreen>
                               return _CustomResolutionTile(
                                 currentWidth: c.width,
                                 currentHeight: c.height,
-                                matchDisplayWidth: (mq.size.width * dpr).round(),
-                                matchDisplayHeight: (mq.size.height * dpr).round(),
+                                matchDisplayWidth: (mq.size.width * dpr)
+                                    .round(),
+                                matchDisplayHeight: (mq.size.height * dpr)
+                                    .round(),
                                 onApply: (w, h) => settings.setResolution(w, h),
                               );
                             },
@@ -523,6 +526,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                               c.copyWith(enableAudioFx: v),
                             ),
                           ),
+                          _buildKofiSection(context),
                         ],
                       ),
                     ),
@@ -1066,6 +1070,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                               c.copyWith(enableRumble: v),
                             ),
                           ),
+                          _buildKofiSection(context),
                         ],
                       ),
                     ),
@@ -1095,6 +1100,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                               FullscreenService.setFullscreen(v);
                             },
                           ),
+                          _buildKofiSection(context),
                         ],
                       ),
                     ),
@@ -1394,112 +1400,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                             ),
                           ),
 
-                          const SizedBox(height: 48),
-                          Center(
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text(
-                                  _tr(
-                                    context,
-                                    'Keep Jujo alive',
-                                    'Mantén a JUJO con vida',
-                                  ),
-                                  style: const TextStyle(
-                                    color: Colors.white54,
-                                    fontWeight: FontWeight.w600,
-                                    fontSize: 13,
-                                    letterSpacing: 0.5,
-                                  ),
-                                ),
-                                const SizedBox(height: 12),
-                                Focus(
-                                  autofocus: false,
-                                  onKeyEvent: (_, ev) {
-                                    if (ev is! KeyDownEvent) {
-                                      return KeyEventResult.ignored;
-                                    }
-                                    if (ev.logicalKey ==
-                                            LogicalKeyboardKey.enter ||
-                                        ev.logicalKey ==
-                                            LogicalKeyboardKey.select ||
-                                        ev.logicalKey ==
-                                            LogicalKeyboardKey.gameButtonA) {
-                                      launchUrl(
-                                        Uri.parse('https://ko-fi.com/jujodev'),
-                                      );
-                                      return KeyEventResult.handled;
-                                    }
-                                    return KeyEventResult.ignored;
-                                  },
-                                  child: Builder(
-                                    builder: (ctx) {
-                                      final focused = Focus.of(ctx).hasFocus;
-                                      return GestureDetector(
-                                        onTap: () => launchUrl(
-                                          Uri.parse(
-                                            'https://ko-fi.com/jujodev',
-                                          ),
-                                        ),
-                                        child: AnimatedContainer(
-                                          duration: const Duration(
-                                            milliseconds: 150,
-                                          ),
-                                          decoration: BoxDecoration(
-                                            borderRadius: BorderRadius.circular(
-                                              8,
-                                            ),
-                                            boxShadow: focused
-                                                ? [
-                                                    BoxShadow(
-                                                      color: const Color(
-                                                        0xFF29abe0,
-                                                      ).withValues(alpha: 0.6),
-                                                      blurRadius: 16,
-                                                      spreadRadius: 4,
-                                                    ),
-                                                  ]
-                                                : [],
-                                            border: focused
-                                                ? Border.all(
-                                                    color: Colors.white,
-                                                    width: 2,
-                                                  )
-                                                : null,
-                                          ),
-                                          child: ClipRRect(
-                                            borderRadius: BorderRadius.circular(
-                                              8,
-                                            ),
-                                            child: Image.network(
-                                              'https://storage.ko-fi.com/cdn/kofi2.png?v=3',
-                                              height: 40,
-                                              errorBuilder: (_, _, _) => Container(
-                                                padding:
-                                                    const EdgeInsets.symmetric(
-                                                      horizontal: 16,
-                                                      vertical: 10,
-                                                    ),
-                                                color: const Color(0xFF29abe0),
-                                                child: const Text(
-                                                  'Support me on Ko-fi',
-                                                  style: TextStyle(
-                                                    color: Colors.white,
-                                                    fontWeight: FontWeight.bold,
-                                                  ),
-                                                ),
-                                              ),
-                                            ),
-                                          ),
-                                        ),
-                                      );
-                                    },
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: 32),
+                          _buildKofiSection(context),
                         ],
                       ),
                     ),
@@ -1508,6 +1409,92 @@ class _SettingsScreenState extends State<SettingsScreen>
               );
             },
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildKofiSection(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 48, bottom: 32),
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              _tr(context, 'Keep Jujo alive', 'Mantén a JUJO con vida'),
+              style: const TextStyle(
+                color: Colors.white54,
+                fontWeight: FontWeight.w600,
+                fontSize: 13,
+                letterSpacing: 0.5,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Focus(
+              autofocus: false,
+              onKeyEvent: (_, ev) {
+                if (ev is! KeyDownEvent) return KeyEventResult.ignored;
+                if (ev.logicalKey == LogicalKeyboardKey.enter ||
+                    ev.logicalKey == LogicalKeyboardKey.select ||
+                    ev.logicalKey == LogicalKeyboardKey.gameButtonA) {
+                  launchUrl(Uri.parse('https://ko-fi.com/jujodev'));
+                  return KeyEventResult.handled;
+                }
+                return KeyEventResult.ignored;
+              },
+              child: Builder(
+                builder: (ctx) {
+                  final focused = Focus.of(ctx).hasFocus;
+                  return GestureDetector(
+                    onTap: () =>
+                        launchUrl(Uri.parse('https://ko-fi.com/jujodev')),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 150),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(8),
+                        boxShadow: focused
+                            ? [
+                                BoxShadow(
+                                  color: const Color(
+                                    0xFF29abe0,
+                                  ).withValues(alpha: 0.6),
+                                  blurRadius: 16,
+                                  spreadRadius: 4,
+                                ),
+                              ]
+                            : [],
+                        border: focused
+                            ? Border.all(color: Colors.white, width: 2)
+                            : null,
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: Image.network(
+                          'https://storage.ko-fi.com/cdn/kofi2.png?v=3',
+                          height: 40,
+                          errorBuilder: (_, _, _) => Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 10,
+                            ),
+                            color: const Color(0xFF29abe0),
+                            child: const Text(
+                              'Support me on Ko-fi',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
         ),
       ),
     );
