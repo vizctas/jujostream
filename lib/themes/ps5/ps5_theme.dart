@@ -8,6 +8,7 @@ import '../../models/nv_app.dart';
 import '../../providers/theme_provider.dart';
 import '../../services/audio/ui_sound_service.dart';
 import '../../services/input/gamepad_button_helper.dart';
+import '../../widgets/news_carousel/news_carousel_widget.dart';
 import '../../widgets/poster_image.dart';
 import '../../widgets/trailer_modal.dart';
 import '../../services/metadata/steam_video_client.dart';
@@ -85,7 +86,7 @@ class Ps5Theme extends LauncherTheme {
   }
 }
 
-enum _Ps5Area { icons, buttons }
+enum _Ps5Area { icons, buttons, news }
 
 class _Ps5Body extends StatefulWidget {
   final List<NvApp> apps;
@@ -134,10 +135,12 @@ class _Ps5BodyState extends State<_Ps5Body> {
   int _idx = 0;
   late ScrollController _iconSc;
   final FocusNode _fn = FocusNode(debugLabel: 'ps5');
+  final GlobalKey<NewsCarouselWidgetState> _newsKey = GlobalKey();
   _Ps5Area _area = _Ps5Area.icons;
   Timer? _bgDebounce;
   int? _bgAppId;
   int _btnIdx = 0;
+  int _newsRotation = 0;
   static const int _btnCount = 2;
 
   static const double _iconSize = 80;
@@ -283,6 +286,19 @@ class _Ps5BodyState extends State<_Ps5Body> {
     }
     final k = e.logicalKey;
 
+    if (_area == _Ps5Area.news) {
+      final consumed = _newsKey.currentState?.handleKeyEvent(k) ?? false;
+      if (consumed) return KeyEventResult.handled;
+      if (k == LogicalKeyboardKey.gameButtonB ||
+          k == LogicalKeyboardKey.escape ||
+          k == LogicalKeyboardKey.goBack) {
+        _tap();
+        setState(() => _area = _Ps5Area.icons);
+        return KeyEventResult.handled;
+      }
+      return KeyEventResult.ignored;
+    }
+
     if (_area == _Ps5Area.icons) {
       if (k == LogicalKeyboardKey.arrowRight) {
         _move(1);
@@ -290,6 +306,13 @@ class _Ps5BodyState extends State<_Ps5Body> {
       }
       if (k == LogicalKeyboardKey.arrowLeft) {
         _move(-1);
+        return KeyEventResult.handled;
+      }
+      if (k == LogicalKeyboardKey.arrowUp) {
+        _tap();
+        _newsRotation++;
+        _newsKey.currentState?.resetFocus();
+        setState(() => _area = _Ps5Area.news);
         return KeyEventResult.handled;
       }
       if (k == LogicalKeyboardKey.arrowDown) {
@@ -450,17 +473,27 @@ class _Ps5BodyState extends State<_Ps5Body> {
         },
         onVerticalDragEnd: (d) {
           final v = d.primaryVelocity ?? 0;
-          if (v > 300 && _area == _Ps5Area.icons) {
-            _tap();
-            setState(() {
-              _area = _Ps5Area.buttons;
-              _btnIdx = 0;
-            });
-          } else if (v < -300 && _area == _Ps5Area.buttons) {
-            _tap();
-            setState(() => _area = _Ps5Area.icons);
-          } else if (v < -300 && _area == _Ps5Area.icons) {
-            Navigator.maybePop(context);
+          if (v > 300) {
+            if (_area == _Ps5Area.news) {
+              _tap();
+              setState(() => _area = _Ps5Area.icons);
+            } else if (_area == _Ps5Area.icons) {
+              _tap();
+              setState(() {
+                _area = _Ps5Area.buttons;
+                _btnIdx = 0;
+              });
+            }
+          } else if (v < -300) {
+            if (_area == _Ps5Area.buttons) {
+              _tap();
+              setState(() => _area = _Ps5Area.icons);
+            } else if (_area == _Ps5Area.icons) {
+              _tap();
+              _newsRotation++;
+              _newsKey.currentState?.resetFocus();
+              setState(() => _area = _Ps5Area.news);
+            }
           }
         },
         child: Stack(
@@ -523,19 +556,39 @@ class _Ps5BodyState extends State<_Ps5Body> {
               ),
             ),
 
-            Column(
-              children: [
-                _buildStatusBar(tp, l),
-                if (widget.apps.isEmpty)
-                  _buildEmpty(tp, l)
-                else ...[
-                  _buildIconStrip(tp, s),
+            if (_area == _Ps5Area.news)
+              Column(
+                key: const ValueKey('ps5_news'),
+                children: [
                   const Spacer(),
-                  if (s != null) _buildBottomPanel(tp, s, l),
-                  _buildHints(tp, s, l),
+                  NewsCarouselWidget(
+                    key: _newsKey,
+                    allApps: widget.allApps,
+                    apps: widget.apps,
+                    visible: _area == _Ps5Area.news,
+                    hasFocus: _area == _Ps5Area.news,
+                    rotationSeed: _newsRotation,
+                    onDismiss: () {
+                      _tap();
+                      setState(() => _area = _Ps5Area.icons);
+                    },
+                  ),
                 ],
-              ],
-            ),
+              )
+            else
+              Column(
+                children: [
+                  _buildStatusBar(tp, l),
+                  if (widget.apps.isEmpty)
+                    _buildEmpty(tp, l)
+                  else ...[
+                    _buildIconStrip(tp, s),
+                    const Spacer(),
+                    if (s != null) _buildBottomPanel(tp, s, l),
+                    _buildHints(tp, s, l),
+                  ],
+                ],
+              ),
           ],
         ),
       ),

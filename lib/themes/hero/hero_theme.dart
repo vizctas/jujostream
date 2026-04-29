@@ -8,6 +8,7 @@ import '../../models/nv_app.dart';
 import '../../providers/theme_provider.dart';
 import '../../services/audio/ui_sound_service.dart';
 import '../../services/input/gamepad_button_helper.dart';
+import '../../widgets/news_carousel/news_carousel_widget.dart';
 import '../../widgets/poster_image.dart';
 import '../../widgets/trailer_modal.dart';
 import '../../services/metadata/steam_video_client.dart';
@@ -86,7 +87,7 @@ class HeroTheme extends LauncherTheme {
   }
 }
 
-enum _HeroView { home, detail }
+enum _HeroView { home, detail, news }
 
 class _HeroBody extends StatefulWidget {
   final List<NvApp> apps;
@@ -136,10 +137,12 @@ class _HeroBodyState extends State<_HeroBody>
   late int _idx;
   late ScrollController _iconSc;
   final FocusNode _fn = FocusNode(debugLabel: 'hero');
+  final GlobalKey<NewsCarouselWidgetState> _newsKey = GlobalKey();
   _HeroView _view = _HeroView.home;
   Timer? _bgDebounce;
   int? _bgAppId;
   int _detailBtnIdx = 0;
+  int _newsRotation = 0;
   static const int _detailBtnCount = 4;
 
   static const double _iconSize = 64;
@@ -260,6 +263,19 @@ class _HeroBodyState extends State<_HeroBody>
     }
     final k = e.logicalKey;
 
+    if (_view == _HeroView.news) {
+      final consumed = _newsKey.currentState?.handleKeyEvent(k) ?? false;
+      if (consumed) return KeyEventResult.handled;
+      if (k == LogicalKeyboardKey.gameButtonB ||
+          k == LogicalKeyboardKey.escape ||
+          k == LogicalKeyboardKey.goBack) {
+        _action();
+        setState(() => _view = _HeroView.home);
+        return KeyEventResult.handled;
+      }
+      return KeyEventResult.ignored;
+    }
+
     if (_view == _HeroView.home) {
       if (k == LogicalKeyboardKey.arrowRight) {
         _move(1);
@@ -267,6 +283,13 @@ class _HeroBodyState extends State<_HeroBody>
       }
       if (k == LogicalKeyboardKey.arrowLeft) {
         _move(-1);
+        return KeyEventResult.handled;
+      }
+      if (k == LogicalKeyboardKey.arrowUp) {
+        _action();
+        _newsRotation++;
+        _newsKey.currentState?.resetFocus();
+        setState(() => _view = _HeroView.news);
         return KeyEventResult.handled;
       }
       if (k == LogicalKeyboardKey.arrowDown) {
@@ -440,19 +463,29 @@ class _HeroBodyState extends State<_HeroBody>
         },
         onVerticalDragEnd: (d) {
           final v = d.primaryVelocity ?? 0;
-          if (v > 300 && _view == _HeroView.home) {
-            _action();
-            setState(() {
-              _view = _HeroView.detail;
-              _detailBtnIdx = 0;
-            });
-            widget.onDetailViewChanged?.call(true);
-          } else if (v < -300 && _view == _HeroView.detail) {
-            _action();
-            setState(() => _view = _HeroView.home);
-            widget.onDetailViewChanged?.call(false);
-          } else if (v < -300 && _view == _HeroView.home) {
-            Navigator.maybePop(context);
+          if (v > 300) {
+            if (_view == _HeroView.news) {
+              _action();
+              setState(() => _view = _HeroView.home);
+            } else if (_view == _HeroView.home) {
+              _action();
+              setState(() {
+                _view = _HeroView.detail;
+                _detailBtnIdx = 0;
+              });
+              widget.onDetailViewChanged?.call(true);
+            }
+          } else if (v < -300) {
+            if (_view == _HeroView.detail) {
+              _action();
+              setState(() => _view = _HeroView.home);
+              widget.onDetailViewChanged?.call(false);
+            } else if (_view == _HeroView.home) {
+              _action();
+              _newsRotation++;
+              _newsKey.currentState?.resetFocus();
+              setState(() => _view = _HeroView.news);
+            }
           }
         },
         child: Stack(
@@ -496,9 +529,11 @@ class _HeroBodyState extends State<_HeroBody>
 
             AnimatedSwitcher(
               duration: const Duration(milliseconds: 300),
-              child: _view == _HeroView.home
-                  ? _buildHome(tp, s, l)
-                  : _buildDetail(tp, s, l),
+              child: _view == _HeroView.news
+                  ? _buildNews()
+                  : _view == _HeroView.home
+                      ? _buildHome(tp, s, l)
+                      : _buildDetail(tp, s, l),
             ),
           ],
         ),
@@ -876,6 +911,27 @@ class _HeroBodyState extends State<_HeroBody>
             ),
           ),
         ],
+      ],
+    );
+  }
+
+  Widget _buildNews() {
+    return Column(
+      key: const ValueKey('hero_news'),
+      children: [
+        const Spacer(),
+        NewsCarouselWidget(
+          key: _newsKey,
+          allApps: widget.allApps,
+          apps: widget.apps,
+          visible: _view == _HeroView.news,
+          hasFocus: _view == _HeroView.news,
+          rotationSeed: _newsRotation,
+          onDismiss: () {
+            _action();
+            setState(() => _view = _HeroView.home);
+          },
+        ),
       ],
     );
   }
