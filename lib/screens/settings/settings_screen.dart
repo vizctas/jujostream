@@ -39,22 +39,49 @@ class _SettingsScreenState extends State<SettingsScreen>
     with SingleTickerProviderStateMixin {
   static const int _kTabCount = 5;
   late final TabController _tabController;
+  final List<FocusScopeNode> _tabScopes = List.generate(
+    _kTabCount,
+    (i) => FocusScopeNode(debugLabel: 'settings-tab-$i'),
+  );
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: _kTabCount, vsync: this);
+    _tabController.addListener(_onTabChanged);
   }
 
   @override
   void dispose() {
+    _tabController.removeListener(_onTabChanged);
     _tabController.dispose();
+    for (final s in _tabScopes) {
+      s.dispose();
+    }
     super.dispose();
   }
 
   void _cycleTab(int delta) {
-    final next = (_tabController.index + delta) % _kTabCount;
+    if (_tabController.indexIsChanging) return;
+    final next = (_tabController.index + delta + _kTabCount) % _kTabCount;
     _tabController.animateTo(next);
+  }
+
+  void _onTabChanged() {
+    if (_tabController.indexIsChanging) return;
+    final scope = _tabScopes[_tabController.index];
+    scope.focusedChild?.unfocus(disposition: UnfocusDisposition.scope);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final first = scope.traversalDescendants
+          .where((n) => n.canRequestFocus && !n.skipTraversal)
+          .firstOrNull;
+      if (first != null) {
+        first.requestFocus();
+      } else {
+        scope.requestFocus();
+      }
+    });
   }
 
   void _scrollToTop(BuildContext context) {
@@ -75,8 +102,6 @@ class _SettingsScreenState extends State<SettingsScreen>
     final bg = tp.background;
     final cardBg = tp.surface;
     final prefs = context.watch<LauncherPreferences>();
-    final isPortrait =
-        MediaQuery.orientationOf(context) == Orientation.portrait;
 
     return Focus(
       autofocus: true,
@@ -117,10 +142,7 @@ class _SettingsScreenState extends State<SettingsScreen>
               children: [
                 if (prefs.showButtonHints)
                   Padding(
-                    padding: EdgeInsets.only(
-                      left: 16,
-                      right: isPortrait ? 12 : 0,
-                    ),
+                    padding: const EdgeInsets.only(left: 16, right: 6),
                     child: _TabHintChip(
                       label: prefs.buttonScheme == 'playstation' ? 'L1' : 'LB',
                     ),
@@ -129,6 +151,8 @@ class _SettingsScreenState extends State<SettingsScreen>
                   child: TabBar(
                     controller: _tabController,
                     isScrollable: true,
+                    padding: EdgeInsets.zero,
+                    tabAlignment: TabAlignment.start,
                     indicator: const BoxDecoration(),
                     dividerColor: Colors.transparent,
                     indicatorColor: Colors.transparent,
@@ -174,1260 +198,1305 @@ class _SettingsScreenState extends State<SettingsScreen>
               return TabBarView(
                 controller: _tabController,
                 children: [
-                  FocusTraversalGroup(
-                    policy: OrderedTraversalPolicy(),
-                    child: ListView(
-                      padding: const EdgeInsets.only(top: 16, bottom: 160),
-                      children: [
-                        _buildAccountCard(context),
-                        const SizedBox(height: 4),
+                  FocusScope(
+                    node: _tabScopes[0],
+                    child: FocusTraversalGroup(
+                      policy: OrderedTraversalPolicy(),
+                      child: ListView(
+                        padding: const EdgeInsets.only(top: 16, bottom: 160),
+                        children: [
+                          _buildAccountCard(context),
+                          const SizedBox(height: 4),
 
-                        _section(_tr(context, 'Appearance', 'Apariencia')),
-                        _CollapsableSection(
-                          title: _tr(
-                            context,
-                            'Layout Theme',
-                            'Tema de interfaz',
-                          ),
-                          icon: Icons.dashboard_outlined,
-                          child: _buildLauncherThemePicker(
-                            context,
-                            themeProvider,
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        _CollapsableSection(
-                          title: _tr(
-                            context,
-                            'Color Scheme',
-                            'Esquema de color',
-                          ),
-                          icon: Icons.palette_outlined,
-                          child: _buildThemeSelector(context, themeProvider),
-                        ),
-
-                        _section(_tr(context, 'Ambience', 'Ambiente')),
-                        _choiceTile(
-                          context,
-                          _tr(context, 'Ambience Layout', 'Diseño de ambiente'),
-                          themeProvider.ambienceLayout == 'circular'
-                              ? _tr(context, 'Circular', 'Circular')
-                              : _tr(context, 'Card', 'Tarjeta'),
-                          () => _pickAmbienceLayout(context, themeProvider),
-                        ),
-                        _choiceTile(
-                          context,
-                          _tr(context, 'Background Effect', 'Efecto de fondo'),
-                          themeProvider.ambienceEffect == 'particles'
-                              ? _tr(context, 'Particles', 'Partículas')
-                              : (themeProvider.ambienceEffect == 'waves'
-                                    ? _tr(context, 'Waves', 'Ondas')
-                                    : _tr(context, 'None', 'Ninguno')),
-                          () => _pickAmbienceEffect(context, themeProvider),
-                        ),
-                        _choiceTile(
-                          context,
-                          _tr(context, 'Stand-by sound', 'Sonido de espera'),
-                          themeProvider.standbySound,
-                          () => _pickStandbySound(context, themeProvider),
-                        ),
-
-                        _section('Language / Idioma'),
-                        _buildLanguageTile(context),
-
-                        _section(
-                          _tr(
-                            context,
-                            'Performance & Quality',
-                            'Rendimiento y calidad',
-                          ),
-                        ),
-                        _toggle(
-                          _tr(context, 'Reduce Effects', 'Reducir efectos'),
-                          _tr(
-                            context,
-                            'Disable Ken Burns, palette extraction, video previews',
-                            'Desactiva Ken Burns, extracción de paleta y vistas previas de video',
-                          ),
-                          themeProvider.reduceEffects,
-                          (v) => themeProvider.setReduceEffects(v),
-                        ),
-                        _toggle(
-                          _tr(context, 'Performance Mode', 'Modo rendimiento'),
-                          _tr(
-                            context,
-                            'Reduce effects + lower quality defaults for weak devices',
-                            'Reduce efectos y baja la calidad por defecto en dispositivos débiles',
-                          ),
-                          themeProvider.performanceMode,
-                          (v) => themeProvider.setPerformanceMode(v),
-                        ),
-                        _choiceTile(
-                          context,
-                          _tr(context, 'Visual Quality', 'Calidad visual'),
-                          _artQualityLabel(context, themeProvider.artQuality),
-                          () => _pickArtQuality(context, themeProvider),
-                        ),
-                      ],
-                    ),
-                  ),
-                  FocusTraversalGroup(
-                    policy: OrderedTraversalPolicy(),
-                    child: ListView(
-                      padding: const EdgeInsets.only(top: 16, bottom: 160),
-                      children: [
-                        _section(_tr(context, 'Video', 'Video')),
-                        _choiceTile(
-                          context,
-                          _tr(context, 'Resolution', 'Resolución'),
-                          _resLabel(c),
-                          () => _pickResolution(context, settings, c),
-                        ),
-                        _CustomResolutionTile(
-                          currentWidth: c.width,
-                          currentHeight: c.height,
-                          onApply: (w, h) => settings.setResolution(w, h),
-                        ),
-                        _choiceTile(
-                          context,
-                          _tr(context, 'Frame Rate', 'Frecuencia de cuadros'),
-                          '${c.fps} FPS',
-                          () => _pickFps(context, settings, c),
-                        ),
-                        _toggle(
-                          l.smartBitrate,
-                          l.smartBitrateDesc,
-                          c.smartBitrateEnabled,
-                          (v) {
-                            settings.updateConfig(
-                              c.copyWith(smartBitrateEnabled: v),
-                            );
-                            if (v) _showSmartBitrateDisclaimer(context);
-                          },
-                        ),
-                        if (c.smartBitrateEnabled) ...[
-                          _sliderTile(
-                            '  ${l.smartBitrateMin}',
-                            '${c.smartBitrateMin ~/ 1000} Mbps',
-                            c.smartBitrateMin.toDouble(),
-                            5000,
-                            80000,
-                            75,
-                            (v) => settings.updateConfig(
-                              c.copyWith(smartBitrateMin: v.toInt()),
+                          _section(_tr(context, 'Appearance', 'Apariencia')),
+                          _CollapsableSection(
+                            title: _tr(
+                              context,
+                              'Layout Theme',
+                              'Tema de interfaz',
+                            ),
+                            icon: Icons.dashboard_outlined,
+                            child: _buildLauncherThemePicker(
+                              context,
+                              themeProvider,
                             ),
                           ),
-                          _sliderTile(
-                            '  ${l.smartBitrateMax}',
-                            '${c.smartBitrateMax ~/ 1000} Mbps',
-                            c.smartBitrateMax.toDouble(),
-                            5000,
-                            150000,
-                            145,
-                            (v) => settings.updateConfig(
-                              c.copyWith(smartBitrateMax: v.toInt()),
+                          const SizedBox(height: 6),
+                          _CollapsableSection(
+                            title: _tr(
+                              context,
+                              'Color Scheme',
+                              'Esquema de color',
+                            ),
+                            icon: Icons.palette_outlined,
+                            child: _buildThemeSelector(context, themeProvider),
+                          ),
+
+                          _section(_tr(context, 'Ambience', 'Ambiente')),
+                          _choiceTile(
+                            context,
+                            _tr(
+                              context,
+                              'Ambience Layout',
+                              'Diseño de ambiente',
+                            ),
+                            themeProvider.ambienceLayout == 'circular'
+                                ? _tr(context, 'Circular', 'Circular')
+                                : _tr(context, 'Card', 'Tarjeta'),
+                            () => _pickAmbienceLayout(context, themeProvider),
+                          ),
+                          _choiceTile(
+                            context,
+                            _tr(
+                              context,
+                              'Background Effect',
+                              'Efecto de fondo',
+                            ),
+                            themeProvider.ambienceEffect == 'particles'
+                                ? _tr(context, 'Particles', 'Partículas')
+                                : (themeProvider.ambienceEffect == 'waves'
+                                      ? _tr(context, 'Waves', 'Ondas')
+                                      : _tr(context, 'None', 'Ninguno')),
+                            () => _pickAmbienceEffect(context, themeProvider),
+                          ),
+                          _choiceTile(
+                            context,
+                            _tr(context, 'Stand-by sound', 'Sonido de espera'),
+                            themeProvider.standbySound,
+                            () => _pickStandbySound(context, themeProvider),
+                          ),
+
+                          _section('Language / Idioma'),
+                          _buildLanguageTile(context),
+
+                          _section(
+                            _tr(
+                              context,
+                              'Performance & Quality',
+                              'Rendimiento y calidad',
                             ),
                           ),
-                        ],
-                        if (!c.smartBitrateEnabled)
-                          _sliderTile(
-                            _tr(context, 'Manual Bitrate', 'Bitrate manual'),
-                            '${c.bitrate ~/ 1000} Mbps',
-                            c.bitrate.toDouble(),
-                            1000,
-                            150000,
-                            149,
-                            (v) => settings.updateConfig(
-                              c.copyWith(bitrate: v.toInt()),
+                          _toggle(
+                            _tr(context, 'Reduce Effects', 'Reducir efectos'),
+                            _tr(
+                              context,
+                              'Disable Ken Burns, palette extraction, video previews',
+                              'Desactiva Ken Burns, extracción de paleta y vistas previas de video',
                             ),
+                            themeProvider.reduceEffects,
+                            (v) => themeProvider.setReduceEffects(v),
                           ),
-                        _choiceTile(
-                          context,
-                          _tr(context, 'Video Codec', 'Códec de video'),
-                          _codecLabel(context, c.videoCodec),
-                          () => _pickCodec(context, settings, c),
-                        ),
-                        _choiceTile(
-                          context,
-                          _tr(context, 'Scale Mode', 'Modo de escala'),
-                          _scaleLabel(context, c.scaleMode),
-                          () => _pickScaleMode(context, settings, c),
-                        ),
-                        _choiceTile(
-                          context,
-                          _tr(
-                            context,
-                            'Frame Pacing',
-                            'Sincronización de frames',
-                          ),
-                          _pacingLabel(context, c.framePacing),
-                          () => _pickFramePacing(context, settings, c),
-                        ),
-                        _toggle(
-                          _tr(
-                            context,
-                            'Ultra Low Latency',
-                            'Ultra baja latencia',
-                          ),
-                          _tr(
-                            context,
-                            'Prioritize latency over visual stability',
-                            'Prioriza la latencia sobre la estabilidad visual',
-                          ),
-                          c.ultraLowLatency,
-                          (v) => settings.updateConfig(
-                            c.copyWith(ultraLowLatency: v),
-                          ),
-                        ),
-                        if (c.ultraLowLatency)
                           _toggle(
                             _tr(
                               context,
-                              'Low Latency Frame Balance',
-                              'Balance de frames en baja latencia',
+                              'Performance Mode',
+                              'Modo rendimiento',
                             ),
                             _tr(
                               context,
-                              'Reduce jitter scheduling frames — only with ultra low latency',
-                              'Reduce jitter al programar frames, sólo con ultra baja latencia',
+                              'Reduce effects + lower quality defaults for weak devices',
+                              'Reduce efectos y baja la calidad por defecto en dispositivos débiles',
                             ),
-                            c.lowLatencyFrameBalance,
-                            (v) => settings.updateConfig(
-                              c.copyWith(lowLatencyFrameBalance: v),
-                            ),
+                            themeProvider.performanceMode,
+                            (v) => themeProvider.setPerformanceMode(v),
                           ),
-                        _toggle(
-                          'HDR',
-                          l.hdrDesc,
-                          c.enableHdr,
-                          (v) =>
-                              settings.updateConfig(c.copyWith(enableHdr: v)),
-                        ),
-                        _toggle(
-                          _tr(
-                            context,
-                            'Full Range Color',
-                            'Color de rango completo',
-                          ),
-                          _tr(
-                            context,
-                            'Use 0-255 instead of 16-235',
-                            'Usa 0-255 en lugar de 16-235',
-                          ),
-                          c.fullRange,
-                          (v) =>
-                              settings.updateConfig(c.copyWith(fullRange: v)),
-                        ),
-
-                        _section(_tr(context, 'Audio', 'Audio')),
-                        _choiceTile(
-                          context,
-                          _tr(context, 'Audio', 'Audio'),
-                          _audioLabel(context, c.audioConfig),
-                          () => _pickAudio(context, settings, c),
-                        ),
-                        _choiceTile(
-                          context,
-                          _tr(context, 'Audio Quality', 'Calidad de audio'),
-                          c.audioQuality == AudioQuality.high
-                              ? _tr(
-                                  context,
-                                  'High (256 Kbps/ch)',
-                                  'Alta (256 Kbps/canal)',
-                                )
-                              : _tr(
-                                  context,
-                                  'Normal (96 Kbps/ch)',
-                                  'Normal (96 Kbps/canal)',
-                                ),
-                          () => _pickAudioQuality(context, settings, c),
-                        ),
-                        _toggle(
-                          _tr(
-                            context,
-                            'Play Audio on PC',
-                            'Reproducir audio en el PC',
-                          ),
-                          _tr(
-                            context,
-                            'Keep sound on host PC too',
-                            'Mantiene también el sonido en el PC anfitrión',
-                          ),
-                          c.playLocalAudio,
-                          (v) => settings.updateConfig(
-                            c.copyWith(playLocalAudio: v),
-                          ),
-                        ),
-                        _toggle(
-                          _tr(
-                            context,
-                            'Local Audio Effects',
-                            'Efectos locales de audio',
-                          ),
-                          _tr(
-                            context,
-                            'Apply light client-side loudness and surround processing',
-                            'Aplica un refuerzo ligero y virtualización surround en el cliente',
-                          ),
-                          c.enableAudioFx,
-                          (v) => settings.updateConfig(
-                            c.copyWith(enableAudioFx: v),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  FocusTraversalGroup(
-                    policy: OrderedTraversalPolicy(),
-                    child: ListView(
-                      padding: const EdgeInsets.only(top: 16, bottom: 160),
-                      children: [
-                        _section(
-                          _tr(context, 'Input / Touch', 'Entrada / táctil'),
-                        ),
-                        _toggle(
-                          _tr(
-                            context,
-                            'Show Button Hints',
-                            'Mostrar pistas de botones',
-                          ),
-                          _tr(
-                            context,
-                            'Display gamepad button icons in the interface',
-                            'Muestra iconos del mando en la interfaz',
-                          ),
-                          preferences.showButtonHints,
-                          (v) => preferences.setShowButtonHints(v),
-                        ),
-                        if (preferences.showButtonHints)
                           _choiceTile(
                             context,
-                            _tr(context, 'Button Style', 'Estilo de botones'),
-                            preferences.buttonScheme == 'playstation'
-                                ? 'PlayStation'
-                                : 'Xbox',
-                            () => _pickButtonScheme(context, preferences),
-                          ),
-                        _choiceTile(
-                          context,
-                          _tr(context, 'Touch Mode', 'Modo táctil'),
-                          _mouseLabel(context, c.mouseMode),
-                          () => _pickMouseMode(context, settings, c),
-                        ),
-                        _toggle(
-                          _tr(context, 'Mouse Emulation', 'Emulación de ratón'),
-                          _tr(
-                            context,
-                            'Gamepad stick emulates mouse',
-                            'El stick del mando emula el ratón',
-                          ),
-                          c.mouseEmulation,
-                          (v) => settings.updateConfig(
-                            c.copyWith(mouseEmulation: v),
-                          ),
-                        ),
-                        _toggle(
-                          _tr(context, 'Gamepad → Mouse', 'Mando → ratón'),
-                          _tr(
-                            context,
-                            'Use gamepad to move cursor',
-                            'Usa el mando para mover el cursor',
-                          ),
-                          c.gamepadMouseEmulation,
-                          (v) => settings.updateConfig(
-                            c.copyWith(gamepadMouseEmulation: v),
-                          ),
-                        ),
-                        if (c.gamepadMouseEmulation)
-                          _sliderTile(
-                            _tr(
-                              context,
-                              'Gamepad Mouse Speed',
-                              'Velocidad del ratón con mando',
-                            ),
-                            '${c.gamepadMouseSpeed.toStringAsFixed(1)}x',
-                            c.gamepadMouseSpeed,
-                            0.5,
-                            5.0,
-                            18,
-                            (v) => settings.updateConfig(
-                              c.copyWith(gamepadMouseSpeed: v),
-                            ),
-                          ),
-                        _toggle(
-                          _tr(
-                            context,
-                            'Local Mouse Cursor',
-                            'Cursor local del ratón',
-                          ),
-                          _tr(
-                            context,
-                            'Show a local cursor overlay instead of a remote one',
-                            'Muestra un cursor local en vez del cursor remoto',
-                          ),
-                          c.mouseLocalCursor,
-                          (v) => settings.updateConfig(
-                            c.copyWith(mouseLocalCursor: v),
-                          ),
-                        ),
-                        _toggle(
-                          _tr(
-                            context,
-                            'Absolute Mouse Mode',
-                            'Modo de ratón absoluto',
-                          ),
-                          _tr(
-                            context,
-                            'Direct cursor positioning (pen/stylus) rather than relative drag',
-                            'Posicionamiento directo del cursor (lápiz/stylus) en lugar de arrastre relativo',
-                          ),
-                          c.absoluteMouseMode,
-                          (v) => settings.updateConfig(
-                            c.copyWith(absoluteMouseMode: v),
-                          ),
-                        ),
-                        _toggle(
-                          _tr(
-                            context,
-                            'Multi-Touch Gestures',
-                            'Gestos multitáctiles',
-                          ),
-                          _tr(
-                            context,
-                            'Map pinch/rotate/swipe to PC equivalents',
-                            'Mapea pellizcar, rotar y deslizar a acciones equivalentes del PC',
-                          ),
-                          c.multiTouchGestures,
-                          (v) => settings.updateConfig(
-                            c.copyWith(multiTouchGestures: v),
-                          ),
-                        ),
-                        if (c.mouseMode == MouseMode.trackpad) ...[
-                          _sliderTile(
-                            _tr(
-                              context,
-                              'Trackpad Sensitivity X',
-                              'Sensibilidad X del trackpad',
-                            ),
-                            '${(c.trackpadSensitivityX / 100).toStringAsFixed(1)}x',
-                            c.trackpadSensitivityX.toDouble(),
-                            50,
-                            400,
-                            14,
-                            (v) => settings.updateConfig(
-                              c.copyWith(trackpadSensitivityX: v.toInt()),
-                            ),
-                          ),
-                          _sliderTile(
-                            _tr(
-                              context,
-                              'Trackpad Sensitivity Y',
-                              'Sensibilidad Y del trackpad',
-                            ),
-                            '${(c.trackpadSensitivityY / 100).toStringAsFixed(1)}x',
-                            c.trackpadSensitivityY.toDouble(),
-                            50,
-                            400,
-                            14,
-                            (v) => settings.updateConfig(
-                              c.copyWith(trackpadSensitivityY: v.toInt()),
-                            ),
+                            _tr(context, 'Visual Quality', 'Calidad visual'),
+                            _artQualityLabel(context, themeProvider.artQuality),
+                            () => _pickArtQuality(context, themeProvider),
                           ),
                         ],
-
-                        _section(_tr(context, 'Keyboard', 'Teclado')),
-                        _toggle(
-                          _tr(
+                      ),
+                    ),
+                  ),
+                  FocusScope(
+                    node: _tabScopes[1],
+                    child: FocusTraversalGroup(
+                      policy: OrderedTraversalPolicy(),
+                      child: ListView(
+                        padding: const EdgeInsets.only(top: 16, bottom: 160),
+                        children: [
+                          _section(_tr(context, 'Video', 'Video')),
+                          _choiceTile(
                             context,
-                            'Force QWERTY Layout',
-                            'Forzar layout QWERTY',
+                            _tr(context, 'Resolution', 'Resolución'),
+                            _resLabel(c),
+                            () => _pickResolution(context, settings, c),
                           ),
-                          _tr(
+                          _CustomResolutionTile(
+                            currentWidth: c.width,
+                            currentHeight: c.height,
+                            onApply: (w, h) => settings.setResolution(w, h),
+                          ),
+                          _choiceTile(
                             context,
-                            'Ignore device keyboard locale, always use QWERTY',
-                            'Ignora el idioma del teclado del dispositivo y usa siempre QWERTY',
+                            _tr(context, 'Frame Rate', 'Frecuencia de cuadros'),
+                            '${c.fps} FPS',
+                            () => _pickFps(context, settings, c),
                           ),
-                          c.forceQwertyLayout,
-                          (v) => settings.updateConfig(
-                            c.copyWith(forceQwertyLayout: v),
+                          _toggle(
+                            l.smartBitrate,
+                            l.smartBitrateDesc,
+                            c.smartBitrateEnabled,
+                            (v) {
+                              settings.updateConfig(
+                                c.copyWith(smartBitrateEnabled: v),
+                              );
+                              if (v) _showSmartBitrateDisclaimer(context);
+                            },
                           ),
-                        ),
-                        _toggle(
-                          _tr(
-                            context,
-                            'Back Button = Meta (Win key)',
-                            'Botón Atrás = Meta (tecla Win)',
-                          ),
-                          _tr(
-                            context,
-                            'Send Windows key when Back is pressed',
-                            'Envía la tecla Windows al pulsar Atrás',
-                          ),
-                          c.backButtonAsMeta,
-                          (v) => settings.updateConfig(
-                            c.copyWith(
-                              backButtonAsMeta: v,
-                              backButtonAsGuide: v
-                                  ? false
-                                  : c.backButtonAsGuide,
+                          if (c.smartBitrateEnabled) ...[
+                            _sliderTile(
+                              '  ${l.smartBitrateMin}',
+                              '${c.smartBitrateMin ~/ 1000} Mbps',
+                              c.smartBitrateMin.toDouble(),
+                              5000,
+                              80000,
+                              75,
+                              (v) => settings.updateConfig(
+                                c.copyWith(smartBitrateMin: v.toInt()),
+                              ),
                             ),
-                          ),
-                        ),
-                        _toggle(
-                          _tr(
-                            context,
-                            'Back Button = Guide (Xbox button)',
-                            'Botón Atrás = Guide (botón Xbox)',
-                          ),
-                          _tr(
-                            context,
-                            'Send Xbox Guide button when Back is pressed',
-                            'Envía el botón Guide de Xbox al pulsar Atrás',
-                          ),
-                          c.backButtonAsGuide,
-                          (v) => settings.updateConfig(
-                            c.copyWith(
-                              backButtonAsGuide: v,
-                              backButtonAsMeta: v ? false : c.backButtonAsMeta,
+                            _sliderTile(
+                              '  ${l.smartBitrateMax}',
+                              '${c.smartBitrateMax ~/ 1000} Mbps',
+                              c.smartBitrateMax.toDouble(),
+                              5000,
+                              150000,
+                              145,
+                              (v) => settings.updateConfig(
+                                c.copyWith(smartBitrateMax: v.toInt()),
+                              ),
                             ),
-                          ),
-                        ),
-
-                        _section(_tr(context, 'Gamepad', 'Mando')),
-                        _toggle(
-                          _tr(
+                          ],
+                          if (!c.smartBitrateEnabled)
+                            _sliderTile(
+                              _tr(context, 'Manual Bitrate', 'Bitrate manual'),
+                              '${c.bitrate ~/ 1000} Mbps',
+                              c.bitrate.toDouble(),
+                              1000,
+                              150000,
+                              149,
+                              (v) => settings.updateConfig(
+                                c.copyWith(bitrate: v.toInt()),
+                              ),
+                            ),
+                          _choiceTile(
                             context,
-                            'Flip Face Buttons',
-                            'Invertir botones frontales',
+                            _tr(context, 'Video Codec', 'Códec de video'),
+                            _codecLabel(context, c.videoCodec),
+                            () => _pickCodec(context, settings, c),
                           ),
-                          _tr(
+                          _choiceTile(
                             context,
-                            'Swap A/B and X/Y',
-                            'Intercambia A/B y X/Y',
+                            _tr(context, 'Scale Mode', 'Modo de escala'),
+                            _scaleLabel(context, c.scaleMode),
+                            () => _pickScaleMode(context, settings, c),
                           ),
-                          c.flipFaceButtons,
-                          (v) => settings.updateConfig(
-                            c.copyWith(flipFaceButtons: v),
-                          ),
-                        ),
-                        _toggle(
-                          l.multipleControllers,
-                          l.multipleControllersDesc,
-                          c.multiControllerEnabled,
-                          (v) => settings.updateConfig(
-                            c.copyWith(multiControllerEnabled: v),
-                          ),
-                        ),
-                        if (c.multiControllerEnabled)
                           _choiceTile(
                             context,
                             _tr(
                               context,
-                              'Controller Count',
-                              'Cantidad de mandos',
+                              'Frame Pacing',
+                              'Sincronización de frames',
                             ),
-                            c.controllerCount == 0
-                                ? 'AUTO'
+                            _pacingLabel(context, c.framePacing),
+                            () => _pickFramePacing(context, settings, c),
+                          ),
+                          _toggle(
+                            _tr(
+                              context,
+                              'Ultra Low Latency',
+                              'Ultra baja latencia',
+                            ),
+                            _tr(
+                              context,
+                              'Prioritize latency over visual stability',
+                              'Prioriza la latencia sobre la estabilidad visual',
+                            ),
+                            c.ultraLowLatency,
+                            (v) => settings.updateConfig(
+                              c.copyWith(ultraLowLatency: v),
+                            ),
+                          ),
+                          if (c.ultraLowLatency)
+                            _toggle(
+                              _tr(
+                                context,
+                                'Low Latency Frame Balance',
+                                'Balance de frames en baja latencia',
+                              ),
+                              _tr(
+                                context,
+                                'Reduce jitter scheduling frames — only with ultra low latency',
+                                'Reduce jitter al programar frames, sólo con ultra baja latencia',
+                              ),
+                              c.lowLatencyFrameBalance,
+                              (v) => settings.updateConfig(
+                                c.copyWith(lowLatencyFrameBalance: v),
+                              ),
+                            ),
+                          _toggle(
+                            'HDR',
+                            l.hdrDesc,
+                            c.enableHdr,
+                            (v) =>
+                                settings.updateConfig(c.copyWith(enableHdr: v)),
+                          ),
+                          _toggle(
+                            _tr(
+                              context,
+                              'Full Range Color',
+                              'Color de rango completo',
+                            ),
+                            _tr(
+                              context,
+                              'Use 0-255 instead of 16-235',
+                              'Usa 0-255 en lugar de 16-235',
+                            ),
+                            c.fullRange,
+                            (v) =>
+                                settings.updateConfig(c.copyWith(fullRange: v)),
+                          ),
+
+                          _section(_tr(context, 'Audio', 'Audio')),
+                          _choiceTile(
+                            context,
+                            _tr(context, 'Audio', 'Audio'),
+                            _audioLabel(context, c.audioConfig),
+                            () => _pickAudio(context, settings, c),
+                          ),
+                          _choiceTile(
+                            context,
+                            _tr(context, 'Audio Quality', 'Calidad de audio'),
+                            c.audioQuality == AudioQuality.high
+                                ? _tr(
+                                    context,
+                                    'High (256 Kbps/ch)',
+                                    'Alta (256 Kbps/canal)',
+                                  )
                                 : _tr(
                                     context,
-                                    '${c.controllerCount} controller${c.controllerCount > 1 ? 's' : ''}',
-                                    '${c.controllerCount} mando${c.controllerCount > 1 ? 's' : ''}',
+                                    'Normal (96 Kbps/ch)',
+                                    'Normal (96 Kbps/canal)',
                                   ),
-                            () => _pickControllerCount(context, settings, c),
+                            () => _pickAudioQuality(context, settings, c),
                           ),
-                        _choiceTile(
-                          context,
-                          _tr(context, 'Controller Driver', 'Driver del mando'),
-                          _controllerDriverLabel(context, c.controllerDriver),
-                          () => _pickControllerDriver(context, settings, c),
-                        ),
-                        _sliderTile(
-                          _tr(context, 'Deadzone', 'Zona muerta'),
-                          '${c.deadzone}%',
-                          c.deadzone.toDouble(),
-                          -20,
-                          20,
-                          40,
-                          (v) => settings.updateConfig(
-                            c.copyWith(deadzone: v.toInt()),
-                          ),
-                        ),
-                        _toggle(
-                          _tr(
-                            context,
-                            'Enhanced USB/XInput Detection',
-                            'Deteccion USB/XInput mejorada',
-                          ),
-                          _tr(
-                            context,
-                            'Allow relaxed matching for generic wired controllers during streaming',
-                            'Permite un reconocimiento mas flexible de mandos por cable durante el streaming',
-                          ),
-                          c.usbDriverEnabled,
-                          (v) => settings.updateConfig(
-                            c.copyWith(usbDriverEnabled: v),
-                          ),
-                        ),
-                        if (c.usbDriverEnabled)
                           _toggle(
                             _tr(
                               context,
-                              'USB Bind All',
-                              'Vincular todos los USB',
+                              'Play Audio on PC',
+                              'Reproducir audio en el PC',
                             ),
                             _tr(
                               context,
-                              'Also admit external HID pads that expose only partial gamepad reports',
-                              'Tambien admite pads HID externos que solo exponen reportes parciales de mando',
+                              'Keep sound on host PC too',
+                              'Mantiene también el sonido en el PC anfitrión',
                             ),
-                            c.usbBindAll,
+                            c.playLocalAudio,
                             (v) => settings.updateConfig(
-                              c.copyWith(usbBindAll: v),
+                              c.copyWith(playLocalAudio: v),
                             ),
                           ),
-                        _toggle(
-                          _tr(context, 'Joy-Con Support', 'Soporte Joy-Con'),
-                          _tr(
-                            context,
-                            'Allow split Nintendo Joy-Con style controllers to register as stream inputs',
-                            'Permite que controles estilo Joy-Con divididos se registren como entrada del stream',
-                          ),
-                          c.joyCon,
-                          (v) => settings.updateConfig(c.copyWith(joyCon: v)),
-                        ),
-                        _toggle(
-                          _tr(
-                            context,
-                            'Battery Status Report',
-                            'Reporte de batería',
-                          ),
-                          _tr(
-                            context,
-                            'Report controller battery level to the host PC',
-                            'Envía el nivel de batería del mando al PC anfitrión',
-                          ),
-                          c.gamepadBatteryReport,
-                          (v) => settings.updateConfig(
-                            c.copyWith(gamepadBatteryReport: v),
-                          ),
-                        ),
-                        _toggle(
-                          _tr(
-                            context,
-                            'Motion Sensors',
-                            'Sensores de movimiento',
-                          ),
-                          _tr(
-                            context,
-                            'Send gyroscope / accelerometer data (DualSense/Switch)',
-                            'Envía datos de giroscopio y acelerómetro (DualSense/Switch)',
-                          ),
-                          c.gamepadMotionSensors,
-                          (v) => settings.updateConfig(
-                            c.copyWith(gamepadMotionSensors: v),
-                          ),
-                        ),
-                        if (c.gamepadMotionSensors)
                           _toggle(
                             _tr(
                               context,
-                              'Motion Fallback (touchscreen)',
-                              'Respaldo de movimiento (pantalla táctil)',
+                              'Local Audio Effects',
+                              'Efectos locales de audio',
                             ),
                             _tr(
                               context,
-                              'Use the device screen as a virtual gyroscope',
-                              'Usa la pantalla del dispositivo como giroscopio virtual',
+                              'Apply light client-side loudness and surround processing',
+                              'Aplica un refuerzo ligero y virtualización surround en el cliente',
                             ),
-                            c.gamepadMotionFallback,
+                            c.enableAudioFx,
                             (v) => settings.updateConfig(
-                              c.copyWith(gamepadMotionFallback: v),
+                              c.copyWith(enableAudioFx: v),
                             ),
                           ),
-                        _toggle(
-                          _tr(
+                        ],
+                      ),
+                    ),
+                  ),
+                  FocusScope(
+                    node: _tabScopes[2],
+                    child: FocusTraversalGroup(
+                      policy: OrderedTraversalPolicy(),
+                      child: ListView(
+                        padding: const EdgeInsets.only(top: 16, bottom: 160),
+                        children: [
+                          _section(
+                            _tr(context, 'Input / Touch', 'Entrada / táctil'),
+                          ),
+                          _toggle(
+                            _tr(
+                              context,
+                              'Show Button Hints',
+                              'Mostrar pistas de botones',
+                            ),
+                            _tr(
+                              context,
+                              'Display gamepad button icons in the interface',
+                              'Muestra iconos del mando en la interfaz',
+                            ),
+                            preferences.showButtonHints,
+                            (v) => preferences.setShowButtonHints(v),
+                          ),
+                          if (preferences.showButtonHints)
+                            _choiceTile(
+                              context,
+                              _tr(context, 'Button Style', 'Estilo de botones'),
+                              preferences.buttonScheme == 'playstation'
+                                  ? 'PlayStation'
+                                  : 'Xbox',
+                              () => _pickButtonScheme(context, preferences),
+                            ),
+                          _choiceTile(
                             context,
-                            'Touchpad as Mouse',
-                            'Touchpad como ratón',
+                            _tr(context, 'Touch Mode', 'Modo táctil'),
+                            _mouseLabel(context, c.mouseMode),
+                            () => _pickMouseMode(context, settings, c),
                           ),
-                          _tr(
-                            context,
-                            'Use DualShock/DualSense touchpad for cursor control',
-                            'Usa el touchpad de DualShock/DualSense para controlar el cursor',
+                          _toggle(
+                            _tr(
+                              context,
+                              'Mouse Emulation',
+                              'Emulación de ratón',
+                            ),
+                            _tr(
+                              context,
+                              'Gamepad stick emulates mouse',
+                              'El stick del mando emula el ratón',
+                            ),
+                            c.mouseEmulation,
+                            (v) => settings.updateConfig(
+                              c.copyWith(mouseEmulation: v),
+                            ),
                           ),
-                          c.gamepadTouchpadAsMouse,
-                          (v) => settings.updateConfig(
-                            c.copyWith(gamepadTouchpadAsMouse: v),
+                          _toggle(
+                            _tr(context, 'Gamepad → Mouse', 'Mando → ratón'),
+                            _tr(
+                              context,
+                              'Use gamepad to move cursor',
+                              'Usa el mando para mover el cursor',
+                            ),
+                            c.gamepadMouseEmulation,
+                            (v) => settings.updateConfig(
+                              c.copyWith(gamepadMouseEmulation: v),
+                            ),
                           ),
-                        ),
-                        _choiceTile(
-                          context,
-                          _tr(context, 'Button Remap', 'Remapeo de botones'),
-                          _buttonRemapLabel(context, c.buttonRemapProfile),
-                          () => _pickButtonRemap(context, settings, c),
-                        ),
-                        ExcludeFocus(
-                          excluding: true,
-                          child: IgnorePointer(
-                            child: Opacity(
-                              opacity: 0.38,
-                              child: _FocusableNavTile(
-                                icon: Icons.tune_rounded,
-                                title: _tr(
-                                  context,
-                                  'Controller Layout Editor',
-                                  'Editor de layout del mando',
-                                ),
-                                subtitle: _tr(
-                                  context,
-                                  'Open the visual remap editor',
-                                  'Abrir el editor visual de remapeo',
-                                ),
-                                onTap: () {},
+                          if (c.gamepadMouseEmulation)
+                            _sliderTile(
+                              _tr(
+                                context,
+                                'Gamepad Mouse Speed',
+                                'Velocidad del ratón con mando',
+                              ),
+                              '${c.gamepadMouseSpeed.toStringAsFixed(1)}x',
+                              c.gamepadMouseSpeed,
+                              0.5,
+                              5.0,
+                              18,
+                              (v) => settings.updateConfig(
+                                c.copyWith(gamepadMouseSpeed: v),
+                              ),
+                            ),
+                          _toggle(
+                            _tr(
+                              context,
+                              'Local Mouse Cursor',
+                              'Cursor local del ratón',
+                            ),
+                            _tr(
+                              context,
+                              'Show a local cursor overlay instead of a remote one',
+                              'Muestra un cursor local en vez del cursor remoto',
+                            ),
+                            c.mouseLocalCursor,
+                            (v) => settings.updateConfig(
+                              c.copyWith(mouseLocalCursor: v),
+                            ),
+                          ),
+                          _toggle(
+                            _tr(
+                              context,
+                              'Absolute Mouse Mode',
+                              'Modo de ratón absoluto',
+                            ),
+                            _tr(
+                              context,
+                              'Direct cursor positioning (pen/stylus) rather than relative drag',
+                              'Posicionamiento directo del cursor (lápiz/stylus) en lugar de arrastre relativo',
+                            ),
+                            c.absoluteMouseMode,
+                            (v) => settings.updateConfig(
+                              c.copyWith(absoluteMouseMode: v),
+                            ),
+                          ),
+                          _toggle(
+                            _tr(
+                              context,
+                              'Multi-Touch Gestures',
+                              'Gestos multitáctiles',
+                            ),
+                            _tr(
+                              context,
+                              'Map pinch/rotate/swipe to PC equivalents',
+                              'Mapea pellizcar, rotar y deslizar a acciones equivalentes del PC',
+                            ),
+                            c.multiTouchGestures,
+                            (v) => settings.updateConfig(
+                              c.copyWith(multiTouchGestures: v),
+                            ),
+                          ),
+                          if (c.mouseMode == MouseMode.trackpad) ...[
+                            _sliderTile(
+                              _tr(
+                                context,
+                                'Trackpad Sensitivity X',
+                                'Sensibilidad X del trackpad',
+                              ),
+                              '${(c.trackpadSensitivityX / 100).toStringAsFixed(1)}x',
+                              c.trackpadSensitivityX.toDouble(),
+                              50,
+                              400,
+                              14,
+                              (v) => settings.updateConfig(
+                                c.copyWith(trackpadSensitivityX: v.toInt()),
+                              ),
+                            ),
+                            _sliderTile(
+                              _tr(
+                                context,
+                                'Trackpad Sensitivity Y',
+                                'Sensibilidad Y del trackpad',
+                              ),
+                              '${(c.trackpadSensitivityY / 100).toStringAsFixed(1)}x',
+                              c.trackpadSensitivityY.toDouble(),
+                              50,
+                              400,
+                              14,
+                              (v) => settings.updateConfig(
+                                c.copyWith(trackpadSensitivityY: v.toInt()),
+                              ),
+                            ),
+                          ],
+
+                          _section(_tr(context, 'Keyboard', 'Teclado')),
+                          _toggle(
+                            _tr(
+                              context,
+                              'Force QWERTY Layout',
+                              'Forzar layout QWERTY',
+                            ),
+                            _tr(
+                              context,
+                              'Ignore device keyboard locale, always use QWERTY',
+                              'Ignora el idioma del teclado del dispositivo y usa siempre QWERTY',
+                            ),
+                            c.forceQwertyLayout,
+                            (v) => settings.updateConfig(
+                              c.copyWith(forceQwertyLayout: v),
+                            ),
+                          ),
+                          _toggle(
+                            _tr(
+                              context,
+                              'Back Button = Meta (Win key)',
+                              'Botón Atrás = Meta (tecla Win)',
+                            ),
+                            _tr(
+                              context,
+                              'Send Windows key when Back is pressed',
+                              'Envía la tecla Windows al pulsar Atrás',
+                            ),
+                            c.backButtonAsMeta,
+                            (v) => settings.updateConfig(
+                              c.copyWith(
+                                backButtonAsMeta: v,
+                                backButtonAsGuide: v
+                                    ? false
+                                    : c.backButtonAsGuide,
                               ),
                             ),
                           ),
-                        ),
-                        _toggle(
-                          _tr(
-                            context,
-                            'Vibration Fallback',
-                            'Respaldo de vibración',
-                          ),
-                          _tr(
-                            context,
-                            'Vibrate the phone when the controller rumble fires',
-                            'Hace vibrar el teléfono cuando se activa el rumble del mando',
-                          ),
-                          c.vibrateFallback,
-                          (v) => settings.updateConfig(
-                            c.copyWith(vibrateFallback: v),
-                          ),
-                        ),
-                        if (c.vibrateFallback) ...[
                           _toggle(
                             _tr(
                               context,
-                              'Device Rumble',
-                              'Vibración del dispositivo',
+                              'Back Button = Guide (Xbox button)',
+                              'Botón Atrás = Guide (botón Xbox)',
                             ),
                             _tr(
                               context,
-                              'Use full device rumble motor for vibration feedback',
-                              'Usa el motor principal del dispositivo para la vibración',
+                              'Send Xbox Guide button when Back is pressed',
+                              'Envía el botón Guide de Xbox al pulsar Atrás',
                             ),
-                            c.deviceRumble,
+                            c.backButtonAsGuide,
                             (v) => settings.updateConfig(
-                              c.copyWith(deviceRumble: v),
+                              c.copyWith(
+                                backButtonAsGuide: v,
+                                backButtonAsMeta: v
+                                    ? false
+                                    : c.backButtonAsMeta,
+                              ),
+                            ),
+                          ),
+
+                          _section(_tr(context, 'Gamepad', 'Mando')),
+                          _toggle(
+                            _tr(
+                              context,
+                              'Flip Face Buttons',
+                              'Invertir botones frontales',
+                            ),
+                            _tr(
+                              context,
+                              'Swap A/B and X/Y',
+                              'Intercambia A/B y X/Y',
+                            ),
+                            c.flipFaceButtons,
+                            (v) => settings.updateConfig(
+                              c.copyWith(flipFaceButtons: v),
+                            ),
+                          ),
+                          _toggle(
+                            l.multipleControllers,
+                            l.multipleControllersDesc,
+                            c.multiControllerEnabled,
+                            (v) => settings.updateConfig(
+                              c.copyWith(multiControllerEnabled: v),
+                            ),
+                          ),
+                          if (c.multiControllerEnabled)
+                            _choiceTile(
+                              context,
+                              _tr(
+                                context,
+                                'Controller Count',
+                                'Cantidad de mandos',
+                              ),
+                              c.controllerCount == 0
+                                  ? 'AUTO'
+                                  : _tr(
+                                      context,
+                                      '${c.controllerCount} controller${c.controllerCount > 1 ? 's' : ''}',
+                                      '${c.controllerCount} mando${c.controllerCount > 1 ? 's' : ''}',
+                                    ),
+                              () => _pickControllerCount(context, settings, c),
+                            ),
+                          _choiceTile(
+                            context,
+                            _tr(
+                              context,
+                              'Controller Driver',
+                              'Driver del mando',
+                            ),
+                            _controllerDriverLabel(context, c.controllerDriver),
+                            () => _pickControllerDriver(context, settings, c),
+                          ),
+                          _sliderTile(
+                            _tr(context, 'Deadzone', 'Zona muerta'),
+                            '${c.deadzone}%',
+                            c.deadzone.toDouble(),
+                            -20,
+                            20,
+                            40,
+                            (v) => settings.updateConfig(
+                              c.copyWith(deadzone: v.toInt()),
+                            ),
+                          ),
+                          _toggle(
+                            _tr(
+                              context,
+                              'Enhanced USB/XInput Detection',
+                              'Deteccion USB/XInput mejorada',
+                            ),
+                            _tr(
+                              context,
+                              'Allow relaxed matching for generic wired controllers during streaming',
+                              'Permite un reconocimiento mas flexible de mandos por cable durante el streaming',
+                            ),
+                            c.usbDriverEnabled,
+                            (v) => settings.updateConfig(
+                              c.copyWith(usbDriverEnabled: v),
+                            ),
+                          ),
+                          if (c.usbDriverEnabled)
+                            _toggle(
+                              _tr(
+                                context,
+                                'USB Bind All',
+                                'Vincular todos los USB',
+                              ),
+                              _tr(
+                                context,
+                                'Also admit external HID pads that expose only partial gamepad reports',
+                                'Tambien admite pads HID externos que solo exponen reportes parciales de mando',
+                              ),
+                              c.usbBindAll,
+                              (v) => settings.updateConfig(
+                                c.copyWith(usbBindAll: v),
+                              ),
+                            ),
+                          _toggle(
+                            _tr(context, 'Joy-Con Support', 'Soporte Joy-Con'),
+                            _tr(
+                              context,
+                              'Allow split Nintendo Joy-Con style controllers to register as stream inputs',
+                              'Permite que controles estilo Joy-Con divididos se registren como entrada del stream',
+                            ),
+                            c.joyCon,
+                            (v) => settings.updateConfig(c.copyWith(joyCon: v)),
+                          ),
+                          _toggle(
+                            _tr(
+                              context,
+                              'Battery Status Report',
+                              'Reporte de batería',
+                            ),
+                            _tr(
+                              context,
+                              'Report controller battery level to the host PC',
+                              'Envía el nivel de batería del mando al PC anfitrión',
+                            ),
+                            c.gamepadBatteryReport,
+                            (v) => settings.updateConfig(
+                              c.copyWith(gamepadBatteryReport: v),
+                            ),
+                          ),
+                          _toggle(
+                            _tr(
+                              context,
+                              'Motion Sensors',
+                              'Sensores de movimiento',
+                            ),
+                            _tr(
+                              context,
+                              'Send gyroscope / accelerometer data (DualSense/Switch)',
+                              'Envía datos de giroscopio y acelerómetro (DualSense/Switch)',
+                            ),
+                            c.gamepadMotionSensors,
+                            (v) => settings.updateConfig(
+                              c.copyWith(gamepadMotionSensors: v),
+                            ),
+                          ),
+                          if (c.gamepadMotionSensors)
+                            _toggle(
+                              _tr(
+                                context,
+                                'Motion Fallback (touchscreen)',
+                                'Respaldo de movimiento (pantalla táctil)',
+                              ),
+                              _tr(
+                                context,
+                                'Use the device screen as a virtual gyroscope',
+                                'Usa la pantalla del dispositivo como giroscopio virtual',
+                              ),
+                              c.gamepadMotionFallback,
+                              (v) => settings.updateConfig(
+                                c.copyWith(gamepadMotionFallback: v),
+                              ),
+                            ),
+                          _toggle(
+                            _tr(
+                              context,
+                              'Touchpad as Mouse',
+                              'Touchpad como ratón',
+                            ),
+                            _tr(
+                              context,
+                              'Use DualShock/DualSense touchpad for cursor control',
+                              'Usa el touchpad de DualShock/DualSense para controlar el cursor',
+                            ),
+                            c.gamepadTouchpadAsMouse,
+                            (v) => settings.updateConfig(
+                              c.copyWith(gamepadTouchpadAsMouse: v),
+                            ),
+                          ),
+                          _choiceTile(
+                            context,
+                            _tr(context, 'Button Remap', 'Remapeo de botones'),
+                            _buttonRemapLabel(context, c.buttonRemapProfile),
+                            () => _pickButtonRemap(context, settings, c),
+                          ),
+                          ExcludeFocus(
+                            excluding: true,
+                            child: IgnorePointer(
+                              child: Opacity(
+                                opacity: 0.38,
+                                child: _FocusableNavTile(
+                                  icon: Icons.tune_rounded,
+                                  title: _tr(
+                                    context,
+                                    'Controller Layout Editor',
+                                    'Editor de layout del mando',
+                                  ),
+                                  subtitle: _tr(
+                                    context,
+                                    'Open the visual remap editor',
+                                    'Abrir el editor visual de remapeo',
+                                  ),
+                                  onTap: () {},
+                                ),
+                              ),
+                            ),
+                          ),
+                          _toggle(
+                            _tr(
+                              context,
+                              'Vibration Fallback',
+                              'Respaldo de vibración',
+                            ),
+                            _tr(
+                              context,
+                              'Vibrate the phone when the controller rumble fires',
+                              'Hace vibrar el teléfono cuando se activa el rumble del mando',
+                            ),
+                            c.vibrateFallback,
+                            (v) => settings.updateConfig(
+                              c.copyWith(vibrateFallback: v),
+                            ),
+                          ),
+                          if (c.vibrateFallback) ...[
+                            _toggle(
+                              _tr(
+                                context,
+                                'Device Rumble',
+                                'Vibración del dispositivo',
+                              ),
+                              _tr(
+                                context,
+                                'Use full device rumble motor for vibration feedback',
+                                'Usa el motor principal del dispositivo para la vibración',
+                              ),
+                              c.deviceRumble,
+                              (v) => settings.updateConfig(
+                                c.copyWith(deviceRumble: v),
+                              ),
+                            ),
+                            _sliderTile(
+                              _tr(
+                                context,
+                                'Vibration Strength',
+                                'Intensidad de vibración',
+                              ),
+                              '${c.vibrateFallbackStrength}%',
+                              c.vibrateFallbackStrength.toDouble(),
+                              0,
+                              100,
+                              20,
+                              (v) => settings.updateConfig(
+                                c.copyWith(vibrateFallbackStrength: v.toInt()),
+                              ),
+                            ),
+                          ],
+
+                          _section(
+                            _tr(
+                              context,
+                              'On-Screen Controls',
+                              'Controles en pantalla',
+                            ),
+                          ),
+                          _toggle(
+                            _tr(
+                              context,
+                              'Show Virtual Gamepad',
+                              'Mostrar mando virtual',
+                            ),
+                            _tr(
+                              context,
+                              'Display on-screen controller',
+                              'Muestra el mando en pantalla',
+                            ),
+                            c.showOnscreenControls,
+                            (v) => settings.updateConfig(
+                              c.copyWith(showOnscreenControls: v),
+                            ),
+                          ),
+                          _toggle(
+                            _tr(
+                              context,
+                              'Hide with Physical Gamepad',
+                              'Ocultar con mando físico',
+                            ),
+                            _tr(
+                              context,
+                              'Auto-hide when controller connected',
+                              'Se oculta automáticamente al conectar un mando',
+                            ),
+                            c.hideOscWithGamepad,
+                            (v) => settings.updateConfig(
+                              c.copyWith(hideOscWithGamepad: v),
                             ),
                           ),
                           _sliderTile(
-                            _tr(
-                              context,
-                              'Vibration Strength',
-                              'Intensidad de vibración',
-                            ),
-                            '${c.vibrateFallbackStrength}%',
-                            c.vibrateFallbackStrength.toDouble(),
+                            _tr(context, 'Opacity', 'Opacidad'),
+                            '${c.oscOpacity}%',
+                            c.oscOpacity.toDouble(),
                             0,
                             100,
                             20,
                             (v) => settings.updateConfig(
-                              c.copyWith(vibrateFallbackStrength: v.toInt()),
+                              c.copyWith(oscOpacity: v.toInt()),
+                            ),
+                          ),
+                          _toggle(
+                            _tr(
+                              context,
+                              'Vibration / Rumble',
+                              'Vibración / rumble',
+                            ),
+                            _tr(
+                              context,
+                              'Haptic feedback on buttons',
+                              'Respuesta háptica en los botones',
+                            ),
+                            c.enableRumble,
+                            (v) => settings.updateConfig(
+                              c.copyWith(enableRumble: v),
                             ),
                           ),
                         ],
-
-                        _section(
-                          _tr(
-                            context,
-                            'On-Screen Controls',
-                            'Controles en pantalla',
-                          ),
-                        ),
-                        _toggle(
-                          _tr(
-                            context,
-                            'Show Virtual Gamepad',
-                            'Mostrar mando virtual',
-                          ),
-                          _tr(
-                            context,
-                            'Display on-screen controller',
-                            'Muestra el mando en pantalla',
-                          ),
-                          c.showOnscreenControls,
-                          (v) => settings.updateConfig(
-                            c.copyWith(showOnscreenControls: v),
-                          ),
-                        ),
-                        _toggle(
-                          _tr(
-                            context,
-                            'Hide with Physical Gamepad',
-                            'Ocultar con mando físico',
-                          ),
-                          _tr(
-                            context,
-                            'Auto-hide when controller connected',
-                            'Se oculta automáticamente al conectar un mando',
-                          ),
-                          c.hideOscWithGamepad,
-                          (v) => settings.updateConfig(
-                            c.copyWith(hideOscWithGamepad: v),
-                          ),
-                        ),
-                        _sliderTile(
-                          _tr(context, 'Opacity', 'Opacidad'),
-                          '${c.oscOpacity}%',
-                          c.oscOpacity.toDouble(),
-                          0,
-                          100,
-                          20,
-                          (v) => settings.updateConfig(
-                            c.copyWith(oscOpacity: v.toInt()),
-                          ),
-                        ),
-                        _toggle(
-                          _tr(
-                            context,
-                            'Vibration / Rumble',
-                            'Vibración / rumble',
-                          ),
-                          _tr(
-                            context,
-                            'Haptic feedback on buttons',
-                            'Respuesta háptica en los botones',
-                          ),
-                          c.enableRumble,
-                          (v) => settings.updateConfig(
-                            c.copyWith(enableRumble: v),
-                          ),
-                        ),
-                      ],
+                      ),
                     ),
                   ),
-                  FocusTraversalGroup(
-                    policy: OrderedTraversalPolicy(),
-                    child: ListView(
-                      padding: const EdgeInsets.only(top: 16, bottom: 160),
-                      children: [
-                        _section(_tr(context, 'Desktop', 'Escritorio')),
-                        _toggle(
-                          _tr(
-                            context,
-                            'Allow Fullscreen',
-                            'Permitir pantalla completa',
+                  FocusScope(
+                    node: _tabScopes[3],
+                    child: FocusTraversalGroup(
+                      policy: OrderedTraversalPolicy(),
+                      child: ListView(
+                        padding: const EdgeInsets.only(top: 16, bottom: 160),
+                        children: [
+                          _section(_tr(context, 'Desktop', 'Escritorio')),
+                          _toggle(
+                            _tr(
+                              context,
+                              'Allow Fullscreen',
+                              'Permitir pantalla completa',
+                            ),
+                            _tr(
+                              context,
+                              'App starts in borderless fullscreen mode. Press F11 to toggle.',
+                              'La app inicia en modo pantalla completa sin bordes. F11 para alternar.',
+                            ),
+                            preferences.desktopFullscreen,
+                            (v) {
+                              preferences.setDesktopFullscreen(v);
+                              FullscreenService.setFullscreen(v);
+                            },
                           ),
-                          _tr(
-                            context,
-                            'App starts in borderless fullscreen mode. Press F11 to toggle.',
-                            'La app inicia en modo pantalla completa sin bordes. F11 para alternar.',
-                          ),
-                          preferences.desktopFullscreen,
-                          (v) {
-                            preferences.setDesktopFullscreen(v);
-                            FullscreenService.setFullscreen(v);
-                          },
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
-                  FocusTraversalGroup(
-                    policy: OrderedTraversalPolicy(),
-                    child: ListView(
-                      padding: const EdgeInsets.only(top: 16, bottom: 160),
-                      children: [
-                        _section(_tr(context, 'Host', 'Host')),
-                        _toggle(
-                          _tr(
-                            context,
-                            'Optimize Game Settings',
-                            'Optimizar ajustes del juego',
-                          ),
-                          _tr(
-                            context,
-                            'Let server adjust game settings',
-                            'Permite que el servidor ajuste la configuración del juego',
-                          ),
-                          c.enableSops,
-                          (v) =>
-                              settings.updateConfig(c.copyWith(enableSops: v)),
-                        ),
-                        _toggle(
-                          _tr(
-                            context,
-                            'Picture in Picture (PiP)',
-                            'Picture in Picture (PiP)',
-                          ),
-                          AppLocalizations.of(context).pipDesc,
-                          c.pipEnabled,
-                          (v) =>
-                              settings.updateConfig(c.copyWith(pipEnabled: v)),
-                        ),
-
-                        _section(_tr(context, 'Plugins', 'Plugins')),
-                        _FocusableNavTile(
-                          icon: Icons.extension_outlined,
-                          title: _tr(context, 'Plugins', 'Plugins'),
-                          subtitle: _tr(
-                            context,
-                            'Game metadata, background videos…',
-                            'Metadatos de juegos, videos de fondo…',
-                          ),
-                          onTap: () => Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => const PluginsScreen(),
+                  FocusScope(
+                    node: _tabScopes[4],
+                    child: FocusTraversalGroup(
+                      policy: OrderedTraversalPolicy(),
+                      child: ListView(
+                        padding: const EdgeInsets.only(top: 16, bottom: 160),
+                        children: [
+                          _section(_tr(context, 'Host', 'Host')),
+                          _toggle(
+                            _tr(
+                              context,
+                              'Optimize Game Settings',
+                              'Optimizar ajustes del juego',
+                            ),
+                            _tr(
+                              context,
+                              'Let server adjust game settings',
+                              'Permite que el servidor ajuste la configuración del juego',
+                            ),
+                            c.enableSops,
+                            (v) => settings.updateConfig(
+                              c.copyWith(enableSops: v),
                             ),
                           ),
-                        ),
-                        const SizedBox(height: 4),
-                        _FocusableNavTile(
-                          icon: Icons.vpn_lock_rounded,
-                          title: l.remoteAccessVpn,
-                          subtitle: l.remoteAccessVpnDesc,
-                          onTap: () => VpnGuideSheet.show(context),
-                        ),
-
-                        _section(_tr(context, 'Collections', 'Colecciones')),
-                        _FocusableNavTile(
-                          icon: Icons.folder_special_outlined,
-                          title: AppLocalizations.of(context).myCollections,
-                          subtitle: _tr(
-                            context,
-                            'Organize your games into custom groups',
-                            'Organiza tus juegos en grupos personalizados',
-                          ),
-                          onTap: () => Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => const CollectionsScreen(),
+                          _toggle(
+                            _tr(
+                              context,
+                              'Picture in Picture (PiP)',
+                              'Picture in Picture (PiP)',
+                            ),
+                            AppLocalizations.of(context).pipDesc,
+                            c.pipEnabled,
+                            (v) => settings.updateConfig(
+                              c.copyWith(pipEnabled: v),
                             ),
                           ),
-                        ),
 
-                        _section('Jujo Labs'),
-                        // Dynamic Bitrate removed — causes excessive reconnects
-                        // that depend on server-side support. Disabled until
-                        // in-band bitrate renegotiation is implemented.
-                        _toggle(
-                          _tr(context, 'Session Metrics', 'Métricas de sesión'),
-                          _tr(
-                            context,
-                            'Show a post-session report dialog after closing a stream',
-                            'Mostrar un reporte al cerrar una sesión de streaming',
-                          ),
-                          c.enableSessionMetrics,
-                          (v) => settings.updateConfig(
-                            c.copyWith(enableSessionMetrics: v),
-                          ),
-                        ),
-
-                        _choiceTile(
-                          context,
-                          _tr(
-                            context,
-                            'Overlay Trigger',
-                            'Trigger del overlay',
-                          ),
-                          _overlayTriggerLabel(
-                            context,
-                            c.overlayTriggerCombo,
-                            c.overlayTriggerHoldMs,
-                          ),
-                          () => _showOverlayTriggerDialog(
-                            context,
-                            settings,
-                            c,
-                            preferences.buttonScheme,
-                          ),
-                          leading: const Icon(
-                            Icons.gamepad_outlined,
-                            color: Colors.white54,
-                            size: 18,
-                          ),
-                        ),
-
-                        // Desktop keyboard combo for overlay (macOS / Windows)
-                        _choiceTile(
-                          context,
-                          _tr(
-                            context,
-                            'Desktop Overlay Combo',
-                            'Combo de overlay (escritorio)',
-                          ),
-                          c.desktopOverlayKeys.isEmpty
-                              ? _tr(context, 'None', 'Ninguno')
-                              : '${c.desktopOverlayKeys.join(' + ')} • ${(c.desktopOverlayHoldMs / 1000).toStringAsFixed(1)}s',
-                          () => _showDesktopComboDialog(context, settings, c),
-                          leading: const Icon(
-                            Icons.keyboard_outlined,
-                            color: Colors.white54,
-                            size: 18,
-                          ),
-                        ),
-
-                        _choiceTile(
-                          context,
-                          _tr(context, 'Panic Combo', 'Combo del pánico'),
-                          _overlayTriggerLabel(
-                            context,
-                            c.panicCombo,
-                            c.panicHoldMs,
-                          ),
-                          () => _showOverlayTriggerDialog(
-                            context,
-                            settings,
-                            c,
-                            preferences.buttonScheme,
-                            isPanicCombo: true,
-                            titleEn: 'Panic Combo',
-                            titleEs: 'Combo del pánico',
-                            descEn:
-                                'Emergency combo that instantly terminates the running game session on the server. Use when a game is unresponsive.',
-                            descEs:
-                                'Combo de emergencia que termina instantáneamente la sesión del juego en el servidor. Úsalo cuando un juego no responde.',
-                          ),
-                          leading: const Icon(
-                            Icons.warning_amber_outlined,
-                            color: Colors.white54,
-                            size: 18,
-                          ),
-                        ),
-
-                        _choiceTile(
-                          context,
-                          _tr(
-                            context,
-                            'Mouse Mode Trigger',
-                            'Trigger del modo ratón',
-                          ),
-                          _overlayTriggerLabel(
-                            context,
-                            c.mouseModeCombo,
-                            c.mouseModeHoldMs,
-                          ),
-                          () => _showMouseModeComboDialog(
-                            context,
-                            settings,
-                            c,
-                            preferences.buttonScheme,
-                          ),
-                          leading: const Icon(
-                            Icons.mouse_outlined,
-                            color: Colors.white54,
-                            size: 18,
-                          ),
-                        ),
-
-                        _toggle(
-                          _tr(
-                            context,
-                            'Choreographer Vsync',
-                            'Vsync con Choreographer',
-                          ),
-                          _tr(
-                            context,
-                            'Align frame presentation to display refresh (reduces jitter)',
-                            'Alinea la presentación de frames con el refresco de pantalla y reduce jitter',
-                          ),
-                          c.choreographerVsync,
-                          (v) => settings.updateConfig(
-                            c.copyWith(choreographerVsync: v),
-                          ),
-                        ),
-                        _toggle(
-                          _tr(
-                            context,
-                            'Variable Refresh Rate',
-                            'Frecuencia de refresco variable',
-                          ),
-                          _tr(
-                            context,
-                            'Match display Hz to stream FPS (VRR / LTPO panels)',
-                            'Ajusta los Hz de la pantalla al FPS del stream (VRR / paneles LTPO)',
-                          ),
-                          c.enableVrr,
-                          (v) =>
-                              settings.updateConfig(c.copyWith(enableVrr: v)),
-                        ),
-                        _toggle(
-                          _tr(context, 'Direct Submit', 'Direct Submit'),
-                          _tr(
-                            context,
-                            'Bypass SurfaceTexture — zero-copy rendering (Android 10+)',
-                            'Evita SurfaceTexture para renderizado zero-copy (Android 10+)',
-                          ),
-                          c.enableDirectSubmit,
-                          (v) => settings.updateConfig(
-                            c.copyWith(enableDirectSubmit: v),
-                          ),
-                        ),
-                        _toggle(
-                          _tr(
-                            context,
-                            'Force Skia Renderer',
-                            'Forzar Skia Renderer',
-                          ),
-                          _tr(
-                            context,
-                            'Disable Impeller and use Skia/OpenGL. Fixes black screen on some GPUs (requires restart)',
-                            'Desactiva Impeller y usa Skia/OpenGL. Corrige pantalla negra en algunas GPUs (requiere reinicio)',
-                          ),
-                          c.forceSkiaRenderer,
-                          (v) => settings.updateConfig(
-                            c.copyWith(forceSkiaRenderer: v),
-                          ),
-                        ),
-                        _sliderTile(
-                          _tr(
-                            context,
-                            'Frame Queue Depth',
-                            'Profundidad de cola de frames',
-                          ),
-                          c.frameQueueDepth == 0
-                              ? _tr(context, 'Auto', 'Auto')
-                              : _tr(
-                                  context,
-                                  '${c.frameQueueDepth} frame${c.frameQueueDepth > 1 ? 's' : ''}',
-                                  '${c.frameQueueDepth} frame${c.frameQueueDepth > 1 ? 's' : ''}',
-                                ),
-                          c.frameQueueDepth.toDouble(),
-                          0,
-                          5,
-                          5,
-                          (v) => settings.updateConfig(
-                            c.copyWith(frameQueueDepth: v.round()),
-                          ),
-                        ),
-
-                        _section(_tr(context, 'About', 'Acerca de')),
-                        _FocusableNavTile(
-                          icon: Icons.info_outline,
-                          title: _tr(
-                            context,
-                            'About & Credits',
-                            'Acerca de y créditos',
-                          ),
-                          subtitle: _tr(
-                            context,
-                            'Version, credits, Ko-fi',
-                            'Versión, créditos, Ko-fi',
-                          ),
-                          onTap: () => Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => const AboutScreen(),
+                          _section(_tr(context, 'Plugins', 'Plugins')),
+                          _FocusableNavTile(
+                            icon: Icons.extension_outlined,
+                            title: _tr(context, 'Plugins', 'Plugins'),
+                            subtitle: _tr(
+                              context,
+                              'Game metadata, background videos…',
+                              'Metadatos de juegos, videos de fondo…',
                             ),
-                          ),
-                        ),
-
-                        const SizedBox(height: 48),
-                        Center(
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                _tr(
-                                  context,
-                                  'Keep Jujo alive',
-                                  'Mantén a JUJO con vida',
-                                ),
-                                style: const TextStyle(
-                                  color: Colors.white54,
-                                  fontWeight: FontWeight.w600,
-                                  fontSize: 13,
-                                  letterSpacing: 0.5,
-                                ),
+                            onTap: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => const PluginsScreen(),
                               ),
-                              const SizedBox(height: 12),
-                              Focus(
-                                autofocus: false,
-                                onKeyEvent: (_, ev) {
-                                  if (ev is! KeyDownEvent) {
-                                    return KeyEventResult.ignored;
-                                  }
-                                  if (ev.logicalKey ==
-                                          LogicalKeyboardKey.enter ||
-                                      ev.logicalKey ==
-                                          LogicalKeyboardKey.select ||
-                                      ev.logicalKey ==
-                                          LogicalKeyboardKey.gameButtonA) {
-                                    launchUrl(
-                                      Uri.parse('https://ko-fi.com/jujodev'),
-                                    );
-                                    return KeyEventResult.handled;
-                                  }
-                                  return KeyEventResult.ignored;
-                                },
-                                child: Builder(
-                                  builder: (ctx) {
-                                    final focused = Focus.of(ctx).hasFocus;
-                                    return GestureDetector(
-                                      onTap: () => launchUrl(
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          _FocusableNavTile(
+                            icon: Icons.vpn_lock_rounded,
+                            title: l.remoteAccessVpn,
+                            subtitle: l.remoteAccessVpnDesc,
+                            onTap: () => VpnGuideSheet.show(context),
+                          ),
+
+                          _section(_tr(context, 'Collections', 'Colecciones')),
+                          _FocusableNavTile(
+                            icon: Icons.folder_special_outlined,
+                            title: AppLocalizations.of(context).myCollections,
+                            subtitle: _tr(
+                              context,
+                              'Organize your games into custom groups',
+                              'Organiza tus juegos en grupos personalizados',
+                            ),
+                            onTap: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => const CollectionsScreen(),
+                              ),
+                            ),
+                          ),
+
+                          _section('Jujo Labs'),
+                          // Dynamic Bitrate removed — causes excessive reconnects
+                          // that depend on server-side support. Disabled until
+                          // in-band bitrate renegotiation is implemented.
+                          _toggle(
+                            _tr(
+                              context,
+                              'Session Metrics',
+                              'Métricas de sesión',
+                            ),
+                            _tr(
+                              context,
+                              'Show a post-session report dialog after closing a stream',
+                              'Mostrar un reporte al cerrar una sesión de streaming',
+                            ),
+                            c.enableSessionMetrics,
+                            (v) => settings.updateConfig(
+                              c.copyWith(enableSessionMetrics: v),
+                            ),
+                          ),
+
+                          _choiceTile(
+                            context,
+                            _tr(
+                              context,
+                              'Overlay Trigger',
+                              'Trigger del overlay',
+                            ),
+                            _overlayTriggerLabel(
+                              context,
+                              c.overlayTriggerCombo,
+                              c.overlayTriggerHoldMs,
+                            ),
+                            () => _showOverlayTriggerDialog(
+                              context,
+                              settings,
+                              c,
+                              preferences.buttonScheme,
+                            ),
+                            leading: const Icon(
+                              Icons.gamepad_outlined,
+                              color: Colors.white54,
+                              size: 18,
+                            ),
+                          ),
+
+                          // Desktop keyboard combo for overlay (macOS / Windows)
+                          _choiceTile(
+                            context,
+                            _tr(
+                              context,
+                              'Desktop Overlay Combo',
+                              'Combo de overlay (escritorio)',
+                            ),
+                            c.desktopOverlayKeys.isEmpty
+                                ? _tr(context, 'None', 'Ninguno')
+                                : '${c.desktopOverlayKeys.join(' + ')} • ${(c.desktopOverlayHoldMs / 1000).toStringAsFixed(1)}s',
+                            () => _showDesktopComboDialog(context, settings, c),
+                            leading: const Icon(
+                              Icons.keyboard_outlined,
+                              color: Colors.white54,
+                              size: 18,
+                            ),
+                          ),
+
+                          _choiceTile(
+                            context,
+                            _tr(context, 'Panic Combo', 'Combo del pánico'),
+                            _overlayTriggerLabel(
+                              context,
+                              c.panicCombo,
+                              c.panicHoldMs,
+                            ),
+                            () => _showOverlayTriggerDialog(
+                              context,
+                              settings,
+                              c,
+                              preferences.buttonScheme,
+                              isPanicCombo: true,
+                              titleEn: 'Panic Combo',
+                              titleEs: 'Combo del pánico',
+                              descEn:
+                                  'Emergency combo that instantly terminates the running game session on the server. Use when a game is unresponsive.',
+                              descEs:
+                                  'Combo de emergencia que termina instantáneamente la sesión del juego en el servidor. Úsalo cuando un juego no responde.',
+                            ),
+                            leading: const Icon(
+                              Icons.warning_amber_outlined,
+                              color: Colors.white54,
+                              size: 18,
+                            ),
+                          ),
+
+                          _choiceTile(
+                            context,
+                            _tr(
+                              context,
+                              'Mouse Mode Trigger',
+                              'Trigger del modo ratón',
+                            ),
+                            _overlayTriggerLabel(
+                              context,
+                              c.mouseModeCombo,
+                              c.mouseModeHoldMs,
+                            ),
+                            () => _showMouseModeComboDialog(
+                              context,
+                              settings,
+                              c,
+                              preferences.buttonScheme,
+                            ),
+                            leading: const Icon(
+                              Icons.mouse_outlined,
+                              color: Colors.white54,
+                              size: 18,
+                            ),
+                          ),
+
+                          _toggle(
+                            _tr(
+                              context,
+                              'Choreographer Vsync',
+                              'Vsync con Choreographer',
+                            ),
+                            _tr(
+                              context,
+                              'Align frame presentation to display refresh (reduces jitter)',
+                              'Alinea la presentación de frames con el refresco de pantalla y reduce jitter',
+                            ),
+                            c.choreographerVsync,
+                            (v) => settings.updateConfig(
+                              c.copyWith(choreographerVsync: v),
+                            ),
+                          ),
+                          _toggle(
+                            _tr(
+                              context,
+                              'Variable Refresh Rate',
+                              'Frecuencia de refresco variable',
+                            ),
+                            _tr(
+                              context,
+                              'Match display Hz to stream FPS (VRR / LTPO panels)',
+                              'Ajusta los Hz de la pantalla al FPS del stream (VRR / paneles LTPO)',
+                            ),
+                            c.enableVrr,
+                            (v) =>
+                                settings.updateConfig(c.copyWith(enableVrr: v)),
+                          ),
+                          _toggle(
+                            _tr(context, 'Direct Submit', 'Direct Submit'),
+                            _tr(
+                              context,
+                              'Bypass SurfaceTexture — zero-copy rendering (Android 10+)',
+                              'Evita SurfaceTexture para renderizado zero-copy (Android 10+)',
+                            ),
+                            c.enableDirectSubmit,
+                            (v) => settings.updateConfig(
+                              c.copyWith(enableDirectSubmit: v),
+                            ),
+                          ),
+                          _toggle(
+                            _tr(
+                              context,
+                              'Force Skia Renderer',
+                              'Forzar Skia Renderer',
+                            ),
+                            _tr(
+                              context,
+                              'Disable Impeller and use Skia/OpenGL. Fixes black screen on some GPUs (requires restart)',
+                              'Desactiva Impeller y usa Skia/OpenGL. Corrige pantalla negra en algunas GPUs (requiere reinicio)',
+                            ),
+                            c.forceSkiaRenderer,
+                            (v) => settings.updateConfig(
+                              c.copyWith(forceSkiaRenderer: v),
+                            ),
+                          ),
+                          _sliderTile(
+                            _tr(
+                              context,
+                              'Frame Queue Depth',
+                              'Profundidad de cola de frames',
+                            ),
+                            c.frameQueueDepth == 0
+                                ? _tr(context, 'Auto', 'Auto')
+                                : _tr(
+                                    context,
+                                    '${c.frameQueueDepth} frame${c.frameQueueDepth > 1 ? 's' : ''}',
+                                    '${c.frameQueueDepth} frame${c.frameQueueDepth > 1 ? 's' : ''}',
+                                  ),
+                            c.frameQueueDepth.toDouble(),
+                            0,
+                            5,
+                            5,
+                            (v) => settings.updateConfig(
+                              c.copyWith(frameQueueDepth: v.round()),
+                            ),
+                          ),
+
+                          _section(_tr(context, 'About', 'Acerca de')),
+                          _FocusableNavTile(
+                            icon: Icons.info_outline,
+                            title: _tr(
+                              context,
+                              'About & Credits',
+                              'Acerca de y créditos',
+                            ),
+                            subtitle: _tr(
+                              context,
+                              'Version, credits, Ko-fi',
+                              'Versión, créditos, Ko-fi',
+                            ),
+                            onTap: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => const AboutScreen(),
+                              ),
+                            ),
+                          ),
+
+                          const SizedBox(height: 48),
+                          Center(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  _tr(
+                                    context,
+                                    'Keep Jujo alive',
+                                    'Mantén a JUJO con vida',
+                                  ),
+                                  style: const TextStyle(
+                                    color: Colors.white54,
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 13,
+                                    letterSpacing: 0.5,
+                                  ),
+                                ),
+                                const SizedBox(height: 12),
+                                Focus(
+                                  autofocus: false,
+                                  onKeyEvent: (_, ev) {
+                                    if (ev is! KeyDownEvent) {
+                                      return KeyEventResult.ignored;
+                                    }
+                                    if (ev.logicalKey ==
+                                            LogicalKeyboardKey.enter ||
+                                        ev.logicalKey ==
+                                            LogicalKeyboardKey.select ||
+                                        ev.logicalKey ==
+                                            LogicalKeyboardKey.gameButtonA) {
+                                      launchUrl(
                                         Uri.parse('https://ko-fi.com/jujodev'),
-                                      ),
-                                      child: AnimatedContainer(
-                                        duration: const Duration(
-                                          milliseconds: 150,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          borderRadius: BorderRadius.circular(
-                                            8,
+                                      );
+                                      return KeyEventResult.handled;
+                                    }
+                                    return KeyEventResult.ignored;
+                                  },
+                                  child: Builder(
+                                    builder: (ctx) {
+                                      final focused = Focus.of(ctx).hasFocus;
+                                      return GestureDetector(
+                                        onTap: () => launchUrl(
+                                          Uri.parse(
+                                            'https://ko-fi.com/jujodev',
                                           ),
-                                          boxShadow: focused
-                                              ? [
-                                                  BoxShadow(
-                                                    color: const Color(
-                                                      0xFF29abe0,
-                                                    ).withValues(alpha: 0.6),
-                                                    blurRadius: 16,
-                                                    spreadRadius: 4,
-                                                  ),
-                                                ]
-                                              : [],
-                                          border: focused
-                                              ? Border.all(
-                                                  color: Colors.white,
-                                                  width: 2,
-                                                )
-                                              : null,
                                         ),
-                                        child: ClipRRect(
-                                          borderRadius: BorderRadius.circular(
-                                            8,
+                                        child: AnimatedContainer(
+                                          duration: const Duration(
+                                            milliseconds: 150,
                                           ),
-                                          child: Image.network(
-                                            'https://storage.ko-fi.com/cdn/kofi2.png?v=3',
-                                            height: 40,
-                                            errorBuilder: (_, _, _) => Container(
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                    horizontal: 16,
-                                                    vertical: 10,
+                                          decoration: BoxDecoration(
+                                            borderRadius: BorderRadius.circular(
+                                              8,
+                                            ),
+                                            boxShadow: focused
+                                                ? [
+                                                    BoxShadow(
+                                                      color: const Color(
+                                                        0xFF29abe0,
+                                                      ).withValues(alpha: 0.6),
+                                                      blurRadius: 16,
+                                                      spreadRadius: 4,
+                                                    ),
+                                                  ]
+                                                : [],
+                                            border: focused
+                                                ? Border.all(
+                                                    color: Colors.white,
+                                                    width: 2,
+                                                  )
+                                                : null,
+                                          ),
+                                          child: ClipRRect(
+                                            borderRadius: BorderRadius.circular(
+                                              8,
+                                            ),
+                                            child: Image.network(
+                                              'https://storage.ko-fi.com/cdn/kofi2.png?v=3',
+                                              height: 40,
+                                              errorBuilder: (_, _, _) => Container(
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                      horizontal: 16,
+                                                      vertical: 10,
+                                                    ),
+                                                color: const Color(0xFF29abe0),
+                                                child: const Text(
+                                                  'Support me on Ko-fi',
+                                                  style: TextStyle(
+                                                    color: Colors.white,
+                                                    fontWeight: FontWeight.bold,
                                                   ),
-                                              color: const Color(0xFF29abe0),
-                                              child: const Text(
-                                                'Support me on Ko-fi',
-                                                style: TextStyle(
-                                                  color: Colors.white,
-                                                  fontWeight: FontWeight.bold,
                                                 ),
                                               ),
                                             ),
                                           ),
                                         ),
-                                      ),
-                                    );
-                                  },
+                                      );
+                                    },
+                                  ),
                                 ),
-                              ),
-                            ],
+                              ],
+                            ),
                           ),
-                        ),
-                        const SizedBox(height: 32),
-                      ],
+                          const SizedBox(height: 32),
+                        ],
+                      ),
                     ),
                   ),
                 ],
