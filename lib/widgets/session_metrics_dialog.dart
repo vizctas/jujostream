@@ -1,4 +1,5 @@
-﻿import 'dart:math' as math;
+﻿import 'dart:async';
+import 'dart:math' as math;
 import 'dart:io';
 import 'dart:ui' as ui;
 
@@ -69,6 +70,11 @@ class _SessionMetricsDialogState extends State<SessionMetricsDialog>
   late final Animation<double> _cardAnim;
   late final Animation<double> _chartAnim;
 
+  /// Auto-dismiss countdown — configurable via StreamConfiguration.metricsDismissSec.
+  late final int _autoDismissSec;
+  late int _countdown;
+  Timer? _countdownTimer;
+
   @override
   void initState() {
     super.initState();
@@ -84,11 +90,36 @@ class _SessionMetricsDialogState extends State<SessionMetricsDialog>
       parent: _animCtrl,
       curve: const Interval(0.25, 1.0, curve: Curves.easeOutCubic),
     );
+    _autoDismissSec = widget.config?.metricsDismissSec ?? 20;
+    _countdown = _autoDismissSec;
     _animCtrl.forward();
+    if (_autoDismissSec > 0) _startCountdown();
+  }
+
+  void _startCountdown() {
+    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      setState(() => _countdown--);
+      if (_countdown <= 0) {
+        timer.cancel();
+        Navigator.of(context).pop();
+      }
+    });
+  }
+
+  void _resetCountdown() {
+    if (_autoDismissSec <= 0) return;
+    _countdownTimer?.cancel();
+    setState(() => _countdown = _autoDismissSec);
+    _startCountdown();
   }
 
   @override
   void dispose() {
+    _countdownTimer?.cancel();
     _focusNode.dispose();
     _animCtrl.dispose();
     _scrollCtrl.dispose();
@@ -182,14 +213,17 @@ class _SessionMetricsDialogState extends State<SessionMetricsDialog>
               return KeyEventResult.handled;
             }
             if (k == LogicalKeyboardKey.arrowDown) {
+              _resetCountdown();
               _scrollBy(100);
               return KeyEventResult.handled;
             }
             if (k == LogicalKeyboardKey.arrowUp) {
+              _resetCountdown();
               _scrollBy(-100);
               return KeyEventResult.handled;
             }
             if (k == LogicalKeyboardKey.gameButtonY) {
+              _resetCountdown();
               _shareSummary(context);
               return KeyEventResult.handled;
             }
@@ -281,12 +315,28 @@ class _SessionMetricsDialogState extends State<SessionMetricsDialog>
                             const SizedBox(width: 8),
                             GestureDetector(
                               onTap: () => Navigator.of(context).pop(),
-                              child: const Padding(
-                                padding: EdgeInsets.all(4),
-                                child: Icon(
-                                  Icons.close_rounded,
-                                  color: _kW2,
-                                  size: 20,
+                              child: Padding(
+                                padding: const EdgeInsets.all(4),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    if (_autoDismissSec > 0) ...[
+                                      Text(
+                                        '${_countdown}s',
+                                        style: const TextStyle(
+                                          color: _kW3,
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 4),
+                                    ],
+                                    const Icon(
+                                      Icons.close_rounded,
+                                      color: _kW2,
+                                      size: 20,
+                                    ),
+                                  ],
                                 ),
                               ),
                             ),

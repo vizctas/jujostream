@@ -170,6 +170,7 @@ class _FirstRunGateState extends State<_FirstRunGate>
   static const _prefKey = 'first_run_shown';
   bool _checked = false;
   bool _shouldShow = false;
+  bool _disclaimerShowing = false;
   bool _showStartupVideo = false;
   String? _startupVideoPath;
   bool _focusModeEnabled = false;
@@ -219,7 +220,8 @@ class _FirstRunGateState extends State<_FirstRunGate>
       _startupVideoPath = startupPath;
       _focusModeEnabled = focusMode;
     });
-    if (_shouldShow) {
+    if (_shouldShow && !_disclaimerShowing) {
+      _disclaimerShowing = true;
       WidgetsBinding.instance.addPostFrameCallback((_) => _showDisclaimer());
     }
   }

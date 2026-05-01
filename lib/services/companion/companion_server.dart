@@ -320,6 +320,7 @@ class CompanionServer {
       'stream_dynamic_bitrate_sens':
           streamConfig?['dynamicBitrateSensitivity'] ?? 2,
       'stream_session_metrics': streamConfig?['enableSessionMetrics'] ?? false,
+      'stream_metrics_dismiss_sec': streamConfig?['metricsDismissSec'] ?? 20,
       'stream_host_preset_override':
           streamConfig?['hostPresetOverrideEnabled'] ?? false,
       'stream_host_preset_override_id':
@@ -621,6 +622,7 @@ class CompanionServer {
         'stream_dynamic_bitrate': 'dynamicBitrateEnabled',
         'stream_dynamic_bitrate_sens': 'dynamicBitrateSensitivity',
         'stream_session_metrics': 'enableSessionMetrics',
+        'stream_metrics_dismiss_sec': 'metricsDismissSec',
         'stream_host_preset_override': 'hostPresetOverrideEnabled',
         'stream_host_preset_override_id': 'hostPresetOverrideId',
 
@@ -1115,6 +1117,9 @@ const _companionHtml = r'''
   <div class="toggle"><input type="checkbox" id="streamSops"><span data-i18n="optimizeGameSettings"></span></div>
   <div class="toggle"><input type="checkbox" id="streamPerfOverlay"><span data-i18n="performanceOverlayLabel"></span></div>
   <div class="toggle"><input type="checkbox" id="streamSessionMetrics"><span data-i18n="sessionMetrics"></span></div>
+  <label data-i18n="metricsDismissLabel"></label>
+  <input type="text" id="streamMetricsDismiss" inputmode="numeric" placeholder="20">
+  <p class="hint" data-i18n="metricsDismissHint"></p>
   <div class="toggle"><input type="checkbox" id="streamChoreoVsync"><span data-i18n="choreographerVsync"></span></div>
   <div class="toggle"><input type="checkbox" id="streamVrr"><span data-i18n="variableRefreshRate"></span></div>
   <div class="toggle"><input type="checkbox" id="streamDirectSubmit"><span data-i18n="directSubmit"></span></div>
@@ -1350,7 +1355,8 @@ const L = {
     fullRangeColor: 'Full Range Color (0-255)', ultraLowLatency: 'Ultra Low Latency',
     lowLatencyFrameBalance: 'Low Latency Frame Balance', pipLabel: 'Picture in Picture (PiP)',
     optimizeGameSettings: 'Optimize Game Settings', performanceOverlayLabel: 'Performance Overlay',
-    sessionMetrics: 'Session Metrics', choreographerVsync: 'Choreographer Vsync',
+    sessionMetrics: 'Session Metrics', metricsDismissLabel: 'Metrics Auto-Dismiss (seconds)', metricsDismissHint: '0 = disabled (manual dismiss only)',
+    choreographerVsync: 'Choreographer Vsync',
     variableRefreshRate: 'Variable Refresh Rate', directSubmit: 'Direct Submit',
     audioTitle: 'Audio', audioConfigLabel: 'Audio Config', stereoLabel: 'Stereo',
     surround51: '5.1 Surround', surround71: '7.1 Surround',
@@ -1443,7 +1449,8 @@ const L = {
     fullRangeColor: 'Color de rango completo (0-255)', ultraLowLatency: 'Ultra baja latencia',
     lowLatencyFrameBalance: 'Balance de frames en baja latencia', pipLabel: 'Picture in Picture (PiP)',
     optimizeGameSettings: 'Optimizar ajustes del juego', performanceOverlayLabel: 'Overlay de rendimiento',
-    sessionMetrics: 'Métricas de sesión', choreographerVsync: 'Vsync con Choreographer',
+    sessionMetrics: 'Métricas de sesión', metricsDismissLabel: 'Auto-cerrar métricas (segundos)', metricsDismissHint: '0 = desactivado (cerrar manualmente)',
+    choreographerVsync: 'Vsync con Choreographer',
     variableRefreshRate: 'Frecuencia de refresco variable', directSubmit: 'Direct Submit',
     audioTitle: 'Audio', audioConfigLabel: 'Configuración de audio', stereoLabel: 'Estéreo',
     surround51: 'Surround 5.1', surround71: 'Surround 7.1',
@@ -1610,6 +1617,7 @@ async function load() {
     document.getElementById('streamSops').checked = c.stream_enable_sops ?? true;
     document.getElementById('streamPerfOverlay').checked = c.stream_perf_overlay || false;
     document.getElementById('streamSessionMetrics').checked = c.stream_session_metrics || false;
+    document.getElementById('streamMetricsDismiss').value = c.stream_metrics_dismiss_sec ?? 20;
     document.getElementById('streamChoreoVsync').checked = c.stream_choreographer_vsync || false;
     document.getElementById('streamVrr').checked = c.stream_vrr || false;
     document.getElementById('streamDirectSubmit').checked = c.stream_direct_submit || false;
@@ -1661,8 +1669,8 @@ async function load() {
     document.getElementById('streamTouchpadMouse').checked = c.stream_touchpad_mouse || false;
     document.getElementById('streamBtnRemap').value = String(c.stream_button_remap || 0);
     document.getElementById('streamCustomRemap').value = JSON.stringify(c.stream_custom_remap || {}, null, 2);
-    document.getElementById('streamOverlayTriggerCombo').value = c.stream_overlay_trigger_combo || 192;
-    document.getElementById('streamOverlayTriggerHold').value = c.stream_overlay_trigger_hold_ms || 2000;
+    document.getElementById('streamOverlayTriggerCombo').value = c.stream_overlay_trigger_combo ?? 192;
+    document.getElementById('streamOverlayTriggerHold').value = c.stream_overlay_trigger_hold_ms ?? 0;
     // Vibration
     document.getElementById('streamRumble').checked = c.stream_rumble ?? true;
     document.getElementById('streamVibFB').checked = c.stream_vibrate_fallback || false;
@@ -1746,6 +1754,7 @@ async function save() {
       stream_enable_sops: document.getElementById('streamSops').checked,
       stream_perf_overlay: document.getElementById('streamPerfOverlay').checked,
       stream_session_metrics: document.getElementById('streamSessionMetrics').checked,
+      stream_metrics_dismiss_sec: parseInt(document.getElementById('streamMetricsDismiss').value) || 0,
       stream_choreographer_vsync: document.getElementById('streamChoreoVsync').checked,
       stream_vrr: document.getElementById('streamVrr').checked,
       stream_direct_submit: document.getElementById('streamDirectSubmit').checked,
@@ -1785,8 +1794,8 @@ async function save() {
       stream_touchpad_mouse: document.getElementById('streamTouchpadMouse').checked,
       stream_button_remap: parseInt(document.getElementById('streamBtnRemap').value),
       stream_custom_remap: (() => { try { return JSON.parse(document.getElementById('streamCustomRemap').value || '{}'); } catch (_) { return {}; } })(),
-      stream_overlay_trigger_combo: parseInt(document.getElementById('streamOverlayTriggerCombo').value) || 192,
-      stream_overlay_trigger_hold_ms: parseInt(document.getElementById('streamOverlayTriggerHold').value) || 2000,
+      stream_overlay_trigger_combo: parseInt(document.getElementById('streamOverlayTriggerCombo').value) || 0,
+      stream_overlay_trigger_hold_ms: parseInt(document.getElementById('streamOverlayTriggerHold').value) || 0,
       // Vibration
       stream_rumble: document.getElementById('streamRumble').checked,
       stream_vibrate_fallback: document.getElementById('streamVibFB').checked,

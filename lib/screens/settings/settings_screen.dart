@@ -1203,6 +1203,20 @@ class _SettingsScreenState extends State<SettingsScreen>
                               c.copyWith(enableSessionMetrics: v),
                             ),
                           ),
+                          if (c.enableSessionMetrics)
+                            _sliderTile(
+                              _tr(context, 'Metrics Auto-Dismiss', 'Auto-cerrar métricas'),
+                              c.metricsDismissSec == 0
+                                  ? _tr(context, 'Off', 'Desactivado')
+                                  : '${c.metricsDismissSec}s',
+                              c.metricsDismissSec.toDouble(),
+                              0,
+                              60,
+                              12,
+                              (v) => settings.updateConfig(
+                                c.copyWith(metricsDismissSec: v.toInt()),
+                              ),
+                            ),
 
                           _choiceTile(
                             context,
@@ -4618,9 +4632,9 @@ class _OverlayTriggerDialogState extends State<_OverlayTriggerDialog> {
                   title: _tr(context, 'Hold Time', 'Tiempo de pulsacion'),
                   label: '',
                   value: _holdMs.toDouble(),
-                  min: 300,
+                  min: 0,
                   max: 5000,
-                  divisions: 47,
+                  divisions: 50,
                   focusNode: _holdFocusNode,
                   labelBuilder: (value) =>
                       '${(value / 1000).toStringAsFixed(1)}s',
