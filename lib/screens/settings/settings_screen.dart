@@ -613,6 +613,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                               (v) => settings.updateConfig(
                                 c.copyWith(gamepadMouseSpeed: v),
                               ),
+                              labelBuilder: (v) => '${v.toStringAsFixed(1)}x',
                             ),
                           _toggle(
                             _tr(
@@ -677,6 +678,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                               (v) => settings.updateConfig(
                                 c.copyWith(trackpadSensitivityX: v.toInt()),
                               ),
+                              labelBuilder: (v) => '${(v / 100).toStringAsFixed(1)}x',
                             ),
                             _sliderTile(
                               _tr(
@@ -692,6 +694,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                               (v) => settings.updateConfig(
                                 c.copyWith(trackpadSensitivityY: v.toInt()),
                               ),
+                              labelBuilder: (v) => '${(v / 100).toStringAsFixed(1)}x',
                             ),
                           ],
 
@@ -1216,6 +1219,9 @@ class _SettingsScreenState extends State<SettingsScreen>
                               (v) => settings.updateConfig(
                                 c.copyWith(metricsDismissSec: v.toInt()),
                               ),
+                              labelBuilder: (v) => v == 0
+                                  ? _tr(context, 'Off', 'Desactivado')
+                                  : '${v.toInt()}s',
                             ),
 
                           _choiceTile(
@@ -1391,6 +1397,11 @@ class _SettingsScreenState extends State<SettingsScreen>
                             (v) => settings.updateConfig(
                               c.copyWith(frameQueueDepth: v.round()),
                             ),
+                            labelBuilder: (v) {
+                              final i = v.round();
+                              if (i == 0) return _tr(context, 'Auto', 'Auto');
+                              return '$i frame${i > 1 ? 's' : ''}';
+                            },
                           ),
 
                           _section(_tr(context, 'About', 'Acerca de')),
@@ -2164,8 +2175,9 @@ class _SettingsScreenState extends State<SettingsScreen>
     double min,
     double max,
     int divisions,
-    ValueChanged<double> onChanged,
-  ) {
+    ValueChanged<double> onChanged, {
+    String Function(double value)? labelBuilder,
+  }) {
     return _SliderTile(
       title: title,
       label: label,
@@ -2174,6 +2186,7 @@ class _SettingsScreenState extends State<SettingsScreen>
       max: max,
       divisions: divisions,
       onChanged: onChanged,
+      labelBuilder: labelBuilder,
     );
   }
 

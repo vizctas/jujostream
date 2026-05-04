@@ -224,6 +224,18 @@ class MainActivity : FlutterActivity() {
         super.onCreate(savedInstanceState)
         ensureNotificationPermission()
 
+        // Force the window background to black to prevent green edges on devices
+        // with rounded-corner displays. The SurfaceView buffer may contain
+        // uninitialised (green YUV) pixels that bleed through in corners.
+        window.setBackgroundDrawableResource(android.R.color.black)
+
+        // Extend content into display cutout areas (notch/rounded corners)
+        // to prevent any gap between Flutter content and screen edges.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            window.attributes.layoutInDisplayCutoutMode =
+                android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+        }
+
         window.decorView.post { killFocusHighlightRecursive(window.decorView) }
     }
 
@@ -262,6 +274,16 @@ class MainActivity : FlutterActivity() {
                 killFocusHighlightRecursive(view.getChildAt(i))
             }
         }
+    }
+
+    override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+        // Intercept mouse-sourced touch events (ACTION_DOWN/UP/MOVE from
+        // physical mouse clicks) during streaming. Without this, they leak
+        // through to Flutter's Listener widgets which send ABSOLUTE mouse
+        // positions that conflict with the RELATIVE deltas sent by
+        // handleMotionEvent — causing the cursor to jump on click.
+        if (gamepadHandler?.handleTouchEvent(event) == true) return true
+        return super.dispatchTouchEvent(event)
     }
 
     override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
