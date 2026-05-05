@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Email Confirmed</title>
+  <style>
+    :root {
+      --bg: #f6efe2;
+      --ink: #2b241f;
+      --muted: #75685d;
+      --card: rgba(255, 255, 255, 0.72);
+      --accent: #9a6a43;
+      --accent-soft: #e8d0b4;
+      --success: #5f8c65;
+      --shadow: 0 24px 70px rgba(55, 39, 25, 0.16);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 50% 18%, rgba(255, 226, 188, 0.9), transparent 30%),
+        radial-gradient(circle at 20% 85%, rgba(176, 205, 164, 0.42), transparent 28%),
+        radial-gradient(circle at 85% 80%, rgba(226, 190, 154, 0.35), transparent 30%),
+        linear-gradient(145deg, #edf3df 0%, #faecd6 48%, #efe4cf 100%);
+      display: grid;
+      place-items: center;
+      padding: 24px;
+      overflow: hidden;
+    }
+
+    .page-shell {
+      position: relative;
+      width: min(100%, 980px);
+      min-height: 620px;
+      display: grid;
+      place-items: center;
+    }
+
+    .blob {
+      position: absolute;
+      width: 420px;
+      height: 420px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.28);
+      filter: blur(18px);
+      z-index: 0;
+    }
+
+    .blob.one {
+      top: -80px;
+      left: -120px;
+    }
+
+    .blob.two {
+      right: -130px;
+      bottom: -100px;
+      background: rgba(180, 202, 162, 0.28);
+    }
+
+    .card {
+      position: relative;
+      z-index: 2;
+      width: min(100%, 560px);
+      padding: 44px 34px 38px;
+      border: 1px solid rgba(255, 255, 255, 0.64);
+      border-radius: 34px;
+      background: var(--card);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
+      text-align: center;
+      overflow: hidden;
+    }
+
+    .card::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.18));
+      pointer-events: none;
+      z-index: -1;
+    }
+
+    .pet-frame {
+      position: relative;
+      width: 172px;
+      height: 172px;
+      margin: 0 auto 28px;
+      border-radius: 38px;
+      padding: 8px;
+      background: linear-gradient(145deg, rgba(255, 255, 255, 0.95), rgba(232, 208, 180, 0.72));
+      box-shadow: 0 18px 40px rgba(71, 49, 31, 0.18);
+      transform: rotate(-2deg);
+    }
+
+    .pet-frame::after {
+      content: "✓";
+      position: absolute;
+      right: -8px;
+      bottom: -8px;
+      width: 48px;
+      height: 48px;
+      display: grid;
+      place-items: center;
+      border: 5px solid #fff8ef;
+      border-radius: 50%;
+      background: var(--success);
+      color: white;
+      font-size: 24px;
+      font-weight: 800;
+      box-shadow: 0 12px 24px rgba(72, 116, 78, 0.28);
+    }
+
+    .pet-frame img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      border-radius: 30px;
+      display: block;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 14px;
+      padding: 8px 14px;
+      border-radius: 999px;
+      background: rgba(95, 140, 101, 0.12);
+      color: #466c4b;
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(34px, 5vw, 58px);
+      line-height: 0.98;
+      letter-spacing: -0.06em;
+    }
+
+    p {
+      max-width: 390px;
+      margin: 18px auto 0;
+      color: var(--muted);
+      font-size: 17px;
+      line-height: 1.65;
+    }
+
+    .action-row {
+      display: flex;
+      justify-content: center;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 32px;
+    }
+
+    .button {
+      appearance: none;
+      border: 0;
+      border-radius: 18px;
+      padding: 14px 20px;
+      font: inherit;
+      font-weight: 800;
+      cursor: pointer;
+      transition: transform 180ms ease, box-shadow 180ms ease;
+    }
+
+    .button:hover {
+      transform: translateY(-2px);
+    }
+
+    .button.primary {
+      background: var(--ink);
+      color: white;
+      box-shadow: 0 16px 30px rgba(43, 36, 31, 0.2);
+    }
+
+    .button.secondary {
+      background: rgba(255, 255, 255, 0.58);
+      color: var(--ink);
+      border: 1px solid rgba(43, 36, 31, 0.08);
+    }
+
+    .tiny-note {
+      margin-top: 26px;
+      font-size: 13px;
+      color: rgba(117, 104, 93, 0.82);
+    }
+
+    @media (max-width: 560px) {
+      body {
+        padding: 16px;
+      }
+
+      .page-shell {
+        min-height: auto;
+      }
+
+      .card {
+        padding: 34px 22px 30px;
+        border-radius: 28px;
+      }
+
+      .pet-frame {
+        width: 148px;
+        height: 148px;
+        border-radius: 32px;
+      }
+
+      .pet-frame img {
+        border-radius: 24px;
+      }
+
+      .button {
+        width: 100%;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page-shell">
+    <div class="blob one"></div>
+    <div class="blob two"></div>
+
+    <section class="card" aria-labelledby="confirmation-title">
+      <div class="pet-frame" aria-hidden="true">
+         <img src="https://github.com/vizctas/jujostream/blob/master/assets/images/welcome.png"  alt="filters common"/>
+      </div>
+
+      <div class="eyebrow">Account confirmed</div>
+
+      <h1 id="confirmation-title">Welcome to Jujo.Stream</h1>
+
+      <p>You have confirmed your mail. Your account is ready, and you can safely continue.</p>
+
+      <div class="action-row">
+        <button class="button primary" type="button">Continue</button>
+        <button class="button secondary" type="button">Back to home</button>
+      </div>
+
+      <div class="tiny-note">Secure & verified connection - Supabase</div>
+    </section>
+  </main>
+</body>
+</html>
