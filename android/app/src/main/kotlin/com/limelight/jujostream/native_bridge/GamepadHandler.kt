@@ -998,6 +998,84 @@ class GamepadHandler(
         return true
     }
 
+    /**
+     * Intercepts touch events (ACTION_DOWN, ACTION_UP, ACTION_MOVE) that
+     * originate from a physical mouse.
+     *
+     * On Android, physical mouse clicks are dispatched through
+     * `dispatchTouchEvent()` (not `dispatchGenericMotionEvent()`).
+     * Without this interception, mouse-click touch events leak through
+     * to Flutter's Listener widgets, which send ABSOLUTE mouse positions
+     * that conflict with the RELATIVE deltas sent by [handleMotionEvent].
+     * This dual-source race condition causes the cursor to jump on click.
+     *
+     * Returns `true` if the event was consumed (mouse-sourced during
+     * streaming), `false` to let Flutter handle it (genuine touch input).
+     */
+    fun handleTouchEvent(event: MotionEvent): Boolean {
+        if (!isStreaming) return false
+
+        val source = event.source
+        val isMouseSource = (source and InputDevice.SOURCE_MOUSE) == InputDevice.SOURCE_MOUSE
+
+        // Only intercept events that originate from a physical mouse.
+        // Genuine finger-touch events (SOURCE_TOUCHSCREEN) must pass
+        // through to Flutter so DirectTouchHandler / TrackpadInputHandler
+        // can process them normally.
+        if (!isMouseSource) return false
+
+        if (overlayVisible) return false
+
+        // The mouse button press/release is already handled by
+        // handleMotionEvent() via ACTION_BUTTON_PRESS/RELEASE in
+        // dispatchGenericMotionEvent. The ACTION_DOWN/UP/MOVE events
+        // arriving here are the pointer-tracking counterparts that
+        // Android sends through the touch pipeline. We consume them
+        // to prevent Flutter from seeing them and sending conflicting
+        // absolute mouse positions.
+        //
+        // For ACTION_MOVE during a held button (drag), we forward the
+        // relative delta so the server cursor tracks correctly.
+        val action = event.actionMasked
+        when (action) {
+            MotionEvent.ACTION_DOWN -> {
+                // Seed the last-known position so the first drag delta
+                // is correct. The button press itself was already sent
+                // by handleMotionEvent (ACTION_BUTTON_PRESS).
+                lastMouseX = event.x
+                lastMouseY = event.y
+                return true
+            }
+            MotionEvent.ACTION_MOVE -> {
+                // Forward relative deltas during mouse-button drag.
+                val x = event.x
+                val y = event.y
+                if (lastMouseX >= 0f) {
+                    val rawDx = (x - lastMouseX) * mouseSensitivity
+                    val rawDy = (y - lastMouseY) * mouseSensitivity
+                    val dx = rawDx.toInt().coerceIn(-32767, 32767).toShort()
+                    val dy = rawDy.toInt().coerceIn(-32767, 32767).toShort()
+                    if (dx != 0.toShort() || dy != 0.toShort()) {
+                        StreamingBridge.nativeSendMouseMove(dx, dy)
+                    }
+                }
+                lastMouseX = x
+                lastMouseY = y
+                return true
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                // Update tracking position. The button release was
+                // already sent by handleMotionEvent (ACTION_BUTTON_RELEASE).
+                lastMouseX = event.x
+                lastMouseY = event.y
+                return true
+            }
+        }
+
+        // Consume any other mouse-sourced touch actions to be safe.
+        return true
+    }
+
     fun handleMotionEvent(event: MotionEvent): Boolean {
         if (!isStreaming) return false
 

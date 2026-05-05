@@ -948,7 +948,8 @@ class _PcViewScreenState extends State<PcViewScreen>
 
   void _showAddComputerDialog() {
     final l = AppLocalizations.of(context);
-    final controller = TextEditingController();
+    final addressController = TextEditingController();
+    final portController = TextEditingController();
     showDialog(
       context: context,
       builder: (ctx) => Focus(
@@ -969,21 +970,48 @@ class _PcViewScreenState extends State<PcViewScreen>
             l.addPcManually,
             style: const TextStyle(color: Colors.white),
           ),
-          content: TextField(
-            controller: controller,
-            autofocus: true,
-            style: const TextStyle(color: Colors.white),
-            decoration: InputDecoration(
-              hintText: l.ipAddressHint,
-              hintStyle: const TextStyle(color: Colors.white38),
-              enabledBorder: const UnderlineInputBorder(
-                borderSide: BorderSide(color: Colors.white24),
+          content: Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Expanded(
+                flex: 3,
+                child: TextField(
+                  controller: addressController,
+                  autofocus: true,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: InputDecoration(
+                    hintText: l.ipAddressHint,
+                    hintStyle: const TextStyle(color: Colors.white38),
+                    enabledBorder: const UnderlineInputBorder(
+                      borderSide: BorderSide(color: Colors.white24),
+                    ),
+                    focusedBorder: UnderlineInputBorder(
+                      borderSide: BorderSide(color: ctx.read<ThemeProvider>().accent),
+                    ),
+                  ),
+                  keyboardType: TextInputType.url,
+                ),
               ),
-              focusedBorder: UnderlineInputBorder(
-                borderSide: BorderSide(color: ctx.read<ThemeProvider>().accent),
+              const SizedBox(width: 12),
+              Expanded(
+                flex: 1,
+                child: TextField(
+                  controller: portController,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: InputDecoration(
+                    hintText: '47989',
+                    hintStyle: const TextStyle(color: Colors.white38),
+                    enabledBorder: const UnderlineInputBorder(
+                      borderSide: BorderSide(color: Colors.white24),
+                    ),
+                    focusedBorder: UnderlineInputBorder(
+                      borderSide: BorderSide(color: ctx.read<ThemeProvider>().accent),
+                    ),
+                  ),
+                  keyboardType: TextInputType.number,
+                ),
               ),
-            ),
-            keyboardType: TextInputType.url,
+            ],
           ),
           actions: [
             TextButton(
@@ -992,10 +1020,11 @@ class _PcViewScreenState extends State<PcViewScreen>
             ),
             TextButton(
               onPressed: () {
-                if (controller.text.isNotEmpty) {
-                  context.read<ComputerProvider>().addComputerManually(
-                    controller.text.trim(),
-                  );
+                final address = addressController.text.trim();
+                if (address.isNotEmpty) {
+                  final port = portController.text.trim();
+                  final combined = port.isNotEmpty ? '$address:$port' : address;
+                  context.read<ComputerProvider>().addComputerManually(combined);
                   Navigator.pop(ctx);
                 }
               },

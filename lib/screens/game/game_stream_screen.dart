@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -1696,6 +1697,13 @@ class _GameStreamScreenState extends State<GameStreamScreen>
       // MediaCodec may output frames padded to macroblock boundaries (e.g.
       // 1080→1088 for H.264 16-px alignment). The SurfaceTexture contains
       // the full padded buffer; ClipRect hides the uninitialised green edge.
+      //
+      // Fix: Wrap the Texture in an OverflowBox → ClipRect chain so that any
+      // extra pixels beyond the requested resolution are hard-clipped regardless
+      // of the scale mode. The OverflowBox allows the Texture to render at its
+      // native buffer size (which may exceed config dimensions due to macroblock
+      // alignment), while the outer ClipRect + SizedBox enforce the exact
+      // requested resolution boundary before FittedBox scales to screen.
       return ColoredBox(
         color: Colors.black,
         child: SizedBox.expand(
@@ -1705,7 +1713,14 @@ class _GameStreamScreenState extends State<GameStreamScreen>
             child: SizedBox(
               width: _config.width.toDouble(),
               height: _config.height.toDouble(),
-              child: Texture(textureId: _textureId!),
+              child: ClipRect(
+                child: OverflowBox(
+                  alignment: Alignment.topLeft,
+                  maxWidth: _config.width.toDouble(),
+                  maxHeight: _config.height.toDouble(),
+                  child: Texture(textureId: _textureId!),
+                ),
+              ),
             ),
           ),
         ),
@@ -1809,6 +1824,15 @@ class _GameStreamScreenState extends State<GameStreamScreen>
       cursor: cursorStyle,
       onHover: (event) {
         if (!_isConnected) return;
+        // ── Guard: physical mouse hover on Android ──────────────────────
+        // On Android, physical mouse events are handled natively by
+        // GamepadHandler (relative deltas via nativeSendMouseMove).
+        // If Flutter also sends absolute positions here, the two sources
+        // fight and the cursor jumps. Only forward hover for non-mouse
+        // pointer devices (touch/stylus) or on non-Android platforms
+        // where the native handler doesn't intercept mouse events.
+        if (event.kind == PointerDeviceKind.mouse) return;
+
         // Only forward hover as absolute position in directTouch mode
         // (point-and-click) when NO touch gesture is active.
         // This eliminates the race between MouseRegion and DirectTouchHandler.

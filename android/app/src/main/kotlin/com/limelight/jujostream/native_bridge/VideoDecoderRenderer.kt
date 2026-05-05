@@ -439,6 +439,25 @@ class VideoDecoderRenderer(
         }
     }
 
+    private fun logOutputFormatCropInfo(format: MediaFormat) {
+        try {
+            val cropLeft = if (format.containsKey("crop-left")) format.getInteger("crop-left") else -1
+            val cropRight = if (format.containsKey("crop-right")) format.getInteger("crop-right") else -1
+            val cropTop = if (format.containsKey("crop-top")) format.getInteger("crop-top") else -1
+            val cropBottom = if (format.containsKey("crop-bottom")) format.getInteger("crop-bottom") else -1
+            val outWidth = if (format.containsKey(MediaFormat.KEY_WIDTH)) format.getInteger(MediaFormat.KEY_WIDTH) else -1
+            val outHeight = if (format.containsKey(MediaFormat.KEY_HEIGHT)) format.getInteger(MediaFormat.KEY_HEIGHT) else -1
+            Log.i(TAG, "Output format: ${outWidth}x${outHeight}, crop=[$cropLeft,$cropTop,$cropRight,$cropBottom]")
+            if (cropBottom >= 0 && outHeight > 0 && (cropBottom + 1) < outHeight) {
+                Log.w(TAG, "⚠ Macroblock padding detected: output=${outWidth}x${outHeight} " +
+                    "but visible area is ${cropRight + 1}x${cropBottom + 1}. " +
+                    "Green edge expected without Flutter-side ClipRect.")
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not parse crop info from output format: ${e.message}")
+        }
+    }
+
     private fun renderLoopMinLatency() {
         val info = MediaCodec.BufferInfo()
         val decoder = videoDecoder ?: return
@@ -447,7 +466,9 @@ class VideoDecoderRenderer(
             try {
                 val firstIdx = decoder.dequeueOutputBuffer(info, 2_000)
                 if (firstIdx == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
-                    Log.i(TAG, "Output format changed: ${decoder.outputFormat}")
+                    val fmt = decoder.outputFormat
+                    Log.i(TAG, "Output format changed: $fmt")
+                    logOutputFormatCropInfo(fmt)
                     continue
                 }
                 if (firstIdx < 0) continue

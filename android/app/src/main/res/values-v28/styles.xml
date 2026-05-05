@@ -1,14 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- API 26+ overrides (reserved for future per-view theming if needed) -->
+<!-- API 28+ (Android P): Enable rendering into display cutout/rounded-corner areas -->
 <resources>
     <style name="LaunchTheme" parent="@android:style/Theme.Light.NoTitleBar">
         <item name="android:windowBackground">@drawable/launch_background</item>
+        <!-- Extend content into cutout/notch areas to prevent green/black gaps -->
+        <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
     </style>
 
     <style name="NormalTheme" parent="@android:style/Theme.Light.NoTitleBar">
-        <!-- Force black window background to prevent green edges on devices
-             with rounded-corner displays. -->
         <item name="android:windowBackground">@android:color/black</item>
         <item name="android:listSelector">@android:color/transparent</item>
+        <!-- Extend content into cutout/notch areas to prevent green/black gaps
+             on devices with rounded-corner displays -->
+        <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
     </style>
 </resources>

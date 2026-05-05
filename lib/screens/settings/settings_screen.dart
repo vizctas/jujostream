@@ -613,6 +613,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                               (v) => settings.updateConfig(
                                 c.copyWith(gamepadMouseSpeed: v),
                               ),
+                              labelBuilder: (v) => '${v.toStringAsFixed(1)}x',
                             ),
                           _toggle(
                             _tr(
@@ -677,6 +678,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                               (v) => settings.updateConfig(
                                 c.copyWith(trackpadSensitivityX: v.toInt()),
                               ),
+                              labelBuilder: (v) => '${(v / 100).toStringAsFixed(1)}x',
                             ),
                             _sliderTile(
                               _tr(
@@ -692,6 +694,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                               (v) => settings.updateConfig(
                                 c.copyWith(trackpadSensitivityY: v.toInt()),
                               ),
+                              labelBuilder: (v) => '${(v / 100).toStringAsFixed(1)}x',
                             ),
                           ],
 
@@ -1203,6 +1206,23 @@ class _SettingsScreenState extends State<SettingsScreen>
                               c.copyWith(enableSessionMetrics: v),
                             ),
                           ),
+                          if (c.enableSessionMetrics)
+                            _sliderTile(
+                              _tr(context, 'Metrics Auto-Dismiss', 'Auto-cerrar métricas'),
+                              c.metricsDismissSec == 0
+                                  ? _tr(context, 'Off', 'Desactivado')
+                                  : '${c.metricsDismissSec}s',
+                              c.metricsDismissSec.toDouble(),
+                              0,
+                              60,
+                              12,
+                              (v) => settings.updateConfig(
+                                c.copyWith(metricsDismissSec: v.toInt()),
+                              ),
+                              labelBuilder: (v) => v == 0
+                                  ? _tr(context, 'Off', 'Desactivado')
+                                  : '${v.toInt()}s',
+                            ),
 
                           _choiceTile(
                             context,
@@ -1377,6 +1397,11 @@ class _SettingsScreenState extends State<SettingsScreen>
                             (v) => settings.updateConfig(
                               c.copyWith(frameQueueDepth: v.round()),
                             ),
+                            labelBuilder: (v) {
+                              final i = v.round();
+                              if (i == 0) return _tr(context, 'Auto', 'Auto');
+                              return '$i frame${i > 1 ? 's' : ''}';
+                            },
                           ),
 
                           _section(_tr(context, 'About', 'Acerca de')),
@@ -2150,8 +2175,9 @@ class _SettingsScreenState extends State<SettingsScreen>
     double min,
     double max,
     int divisions,
-    ValueChanged<double> onChanged,
-  ) {
+    ValueChanged<double> onChanged, {
+    String Function(double value)? labelBuilder,
+  }) {
     return _SliderTile(
       title: title,
       label: label,
@@ -2160,6 +2186,7 @@ class _SettingsScreenState extends State<SettingsScreen>
       max: max,
       divisions: divisions,
       onChanged: onChanged,
+      labelBuilder: labelBuilder,
     );
   }
 
@@ -4618,9 +4645,9 @@ class _OverlayTriggerDialogState extends State<_OverlayTriggerDialog> {
                   title: _tr(context, 'Hold Time', 'Tiempo de pulsacion'),
                   label: '',
                   value: _holdMs.toDouble(),
-                  min: 300,
+                  min: 0,
                   max: 5000,
-                  divisions: 47,
+                  divisions: 50,
                   focusNode: _holdFocusNode,
                   labelBuilder: (value) =>
                       '${(value / 1000).toStringAsFixed(1)}s',

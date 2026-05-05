@@ -66,6 +66,7 @@ class StreamConfiguration {
   final bool enablePerfOverlay;
   final bool pipEnabled;
   final bool enableSessionMetrics;
+  final int metricsDismissSec;
 
   final bool dynamicBitrateEnabled;
   final int dynamicBitrateSensitivity;
@@ -169,6 +170,7 @@ class StreamConfiguration {
     this.enablePerfOverlay = false,
     this.pipEnabled = true,
     this.enableSessionMetrics = true,
+    this.metricsDismissSec = 20,
     this.dynamicBitrateEnabled = false,
     this.dynamicBitrateSensitivity = 2,
     this.hapticOverlay = true,
@@ -251,6 +253,7 @@ class StreamConfiguration {
     bool? enablePerfOverlay,
     bool? pipEnabled,
     bool? enableSessionMetrics,
+    int? metricsDismissSec,
     bool? dynamicBitrateEnabled,
     int? dynamicBitrateSensitivity,
     bool? hapticOverlay,
@@ -338,6 +341,7 @@ class StreamConfiguration {
       enablePerfOverlay: enablePerfOverlay ?? this.enablePerfOverlay,
       pipEnabled: pipEnabled ?? this.pipEnabled,
       enableSessionMetrics: enableSessionMetrics ?? this.enableSessionMetrics,
+      metricsDismissSec: metricsDismissSec ?? this.metricsDismissSec,
       dynamicBitrateEnabled:
           dynamicBitrateEnabled ?? this.dynamicBitrateEnabled,
       dynamicBitrateSensitivity:
@@ -426,6 +430,7 @@ class StreamConfiguration {
     'enablePerfOverlay': enablePerfOverlay,
     'pipEnabled': pipEnabled,
     'enableSessionMetrics': enableSessionMetrics,
+    'metricsDismissSec': metricsDismissSec,
     'dynamicBitrateEnabled': dynamicBitrateEnabled,
     'dynamicBitrateSensitivity': dynamicBitrateSensitivity,
     'hapticOverlay': hapticOverlay,
@@ -529,6 +534,7 @@ class StreamConfiguration {
       enablePerfOverlay: json['enablePerfOverlay'] ?? false,
       pipEnabled: json['pipEnabled'] ?? false,
       enableSessionMetrics: json['enableSessionMetrics'] ?? true,
+      metricsDismissSec: json['metricsDismissSec'] ?? 20,
       dynamicBitrateEnabled: json['dynamicBitrateEnabled'] ?? false,
       dynamicBitrateSensitivity: json['dynamicBitrateSensitivity'] ?? 2,
       hapticOverlay: json['hapticOverlay'] ?? true,
