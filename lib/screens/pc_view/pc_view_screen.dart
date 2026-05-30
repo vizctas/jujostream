@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:io' as io;
 
-import 'package:file_picker/file_picker.dart';
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
@@ -114,13 +114,12 @@ class _PcViewScreenState extends State<PcViewScreen>
     String? path;
 
     if (io.Platform.isMacOS) {
-      final result = await FilePicker.pickFiles(
-        type: FileType.image,
-        allowMultiple: false,
+      const imageGroup = XTypeGroup(
+        label: 'Images',
+        extensions: ['jpg', 'jpeg', 'png', 'webp'],
       );
-      if (result != null && result.files.isNotEmpty) {
-        path = result.files.single.path;
-      }
+      final result = await openFile(acceptedTypeGroups: [imageGroup]);
+      path = result?.path;
     } else {
       final picker = ImagePicker();
       final picked = await picker.pickImage(source: ImageSource.gallery);
@@ -396,7 +395,11 @@ class _PcViewScreenState extends State<PcViewScreen>
               const SizedBox(width: 6),
               Text(
                 isSelected ? 'Drop here' : 'Select',
-                style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ],
           ),
@@ -407,7 +410,11 @@ class _PcViewScreenState extends State<PcViewScreen>
               const SizedBox(width: 6),
               Text(
                 isSelected ? 'Cancel' : 'Exit',
-                style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ],
           ),
@@ -419,7 +426,11 @@ class _PcViewScreenState extends State<PcViewScreen>
                 const SizedBox(width: 6),
                 const Text(
                   'Tap to select',
-                  style: TextStyle(color: Colors.white54, fontSize: 13, fontWeight: FontWeight.w500),
+                  style: TextStyle(
+                    color: Colors.white54,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                  ),
                 ),
               ],
             )
@@ -431,7 +442,11 @@ class _PcViewScreenState extends State<PcViewScreen>
                 const SizedBox(width: 6),
                 const Text(
                   'Tap to place',
-                  style: TextStyle(color: Colors.white54, fontSize: 13, fontWeight: FontWeight.w500),
+                  style: TextStyle(
+                    color: Colors.white54,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                  ),
                 ),
               ],
             ),
@@ -458,12 +473,11 @@ class _PcViewScreenState extends State<PcViewScreen>
           child: FadeTransition(opacity: fade, child: child),
         );
       },
-      pageBuilder: (ctx, _, _) =>
-          _MainMenuDialog(
-            parentContext: context,
-            onStartTour: _startTour,
-            onRearrange: _startRearrangeMode,
-          ),
+      pageBuilder: (ctx, _, _) => _MainMenuDialog(
+        parentContext: context,
+        onStartTour: _startTour,
+        onRearrange: _startRearrangeMode,
+      ),
     );
   }
 
@@ -795,7 +809,9 @@ class _PcViewScreenState extends State<PcViewScreen>
               onSelect: _rearrangeMode ? null : _showAddComputerDialog,
               onCancel: _rearrangeMode ? _handleRearrangeCancel : null,
               onNav: (dir) => _handleGridNav(index, dir, crossAxisCount),
-              child: _AddServerCard(onTap: _rearrangeMode ? () {} : _showAddComputerDialog),
+              child: _AddServerCard(
+                onTap: _rearrangeMode ? () {} : _showAddComputerDialog,
+              ),
             );
             if (_rearrangeMode) {
               return Opacity(opacity: 0.3, child: addCard);
@@ -809,32 +825,43 @@ class _PcViewScreenState extends State<PcViewScreen>
             key: index == 0 ? _tourServerCardKey : null,
             focusNode: focusNode,
             isSelected: isSelectedForRearrange,
-            onSelect: _rearrangeMode ? () => _handleRearrangeSelect(index, provider) : () => _onComputerTapped(provider.computers[index]),
-            onLongPress: _rearrangeMode ? null : () => _showComputerOptions(provider, provider.computers[index]),
+            onSelect: _rearrangeMode
+                ? () => _handleRearrangeSelect(index, provider)
+                : () => _onComputerTapped(provider.computers[index]),
+            onLongPress: _rearrangeMode
+                ? null
+                : () =>
+                      _showComputerOptions(provider, provider.computers[index]),
             onCancel: _rearrangeMode ? _handleRearrangeCancel : null,
             onNav: (dir) => _handleGridNav(index, dir, crossAxisCount),
             child: _rearrangeMode
-              ? RotationTransition(
-                  turns: Tween(begin: -0.006, end: 0.006).animate(_shakeController!),
-                  child: _ComputerCard(
+                ? RotationTransition(
+                    turns: Tween(
+                      begin: -0.006,
+                      end: 0.006,
+                    ).animate(_shakeController!),
+                    child: _ComputerCard(
+                      computer: provider.computers[index],
+                      customBgPath: provider.computers[index].isPaired
+                          ? _computerBgPaths[provider.computers[index].uuid]
+                          : null,
+                      index: index,
+                      onTap: () => _handleRearrangeSelect(index, provider),
+                      onLongPress: () {},
+                    ),
+                  )
+                : _ComputerCard(
                     computer: provider.computers[index],
                     customBgPath: provider.computers[index].isPaired
                         ? _computerBgPaths[provider.computers[index].uuid]
                         : null,
                     index: index,
-                    onTap: () => _handleRearrangeSelect(index, provider),
-                    onLongPress: () {},
+                    onTap: () => _onComputerTapped(provider.computers[index]),
+                    onLongPress: () => _showComputerOptions(
+                      provider,
+                      provider.computers[index],
+                    ),
                   ),
-                )
-              : _ComputerCard(
-                  computer: provider.computers[index],
-                  customBgPath: provider.computers[index].isPaired
-                      ? _computerBgPaths[provider.computers[index].uuid]
-                      : null,
-                  index: index,
-                  onTap: () => _onComputerTapped(provider.computers[index]),
-                  onLongPress: () => _showComputerOptions(provider, provider.computers[index]),
-                ),
           );
 
           return cardWrapper;
@@ -986,7 +1013,9 @@ class _PcViewScreenState extends State<PcViewScreen>
                       borderSide: BorderSide(color: Colors.white24),
                     ),
                     focusedBorder: UnderlineInputBorder(
-                      borderSide: BorderSide(color: ctx.read<ThemeProvider>().accent),
+                      borderSide: BorderSide(
+                        color: ctx.read<ThemeProvider>().accent,
+                      ),
                     ),
                   ),
                   keyboardType: TextInputType.url,
@@ -1005,7 +1034,9 @@ class _PcViewScreenState extends State<PcViewScreen>
                       borderSide: BorderSide(color: Colors.white24),
                     ),
                     focusedBorder: UnderlineInputBorder(
-                      borderSide: BorderSide(color: ctx.read<ThemeProvider>().accent),
+                      borderSide: BorderSide(
+                        color: ctx.read<ThemeProvider>().accent,
+                      ),
                     ),
                   ),
                   keyboardType: TextInputType.number,
@@ -1024,7 +1055,9 @@ class _PcViewScreenState extends State<PcViewScreen>
                 if (address.isNotEmpty) {
                   final port = portController.text.trim();
                   final combined = port.isNotEmpty ? '$address:$port' : address;
-                  context.read<ComputerProvider>().addComputerManually(combined);
+                  context.read<ComputerProvider>().addComputerManually(
+                    combined,
+                  );
                   Navigator.pop(ctx);
                 }
               },
@@ -1636,7 +1669,11 @@ class _MainMenuDialog extends StatefulWidget {
   final BuildContext parentContext;
   final VoidCallback? onStartTour;
   final VoidCallback? onRearrange;
-  const _MainMenuDialog({required this.parentContext, this.onStartTour, this.onRearrange});
+  const _MainMenuDialog({
+    required this.parentContext,
+    this.onStartTour,
+    this.onRearrange,
+  });
 
   @override
   State<_MainMenuDialog> createState() => _MainMenuDialogState();

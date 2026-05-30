@@ -1,0 +1,2 @@
+1d7d135ca15dca7f1b61fa48a34707afd6f79a30435b377e15310a48d96b35fe  JujoStream-admin-v1.0.8-android.apk
+34aff4b51318381f62beb0b9ce0207fa74ea26ff92357f2f885ee42c36ac3609  JujoStream-admin-v1.0.8-android.aab

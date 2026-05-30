@@ -1,6 +1,9 @@
+import 'dart:io' as io;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:file_picker/file_picker.dart';
+import 'package:file_selector/file_selector.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../l10n/app_localizations.dart';
@@ -229,14 +232,18 @@ class _PluginCardState extends State<_PluginCard> {
   }
 
   Future<void> _pickStartupVideo() async {
-    final result = await FilePicker.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: const ['mp4', 'mov', 'm4v', 'webm', 'mkv'],
-      allowMultiple: false,
-    );
-    if (result == null || result.files.isEmpty) return;
-    final file = result.files.first;
-    final path = file.path;
+    String? path;
+    if (io.Platform.isAndroid || io.Platform.isIOS) {
+      final file = await ImagePicker().pickVideo(source: ImageSource.gallery);
+      path = file?.path;
+    } else {
+      const videoGroup = XTypeGroup(
+        label: 'Videos',
+        extensions: ['mp4', 'mov', 'm4v', 'webm', 'mkv'],
+      );
+      final file = await openFile(acceptedTypeGroups: [videoGroup]);
+      path = file?.path;
+    }
     if (path == null || path.isEmpty) return;
     if (!mounted) return;
 

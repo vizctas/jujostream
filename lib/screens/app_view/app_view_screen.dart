@@ -4,7 +4,6 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:palette_generator/palette_generator.dart';
 import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -2487,7 +2486,10 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
         }
       }
 
-      effectiveConfig = effectiveConfig.resolveMatchDisplay(displayWidth, displayHeight);
+      effectiveConfig = effectiveConfig.resolveMatchDisplay(
+        displayWidth,
+        displayHeight,
+      );
     }
 
     var startingOverlayVisible = false;

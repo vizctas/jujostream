@@ -2,7 +2,7 @@ import 'dart:io' as io;
 import 'dart:math' as math;
 import 'dart:ui';
 
-import 'package:file_picker/file_picker.dart';
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
@@ -241,13 +241,12 @@ class _FocusModeScreenState extends State<FocusModeScreen>
     String? pickedPath;
 
     if (io.Platform.isMacOS) {
-      final result = await FilePicker.pickFiles(
-        type: FileType.image,
-        allowMultiple: false,
+      const imageGroup = XTypeGroup(
+        label: 'Images',
+        extensions: ['jpg', 'jpeg', 'png', 'webp'],
       );
-      if (result != null && result.files.isNotEmpty) {
-        pickedPath = result.files.single.path;
-      }
+      final result = await openFile(acceptedTypeGroups: [imageGroup]);
+      pickedPath = result?.path;
     } else {
       final picker = ImagePicker();
       final picked = await picker.pickImage(source: ImageSource.gallery);
@@ -1253,7 +1252,10 @@ class _FocusServerCircleState extends State<_FocusServerCircle>
                     height: circleSize + borderWidth * 2,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      border: Border.all(color: borderColor, width: borderWidth),
+                      border: Border.all(
+                        color: borderColor,
+                        width: borderWidth,
+                      ),
                       boxShadow: [
                         BoxShadow(
                           color: borderColor.withValues(alpha: 0.35),

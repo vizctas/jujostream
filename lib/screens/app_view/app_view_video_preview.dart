@@ -1,7 +1,6 @@
 part of 'app_view_screen.dart';
 
 mixin _AppViewVideoPreviewMixin on _AppViewScreenBase {
-
   @override
   void _queueAccentColorExtraction(NvApp app) {
     _accentDebounce?.cancel();
@@ -10,7 +9,6 @@ mixin _AppViewVideoPreviewMixin on _AppViewScreenBase {
 
     final reduce = context.read<ThemeProvider>().reduceEffects;
     if (TvDetector.instance.isTV || reduce) {
-
       _accentDebounce = Timer(const Duration(milliseconds: 150), () {
         _scheduleVideoPreview(app);
       });
@@ -35,10 +33,7 @@ mixin _AppViewVideoPreviewMixin on _AppViewScreenBase {
       final url = visibleApps[neighbor].posterUrl;
       if (url == null || url.isEmpty) continue;
 
-      precacheImage(
-        CachedNetworkImageProvider(url, maxWidth: 480),
-        context,
-      );
+      precacheImage(CachedNetworkImageProvider(url, maxWidth: 480), context);
     }
   }
 
@@ -59,7 +54,9 @@ mixin _AppViewVideoPreviewMixin on _AppViewScreenBase {
 
     final themeId = context.read<ThemeProvider>().launcherTheme.id;
     if (themeId == LauncherThemeId.backbone && !_isDetailView) {
-      debugPrint('[JUJO][video] schedule BLOCKED: backbone carousel (not detail)');
+      debugPrint(
+        '[JUJO][video] schedule BLOCKED: backbone carousel (not detail)',
+      );
       _disposeVideoController();
       return;
     }
@@ -69,7 +66,9 @@ mixin _AppViewVideoPreviewMixin on _AppViewScreenBase {
     }
 
     if (_videoForAppId == app.appId && _videoReady) {
-      debugPrint('[JUJO][video] schedule BLOCKED: already showing for ${app.appName}');
+      debugPrint(
+        '[JUJO][video] schedule BLOCKED: already showing for ${app.appName}',
+      );
       return;
     }
 
@@ -82,17 +81,22 @@ mixin _AppViewVideoPreviewMixin on _AppViewScreenBase {
 
     final previewUrl = _previewUrlFor(app);
     if (previewUrl == null) {
-      debugPrint('[JUJO][video] skipped — no URL yet for ${app.appName} '
-          '(steamVideoUrl=${app.steamVideoUrl}, rawgClipUrl=${app.rawgClipUrl})');
+      debugPrint(
+        '[JUJO][video] skipped — no URL yet for ${app.appName} '
+        '(steamVideoUrl=${app.steamVideoUrl}, rawgClipUrl=${app.rawgClipUrl})',
+      );
       return;
     }
     debugPrint('[JUJO][video] scheduling for ${app.appName} url=$previewUrl');
-    _videoDelayTimer = Timer(Duration(seconds: pluginsProvider.videoDelaySeconds), () {
-      if (!mounted) return;
+    _videoDelayTimer = Timer(
+      Duration(seconds: pluginsProvider.videoDelaySeconds),
+      () {
+        if (!mounted) return;
 
-      if (_selectedAppId != app.appId) return;
-      _initVideoController(app, preferredUrl: previewUrl);
-    });
+        if (_selectedAppId != app.appId) return;
+        _initVideoController(app, preferredUrl: previewUrl);
+      },
+    );
   }
 
   @override
@@ -155,13 +159,14 @@ mixin _AppViewVideoPreviewMixin on _AppViewScreenBase {
     if (controller == null) {
       final steamUrl = app.steamVideoUrl;
       final rawgUrl = app.rawgClipUrl;
-      if (steamUrl != null && steamUrl.isNotEmpty &&
-          rawgUrl != null && rawgUrl.isNotEmpty &&
+      if (steamUrl != null &&
+          steamUrl.isNotEmpty &&
+          rawgUrl != null &&
+          rawgUrl.isNotEmpty &&
           url == steamUrl) {
         debugPrint('[JUJO][video] trying RAWG fallback $rawgUrl');
         controller = await _tryVideoUrl(rawgUrl);
         if (controller == null) {
-
           final rawgAlt = _deriveCodecFallback(rawgUrl);
           if (rawgAlt != null) controller = await _tryVideoUrl(rawgAlt);
         }
@@ -208,31 +213,99 @@ mixin _AppViewVideoPreviewMixin on _AppViewScreenBase {
     if (app.appId == _accentAppId) return;
     final reqId = ++_accentRequestId;
     if (app.posterUrl == null || app.posterUrl!.isEmpty) {
-      if (mounted) setState(() { _accentColor = null; _accentAppId = app.appId; });
+      if (mounted) {
+        setState(() {
+          _accentColor = null;
+          _accentAppId = app.appId;
+        });
+      }
       return;
     }
     try {
-
       final imageProvider = CachedNetworkImageProvider(
         app.posterUrl!,
         maxWidth: 100,
       );
-      final palette = await PaletteGenerator.fromImageProvider(
+      final color = await _extractPosterAccent(
         imageProvider,
-        maximumColorCount: 8,
         timeout: const Duration(seconds: 3),
       );
       if (!mounted || reqId != _accentRequestId) return;
-      final color = palette.vibrantColor?.color ??
-          palette.dominantColor?.color ??
-          palette.mutedColor?.color;
       setState(() {
         _accentColor = color;
         _accentAppId = app.appId;
       });
     } catch (_) {
+      if (mounted) {
+        setState(() {
+          _accentColor = null;
+          _accentAppId = app.appId;
+        });
+      }
+    }
+  }
 
-      if (mounted) setState(() { _accentColor = null; _accentAppId = app.appId; });
+  Future<Color?> _extractPosterAccent(
+    ImageProvider imageProvider, {
+    required Duration timeout,
+  }) async {
+    final stream = imageProvider.resolve(ImageConfiguration.empty);
+    final completer = Completer<ImageInfo>();
+    late final ImageStreamListener listener;
+    listener = ImageStreamListener(
+      (info, _) {
+        if (!completer.isCompleted) completer.complete(info);
+      },
+      onError: (error, stackTrace) {
+        if (!completer.isCompleted) completer.completeError(error, stackTrace);
+      },
+    );
+
+    stream.addListener(listener);
+    try {
+      final info = await completer.future.timeout(timeout);
+      final image = info.image;
+      final bytes = await image.toByteData(format: ImageByteFormat.rawRgba);
+      if (bytes == null) return null;
+
+      double totalWeight = 0;
+      double red = 0;
+      double green = 0;
+      double blue = 0;
+      final width = image.width;
+      final height = image.height;
+      final pixelCount = width * height;
+      final sampleStep = (pixelCount / 2400).ceil().clamp(1, 24);
+
+      for (var pixel = 0; pixel < pixelCount; pixel += sampleStep) {
+        final offset = pixel * 4;
+        final alpha = bytes.getUint8(offset + 3);
+        if (alpha < 180) continue;
+
+        final r = bytes.getUint8(offset);
+        final g = bytes.getUint8(offset + 1);
+        final b = bytes.getUint8(offset + 2);
+        final hsv = HSVColor.fromColor(Color.fromARGB(alpha, r, g, b));
+        if (hsv.value < 0.18 || hsv.value > 0.96 || hsv.saturation < 0.22) {
+          continue;
+        }
+
+        final weight = (0.35 + hsv.saturation) * (0.35 + hsv.value);
+        red += r * weight;
+        green += g * weight;
+        blue += b * weight;
+        totalWeight += weight;
+      }
+
+      if (totalWeight == 0) return null;
+      return Color.fromARGB(
+        255,
+        (red / totalWeight).round().clamp(0, 255),
+        (green / totalWeight).round().clamp(0, 255),
+        (blue / totalWeight).round().clamp(0, 255),
+      );
+    } finally {
+      stream.removeListener(listener);
     }
   }
 }
@@ -258,7 +331,10 @@ class _BeforeServerVideoState extends State<_BeforeServerVideo> {
     final c = VideoPlayerController.file(io.File(widget.videoPath));
     try {
       await c.initialize();
-      if (!mounted) { c.dispose(); return; }
+      if (!mounted) {
+        c.dispose();
+        return;
+      }
       await c.setLooping(false);
       await c.play();
       c.addListener(() {

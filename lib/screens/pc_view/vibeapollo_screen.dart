@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:file_picker/file_picker.dart';
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
@@ -335,9 +335,12 @@ class _VibeApolloScreenState extends State<VibeApolloScreen> {
   }
 
   Future<void> _execCoverUpload(_ApiAction action) async {
-    final pick = await FilePicker.pickFiles(type: FileType.image);
-    if (pick == null || pick.files.isEmpty) return;
-    final path = pick.files.single.path;
+    const imageGroup = XTypeGroup(
+      label: 'Images',
+      extensions: ['jpg', 'jpeg', 'png', 'webp'],
+    );
+    final file = await openFile(acceptedTypeGroups: [imageGroup]);
+    final path = file?.path;
     if (path == null) return;
 
     setState(() => _loadingId = action.id);
@@ -583,9 +586,11 @@ class _VibeApolloScreenState extends State<VibeApolloScreen> {
             Padding(
               padding: const EdgeInsets.only(bottom: 12.0, left: 4.0),
               child: Text(
-                _t(context,
+                _t(
+                  context,
                   'In order to use these features, you must generate an API token on your host PC and provide it here.',
-                  'Para usar estas funciones, debes generar un token de API en tu PC host y proporcionarlo aquí.'),
+                  'Para usar estas funciones, debes generar un token de API en tu PC host y proporcionarlo aquí.',
+                ),
                 style: TextStyle(
                   color: Colors.white.withValues(alpha: 0.65),
                   fontSize: 13,
@@ -867,7 +872,6 @@ class _VibeApolloScreenState extends State<VibeApolloScreen> {
     return Column(children: rows);
   }
 }
-
 
 class _ActionCard extends StatefulWidget {
   final _ApiAction action;

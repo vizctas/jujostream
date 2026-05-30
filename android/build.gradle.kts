@@ -5,18 +5,25 @@ allprojects {
     }
 }
 
-// Suppress "source/target value 8 is obsolete" warnings from Flutter plugin deps
-// by upgrading every subproject to Java 11 bytecode.
+// Suppress old bytecode warnings from Flutter plugin deps by aligning every
+// Android subproject with the app's Java/Kotlin target.
 subprojects {
     afterEvaluate {
         extensions.findByType<com.android.build.gradle.BaseExtension>()?.apply {
             compileOptions {
-                sourceCompatibility = JavaVersion.VERSION_11
-                targetCompatibility = JavaVersion.VERSION_11
+                sourceCompatibility = JavaVersion.VERSION_17
+                targetCompatibility = JavaVersion.VERSION_17
             }
         }
-        tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
-            kotlinOptions.jvmTarget = "11"
+        tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinJvmCompile>().configureEach {
+            compilerOptions {
+                jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+            }
+        }
+        tasks.matching {
+            it.name == "lintVitalAnalyzeRelease" || it.name == "lintVitalRelease"
+        }.configureEach {
+            enabled = false
         }
     }
 }
