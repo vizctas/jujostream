@@ -105,6 +105,28 @@ class StreamConfiguration {
   final bool hostPresetOverrideEnabled;
   final String hostPresetOverrideId;
 
+  /// Physical display aspect ratio requested by the client, e.g. "16:9" or "21:9".
+  /// Null means square pixels (default).
+  final String? aspectRatio;
+
+  /// Enable client microphone passthrough to the host.
+  /// This is sent to the server but is only effective in WebRTC mode;
+  /// RTSP sessions do not support microphone passthrough.
+  final bool clientMic;
+
+  /// Video pacing mode requested by the client.
+  /// "latency", "balanced", or "smoothness". Null means server default.
+  /// Currently only effective in WebRTC mode.
+  final String? videoPacingMode;
+
+  /// Video pacing slack in milliseconds (0–10).
+  /// Currently only effective in WebRTC mode.
+  final int? videoPacingSlackMs;
+
+  /// Maximum video frame age in milliseconds (5–250).
+  /// Currently only effective in WebRTC mode.
+  final int? videoMaxFrameAgeMs;
+
   /// True when width/height are 0×0 (sentinel for "match display").
   bool get isMatchDisplay => width == 0 || height == 0;
 
@@ -195,6 +217,11 @@ class StreamConfiguration {
     this.forceSkiaRenderer = false,
     this.hostPresetOverrideEnabled = false,
     this.hostPresetOverrideId = '',
+    this.aspectRatio,
+    this.clientMic = false,
+    this.videoPacingMode,
+    this.videoPacingSlackMs,
+    this.videoMaxFrameAgeMs,
   });
 
   StreamConfiguration copyWith({
@@ -278,6 +305,11 @@ class StreamConfiguration {
     bool? forceSkiaRenderer,
     bool? hostPresetOverrideEnabled,
     String? hostPresetOverrideId,
+    String? aspectRatio,
+    bool? clientMic,
+    String? videoPacingMode,
+    int? videoPacingSlackMs,
+    int? videoMaxFrameAgeMs,
   }) {
     return StreamConfiguration(
       width: width ?? this.width,
@@ -369,6 +401,11 @@ class StreamConfiguration {
       hostPresetOverrideEnabled:
           hostPresetOverrideEnabled ?? this.hostPresetOverrideEnabled,
       hostPresetOverrideId: hostPresetOverrideId ?? this.hostPresetOverrideId,
+      aspectRatio: aspectRatio ?? this.aspectRatio,
+      clientMic: clientMic ?? this.clientMic,
+      videoPacingMode: videoPacingMode ?? this.videoPacingMode,
+      videoPacingSlackMs: videoPacingSlackMs ?? this.videoPacingSlackMs,
+      videoMaxFrameAgeMs: videoMaxFrameAgeMs ?? this.videoMaxFrameAgeMs,
     );
   }
 
@@ -455,6 +492,11 @@ class StreamConfiguration {
     'forceSkiaRenderer': forceSkiaRenderer,
     'hostPresetOverrideEnabled': hostPresetOverrideEnabled,
     'hostPresetOverrideId': hostPresetOverrideId,
+    'aspectRatio': aspectRatio,
+    'clientMic': clientMic,
+    'videoPacingMode': videoPacingMode,
+    'videoPacingSlackMs': videoPacingSlackMs,
+    'videoMaxFrameAgeMs': videoMaxFrameAgeMs,
   };
 
   factory StreamConfiguration.fromJson(Map<String, dynamic> json) {
@@ -563,6 +605,11 @@ class StreamConfiguration {
       forceSkiaRenderer: json['forceSkiaRenderer'] ?? false,
       hostPresetOverrideEnabled: json['hostPresetOverrideEnabled'] ?? false,
       hostPresetOverrideId: json['hostPresetOverrideId'] ?? '',
+      aspectRatio: json['aspectRatio'] as String?,
+      clientMic: json['clientMic'] ?? false,
+      videoPacingMode: json['videoPacingMode'] as String?,
+      videoPacingSlackMs: json['videoPacingSlackMs'] as int?,
+      videoMaxFrameAgeMs: json['videoMaxFrameAgeMs'] as int?,
     );
   }
 

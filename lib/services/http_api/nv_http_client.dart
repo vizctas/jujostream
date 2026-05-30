@@ -276,13 +276,18 @@ class NvHttpClient {
     String address,
     int appId, {
     int port = defaultHttpsPort,
-    int width = 1920,
-    int height = 1080,
+    required int width,
+    required int height,
     int fps = 60,
     int bitrate = 20000,
     bool sops = true,
     bool enableHdr = false,
     bool localAudio = false,
+    String? aspectRatio,
+    bool clientMic = false,
+    String? videoPacingMode,
+    int? videoPacingSlackMs,
+    int? videoMaxFrameAgeMs,
     String surroundAudioInfo = '1',
     Map<String, String> extraLaunchParams = const <String, String>{},
   }) async {
@@ -306,6 +311,11 @@ class NvHttpClient {
       'gcmap': '0',
     };
     if (enableHdr) params['enableHdr'] = '1';
+    if (aspectRatio != null && aspectRatio.isNotEmpty) params['aspectRatio'] = aspectRatio;
+    if (clientMic) params['clientMic'] = '1';
+    if (videoPacingMode != null && videoPacingMode.isNotEmpty) params['videoPacingMode'] = videoPacingMode;
+    if (videoPacingSlackMs != null) params['videoPacingSlackMs'] = videoPacingSlackMs.toString();
+    if (videoMaxFrameAgeMs != null) params['videoMaxFrameAgeMs'] = videoMaxFrameAgeMs.toString();
     if (extraLaunchParams.isNotEmpty) params.addAll(extraLaunchParams);
 
     final queryString = Uri(queryParameters: params).query;
@@ -386,13 +396,18 @@ class NvHttpClient {
     String address,
     int appId, {
     int port = defaultHttpsPort,
-    int width = 1920,
-    int height = 1080,
+    required int width,
+    required int height,
     int fps = 60,
     int bitrate = 20000,
     bool sops = true,
     bool enableHdr = false,
     bool localAudio = false,
+    String? aspectRatio,
+    bool clientMic = false,
+    String? videoPacingMode,
+    int? videoPacingSlackMs,
+    int? videoMaxFrameAgeMs,
     String surroundAudioInfo = '1',
     Map<String, String> extraLaunchParams = const <String, String>{},
   }) async {
@@ -416,6 +431,11 @@ class NvHttpClient {
       'gcmap': '0',
     };
     if (enableHdr) params['enableHdr'] = '1';
+    if (aspectRatio != null && aspectRatio.isNotEmpty) params['aspectRatio'] = aspectRatio;
+    if (clientMic) params['clientMic'] = '1';
+    if (videoPacingMode != null && videoPacingMode.isNotEmpty) params['videoPacingMode'] = videoPacingMode;
+    if (videoPacingSlackMs != null) params['videoPacingSlackMs'] = videoPacingSlackMs.toString();
+    if (videoMaxFrameAgeMs != null) params['videoMaxFrameAgeMs'] = videoMaxFrameAgeMs.toString();
     if (extraLaunchParams.isNotEmpty) params.addAll(extraLaunchParams);
     final queryString = Uri(queryParameters: params).query;
     final url = '${_baseUrl(address, port)}/resume?$queryString';

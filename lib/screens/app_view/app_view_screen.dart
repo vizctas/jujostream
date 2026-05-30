@@ -2474,10 +2474,20 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
     if (effectiveConfig.isMatchDisplay) {
       final mq = MediaQuery.of(context);
       final dpr = mq.devicePixelRatio;
-      effectiveConfig = effectiveConfig.resolveMatchDisplay(
-        (mq.size.width * dpr).round(),
-        (mq.size.height * dpr).round(),
-      );
+      var displayWidth = (mq.size.width * dpr).round();
+      var displayHeight = (mq.size.height * dpr).round();
+
+      // Fallback if MediaQuery returns 0 (e.g., during orientation change).
+      if (displayWidth <= 0 || displayHeight <= 0) {
+        final views = PlatformDispatcher.instance.views;
+        if (views.isNotEmpty) {
+          final window = views.first;
+          displayWidth = window.physicalSize.width.round();
+          displayHeight = window.physicalSize.height.round();
+        }
+      }
+
+      effectiveConfig = effectiveConfig.resolveMatchDisplay(displayWidth, displayHeight);
     }
 
     var startingOverlayVisible = false;

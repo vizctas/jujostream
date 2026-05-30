@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui';
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -319,10 +320,20 @@ class _GameStreamScreenState extends State<GameStreamScreen>
       if (_config.isMatchDisplay && mounted) {
         final mq = MediaQuery.of(context);
         final dpr = mq.devicePixelRatio;
-        _config = _config.resolveMatchDisplay(
-          (mq.size.width * dpr).round(),
-          (mq.size.height * dpr).round(),
-        );
+        var displayWidth = (mq.size.width * dpr).round();
+        var displayHeight = (mq.size.height * dpr).round();
+
+        // Fallback if MediaQuery returns 0 (e.g., during orientation change).
+        if (displayWidth <= 0 || displayHeight <= 0) {
+          final views = PlatformDispatcher.instance.views;
+          if (views.isNotEmpty) {
+            final window = views.first;
+            displayWidth = window.physicalSize.width.round();
+            displayHeight = window.physicalSize.height.round();
+          }
+        }
+
+        _config = _config.resolveMatchDisplay(displayWidth, displayHeight);
       }
       final cfg = _config;
       final address = widget.computer.activeAddress.isNotEmpty

@@ -653,7 +653,7 @@ class AppListProvider extends ChangeNotifier {
 
   Future<LaunchResult> launchApp(
     NvApp app, {
-    StreamConfiguration? streamConfig,
+    required StreamConfiguration streamConfig,
   }) async {
     if (_currentComputer == null) {
       return LaunchResult.fail('No computer selected');
@@ -675,16 +675,12 @@ class AppListProvider extends ChangeNotifier {
       }
     }
 
-    final audioStr = streamConfig != null
-        ? switch (streamConfig.audioConfig) {
-            AudioConfig.surround51 => '6',
-            AudioConfig.surround71 => '8',
-            _ => '1',
-          }
-        : '1';
-    final hostPresetParams = streamConfig != null
-        ? buildHostPresetLaunchParams(streamConfig)
-        : const <String, String>{};
+    final audioStr = switch (streamConfig.audioConfig) {
+      AudioConfig.surround51 => '6',
+      AudioConfig.surround71 => '8',
+      _ => '1',
+    };
+    final hostPresetParams = buildHostPresetLaunchParams(streamConfig);
 
     if (runningApp != null) {
       if (runningApp.appId == app.appId) {
@@ -692,13 +688,18 @@ class AppListProvider extends ChangeNotifier {
           address,
           app.appId,
           port: httpsPort,
-          width: streamConfig?.width ?? 1920,
-          height: streamConfig?.height ?? 1080,
-          fps: streamConfig?.fps ?? 60,
-          bitrate: streamConfig?.bitrate ?? 20000,
-          sops: streamConfig?.enableSops ?? true,
-          enableHdr: streamConfig?.enableHdr ?? false,
-          localAudio: streamConfig?.playLocalAudio ?? false,
+          width: streamConfig.width,
+          height: streamConfig.height,
+          fps: streamConfig.fps,
+          bitrate: streamConfig.bitrate,
+          sops: streamConfig.enableSops,
+          enableHdr: streamConfig.enableHdr,
+          localAudio: streamConfig.playLocalAudio,
+          aspectRatio: streamConfig.aspectRatio,
+          clientMic: streamConfig.clientMic,
+          videoPacingMode: streamConfig.videoPacingMode,
+          videoPacingSlackMs: streamConfig.videoPacingSlackMs,
+          videoMaxFrameAgeMs: streamConfig.videoMaxFrameAgeMs,
           surroundAudioInfo: audioStr,
           extraLaunchParams: hostPresetParams,
         );
@@ -713,13 +714,18 @@ class AppListProvider extends ChangeNotifier {
       address,
       app.appId,
       port: httpsPort,
-      width: streamConfig?.width ?? 1920,
-      height: streamConfig?.height ?? 1080,
-      fps: streamConfig?.fps ?? 60,
-      bitrate: streamConfig?.bitrate ?? 20000,
-      sops: streamConfig?.enableSops ?? true,
-      enableHdr: streamConfig?.enableHdr ?? false,
-      localAudio: streamConfig?.playLocalAudio ?? false,
+      width: streamConfig.width,
+      height: streamConfig.height,
+      fps: streamConfig.fps,
+      bitrate: streamConfig.bitrate,
+      sops: streamConfig.enableSops,
+      enableHdr: streamConfig.enableHdr,
+      localAudio: streamConfig.playLocalAudio,
+      aspectRatio: streamConfig.aspectRatio,
+      clientMic: streamConfig.clientMic,
+      videoPacingMode: streamConfig.videoPacingMode,
+      videoPacingSlackMs: streamConfig.videoPacingSlackMs,
+      videoMaxFrameAgeMs: streamConfig.videoMaxFrameAgeMs,
       surroundAudioInfo: audioStr,
       extraLaunchParams: hostPresetParams,
     );
