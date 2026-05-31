@@ -10,6 +10,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:video_player/video_player.dart';
 import 'l10n/app_localizations.dart';
 import 'providers/auth_provider.dart';
+import 'providers/cloud_mfa_provider.dart';
+import 'services/auth/supabase_config.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'screens/onboarding/onboarding_screen.dart';
+import 'screens/auth/cloud_auth_screen.dart';
 import 'providers/computer_provider.dart';
 import 'providers/app_list_provider.dart';
 import 'providers/locale_provider.dart';
@@ -48,6 +53,17 @@ class _AppHttpOverrides extends io.HttpOverrides {
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  if (SupabaseConfig.current.isConfigured) {
+    try {
+      await Supabase.initialize(
+        url: SupabaseConfig.current.url,
+        anonKey: SupabaseConfig.current.publishableKey,
+      );
+    } catch (e) {
+      debugPrint('Error initializing Supabase: $e');
+    }
+  }
 
   FocusManager.instance.highlightStrategy = FocusHighlightStrategy.automatic;
 
@@ -121,6 +137,7 @@ void main() async {
       providers: [
         ChangeNotifierProvider(create: (_) => ComputerProvider()),
         ChangeNotifierProvider(create: (_) => AppListProvider(pluginsProvider)),
+        ChangeNotifierProvider(create: (_) => CloudMfaProvider()),
         ChangeNotifierProvider.value(value: settingsProvider),
         ChangeNotifierProvider.value(value: launcherPreferences),
         ChangeNotifierProvider.value(value: localeProvider),
@@ -155,6 +172,9 @@ class JujostreamApp extends StatelessWidget {
       ],
       theme: themeProvider.buildThemeData(),
       home: const TourOverlay(child: _FirstRunGate()),
+      routes: {
+        '/auth': (context) => const CloudAuthScreen(),
+      },
     );
   }
 }
@@ -180,6 +200,12 @@ class _FirstRunGateState extends State<_FirstRunGate>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _check();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (SupabaseConfig.current.isConfigured) {
+        context.read<CloudMfaProvider>().refresh();
+      }
+    });
   }
 
   @override
@@ -331,6 +357,20 @@ class _FirstRunGateState extends State<_FirstRunGate>
         body: const Center(child: CircularProgressIndicator()),
       );
     }
+    
+    // If onboarding is not completed, show OnboardingScreen
+    if (_shouldShow) {
+      return const OnboardingScreen();
+    }
+    
+    // If logged in via Jujo Cloud (Supabase), but 2FA is not satisfied, lock them out
+    final mfa = context.watch<CloudMfaProvider>();
+    final hasSession = SupabaseConfig.current.isConfigured && 
+                       Supabase.instance.client.auth.currentSession != null;
+    if (hasSession && mfa.blocksCloudUser) {
+      return const CloudAuthScreen(isFirstRun: false);
+    }
+
     final Widget base = _focusModeEnabled
         ? const FocusModeScreen()
         : const PcViewScreen();

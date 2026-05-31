@@ -1020,7 +1020,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
     setState(() {
       switch (direction) {
         case 'down':
-          _overlayRow = (_overlayRow + 1).clamp(0, 6);
+          _overlayRow = (_overlayRow + 1).clamp(0, 7);
           if (_overlayRow == 0) {
             _overlayCol = _overlayCol.clamp(0, 3);
           } else if (_overlayRow == 1) {
@@ -1029,7 +1029,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
             _overlayCol = 0;
           }
         case 'up':
-          _overlayRow = (_overlayRow - 1).clamp(0, 6);
+          _overlayRow = (_overlayRow - 1).clamp(0, 7);
           if (_overlayRow == 0) {
             _overlayCol = _overlayCol.clamp(0, 3);
           } else if (_overlayRow == 1) {
@@ -1113,8 +1113,13 @@ class _GameStreamScreenState extends State<GameStreamScreen>
       case 3:
         _pasteClipboardToPC();
       case 4:
-        _closeSessionAndExit();
+        setState(() {
+          _config = _config.copyWith(clientMic: !_config.clientMic);
+        });
+        _reconnectWithNewConfig();
       case 5:
+        _closeSessionAndExit();
+      case 6:
         setState(() {
           _showQuitConfirm = true;
           _quitConfirmSelection = 0;
@@ -1123,7 +1128,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) _overlayFocusNode.requestFocus();
         });
-      case 6:
+      case 7:
         _setOverlayVisible(false);
     }
   }
@@ -1516,7 +1521,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
       if (_showOverlay && !_showSpecialKeys) {
         if (key == LogicalKeyboardKey.arrowDown) {
           setState(() {
-            _overlayRow = (_overlayRow + 1).clamp(0, 6);
+            _overlayRow = (_overlayRow + 1).clamp(0, 7);
 
             if (_overlayRow == 0) {
               _overlayCol = _overlayCol.clamp(0, 3);
@@ -1531,7 +1536,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
         }
         if (key == LogicalKeyboardKey.arrowUp) {
           setState(() {
-            _overlayRow = (_overlayRow - 1).clamp(0, 6);
+            _overlayRow = (_overlayRow - 1).clamp(0, 7);
             if (_overlayRow == 0) {
               _overlayCol = _overlayCol.clamp(0, 3);
             } else if (_overlayRow == 1) {
@@ -2091,7 +2096,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
     if (!_showSpecialKeys) {
       if (key == LogicalKeyboardKey.arrowDown) {
         setState(() {
-          _overlayRow = (_overlayRow + 1).clamp(0, 6);
+          _overlayRow = (_overlayRow + 1).clamp(0, 7);
           if (_overlayRow == 0) {
             _overlayCol = _overlayCol.clamp(0, 3);
           } else if (_overlayRow == 1) {
@@ -2105,7 +2110,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
       }
       if (key == LogicalKeyboardKey.arrowUp) {
         setState(() {
-          _overlayRow = (_overlayRow - 1).clamp(0, 6);
+          _overlayRow = (_overlayRow - 1).clamp(0, 7);
           if (_overlayRow == 0) {
             _overlayCol = _overlayCol.clamp(0, 3);
           } else if (_overlayRow == 1) {
@@ -2190,7 +2195,8 @@ class _GameStreamScreenState extends State<GameStreamScreen>
         1 => headerH + qualityH + divH,
         2 => headerH + qualityH + divH + togglesH + divH,
         3 => headerH + qualityH + divH + togglesH + divH + tileH,
-
+        4 => headerH + qualityH + divH + togglesH + divH + tileH * 2,
+        5 => headerH + qualityH + divH + togglesH + divH + tileH * 3,
         _ => maxScroll,
       };
       _overlayScrollController.animateTo(
@@ -2586,6 +2592,17 @@ class _GameStreamScreenState extends State<GameStreamScreen>
           focused: _overlayRow == 3,
         ),
         buildMenuTile(
+          _config.clientMic ? Icons.mic : Icons.mic_off,
+          _config.clientMic ? 'Mic Passthrough: ON' : 'Mic Passthrough: OFF',
+          () {
+            setState(() {
+              _config = _config.copyWith(clientMic: !_config.clientMic);
+            });
+            _reconnectWithNewConfig();
+          },
+          focused: _overlayRow == 4,
+        ),
+        buildMenuTile(
           Icons.logout_rounded,
           AppLocalizations.of(context).disconnect,
           () {
@@ -2593,7 +2610,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
             Navigator.pop(context);
           },
           color: Colors.orangeAccent,
-          focused: _overlayRow == 4,
+          focused: _overlayRow == 5,
         ),
         buildMenuTile(
           Icons.power_settings_new,
@@ -2602,7 +2619,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
             _confirmQuit();
           },
           color: Colors.redAccent,
-          focused: _overlayRow == 5,
+          focused: _overlayRow == 6,
         ),
         const SizedBox(height: 4),
         buildMenuTile(
@@ -2611,7 +2628,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
           () {
             _setOverlayVisible(false);
           },
-          focused: _overlayRow == 6,
+          focused: _overlayRow == 7,
         ),
         Padding(
           padding: const EdgeInsets.only(top: 8),

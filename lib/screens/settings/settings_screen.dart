@@ -526,6 +526,22 @@ class _SettingsScreenState extends State<SettingsScreen>
                               c.copyWith(enableAudioFx: v),
                             ),
                           ),
+                          _toggle(
+                            _tr(
+                              context,
+                              'Microphone Passthrough',
+                              'Passthrough de micrófono',
+                            ),
+                            _tr(
+                              context,
+                              'Pass client microphone audio to virtual device on server',
+                              'Pasa el audio del micrófono del cliente al dispositivo virtual en el servidor',
+                            ),
+                            c.clientMic,
+                            (v) => settings.updateConfig(
+                              c.copyWith(clientMic: v),
+                            ),
+                          ),
                           _buildKofiSection(context),
                         ],
                       ),
