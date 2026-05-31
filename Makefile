@@ -71,12 +71,14 @@ validate-release-tag:
 	@case "$(TAG)" in client-[0-9]*.[0-9]*.[0-9]*|v[0-9]*.[0-9]*.[0-9]*) ;; *) echo "TAG must look like client-1.1.13 or v1.1.13. Got: $(TAG)"; exit 1;; esac
 
 build-apk: verify-android-keystore
+	powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update_app_version.ps1 $(APP_VERSION)
 	flutter clean
 	flutter pub get
 	$(PATCH_BUILT_IN_KOTLIN)
 	flutter build apk --release $(DART_DEFINES)
 
 build-aab: verify-android-keystore
+	powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update_app_version.ps1 $(APP_VERSION)
 	flutter clean
 	flutter pub get
 	$(PATCH_BUILT_IN_KOTLIN)
@@ -97,6 +99,7 @@ $(RELEASE_DIR): validate-release-tag
 	powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path '$(RELEASE_DIR)' | Out-Null"
 
 $(APK_OUT): validate-release-tag $(RELEASE_DIR) verify-android-keystore
+	powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update_app_version.ps1 $(APP_VERSION)
 	flutter clean
 	flutter pub get
 	$(PATCH_BUILT_IN_KOTLIN)
