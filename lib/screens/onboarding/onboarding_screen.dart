@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'widgets/onboarding_glow.dart';
+import '../../providers/theme_provider.dart';
+import '../../l10n/app_localizations.dart';
 import 'widgets/onboarding_glass_card.dart';
 import '../auth/cloud_auth_screen.dart';
 
@@ -14,7 +16,6 @@ class OnboardingScreen extends StatefulWidget {
 
 class _OnboardingScreenState extends State<OnboardingScreen> {
   final PageController _pageController = PageController();
-  final ValueNotifier<double> _scrollOffset = ValueNotifier<double>(0.0);
   int _currentPage = 0;
 
   final FocusNode _page1FocusNode = FocusNode(debugLabel: 'ob-page-1');
@@ -24,12 +25,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   @override
   void initState() {
     super.initState();
-    _pageController.addListener(() {
-      if (_pageController.hasClients) {
-        _scrollOffset.value = _pageController.offset;
-      }
-    });
-    
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _page1FocusNode.requestFocus();
     });
@@ -38,7 +33,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   @override
   void dispose() {
     _pageController.dispose();
-    _scrollOffset.dispose();
     _page1FocusNode.dispose();
     _page2FocusNode.dispose();
     _page3FocusNode.dispose();
@@ -48,7 +42,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   void _nextPage() {
     if (_currentPage < 2) {
       _pageController.nextPage(
-        duration: const Duration(milliseconds: 650),
+        duration: const Duration(milliseconds: 500),
         curve: Curves.easeInOutCubic,
       );
     }
@@ -57,7 +51,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   void _prevPage() {
     if (_currentPage > 0) {
       _pageController.previousPage(
-        duration: const Duration(milliseconds: 650),
+        duration: const Duration(milliseconds: 500),
         curve: Curves.easeInOutCubic,
       );
     }
@@ -79,22 +73,26 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   Widget build(BuildContext context) {
     final size = MediaQuery.sizeOf(context);
     final isLandscape = size.width > size.height;
+    final tp = context.watch<ThemeProvider>();
+    final l = AppLocalizations.of(context);
 
     return Scaffold(
-      backgroundColor: const Color(0xFF0F0E17),
+      backgroundColor: tp.background,
       body: Stack(
         fit: StackFit.expand,
         children: [
-          // Ambient Radial Background Glows
-          OnboardingGlow(scrollOffset: _scrollOffset),
-          
-          // Noise/Static Layer for premium texture
+          // Subtle ambient gradient — static, no animation, no blur
           Positioned.fill(
-            child: Opacity(
-              opacity: 0.015,
-              child: Image.network(
-                'https://images.unsplash.com/photo-1541701494587-cb58502866ab?auto=format&fit=crop&w=400&q=80',
-                fit: BoxFit.cover,
+            child: Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    tp.background,
+                    tp.surface,
+                  ],
+                ),
               ),
             ),
           ),
@@ -103,21 +101,19 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           PageView(
             controller: _pageController,
             onPageChanged: (page) {
-              setState(() {
-                _currentPage = page;
-              });
+              setState(() => _currentPage = page);
               if (page == 0) _page1FocusNode.requestFocus();
               if (page == 1) _page2FocusNode.requestFocus();
               if (page == 2) _page3FocusNode.requestFocus();
             },
             children: [
-              _buildPage1(context, isLandscape),
-              _buildPage2(context, isLandscape),
-              _buildPage3(context, isLandscape),
+              _buildPage1(context, isLandscape, tp, l),
+              _buildPage2(context, isLandscape, tp, l),
+              _buildPage3(context, isLandscape, tp, l),
             ],
           ),
 
-          // Top Header (Logo + Skip)
+          // Top Header
           Positioned(
             top: 40,
             left: 32,
@@ -130,22 +126,26 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     Container(
                       padding: const EdgeInsets.all(8),
                       decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.06),
+                        color: tp.surface,
                         borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+                        border: Border.all(
+                          color: tp.colors.isLight
+                              ? Colors.black12
+                              : Colors.white12,
+                        ),
                       ),
-                      child: const Icon(
+                      child: Icon(
                         Icons.bolt,
-                        color: Color(0xFF4F46E5),
+                        color: tp.accent,
                         size: 24,
                       ),
                     ),
                     const SizedBox(width: 12),
-                    const Text(
+                    Text(
                       'JUJO.STREAM',
                       style: TextStyle(
                         fontFamily: 'Outfit',
-                        color: Colors.white,
+                        color: tp.colors.isLight ? Colors.black87 : Colors.white,
                         fontSize: 18,
                         fontWeight: FontWeight.w900,
                         letterSpacing: 2.0,
@@ -157,12 +157,17 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                   TextButton(
                     onPressed: _skipOnboarding,
                     style: TextButton.styleFrom(
-                      foregroundColor: Colors.white70,
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      foregroundColor: tp.colors.isLight
+                          ? Colors.black54
+                          : Colors.white70,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 8,
+                      ),
                     ),
-                    child: const Text(
-                      'Saltar',
-                      style: TextStyle(
+                    child: Text(
+                      l.skip,
+                      style: const TextStyle(
                         fontWeight: FontWeight.w600,
                         fontSize: 14,
                       ),
@@ -191,59 +196,72 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                       width: _currentPage == index ? 24 : 8,
                       decoration: BoxDecoration(
                         color: _currentPage == index
-                            ? const Color(0xFF4F46E5)
-                            : Colors.white.withValues(alpha: 0.2),
+                            ? tp.accent
+                            : (tp.colors.isLight
+                                ? Colors.black26
+                                : Colors.white24),
                         borderRadius: BorderRadius.circular(4),
                       ),
                     ),
                   ),
                 ),
-                
+
                 // Action Buttons
                 Row(
                   children: [
                     if (_currentPage > 0)
                       IconButton(
                         onPressed: _prevPage,
-                        icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white70),
+                        icon: Icon(
+                          Icons.arrow_back_ios_new,
+                          color: tp.colors.isLight
+                              ? Colors.black54
+                              : Colors.white70,
+                        ),
                         style: IconButton.styleFrom(
-                          backgroundColor: Colors.white.withValues(alpha: 0.05),
+                          backgroundColor: tp.surface,
                           padding: const EdgeInsets.all(12),
                         ),
                       ),
                     const SizedBox(width: 12),
                     if (_currentPage < 2)
                       ElevatedButton.icon(
-                        focusNode: _currentPage == 0 ? _page1FocusNode : _page2FocusNode,
+                        focusNode: _currentPage == 0
+                            ? _page1FocusNode
+                            : _page2FocusNode,
                         onPressed: _nextPage,
                         icon: const Icon(Icons.arrow_forward),
-                        label: const Text('Continuar'),
+                        label: const Text('Continue'),
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF4F46E5),
+                          backgroundColor: tp.accent,
                           foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 24,
+                            vertical: 16,
+                          ),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(16),
                           ),
-                          elevation: 8,
-                          shadowColor: const Color(0xFF4F46E5).withValues(alpha: 0.4),
+                          elevation: 0,
                         ),
                       )
                     else
                       ElevatedButton.icon(
                         focusNode: _page3FocusNode,
-                        onPressed: _skipOnboarding, // proceed to Cloud sync login
+                        onPressed: _skipOnboarding,
                         icon: const Icon(Icons.cloud_done),
-                        label: const Text('Comenzar con Jujo Cloud'),
+                        label: const Text('Continue'),
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF7C3AED),
+                          backgroundColor: tp.accent,
                           foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 16),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 28,
+                            vertical: 16,
+                          ),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(16),
                           ),
-                          elevation: 10,
-                          shadowColor: const Color(0xFF7C3AED).withValues(alpha: 0.4),
+                          elevation: 0,
                         ),
                       ),
                   ],
@@ -257,7 +275,12 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   }
 
   // Slide 1: Welcome & Streaming Quality (Bento Grid)
-  Widget _buildPage1(BuildContext context, bool isLandscape) {
+  Widget _buildPage1(
+    BuildContext context,
+    bool isLandscape,
+    ThemeProvider tp,
+    AppLocalizations l,
+  ) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(32, 100, 32, 120),
       child: isLandscape
@@ -266,12 +289,12 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               children: [
                 Expanded(
                   flex: 3,
-                  child: _buildIntroCard(),
+                  child: _buildIntroCard(tp, l),
                 ),
                 const SizedBox(width: 24),
                 Expanded(
                   flex: 2,
-                  child: _buildFeatureBento1(),
+                  child: _buildFeatureBento1(tp, l),
                 ),
               ],
             )
@@ -279,20 +302,28 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               children: [
                 Expanded(
                   flex: 3,
-                  child: _buildIntroCard(),
+                  child: _buildIntroCard(tp, l),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 20),
                 Expanded(
                   flex: 2,
-                  child: _buildFeatureBento1(),
+                  child: _buildFeatureBento1(tp, l),
                 ),
               ],
             ),
-    ).animate().fadeIn(duration: 500.ms).slideY(begin: 0.05, end: 0, duration: 500.ms);
+    )
+        .animate()
+        .fadeIn(duration: 400.ms)
+        .slideY(begin: 0.05, end: 0, duration: 400.ms);
   }
 
   // Slide 2: Gamepad-First Control (Bento Grid)
-  Widget _buildPage2(BuildContext context, bool isLandscape) {
+  Widget _buildPage2(
+    BuildContext context,
+    bool isLandscape,
+    ThemeProvider tp,
+    AppLocalizations l,
+  ) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(32, 100, 32, 120),
       child: isLandscape
@@ -301,12 +332,12 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               children: [
                 Expanded(
                   flex: 2,
-                  child: _buildFeatureBento2Left(),
+                  child: _buildFeatureBento2Left(tp, l),
                 ),
                 const SizedBox(width: 24),
                 Expanded(
                   flex: 3,
-                  child: _buildFeatureBento2Right(),
+                  child: _buildFeatureBento2Right(tp, l),
                 ),
               ],
             )
@@ -314,20 +345,28 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               children: [
                 Expanded(
                   flex: 2,
-                  child: _buildFeatureBento2Left(),
+                  child: _buildFeatureBento2Left(tp, l),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 20),
                 Expanded(
                   flex: 3,
-                  child: _buildFeatureBento2Right(),
+                  child: _buildFeatureBento2Right(tp, l),
                 ),
               ],
             ),
-    ).animate().fadeIn(duration: 500.ms).slideY(begin: 0.05, end: 0, duration: 500.ms);
+    )
+        .animate()
+        .fadeIn(duration: 400.ms)
+        .slideY(begin: 0.05, end: 0, duration: 400.ms);
   }
 
   // Slide 3: Jujo Cloud Sync (Bento Grid)
-  Widget _buildPage3(BuildContext context, bool isLandscape) {
+  Widget _buildPage3(
+    BuildContext context,
+    bool isLandscape,
+    ThemeProvider tp,
+    AppLocalizations l,
+  ) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(32, 100, 32, 120),
       child: isLandscape
@@ -336,12 +375,12 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               children: [
                 Expanded(
                   flex: 3,
-                  child: _buildCloudIntroCard(),
+                  child: _buildCloudIntroCard(tp, l),
                 ),
                 const SizedBox(width: 24),
                 Expanded(
                   flex: 2,
-                  child: _buildCloudBentoRight(),
+                  child: _buildCloudBentoRight(tp, l),
                 ),
               ],
             )
@@ -349,138 +388,165 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               children: [
                 Expanded(
                   flex: 3,
-                  child: _buildCloudIntroCard(),
+                  child: _buildCloudIntroCard(tp, l),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 20),
                 Expanded(
                   flex: 2,
-                  child: _buildCloudBentoRight(),
+                  child: _buildCloudBentoRight(tp, l),
                 ),
               ],
             ),
-    ).animate().fadeIn(duration: 500.ms).slideY(begin: 0.05, end: 0, duration: 500.ms);
+    )
+        .animate()
+        .fadeIn(duration: 400.ms)
+        .slideY(begin: 0.05, end: 0, duration: 400.ms);
   }
 
   // Helper widgets for Slide 1
-  Widget _buildIntroCard() {
-    return OnboardingGlassCard(
+  Widget _buildIntroCard(ThemeProvider tp, AppLocalizations l) {
+    final isLight = tp.colors.isLight;
+    return OnboardingSolidCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            decoration: BoxDecoration(
-              color: const Color(0xFF4F46E5).withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(30),
-              border: Border.all(color: const Color(0xFF4F46E5).withValues(alpha: 0.3)),
-            ),
-            child: const Text(
-              'EXPERIENCIA DE BAJA LATENCIA',
-              style: TextStyle(
-                color: Color(0xFF818CF8),
-                fontSize: 11,
-                fontWeight: FontWeight.w800,
-                letterSpacing: 1.5,
-              ),
-            ),
-          ),
+          _badge(
+            label: 'LOW LATENCY EXPERIENCE',
+            color: tp.accent,
+            isLight: isLight,
+          )
+              .animate()
+              .fadeIn(duration: 400.ms)
+              .slideY(begin: 0.08, duration: 400.ms),
           const SizedBox(height: 24),
-          const Text(
-            'Lleva tus juegos a cualquier parte.',
+          Text(
+            'Take your games anywhere.',
             style: TextStyle(
-              color: Colors.white,
+              color: isLight ? Colors.black87 : Colors.white,
               fontSize: 32,
               fontWeight: FontWeight.w900,
               height: 1.15,
             ),
-          ),
+          )
+              .animate()
+              .fadeIn(duration: 500.ms, delay: 80.ms)
+              .slideY(begin: 0.12, duration: 500.ms),
           const SizedBox(height: 16),
-          const Text(
-            'JUJO Stream te permite transmitir la biblioteca de tu PC directamente a tus dispositivos con calidad cinematográfica, soporte HDR y sincronización en tiempo real.',
+          Text(
+            'JUJO Stream lets you broadcast your PC library directly to your devices with cinematic quality, HDR support, and real-time sync.',
             style: TextStyle(
-              color: Colors.white70,
+              color: isLight ? Colors.black54 : Colors.white70,
               fontSize: 16,
               height: 1.6,
             ),
-          ),
+          )
+              .animate()
+              .fadeIn(duration: 500.ms, delay: 160.ms)
+              .slideY(begin: 0.06, duration: 500.ms),
         ],
       ),
     );
   }
 
-  Widget _buildFeatureBento1() {
+  Widget _buildFeatureBento1(ThemeProvider tp, AppLocalizations l) {
     return Column(
       children: [
         Expanded(
-          child: OnboardingGlassCard(
+          child: OnboardingSolidCard(
             padding: const EdgeInsets.all(20),
             child: Row(
               children: [
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: Colors.cyan.withValues(alpha: 0.08),
+                    color: tp.accent.withValues(alpha: 0.10),
                     borderRadius: BorderRadius.circular(16),
                   ),
-                  child: const Icon(Icons.flash_on, color: Colors.cyanAccent, size: 28),
+                  child: Icon(Icons.flash_on, color: tp.accent, size: 28),
                 ),
                 const SizedBox(width: 16),
-                const Expanded(
+                Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Text(
-                        'Ultra baja latencia',
-                        style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                        'Ultra Low Latency',
+                        style: TextStyle(
+                          color: tp.colors.isLight ? Colors.black87 : Colors.white,
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
-                      SizedBox(height: 4),
+                      const SizedBox(height: 4),
                       Text(
-                        'Optimizado para WebRTC para partidas sin retraso.',
-                        style: TextStyle(color: Colors.white54, fontSize: 13),
+                        'Optimized for WebRTC with zero-lag gameplay.',
+                        style: TextStyle(
+                          color: tp.colors.isLight ? Colors.black45 : Colors.white54,
+                          fontSize: 13,
+                        ),
                       ),
                     ],
                   ),
                 ),
               ],
             ),
+          ).animate().fadeIn(duration: 550.ms, delay: 100.ms).slideY(
+            begin: 0.10,
+            duration: 550.ms,
+            curve: Curves.easeOutCubic,
           ),
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 20),
         Expanded(
-          child: OnboardingGlassCard(
+          child: OnboardingSolidCard(
             padding: const EdgeInsets.all(20),
             child: Row(
               children: [
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: Colors.indigo.withValues(alpha: 0.08),
+                    color: tp.accent.withValues(alpha: 0.10),
                     borderRadius: BorderRadius.circular(16),
                   ),
-                  child: const Icon(Icons.high_quality, color: Color(0xFF818CF8), size: 28),
+                  child: Icon(
+                    Icons.high_quality,
+                    color: tp.accentLight,
+                    size: 28,
+                  ),
                 ),
                 const SizedBox(width: 16),
-                const Expanded(
+                Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Text(
-                        'Soporte HDR y 4K',
-                        style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                        'HDR & 4K Support',
+                        style: TextStyle(
+                          color: tp.colors.isLight ? Colors.black87 : Colors.white,
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
-                      SizedBox(height: 4),
+                      const SizedBox(height: 4),
                       Text(
-                        'Nitidez absoluta para pantallas modernas.',
-                        style: TextStyle(color: Colors.white54, fontSize: 13),
+                        'Absolute clarity for modern displays.',
+                        style: TextStyle(
+                          color: tp.colors.isLight ? Colors.black45 : Colors.white54,
+                          fontSize: 13,
+                        ),
                       ),
                     ],
                   ),
                 ),
               ],
             ),
+          ).animate().fadeIn(duration: 550.ms, delay: 200.ms).slideY(
+            begin: 0.10,
+            duration: 550.ms,
+            curve: Curves.easeOutCubic,
           ),
         ),
       ],
@@ -488,60 +554,92 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   }
 
   // Helper widgets for Slide 2
-  Widget _buildFeatureBento2Left() {
-    return OnboardingGlassCard(
+  Widget _buildFeatureBento2Left(ThemeProvider tp, AppLocalizations l) {
+    final isLight = tp.colors.isLight;
+    return OnboardingSolidCard(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const Icon(Icons.gamepad, color: Color(0xFF818CF8), size: 64),
+          Icon(Icons.gamepad, color: tp.accent, size: 64),
           const SizedBox(height: 24),
-          const Text(
+          Text(
             'Gamepad-First',
-            style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w900),
+            style: TextStyle(
+              color: isLight ? Colors.black87 : Colors.white,
+              fontSize: 22,
+              fontWeight: FontWeight.w900,
+            ),
           ),
           const SizedBox(height: 8),
-          const Text(
-            'Navegación espacial nativa optimizada para mandos físicos.',
-            style: TextStyle(color: Colors.white70, fontSize: 14, height: 1.5),
+          Text(
+            'Native spatial navigation optimized for physical controllers.',
+            style: TextStyle(
+              color: isLight ? Colors.black54 : Colors.white70,
+              fontSize: 14,
+              height: 1.5,
+            ),
             textAlign: TextAlign.center,
           ),
         ],
       ),
+    ).animate().fadeIn(duration: 500.ms, delay: 100.ms).slideY(
+      begin: 0.10,
+      duration: 500.ms,
+      curve: Curves.easeOutCubic,
     );
   }
 
-  Widget _buildFeatureBento2Right() {
-    return OnboardingGlassCard(
+  Widget _buildFeatureBento2Right(ThemeProvider tp, AppLocalizations l) {
+    final isLight = tp.colors.isLight;
+    return OnboardingSolidCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const Text(
-            'Control y Mapeo Absoluto',
-            style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold),
+          Text(
+            'Absolute Control & Mapping',
+            style: TextStyle(
+              color: isLight ? Colors.black87 : Colors.white,
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+            ),
           ),
           const SizedBox(height: 16),
           _bentoItem(
             icon: Icons.alt_route,
-            title: 'Navegación fluida por D-pad',
-            desc: 'Foco inteligente y retención automática en ventanas y menús sin romper el flujo.',
+            title: 'Fluid D-pad Navigation',
+            desc: 'Smart focus and automatic retention in windows and menus without breaking flow.',
+            accentColor: tp.accent,
+            isLight: isLight,
           ),
           const SizedBox(height: 12),
           _bentoItem(
             icon: Icons.settings_input_component,
-            title: 'Mapeo Personalizado',
-            desc: 'Intercambio automático de botones A/B/X/Y y soporte nativo para Nintendo, PlayStation y Xbox.',
+            title: 'Custom Mapping',
+            desc: 'Automatic A/B/X/Y button swap and native support for Nintendo, PlayStation and Xbox.',
+            accentColor: tp.accentLight,
+            isLight: isLight,
           ),
         ],
       ),
+    ).animate().fadeIn(duration: 550.ms, delay: 200.ms).slideY(
+      begin: 0.10,
+      duration: 550.ms,
+      curve: Curves.easeOutCubic,
     );
   }
 
-  Widget _bentoItem({required IconData icon, required String title, required String desc}) {
+  Widget _bentoItem({
+    required IconData icon,
+    required String title,
+    required String desc,
+    required Color accentColor,
+    required bool isLight,
+  }) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(icon, color: const Color(0xFF4F46E5), size: 22),
+        Icon(icon, color: accentColor, size: 22),
         const SizedBox(width: 16),
         Expanded(
           child: Column(
@@ -549,12 +647,20 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             children: [
               Text(
                 title,
-                style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold),
+                style: TextStyle(
+                  color: isLight ? Colors.black87 : Colors.white,
+                  fontSize: 15,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
               const SizedBox(height: 2),
               Text(
                 desc,
-                style: const TextStyle(color: Colors.white54, fontSize: 13, height: 1.4),
+                style: TextStyle(
+                  color: isLight ? Colors.black45 : Colors.white54,
+                  fontSize: 13,
+                  height: 1.4,
+                ),
               ),
             ],
           ),
@@ -564,100 +670,145 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   }
 
   // Helper widgets for Slide 3
-  Widget _buildCloudIntroCard() {
-    return OnboardingGlassCard(
+  Widget _buildCloudIntroCard(ThemeProvider tp, AppLocalizations l) {
+    final isLight = tp.colors.isLight;
+    return OnboardingSolidCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            decoration: BoxDecoration(
-              color: const Color(0xFF7C3AED).withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(30),
-              border: Border.all(color: const Color(0xFF7C3AED).withValues(alpha: 0.3)),
-            ),
-            child: const Text(
-              'SINCRONIZACIÓN AUTOMÁTICA',
-              style: TextStyle(
-                color: Color(0xFFA78BFA),
-                fontSize: 11,
-                fontWeight: FontWeight.w800,
-                letterSpacing: 1.5,
-              ),
-            ),
-          ),
+          _badge(
+            label: 'AUTOMATIC SYNC',
+            color: tp.accentLight,
+            isLight: isLight,
+          )
+              .animate()
+              .fadeIn(duration: 400.ms)
+              .slideY(begin: 0.08, duration: 400.ms),
           const SizedBox(height: 24),
-          const Text(
-            'Sincroniza tus servidores.',
+          Text(
+            'Sync your servers.',
             style: TextStyle(
-              color: Colors.white,
+              color: isLight ? Colors.black87 : Colors.white,
               fontSize: 32,
               fontWeight: FontWeight.w900,
               height: 1.15,
             ),
-          ),
+          )
+              .animate()
+              .fadeIn(duration: 500.ms, delay: 80.ms)
+              .slideY(begin: 0.12, duration: 500.ms),
           const SizedBox(height: 16),
-          const Text(
-            'Conéctate a Jujo Cloud para respaldar y sincronizar tus ordenadores, estados, y preferencias de forma segura y automatizada en segundos. Todo protegido con cifrado de grado militar.',
+          Text(
+            'Connect to Jujo Cloud to securely back up and sync your computers, states, and preferences automatically in seconds. All protected with military-grade encryption.',
             style: TextStyle(
-              color: Colors.white70,
+              color: isLight ? Colors.black54 : Colors.white70,
               fontSize: 16,
               height: 1.6,
             ),
-          ),
+          )
+              .animate()
+              .fadeIn(duration: 500.ms, delay: 160.ms)
+              .slideY(begin: 0.06, duration: 500.ms),
         ],
       ),
     );
   }
 
-  Widget _buildCloudBentoRight() {
+  Widget _buildCloudBentoRight(ThemeProvider tp, AppLocalizations l) {
+    final isLight = tp.colors.isLight;
     return Column(
       children: [
         Expanded(
-          child: OnboardingGlassCard(
+          child: OnboardingSolidCard(
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                const Icon(Icons.cloud_sync, color: Color(0xFFA78BFA), size: 36),
+                Icon(Icons.cloud_sync, color: tp.accentLight, size: 36),
                 const SizedBox(height: 12),
-                const Text(
+                Text(
                   'Cloud Sync',
-                  style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                  style: TextStyle(
+                    color: isLight ? Colors.black87 : Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
                 const SizedBox(height: 4),
-                const Text(
-                  'Guarda automáticamente tu lista de servidores.',
-                  style: TextStyle(color: Colors.white54, fontSize: 13),
+                Text(
+                  'Automatically save your server list.',
+                  style: TextStyle(
+                    color: isLight ? Colors.black45 : Colors.white54,
+                    fontSize: 13,
+                  ),
                   textAlign: TextAlign.center,
                 ),
               ],
             ),
+          ).animate().fadeIn(duration: 550.ms, delay: 100.ms).slideY(
+            begin: 0.10,
+            duration: 550.ms,
+            curve: Curves.easeOutCubic,
           ),
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 20),
         Expanded(
-          child: OnboardingGlassCard(
+          child: OnboardingSolidCard(
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                const Icon(Icons.security, color: Colors.tealAccent, size: 36),
+                Icon(Icons.security, color: tp.accent, size: 36),
                 const SizedBox(height: 12),
-                const Text(
-                  'Seguridad 2FA',
-                  style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                Text(
+                  '2FA Security',
+                  style: TextStyle(
+                    color: isLight ? Colors.black87 : Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
                 const SizedBox(height: 4),
-                const Text(
-                  'Inicio protegido mediante Autenticación de Doble Factor.',
-                  style: TextStyle(color: Colors.white54, fontSize: 13),
+                Text(
+                  'Protected login via Two-Factor Authentication.',
+                  style: TextStyle(
+                    color: isLight ? Colors.black45 : Colors.white54,
+                    fontSize: 13,
+                  ),
                   textAlign: TextAlign.center,
                 ),
               ],
             ),
+          ).animate().fadeIn(duration: 550.ms, delay: 200.ms).slideY(
+            begin: 0.10,
+            duration: 550.ms,
+            curve: Curves.easeOutCubic,
           ),
         ),
       ],
+    );
+  }
+
+  Widget _badge({
+    required String label,
+    required Color color,
+    required bool isLight,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(30),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: color,
+          fontSize: 11,
+          fontWeight: FontWeight.w800,
+          letterSpacing: 1.5,
+        ),
+      ),
     );
   }
 }

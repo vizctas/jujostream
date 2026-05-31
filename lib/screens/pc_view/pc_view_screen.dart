@@ -8,6 +8,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:video_player/video_player.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../l10n/app_localizations.dart';
 import '../../models/computer_details.dart';
 import '../../providers/computer_provider.dart';
@@ -28,11 +29,188 @@ import '../../providers/auth_provider.dart';
 import '../../services/audio/ui_sound_service.dart';
 import '../../widgets/tour_overlay.dart';
 import 'focus_mode_screen.dart';
+import '../auth/cloud_auth_screen.dart';
 
 class PcViewScreen extends StatefulWidget {
   const PcViewScreen({super.key});
 
   static final pendingTour = ValueNotifier<bool>(false);
+
+  static void showCloudAuth(BuildContext context) {
+    Navigator.push(
+      context,
+      PageRouteBuilder(
+        pageBuilder: (ctx, anim, _) => const CloudAuthScreen(),
+        transitionsBuilder: (ctx, anim, _, child) {
+          final slide = Tween<Offset>(
+            begin: const Offset(0, 1),
+            end: Offset.zero,
+          ).animate(CurvedAnimation(
+            parent: anim,
+            curve: Curves.easeOutCubic,
+          ));
+          final fade = Tween<double>(begin: 0, end: 1).animate(
+            CurvedAnimation(parent: anim, curve: const Interval(0, 0.5)),
+          );
+          return FadeTransition(
+            opacity: fade,
+            child: SlideTransition(position: slide, child: child),
+          );
+        },
+        transitionDuration: const Duration(milliseconds: 500),
+      ),
+    );
+  }
+
+  static Future<void> doCloudSync(BuildContext context, AuthProvider auth) async {
+    final ok = await auth.pushToCloud();
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          ok ? 'Synced to cloud' : 'Sync failed: ${auth.cloudError ?? 'Unknown error'}',
+        ),
+      ),
+    );
+  }
+
+  static void showAccountPicker(BuildContext context, AuthProvider auth) {
+    final brightness = Theme.of(context).brightness;
+    final isLight = brightness == Brightness.light;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      transitionAnimationController: AnimationController(
+        vsync: Navigator.of(context).overlay!,
+        duration: const Duration(milliseconds: 350),
+      ),
+      builder: (ctx) {
+        return AnimatedContainer(
+          duration: const Duration(milliseconds: 350),
+          curve: Curves.easeOutCubic,
+          decoration: BoxDecoration(
+            color: isLight ? Colors.white : const Color(0xFF1C1C1E),
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          child: SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 36,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: isLight ? Colors.black26 : Colors.white24,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  ListTile(
+                    leading: Icon(Icons.person_outline,
+                        color: isLight ? Colors.black87 : Colors.white),
+                    title: Text(
+                      'My Profile',
+                      style: TextStyle(
+                        color: isLight ? Colors.black87 : Colors.white,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => const ProfileScreen(),
+                        ),
+                      );
+                    },
+                  ),
+                  ListTile(
+                    leading: Icon(Icons.sync,
+                        color: isLight ? Colors.black87 : Colors.white),
+                    title: Text(
+                      'Sync Now',
+                      style: TextStyle(
+                        color: isLight ? Colors.black87 : Colors.white,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      PcViewScreen.doCloudSync(context, auth);
+                    },
+                  ),
+                  const Divider(),
+                  ListTile(
+                    leading: const Icon(Icons.logout, color: Colors.redAccent),
+                    title: const Text(
+                      'Log Out',
+                      style: TextStyle(
+                        color: Colors.redAccent,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      showDialog(
+                        context: context,
+                        builder: (ctx2) => AlertDialog(
+                          backgroundColor:
+                              isLight ? Colors.white : const Color(0xFF1C1C1E),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          title: Text(
+                            'Log Out?',
+                            style: TextStyle(
+                              color: isLight ? Colors.black87 : Colors.white,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          content: Text(
+                            'You will need to sign in again to sync.',
+                            style: TextStyle(
+                              color: isLight ? Colors.black54 : Colors.white70,
+                            ),
+                          ),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.pop(ctx2),
+                              child: Text(
+                                'Cancel',
+                                style: TextStyle(
+                                  color: isLight
+                                      ? Colors.black54
+                                      : Colors.white54,
+                                ),
+                              ),
+                            ),
+                            TextButton(
+                              onPressed: () {
+                                Navigator.pop(ctx2);
+                                auth.signOut();
+                              },
+                              child: const Text(
+                                'Log Out',
+                                style: TextStyle(color: Colors.redAccent),
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
 
   @override
   State<PcViewScreen> createState() => _PcViewScreenState();
@@ -65,6 +243,9 @@ class _PcViewScreenState extends State<PcViewScreen>
 
   static String _bgPrefKey(String uuid) => 'computer_bg_$uuid';
 
+  Timer? _healthTimer;
+  int _healthTick = 0;
+
   @override
   void initState() {
     super.initState();
@@ -86,6 +267,7 @@ class _PcViewScreenState extends State<PcViewScreen>
       _loadAllBgPaths();
       PcViewScreen.pendingTour.addListener(_onPendingTour);
       _scheduleAutoConnect();
+      _startHealthLoop();
     });
   }
 
@@ -108,6 +290,52 @@ class _PcViewScreenState extends State<PcViewScreen>
         ..clear()
         ..addAll(updated),
     );
+  }
+
+  void _startHealthLoop() {
+    _healthTimer?.cancel();
+    _healthTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      _runHealthCheck();
+    });
+  }
+
+  void _runHealthCheck() {
+    if (!mounted) return;
+    final provider = context.read<ComputerProvider>();
+    final auth = context.read<AuthProvider>();
+
+    if (provider.activeSessionComputer != null) {
+      _healthTick++;
+      if (_healthTick % 24 != 0) return;
+    } else {
+      _healthTick++;
+    }
+
+    Future.microtask(() async {
+      if (provider.activeSessionComputer == null && _healthTick % 6 == 0) {
+        for (final computer in provider.computers) {
+          unawaited(provider.pollComputer(computer));
+        }
+      }
+
+      if (_healthTick % 12 == 0) {
+        if (auth.isSignedIn) {
+          try {
+            final session = Supabase.instance.client.auth.currentSession;
+            if (session == null || session.isExpired) {
+              if (mounted) {
+                auth.signOutFromCloud();
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Session expired — please sign in again'),
+                  ),
+                );
+              }
+            }
+          } catch (_) {}
+        }
+      }
+    });
   }
 
   Future<void> _pickComputerBackground(ComputerDetails computer) async {
@@ -231,6 +459,7 @@ class _PcViewScreenState extends State<PcViewScreen>
     // `immersiveSticky` call and make the notification bar reappear.
     // Each destination screen owns its own UI mode.
     PcViewScreen.pendingTour.removeListener(_onPendingTour);
+    _healthTimer?.cancel();
     _screenFocusNode.dispose();
     _shakeController?.dispose();
     for (final n in _iconFocusNodes) {
@@ -330,6 +559,45 @@ class _PcViewScreenState extends State<PcViewScreen>
                       );
                     },
                     onNav: (dir) => _handleIconNav(1, dir),
+                  ),
+                  const SizedBox(width: 4),
+                  Consumer<AuthProvider>(
+                    builder: (context, auth, child) {
+                      if (!auth.isSignedIn) {
+                        return IconButton(
+                          icon: const Icon(Icons.cloud_off),
+                          tooltip: 'Sign in to Jujo Cloud',
+                          onPressed: () => PcViewScreen.showCloudAuth(context),
+                        );
+                      }
+                      return Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            icon: auth.isSyncing
+                                ? const SizedBox(
+                                    width: 20,
+                                    height: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.white,
+                                    ),
+                                  )
+                                : const Icon(Icons.cloud_done),
+                            tooltip: auth.isSyncing ? 'Syncing...' : 'Sync to cloud',
+                            onPressed: auth.isSyncing
+                                ? null
+                                : () => PcViewScreen.doCloudSync(context, auth),
+                          ),
+                          const SizedBox(width: 4),
+                          IconButton(
+                            icon: const Icon(Icons.account_circle),
+                            tooltip: 'Account',
+                            onPressed: () => PcViewScreen.showAccountPicker(context, auth),
+                          ),
+                        ],
+                      );
+                    },
                   ),
                   const SizedBox(width: 8),
                 ],

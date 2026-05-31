@@ -1,9 +1,11 @@
 import 'dart:io' as io;
 import 'dart:math' as math;
+import 'dart:async';
 import 'dart:ui';
 
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
@@ -27,6 +29,7 @@ import '../settings/settings_screen.dart';
 import '../settings/profile_screen.dart';
 import '../about/about_screen.dart';
 import 'pc_view_screen.dart';
+import '../../providers/auth_provider.dart';
 
 /// Preference key for Focus Mode toggle.
 const _kFocusModeEnabled = 'focus_mode_enabled';
@@ -64,6 +67,9 @@ class _FocusModeScreenState extends State<FocusModeScreen>
 
   /// Per-server custom background image paths (uuid → path).
   final Map<String, String> _bgPaths = {};
+
+  Timer? _healthTimer;
+  int _healthTick = 0;
 
   static String _bgPrefKey(String uuid) => 'computer_bg_$uuid';
 
@@ -103,6 +109,7 @@ class _FocusModeScreenState extends State<FocusModeScreen>
       }
       _loadBgPaths();
       _scheduleAutoConnect();
+      _startHealthLoop();
     });
   }
 
@@ -158,6 +165,7 @@ class _FocusModeScreenState extends State<FocusModeScreen>
     // UI mode and Flutter initializes it before disposing this one; resetting
     // here races with the next initState and re-exposes the notification bar.
     UiSoundService.stopAmbience();
+    _healthTimer?.cancel();
     _pageController.dispose();
     super.dispose();
   }
@@ -235,6 +243,53 @@ class _FocusModeScreenState extends State<FocusModeScreen>
     if (mounted && !TvDetector.instance.isTV) {
       SystemChrome.setPreferredOrientations([]);
     }
+  }
+
+  void _startHealthLoop() {
+    _healthTimer?.cancel();
+    _healthTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      _runHealthCheck();
+    });
+  }
+
+  void _runHealthCheck() {
+    if (!mounted) return;
+    final provider = context.read<ComputerProvider>();
+    final auth = context.read<AuthProvider>();
+
+    // Skip if actively streaming
+    if (provider.activeSessionComputer != null) {
+      _healthTick++;
+      if (_healthTick % 24 != 0) return;
+    } else {
+      _healthTick++;
+    }
+
+    Future.microtask(() async {
+      if (provider.activeSessionComputer == null && _healthTick % 6 == 0) {
+        for (final computer in provider.computers) {
+          unawaited(provider.pollComputer(computer));
+        }
+      }
+
+      if (_healthTick % 12 == 0) {
+        if (auth.isSignedIn) {
+          try {
+            final session = Supabase.instance.client.auth.currentSession;
+            if (session == null || session.isExpired) {
+              if (mounted) {
+                auth.signOutFromCloud();
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Session expired — please sign in again'),
+                  ),
+                );
+              }
+            }
+          } catch (_) {}
+        }
+      }
+    });
   }
 
   Future<void> _pickBackground(ComputerDetails computer) async {
@@ -431,7 +486,6 @@ class _FocusModeScreenState extends State<FocusModeScreen>
             tooltip: 'Settings',
             color: fgColor,
             onPressed: () async {
-              // Pause ambience while in Settings, resume on return
               _ambientEnabled = false;
               UiSoundService.stopAmbience();
               await Navigator.push(
@@ -441,12 +495,52 @@ class _FocusModeScreenState extends State<FocusModeScreen>
               if (!mounted) return;
               _ambientEnabled = true;
               UiSoundService.playAmbience();
-              // Re-apply fullscreen after returning from Settings
               if (io.Platform.isAndroid) {
                 SystemChrome.setEnabledSystemUIMode(
                   SystemUiMode.immersiveSticky,
                 );
               }
+            },
+          ),
+          const SizedBox(width: 4),
+          Consumer<AuthProvider>(
+            builder: (context, auth, child) {
+              if (!auth.isSignedIn) {
+                return _buildIconButton(
+                  icon: Icons.cloud_off,
+                  tooltip: 'Sign in to Jujo Cloud',
+                  color: fgColor,
+                  onPressed: () {
+                    _ambientEnabled = false;
+                    UiSoundService.stopAmbience();
+                    PcViewScreen.showCloudAuth(context);
+                    // Ambient is resumed by didChangeAppLifecycleState
+                    // when the auth sheet is dismissed and app comes back.
+                  },
+                );
+              }
+              return Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _buildIconButton(
+                    icon: auth.isSyncing ? Icons.sync : Icons.cloud_done,
+                    tooltip: auth.isSyncing ? 'Syncing...' : 'Sync to cloud',
+                    color: fgColor,
+                    onPressed: auth.isSyncing
+                        ? null
+                        : () {
+                            unawaited(auth.pushToCloud());
+                          },
+                  ),
+                  const SizedBox(width: 4),
+                  _buildIconButton(
+                    icon: Icons.account_circle,
+                    tooltip: 'Account',
+                    color: fgColor,
+                    onPressed: () => PcViewScreen.showAccountPicker(context, auth),
+                  ),
+                ],
+              );
             },
           ),
         ],
@@ -458,7 +552,7 @@ class _FocusModeScreenState extends State<FocusModeScreen>
     required IconData icon,
     required String tooltip,
     required Color color,
-    required VoidCallback onPressed,
+    required VoidCallback? onPressed,
   }) {
     return IconButton(
       icon: Icon(icon, color: color),

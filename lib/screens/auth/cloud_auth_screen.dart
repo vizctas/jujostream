@@ -7,8 +7,8 @@ import 'package:supabase_flutter/supabase_flutter.dart' hide AuthState;
 
 import '../../providers/auth_provider.dart';
 import '../../providers/cloud_mfa_provider.dart';
+import '../../providers/theme_provider.dart';
 import '../onboarding/widgets/onboarding_glass_card.dart';
-import '../onboarding/widgets/onboarding_glow.dart';
 
 class CloudAuthScreen extends StatefulWidget {
   final bool isFirstRun;
@@ -23,8 +23,6 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _mfaCodeController = TextEditingController();
-
-  final ValueNotifier<double> _scrollOffset = ValueNotifier<double>(0.0);
 
   bool _isLoading = false;
   bool _obscurePassword = true;
@@ -53,7 +51,6 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
     _emailController.dispose();
     _passwordController.dispose();
     _mfaCodeController.dispose();
-    _scrollOffset.dispose();
     _emailFocus.dispose();
     _passwordFocus.dispose();
     _submitFocus.dispose();
@@ -87,7 +84,6 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
 
       if (!mounted) return;
       if (success) {
-        // Trigger MFA checks
         final mfa = context.read<CloudMfaProvider>();
         await mfa.refresh();
         if (mfa.status == CloudMfaStatus.setupRequired) {
@@ -95,12 +91,12 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
         }
       } else {
         setState(() {
-          _error = auth.cloudError ?? 'Fallo al iniciar sesión';
+          _error = auth.cloudError ?? 'Login failed';
         });
       }
     } catch (e) {
       setState(() {
-        _error = 'Error de conexión: $e';
+        _error = 'Connection error: $e';
       });
     } finally {
       if (mounted) {
@@ -128,18 +124,18 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
       if (!mounted) return;
       if (success) {
         setState(() {
-          _info = 'Cuenta creada. Confirma tu correo para continuar.';
+          _info = 'Account created. Please confirm your email to continue.';
           _awaitingConfirmation = true;
         });
         _startConfirmationPolling();
       } else {
         setState(() {
-          _error = auth.cloudError ?? 'Fallo al registrar la cuenta';
+          _error = auth.cloudError ?? 'Registration failed';
         });
       }
     } catch (e) {
       setState(() {
-        _error = 'Error de conexión: $e';
+        _error = 'Connection error: $e';
       });
     } finally {
       if (mounted) {
@@ -168,7 +164,7 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
           _awaitingConfirmation = false;
           _info = null;
         });
-        
+
         final mfa = context.read<CloudMfaProvider>();
         await mfa.refresh();
         if (mfa.status == CloudMfaStatus.setupRequired) {
@@ -186,11 +182,11 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
         email: _emailController.text.trim(),
       );
       setState(() {
-        _info = 'Correo de confirmación reenviado. Revisa tu buzón.';
+        _info = 'Confirmation email resent. Check your inbox.';
       });
     } catch (e) {
       setState(() {
-        _error = 'Error al reenviar: $e';
+        _error = 'Failed to resend: $e';
       });
     } finally {
       setState(() => _isLoading = false);
@@ -201,15 +197,13 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
     setState(() => _isLoading = true);
     final mfa = context.read<CloudMfaProvider>();
     final success = await mfa.verifyCode(code);
-    
+
     if (!mounted) return;
     setState(() => _isLoading = false);
-    
+
     if (success) {
-      // Sync cloud computers
       unawaited(context.read<AuthProvider>().pullFromCloud());
       if (mounted) {
-        // Proceed to PcViewScreen
         Navigator.of(context).pushReplacementNamed('/');
       }
     } else {
@@ -219,7 +213,6 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
   }
 
   Future<void> _cancelMfa() async {
-    // If they cancel or click out, we MUST sign out to clear session
     final auth = context.read<AuthProvider>();
     await auth.signOutFromCloud();
     if (!mounted) return;
@@ -233,26 +226,29 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
   @override
   Widget build(BuildContext context) {
     final mfa = context.watch<CloudMfaProvider>();
+    final tp = context.watch<ThemeProvider>();
 
-
-    // If MFA is blocked/gate required, we show the 2FA UI
-    final showMfaPanel = mfa.status == CloudMfaStatus.setupRequired || 
-                          mfa.status == CloudMfaStatus.verifyRequired ||
-                          mfa.status == CloudMfaStatus.loading && mfa.blocksCloudUser;
+    final showMfaPanel = mfa.status == CloudMfaStatus.setupRequired ||
+        mfa.status == CloudMfaStatus.verifyRequired ||
+        (mfa.status == CloudMfaStatus.loading && mfa.blocksCloudUser);
 
     return Scaffold(
-      backgroundColor: const Color(0xFF0F0E17),
+      backgroundColor: tp.background,
       body: Stack(
         fit: StackFit.expand,
         children: [
-          OnboardingGlow(scrollOffset: _scrollOffset),
-          
+          // Static ambient gradient — solid, no blur, no animation
           Positioned.fill(
-            child: Opacity(
-              opacity: 0.012,
-              child: Image.network(
-                'https://images.unsplash.com/photo-1541701494587-cb58502866ab?auto=format&fit=crop&w=400&q=80',
-                fit: BoxFit.cover,
+            child: Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    tp.background,
+                    tp.surface,
+                  ],
+                ),
               ),
             ),
           ),
@@ -262,9 +258,9 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
               padding: const EdgeInsets.all(24),
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 420),
-                child: showMfaPanel 
-                    ? _buildMfaLayout(context, mfa)
-                    : _buildAuthLayout(context),
+                child: showMfaPanel
+                    ? _buildMfaLayout(context, mfa, tp)
+                    : _buildAuthLayout(context, tp),
               ),
             ),
           ),
@@ -273,89 +269,104 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
     );
   }
 
-  Widget _buildAuthLayout(BuildContext context) {
-    return OnboardingGlassCard(
+  Widget _buildAuthLayout(BuildContext context, ThemeProvider tp) {
+    final isLight = tp.colors.isLight;
+    return OnboardingSolidCard(
       child: Form(
         key: _formKey,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Icon(
+            Icon(
               Icons.cloud,
               size: 44,
-              color: Color(0xFF818CF8),
+              color: tp.accent,
             ).animate().scale(delay: 200.ms, duration: 400.ms),
             const SizedBox(height: 16),
             Text(
-              _isSignUp ? 'Crear Cuenta Jujo Cloud' : 'Iniciar Sesión Jujo Cloud',
-              style: const TextStyle(
-                color: Colors.white,
+              _isSignUp ? 'Create Jujo Cloud Account' : 'Sign in to Jujo Cloud',
+              style: TextStyle(
+                color: isLight ? Colors.black87 : Colors.white,
                 fontSize: 20,
                 fontWeight: FontWeight.w900,
               ),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 24),
-            
+
             TextFormField(
               controller: _emailController,
               focusNode: _emailFocus,
-              style: const TextStyle(color: Colors.white),
-              decoration: _inputDecoration('Correo Electrónico', Icons.mail_outline),
+              style: TextStyle(
+                color: isLight ? Colors.black87 : Colors.white,
+              ),
+              decoration: _inputDecoration('Email', Icons.mail_outline, tp),
               keyboardType: TextInputType.emailAddress,
               textInputAction: TextInputAction.next,
               validator: (value) {
                 final email = value?.trim() ?? '';
-                if (email.isEmpty) return 'El correo es requerido';
-                if (!email.contains('@')) return 'Ingresa un correo válido';
+                if (email.isEmpty) return 'Email is required';
+                if (!email.contains('@')) return 'Please enter a valid email';
                 return null;
               },
             ),
             const SizedBox(height: 16),
-            
+
             TextFormField(
               controller: _passwordController,
               focusNode: _passwordFocus,
-              style: const TextStyle(color: Colors.white),
+              style: TextStyle(
+                color: isLight ? Colors.black87 : Colors.white,
+              ),
               obscureText: _obscurePassword,
-              decoration: _inputDecoration('Contraseña', Icons.lock_outline).copyWith(
+              decoration: _inputDecoration('Password', Icons.lock_outline, tp)
+                  .copyWith(
                 suffixIcon: IconButton(
                   icon: Icon(
-                    _obscurePassword ? Icons.visibility_off_outlined : Icons.visibility_outlined,
-                    color: Colors.white54,
+                    _obscurePassword
+                        ? Icons.visibility_off_outlined
+                        : Icons.visibility_outlined,
+                    color: isLight ? Colors.black45 : Colors.white54,
                     size: 20,
                   ),
-                  onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+                  onPressed: () =>
+                      setState(() => _obscurePassword = !_obscurePassword),
                 ),
               ),
               textInputAction: TextInputAction.done,
               onFieldSubmitted: (_) => _handleSubmit(),
               validator: (value) {
-                if (value == null || value.isEmpty) return 'La contraseña es requerida';
-                if (value.length < 6) return 'Debe tener al menos 6 caracteres';
+                if (value == null || value.isEmpty) return 'Password is required';
+                if (value.length < 6) return 'Must be at least 6 characters';
                 return null;
               },
             ),
-            
+
             const SizedBox(height: 20),
-            
+
             if (_error != null) ...[
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
                   color: Colors.red.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.redAccent.withValues(alpha: 0.3)),
+                  border: Border.all(
+                    color: Colors.redAccent.withValues(alpha: 0.3),
+                  ),
                 ),
                 child: Row(
                   children: [
-                    const Icon(Icons.error_outline, color: Colors.redAccent, size: 18),
+                    const Icon(Icons.error_outline,
+                        color: Colors.redAccent, size: 18),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
                         _error!,
-                        style: const TextStyle(color: Colors.redAccent, fontSize: 13),
+                        style: const TextStyle(
+                          color: Colors.redAccent,
+                          fontSize: 13,
+                        ),
                       ),
                     ),
                   ],
@@ -363,25 +374,31 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
               ),
               const SizedBox(height: 16),
             ],
-            
+
             if (_info != null) ...[
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: Colors.indigo.withValues(alpha: 0.12),
+                  color: tp.accent.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: const Color(0xFF4F46E5).withValues(alpha: 0.3)),
+                  border: Border.all(
+                    color: tp.accent.withValues(alpha: 0.3),
+                  ),
                 ),
                 child: Column(
                   children: [
                     Row(
                       children: [
-                        const Icon(Icons.mark_email_unread_outlined, color: Color(0xFF818CF8), size: 18),
+                        Icon(Icons.mark_email_unread_outlined,
+                            color: tp.accent, size: 18),
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
                             _info!,
-                            style: const TextStyle(color: Color(0xFF818CF8), fontSize: 13),
+                            style: TextStyle(
+                              color: tp.accent,
+                              fontSize: 13,
+                            ),
                           ),
                         ),
                       ],
@@ -391,23 +408,37 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          const Row(
+                          Row(
                             children: [
                               SizedBox(
                                 width: 14,
                                 height: 14,
-                                child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF818CF8)),
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: tp.accent,
+                                ),
                               ),
-                              SizedBox(width: 8),
+                              const SizedBox(width: 8),
                               Text(
-                                'Esperando confirmación...',
-                                style: TextStyle(color: Colors.white54, fontSize: 11),
+                                'Waiting for confirmation...',
+                                style: TextStyle(
+                                  color: isLight
+                                      ? Colors.black45
+                                      : Colors.white54,
+                                  fontSize: 11,
+                                ),
                               ),
                             ],
                           ),
                           TextButton(
                             onPressed: _isLoading ? null : _resendEmail,
-                            child: const Text('Reenviar', style: TextStyle(color: Color(0xFF818CF8), fontSize: 12)),
+                            child: Text(
+                              'Resend',
+                              style: TextStyle(
+                                color: tp.accent,
+                                fontSize: 12,
+                              ),
+                            ),
                           ),
                         ],
                       ),
@@ -417,32 +448,38 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
               ),
               const SizedBox(height: 16),
             ],
-            
+
             ElevatedButton(
               focusNode: _submitFocus,
               onPressed: _isLoading ? null : _handleSubmit,
               style: ElevatedButton.styleFrom(
-                backgroundColor: _isSignUp ? const Color(0xFF7C3AED) : const Color(0xFF4F46E5),
+                backgroundColor: tp.accent,
                 foregroundColor: Colors.white,
                 padding: const EdgeInsets.symmetric(vertical: 16),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(16),
                 ),
-                elevation: 4,
+                elevation: 0,
               ),
               child: _isLoading
                   ? const SizedBox(
                       width: 20,
                       height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
                     )
                   : Text(
-                      _isSignUp ? 'Registrarse' : 'Iniciar Sesión',
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                      _isSignUp ? 'Sign Up' : 'Sign In',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 15,
+                      ),
                     ),
             ),
             const SizedBox(height: 16),
-            
+
             TextButton(
               onPressed: _isLoading
                   ? null
@@ -451,24 +488,29 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
                         _error = null;
                         _info = null;
                       }),
-              style: TextButton.styleFrom(foregroundColor: Colors.white70),
+              style: TextButton.styleFrom(
+                foregroundColor:
+                    isLight ? Colors.black54 : Colors.white70,
+              ),
               child: Text(
                 _isSignUp
-                    ? '¿Ya tienes una cuenta? Inicia sesión'
-                    : '¿Necesitas sincronización? Regístrate',
+                    ? 'Already have an account? Sign in'
+                    : 'Need sync? Create an account',
               ),
             ),
-            
+
             const SizedBox(height: 8),
             TextButton(
               onPressed: _isLoading
                   ? null
                   : () {
-                      // Proceed without Jujo Cloud as local mode
                       Navigator.of(context).pushReplacementNamed('/');
                     },
-              style: TextButton.styleFrom(foregroundColor: Colors.white38),
-              child: const Text('Continuar en modo Local-only'),
+              style: TextButton.styleFrom(
+                foregroundColor:
+                    isLight ? Colors.black38 : Colors.white38,
+              ),
+              child: const Text('Continue in Local-only mode'),
             ),
           ],
         ),
@@ -476,24 +518,29 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
     );
   }
 
-  Widget _buildMfaLayout(BuildContext context, CloudMfaProvider mfa) {
+  Widget _buildMfaLayout(
+    BuildContext context,
+    CloudMfaProvider mfa,
+    ThemeProvider tp,
+  ) {
     final isSetup = mfa.status == CloudMfaStatus.setupRequired;
+    final isLight = tp.colors.isLight;
 
-    return OnboardingGlassCard(
+    return OnboardingSolidCard(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const Icon(
+          Icon(
             Icons.security,
             size: 40,
-            color: Color(0xFF34D399),
+            color: tp.accentLight,
           ).animate().shake(),
           const SizedBox(height: 16),
           Text(
-            isSetup ? 'Configurar 2FA Requerido' : 'Verificación 2FA Requerida',
-            style: const TextStyle(
-              color: Colors.white,
+            isSetup ? '2FA Setup Required' : '2FA Verification Required',
+            style: TextStyle(
+              color: isLight ? Colors.black87 : Colors.white,
               fontSize: 18,
               fontWeight: FontWeight.w900,
             ),
@@ -501,18 +548,18 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
           ),
           const SizedBox(height: 12),
           Text(
-            isSetup 
-                ? 'Escanea el código QR con Google Authenticator o Authy para registrar tu cuenta, y escribe el código de 6 dígitos.'
-                : 'Ingresa el código de 6 dígitos generado por tu aplicación de autenticación.',
-            style: const TextStyle(
-              color: Colors.white70,
+            isSetup
+                ? 'Scan the QR code with Google Authenticator or Authy to register your account, then enter the 6-digit code.'
+                : 'Enter the 6-digit code from your authenticator app.',
+            style: TextStyle(
+              color: isLight ? Colors.black54 : Colors.white70,
               fontSize: 13,
               height: 1.4,
             ),
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 24),
-          
+
           if (isSetup && mfa.enrollmentUri != null) ...[
             Center(
               child: ClipRRect(
@@ -533,9 +580,9 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
             const SizedBox(height: 16),
             Center(
               child: SelectableText(
-                'Código secreto: ${mfa.enrollmentSecret ?? ""}',
-                style: const TextStyle(
-                  color: Colors.white54,
+                'Secret: ${mfa.enrollmentSecret ?? ""}',
+                style: TextStyle(
+                  color: isLight ? Colors.black45 : Colors.white54,
                   fontSize: 12,
                   fontFamily: 'monospace',
                 ),
@@ -544,15 +591,21 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
             ),
             const SizedBox(height: 24),
           ],
-          
+
           TextFormField(
             controller: _mfaCodeController,
             focusNode: _mfaFocus,
-            style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold, letterSpacing: 6),
+            style: TextStyle(
+              color: isLight ? Colors.black87 : Colors.white,
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 6,
+            ),
             keyboardType: TextInputType.number,
             maxLength: 6,
             textAlign: TextAlign.center,
-            decoration: _inputDecoration('Código de 6 dígitos', Icons.onetwothree_outlined).copyWith(
+            decoration: _inputDecoration('6-digit code', Icons.onetwothree_outlined, tp)
+                .copyWith(
               counterText: '',
             ),
             onChanged: (code) {
@@ -561,7 +614,7 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
               }
             },
           ),
-          
+
           const SizedBox(height: 16),
           if (mfa.error != null) ...[
             Container(
@@ -569,54 +622,69 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
               decoration: BoxDecoration(
                 color: Colors.red.withValues(alpha: 0.12),
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.redAccent.withValues(alpha: 0.3)),
+                border: Border.all(
+                  color: Colors.redAccent.withValues(alpha: 0.3),
+                ),
               ),
               child: Text(
                 mfa.error!,
-                style: const TextStyle(color: Colors.redAccent, fontSize: 13),
+                style: const TextStyle(
+                  color: Colors.redAccent,
+                  fontSize: 13,
+                ),
                 textAlign: TextAlign.center,
               ),
             ),
             const SizedBox(height: 20),
           ],
-          
+
           Row(
             children: [
               Expanded(
                 child: OutlinedButton(
                   onPressed: _isLoading ? null : _cancelMfa,
                   style: OutlinedButton.styleFrom(
-                    foregroundColor: Colors.white70,
-                    side: BorderSide(color: Colors.white.withValues(alpha: 0.2)),
+                    foregroundColor: isLight ? Colors.black54 : Colors.white70,
+                    side: BorderSide(
+                      color: isLight
+                          ? Colors.black26
+                          : Colors.white.withValues(alpha: 0.2),
+                    ),
                     padding: const EdgeInsets.symmetric(vertical: 14),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(16),
                     ),
                   ),
-                  child: const Text('Cancelar'),
+                  child: const Text('Cancel'),
                 ),
               ),
               const SizedBox(width: 12),
               Expanded(
                 child: ElevatedButton(
-                  onPressed: _isLoading 
-                      ? null 
+                  onPressed: _isLoading
+                      ? null
                       : () => _handleMfaVerify(_mfaCodeController.text),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF34D399),
-                    foregroundColor: Colors.black,
+                    backgroundColor: tp.accentLight,
+                    foregroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(vertical: 14),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(16),
                     ),
                   ),
-                  child: _isLoading 
+                  child: _isLoading
                       ? const SizedBox(
                           width: 20,
                           height: 20,
-                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
                         )
-                      : const Text('Verificar', style: TextStyle(fontWeight: FontWeight.bold)),
+                      : const Text(
+                          'Verify',
+                          style: TextStyle(fontWeight: FontWeight.bold),
+                        ),
                 ),
               ),
             ],
@@ -626,29 +694,52 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
     );
   }
 
-  InputDecoration _inputDecoration(String labelText, IconData icon) {
+  InputDecoration _inputDecoration(
+    String labelText,
+    IconData icon,
+    ThemeProvider tp,
+  ) {
+    final isLight = tp.colors.isLight;
     return InputDecoration(
       labelText: labelText,
-      labelStyle: const TextStyle(color: Colors.white54, fontSize: 14),
-      prefixIcon: Icon(icon, color: Colors.white38),
+      labelStyle: TextStyle(
+        color: isLight ? Colors.black45 : Colors.white54,
+        fontSize: 14,
+      ),
+      prefixIcon: Icon(
+        icon,
+        color: isLight ? Colors.black38 : Colors.white38,
+      ),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(16),
-        borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.12)),
+        borderSide: BorderSide(
+          color: isLight ? Colors.black12 : Colors.white.withValues(alpha: 0.12),
+        ),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(16),
-        borderSide: const BorderSide(color: Color(0xFF4F46E5), width: 2),
+        borderSide: BorderSide(
+          color: tp.accent,
+          width: 2,
+        ),
       ),
       errorBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(16),
-        borderSide: BorderSide(color: Colors.redAccent.withValues(alpha: 0.5)),
+        borderSide: BorderSide(
+          color: Colors.redAccent.withValues(alpha: 0.5),
+        ),
       ),
-      focusedErrorBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(16),
-        borderSide: const BorderSide(color: Colors.redAccent, width: 2),
+      focusedErrorBorder: const OutlineInputBorder(
+        borderRadius: BorderRadius.all(Radius.circular(16)),
+        borderSide: BorderSide(
+          color: Colors.redAccent,
+          width: 2,
+        ),
       ),
       filled: true,
-      fillColor: Colors.white.withValues(alpha: 0.02),
+      fillColor: isLight
+          ? Colors.black.withValues(alpha: 0.02)
+          : Colors.white.withValues(alpha: 0.02),
       contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
     );
   }

@@ -35,7 +35,7 @@ SUPABASE_URL ?= https://faadppubtdxjnnvubnsi.supabase.co
 SUPABASE_PUBLISHABLE_KEY ?= sb_publishable_xSfpJSBypMPXXCWeeYBgVQ_U6gu57NH
 
 # Release config
-GITHUB_REPO ?= vizctas/jujostream
+GITHUB_REPO ?= vizctas/Jujo.StreamServer.Releases
 RELEASE_DIST ?= dist
 RELEASE_NOTES ?= JujoStream client release $(TAG)
 
