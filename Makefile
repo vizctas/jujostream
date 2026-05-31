@@ -1,3 +1,5 @@
+SHELL = cmd.exe
+
 # JujoStream Android Build Makefile
 .DEFAULT_GOAL := help
 
@@ -11,6 +13,23 @@ ifeq (cbuild,$(firstword $(MAKECMDGOALS)))
   $(eval $(VERSION):;@:)
 endif
 
+# Intercept command line argument for Grelease client-{version}
+ifeq (Grelease,$(firstword $(MAKECMDGOALS)))
+  VERSION_ARG := $(word 2,$(MAKECMDGOALS))
+  ifeq ($(VERSION_ARG),)
+    LATEST_CLIENT_TAG := $(shell git describe --tags --match "client-[0-9]*" --abbrev=0 2>nul)
+    ifeq ($(LATEST_CLIENT_TAG),)
+      VERSION := 1.0.0
+    else
+      VERSION := $(shell powershell -NoProfile -Command '$$t="$(LATEST_CLIENT_TAG)"; if ($$t -match "client-(\d+\.\d+\.)(\d+)") { $$p=[int]$$matches[2]+1; Write-Output ($$matches[1]+$$p.ToString()) } else { Write-Output "1.0.0" }')
+    endif
+  else
+    VERSION := $(patsubst client-%,%,$(VERSION_ARG))
+    $(eval $(VERSION_ARG):;@:)
+  endif
+  TAG := client-$(VERSION)
+endif
+
 # Supabase Credentials
 SUPABASE_URL ?= https://faadppubtdxjnnvubnsi.supabase.co
 SUPABASE_PUBLISHABLE_KEY ?= sb_publishable_xSfpJSBypMPXXCWeeYBgVQ_U6gu57NH
@@ -18,7 +37,7 @@ SUPABASE_PUBLISHABLE_KEY ?= sb_publishable_xSfpJSBypMPXXCWeeYBgVQ_U6gu57NH
 # Release config
 GITHUB_REPO ?= vizctas/jujostream
 RELEASE_DIST ?= dist
-RELEASE_NOTES ?= JujoStream Android release $(TAG)
+RELEASE_NOTES ?= JujoStream client release $(TAG)
 
 # Dart defines
 DART_DEFINES = --dart-define=SUPABASE_URL=$(SUPABASE_URL) \
@@ -30,13 +49,16 @@ APP_VERSION    = $(patsubst client-%,%,$(patsubst v%,%,$(TAG)))
 RELEASE_DIR    = $(RELEASE_DIST)/$(TAG)
 APK_SRC        = build/app/outputs/flutter-apk/app-release.apk
 AAB_SRC        = build/app/outputs/bundle/release/app-release.aab
+EXE_SRC        = build/windows/x64/runner/Release/jujostream.exe
 APK_NAME       = JujoStream-$(TAG)-android.apk
 AAB_NAME       = JujoStream-$(TAG)-android.aab
+EXE_NAME       = JujoStream-$(TAG)-windows-x64.exe
 APK_OUT        = $(RELEASE_DIR)/$(APK_NAME)
 AAB_OUT        = $(RELEASE_DIR)/$(AAB_NAME)
+EXE_OUT        = $(RELEASE_DIR)/$(EXE_NAME)
 SHA_OUT        = $(RELEASE_DIR)/SHA256SUMS.txt
 
-.PHONY: help setup-android-deps verify-android-keystore validate-release-tag build-apk build-aab release-apk release-apk-dry-run clean cbuild
+.PHONY: help setup-android-deps verify-android-keystore validate-release-tag build-apk build-aab release-apk release-apk-dry-run clean cbuild Grelease
 
 help:
 	@echo "JujoStream Android Automation Makefile"
@@ -98,18 +120,23 @@ release-apk-dry-run: validate-release-tag
 $(RELEASE_DIR): validate-release-tag
 	powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path '$(RELEASE_DIR)' | Out-Null"
 
-$(APK_OUT): validate-release-tag $(RELEASE_DIR) verify-android-keystore
+$(RELEASE_DIR)/build-all: validate-release-tag $(RELEASE_DIR) verify-android-keystore
 	powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update_app_version.ps1 $(APP_VERSION)
 	flutter clean
 	flutter pub get
 	$(PATCH_BUILT_IN_KOTLIN)
 	flutter build apk --release $(DART_DEFINES)
 	flutter build appbundle --release $(DART_DEFINES)
+	flutter build windows --release $(DART_DEFINES)
 	powershell -NoProfile -Command "Copy-Item -LiteralPath '$(APK_SRC)' -Destination '$(APK_OUT)' -Force"
 	powershell -NoProfile -Command "Copy-Item -LiteralPath '$(AAB_SRC)' -Destination '$(AAB_OUT)' -Force"
+	powershell -NoProfile -Command "Copy-Item -LiteralPath '$(EXE_SRC)' -Destination '$(EXE_OUT)' -Force"
+	powershell -NoProfile -Command "Set-Content -LiteralPath '$(SHA_OUT)' -Value @(((Get-FileHash -Algorithm SHA256 -LiteralPath '$(APK_OUT)').Hash.ToLowerInvariant() + '  $(APK_NAME)'), ((Get-FileHash -Algorithm SHA256 -LiteralPath '$(EXE_OUT)').Hash.ToLowerInvariant() + '  $(EXE_NAME)')) -Encoding ascii"
+	powershell -NoProfile -Command "New-Item -ItemType File -Path '$(RELEASE_DIR)/build-all' -Force | Out-Null"
 
-$(SHA_OUT): validate-release-tag $(APK_OUT)
-	powershell -NoProfile -Command "Set-Content -LiteralPath '$(SHA_OUT)' -Value @(((Get-FileHash -Algorithm SHA256 -LiteralPath '$(APK_OUT)').Hash.ToLowerInvariant() + '  $(APK_NAME)'), ((Get-FileHash -Algorithm SHA256 -LiteralPath '$(AAB_OUT)').Hash.ToLowerInvariant() + '  $(AAB_NAME)')) -Encoding ascii"
+$(APK_OUT): $(RELEASE_DIR)/build-all
+
+$(SHA_OUT): $(RELEASE_DIR)/build-all
 
 release-apk: validate-release-tag $(SHA_OUT)
 	git tag $(TAG)
@@ -118,6 +145,15 @@ release-apk: validate-release-tag $(SHA_OUT)
 		gh release upload $(TAG) "$(APK_OUT)" "$(AAB_OUT)" "$(SHA_OUT)" --repo $(GITHUB_REPO) --clobber; \
 	else \
 		gh release create $(TAG) "$(APK_OUT)" "$(AAB_OUT)" "$(SHA_OUT)" --repo $(GITHUB_REPO) --title "JujoStream $(TAG)" --notes "$(RELEASE_NOTES)"; \
+	fi
+
+Grelease: validate-release-tag $(RELEASE_DIR)/build-all
+	git tag $(TAG) 2>nul || echo "Tag already exists"
+	git push origin $(TAG)
+	if gh release view $(TAG) --repo $(GITHUB_REPO) >/dev/null 2>&1; then \
+		gh release upload $(TAG) "$(APK_OUT)" "$(EXE_OUT)" "$(SHA_OUT)" --repo $(GITHUB_REPO) --clobber; \
+	else \
+		gh release create $(TAG) "$(APK_OUT)" "$(EXE_OUT)" "$(SHA_OUT)" --repo $(GITHUB_REPO) --title "JujoStream $(TAG)" --notes "$(RELEASE_NOTES)"; \
 	fi
 
 cbuild: release-apk

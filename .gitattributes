@@ -1,0 +1,13 @@
+# Enforce line endings for Makefiles, Dart sources, configurations, and docs to Unix LF
+Makefile text eol=lf
+*.sh text eol=lf
+*.md text eol=lf
+*.dart text eol=lf
+*.yaml text eol=lf
+*.json text eol=lf
+
+# Enforce Windows line endings for PowerShell scripts
+*.ps1 text eol=crlf
+
+# Auto-detect other text files and normalize EOL
+* text=auto
