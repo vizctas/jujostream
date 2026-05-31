@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:googleapis/drive/v3.dart' as drive;
@@ -9,6 +10,9 @@ import '../auth/google_auth_service.dart';
 class CloudSyncService {
   CloudSyncService._();
   static final instance = CloudSyncService._();
+
+  static final _syncCompletedController = StreamController<void>.broadcast();
+  static Stream<void> get onSyncCompleted => _syncCompletedController.stream;
 
   final _log = Logger(printer: SimplePrinter());
 
@@ -28,6 +32,10 @@ class CloudSyncService {
   static const _kMicrotrailerMuted = 'microtrailer_muted';
   static const _kVideoDelaySecs = 'microtrailer_delay_secs';
   static const _kPluginSettingPrefix = 'plugin_setting_';
+
+  static const _kSavedComputers = 'saved_computers';
+  static const _kPrimaryServerKey = 'primary_server_uuid';
+  static const _kCustomOrderKey = 'computer_custom_order';
 
   Future<bool> pushConfig() async {
     final client = await GoogleAuthService.instance.authenticatedClient;
@@ -103,6 +111,7 @@ class CloudSyncService {
 
       final payload = jsonDecode(utf8.decode(bytes)) as Map<String, dynamic>;
       await _applyCloudConfig(payload);
+      _syncCompletedController.add(null);
 
       _log.i('pullConfig OK');
       return true;
@@ -172,6 +181,15 @@ class CloudSyncService {
     data[_kMicrotrailerMuted] = prefs.getBool(_kMicrotrailerMuted) ?? true;
     data[_kVideoDelaySecs] = prefs.getInt(_kVideoDelaySecs) ?? 3;
 
+    final savedComputers = prefs.getStringList(_kSavedComputers);
+    if (savedComputers != null) data[_kSavedComputers] = savedComputers;
+
+    final primaryServer = prefs.getString(_kPrimaryServerKey);
+    if (primaryServer != null) data[_kPrimaryServerKey] = primaryServer;
+
+    final customOrder = prefs.getStringList(_kCustomOrderKey);
+    if (customOrder != null) data[_kCustomOrderKey] = customOrder;
+
     return data;
   }
 
@@ -223,6 +241,18 @@ class CloudSyncService {
     }
     if (data.containsKey(_kVideoDelaySecs)) {
       await prefs.setInt(_kVideoDelaySecs, data[_kVideoDelaySecs] as int);
+    }
+
+    if (data.containsKey(_kSavedComputers)) {
+      final list = (data[_kSavedComputers] as List).cast<String>();
+      await prefs.setStringList(_kSavedComputers, list);
+    }
+    if (data.containsKey(_kPrimaryServerKey)) {
+      await prefs.setString(_kPrimaryServerKey, data[_kPrimaryServerKey] as String);
+    }
+    if (data.containsKey(_kCustomOrderKey)) {
+      final list = (data[_kCustomOrderKey] as List).cast<String>();
+      await prefs.setStringList(_kCustomOrderKey, list);
     }
   }
 }

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../services/auth/google_auth_service.dart';
@@ -24,13 +25,17 @@ class AuthProvider extends ChangeNotifier {
   Future<void> trySilentSignIn() async {
     await _auth.loadDeviceFlowCredentials();
     final ok = await _auth.trySilentSignIn();
-    if (ok) _updateFromAuth();
+    if (ok) {
+      _updateFromAuth();
+      unawaited(pullFromCloud());
+    }
   }
 
   Future<bool> signIn() async {
     final ok = await _auth.signIn();
     if (ok) {
       _updateFromAuth();
+      unawaited(pullFromCloud());
       return true;
     }
     return false;
@@ -48,7 +53,10 @@ class AuthProvider extends ChangeNotifier {
       deviceCode,
       onStatus: onStatus,
     );
-    if (ok) _updateFromAuth();
+    if (ok) {
+      _updateFromAuth();
+      unawaited(pullFromCloud());
+    }
     return ok;
   }
 

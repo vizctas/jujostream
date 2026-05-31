@@ -10,6 +10,7 @@ import '../services/http_api/nv_http_client.dart';
 import '../services/pairing/pairing_service.dart';
 import '../services/database/achievement_service.dart';
 import '../services/database/session_history_service.dart';
+import '../services/sync/cloud_sync_service.dart';
 
 class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
   final DiscoveryService _discoveryService = DiscoveryService();
@@ -17,6 +18,7 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
   final PairingService _pairingService = PairingService();
 
   final List<ComputerDetails> _computers = [];
+  StreamSubscription<void>? _syncSubscription;
   final List<String> _customOrder = [];
   static const String _computersStorageKey = 'saved_computers';
   static const String _primaryServerKey = 'primary_server_uuid';
@@ -138,6 +140,9 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
     _loadPersistedComputers();
     _discoveryService.onComputerFound.listen(_onComputerDiscovered);
     _startAdaptivePoll();
+    _syncSubscription = CloudSyncService.onSyncCompleted.listen((_) {
+      _loadPersistedComputers();
+    });
   }
 
   @override
@@ -701,6 +706,7 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    _syncSubscription?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     _pollTimer?.cancel();
     _discoveryService.dispose();
