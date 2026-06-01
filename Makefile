@@ -89,8 +89,7 @@ verify-android-keystore:
 	powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify_android_keystore.ps1
 
 validate-release-tag:
-	@if [ -z "$(TAG)" ]; then echo "TAG is required. Example: make release-apk TAG=v1.1.13"; exit 1; fi
-	@case "$(TAG)" in client-[0-9]*.[0-9]*.[0-9]*|v[0-9]*.[0-9]*.[0-9]*) ;; *) echo "TAG must look like client-1.1.13 or v1.1.13. Got: $(TAG)"; exit 1;; esac
+	powershell -NoProfile -Command "if ('$(TAG)' -notmatch '^(?:client-|v)\d+\.\d+\.\d+$$') { Write-Error \"TAG must match client-X.Y.Z or vX.Y.Z. Got: $(TAG)\"; exit 1 }"
 
 build-apk: verify-android-keystore
 	powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update_app_version.ps1 $(APP_VERSION)
@@ -140,21 +139,15 @@ $(SHA_OUT): $(RELEASE_DIR)/build-all
 
 release-apk: validate-release-tag $(SHA_OUT)
 	git tag $(TAG)
-	git push origin $(TAG)
-	if gh release view $(TAG) --repo $(GITHUB_REPO) >/dev/null 2>&1; then \
-		gh release upload $(TAG) "$(APK_OUT)" "$(AAB_OUT)" "$(SHA_OUT)" --repo $(GITHUB_REPO) --clobber; \
-	else \
-		gh release create $(TAG) "$(APK_OUT)" "$(AAB_OUT)" "$(SHA_OUT)" --repo $(GITHUB_REPO) --title "JujoStream $(TAG)" --notes "$(RELEASE_NOTES)"; \
-	fi
+	set GIT_TERMINAL_PROMPT=0&& git push origin $(TAG)
+	gh release create $(TAG) "$(APK_OUT)" "$(AAB_OUT)" "$(SHA_OUT)" --repo $(GITHUB_REPO) --title "JujoStream $(TAG)" --notes "$(RELEASE_NOTES)" 2>NUL || \
+	gh release upload $(TAG) "$(APK_OUT)" "$(AAB_OUT)" "$(SHA_OUT)" --repo $(GITHUB_REPO) --clobber
 
 Grelease: validate-release-tag $(RELEASE_DIR)/build-all
-	git tag $(TAG) 2>nul || echo "Tag already exists"
-	git push origin $(TAG)
-	if gh release view $(TAG) --repo $(GITHUB_REPO) >/dev/null 2>&1; then \
-		gh release upload $(TAG) "$(APK_OUT)" "$(EXE_OUT)" "$(SHA_OUT)" --repo $(GITHUB_REPO) --clobber; \
-	else \
-		gh release create $(TAG) "$(APK_OUT)" "$(EXE_OUT)" "$(SHA_OUT)" --repo $(GITHUB_REPO) --title "JujoStream $(TAG)" --notes "$(RELEASE_NOTES)"; \
-	fi
+	git tag $(TAG) 2>NUL || echo "Tag already exists"
+	set GIT_TERMINAL_PROMPT=0&& git push origin $(TAG)
+	gh release create $(TAG) "$(APK_OUT)" "$(EXE_OUT)" "$(SHA_OUT)" --repo $(GITHUB_REPO) --title "JujoStream $(TAG)" --notes "$(RELEASE_NOTES)" 2>NUL || \
+	gh release upload $(TAG) "$(APK_OUT)" "$(EXE_OUT)" "$(SHA_OUT)" --repo $(GITHUB_REPO) --clobber
 
 cbuild: release-apk
 	@echo "Build and release completed for version $(VERSION) with tag $(TAG)"
