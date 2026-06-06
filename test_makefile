@@ -1,0 +1,6 @@
+SHELL = cmd.exe
+.SHELLFLAGS = /c
+
+.PHONY: run-test
+run-test:
+	@echo Hello from cmd

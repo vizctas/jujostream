@@ -20,6 +20,14 @@ class AuthProvider extends ChangeNotifier {
   bool get isSyncing => _syncing;
   String? get cloudError => _cloudError;
 
+  bool get isSupabaseSignedIn {
+    try {
+      return Supabase.instance.client.auth.currentSession != null;
+    } catch (_) {
+      return false;
+    }
+  }
+
   bool get deviceFlowAvailable => _auth.clientId != null;
 
   final _auth = GoogleAuthService.instance;
@@ -158,9 +166,19 @@ class AuthProvider extends ChangeNotifier {
 
   Future<bool> pushToCloud() async {
     _syncing = true;
+    _cloudError = null;
     notifyListeners();
     try {
-      return await _sync.pushConfig();
+      final ok = isSupabaseSignedIn
+          ? await _sync.pushConfigToSupabase()
+          : await _sync.pushConfig();
+      if (!ok) {
+        _cloudError = _sync.lastError ?? 'Unknown error';
+      }
+      return ok;
+    } catch (e) {
+      _cloudError = e.toString();
+      return false;
     } finally {
       _syncing = false;
       notifyListeners();
@@ -169,9 +187,19 @@ class AuthProvider extends ChangeNotifier {
 
   Future<bool> pullFromCloud() async {
     _syncing = true;
+    _cloudError = null;
     notifyListeners();
     try {
-      return await _sync.pullConfig();
+      final ok = isSupabaseSignedIn
+          ? await _sync.pullConfigFromSupabase()
+          : await _sync.pullConfig();
+      if (!ok) {
+        _cloudError = _sync.lastError ?? 'Unknown error';
+      }
+      return ok;
+    } catch (e) {
+      _cloudError = e.toString();
+      return false;
     } finally {
       _syncing = false;
       notifyListeners();

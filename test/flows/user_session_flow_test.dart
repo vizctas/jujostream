@@ -197,7 +197,12 @@ class MockSupabaseHttpClient extends http.BaseClient {
     });
 
     final stream = Stream.value(response.bodyBytes);
-    return http.StreamedResponse(stream, response.statusCode, headers: response.headers);
+    return http.StreamedResponse(
+      stream,
+      response.statusCode,
+      headers: response.headers,
+      request: request,
+    );
   }
 }
 

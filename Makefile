@@ -91,6 +91,8 @@ verify-android-keystore:
 validate-release-tag:
 	powershell -NoProfile -Command "if ('$(TAG)' -notmatch '^(?:client-|v)\d+\.\d+\.\d+$$') { Write-Error \"TAG must match client-X.Y.Z or vX.Y.Z. Got: $(TAG)\"; exit 1 }"
 
+rapk: flutter build apk --release $(DART_DEFINES)
+
 build-apk: verify-android-keystore
 	powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update_app_version.ps1 $(APP_VERSION)
 	flutter clean
@@ -138,14 +140,14 @@ $(APK_OUT): $(RELEASE_DIR)/build-all
 $(SHA_OUT): $(RELEASE_DIR)/build-all
 
 release-apk: validate-release-tag $(SHA_OUT)
-	git tag $(TAG)
-	set GIT_TERMINAL_PROMPT=0&& git push origin $(TAG)
+	git tag -f $(TAG)
+	set GIT_TERMINAL_PROMPT=0&& git push origin $(TAG) -f
 	gh release create $(TAG) "$(APK_OUT)" "$(AAB_OUT)" "$(SHA_OUT)" --repo $(GITHUB_REPO) --title "JujoStream $(TAG)" --notes "$(RELEASE_NOTES)" 2>NUL || \
 	gh release upload $(TAG) "$(APK_OUT)" "$(AAB_OUT)" "$(SHA_OUT)" --repo $(GITHUB_REPO) --clobber
 
 Grelease: validate-release-tag $(RELEASE_DIR)/build-all
-	git tag $(TAG) 2>NUL || echo "Tag already exists"
-	set GIT_TERMINAL_PROMPT=0&& git push origin $(TAG)
+	git tag -f $(TAG)
+	set GIT_TERMINAL_PROMPT=0&& git push origin $(TAG) -f
 	gh release create $(TAG) "$(APK_OUT)" "$(EXE_OUT)" "$(SHA_OUT)" --repo $(GITHUB_REPO) --title "JujoStream $(TAG)" --notes "$(RELEASE_NOTES)" 2>NUL || \
 	gh release upload $(TAG) "$(APK_OUT)" "$(EXE_OUT)" "$(SHA_OUT)" --repo $(GITHUB_REPO) --clobber
 

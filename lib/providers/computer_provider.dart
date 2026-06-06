@@ -1,7 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io' as io;
 import 'package:flutter/widgets.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:http/io_client.dart';
 import '../models/computer_details.dart';
 import '../models/nv_app.dart';
 import '../services/discovery/discovery_service.dart';
@@ -11,6 +14,7 @@ import '../services/pairing/pairing_service.dart';
 import '../services/database/achievement_service.dart';
 import '../services/database/session_history_service.dart';
 import '../services/sync/cloud_sync_service.dart';
+import '../services/crypto/client_identity.dart';
 
 class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
   final DiscoveryService _discoveryService = DiscoveryService();
@@ -497,7 +501,12 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
   /// This is used as an entry gate before navigating into a server's app
   /// list, preventing the user from entering a server that revoked pairing.
   Future<bool> verifyPairing(ComputerDetails computer) async {
-    if (!computer.isPaired) return false;
+    if (!computer.isPaired) {
+      final cloudPaired = await _attemptCloudPairingOnTheFly(computer);
+      if (!cloudPaired) {
+        return false;
+      }
+    }
 
     final address = computer.activeAddress.isNotEmpty
         ? computer.activeAddress
@@ -522,6 +531,12 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
         return true;
       }
       if (info.pairState == PairState.paired) {
+        return true;
+      }
+
+      // Try on-the-fly cloud pairing before failing
+      final cloudPaired = await _attemptCloudPairingOnTheFly(computer);
+      if (cloudPaired) {
         return true;
       }
 
@@ -616,7 +631,14 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
           (c.localAddress.isNotEmpty &&
               c.localAddress == computer.activeAddress) ||
           (c.activeAddress.isNotEmpty &&
-              c.activeAddress == computer.localAddress),
+              c.activeAddress == computer.localAddress) ||
+          // Match by cert fingerprint — handles cloud-synced servers that arrive
+          // with a temporary Supabase row UUID before the real Sunshine uniqueid
+          // is discovered via polling. Prevents duplicate "Not Paired" ghost cards.
+          (c.serverCert.isNotEmpty &&
+              computer.serverCert.isNotEmpty &&
+              c.serverCert.toLowerCase() ==
+                  computer.serverCert.toLowerCase()),
     );
 
     if (existingIndex >= 0) {
@@ -660,9 +682,14 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
               ? existing.uuid
               : existing.localAddress;
           final pairedAt = _pairingCompletedAt[graceKey];
-          final inGracePeriod =
+          final inManualGrace =
               pairedAt != null &&
               DateTime.now().difference(pairedAt) < _pairingGracePeriod;
+          // Also check cloud-sync grace window (covers cloud-paired servers
+          // where _attemptCloudPairing fires asynchronously after pullConfigFromSupabase).
+          final inCloudGrace =
+              CloudSyncService.instance.isInCloudPairingGrace(graceKey);
+          final inGracePeriod = inManualGrace || inCloudGrace;
 
           if (inGracePeriod) {
             // Still within grace period — preserve paired state.
@@ -713,5 +740,68 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
     _httpClient.dispose();
     _pairingService.dispose();
     super.dispose();
+  }
+
+  Future<bool> _attemptCloudPairingOnTheFly(ComputerDetails computer) async {
+    try {
+      final supabaseClient = Supabase.instance.client;
+      final session = supabaseClient.auth.currentSession;
+      if (session == null) return false;
+      final token = session.accessToken;
+
+      final address = computer.activeAddress.isNotEmpty
+          ? computer.activeAddress
+          : computer.localAddress;
+      final httpsPort = computer.httpsPort > 0
+          ? computer.httpsPort
+          : NvHttpClient.defaultHttpsPort;
+      final serverUrl = 'https://$address:$httpsPort';
+
+      final clientPem = ClientIdentity.certPem;
+      if (clientPem.isEmpty) return false;
+
+      final deviceName = io.Platform.localHostname;
+      final body = jsonEncode({
+        'token': token,
+        'clientCert': clientPem,
+        'deviceName': deviceName.isNotEmpty ? deviceName : 'Jujo.Stream Client',
+      });
+
+      final uri = Uri.parse('$serverUrl/api/pair/cloud');
+      
+      final ioClient = ClientIdentity.createHttpClient();
+      final client = IOClient(ioClient);
+      
+      try {
+        final response = await client.post(
+          uri,
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+          },
+          body: body,
+        ).timeout(const Duration(seconds: 5));
+
+        if (response.statusCode == 200) {
+          final resBody = jsonDecode(response.body) as Map<String, dynamic>;
+          if (resBody['status'] == true) {
+            computer.pairState = PairState.paired;
+            computer.pairStatusFromHttps = true;
+            
+            final graceKey = computer.uuid.isNotEmpty
+                ? computer.uuid
+                : computer.localAddress;
+            _pairingCompletedAt[graceKey] = DateTime.now();
+            
+            _persistComputers();
+            notifyListeners();
+            return true;
+          }
+        }
+      } finally {
+        client.close();
+      }
+    } catch (_) {}
+    return false;
   }
 }
