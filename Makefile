@@ -21,7 +21,7 @@ ifeq (Grelease,$(firstword $(MAKECMDGOALS)))
     ifeq ($(LATEST_CLIENT_TAG),)
       VERSION := 1.0.0
     else
-      VERSION := $(shell powershell -NoProfile -Command '$$t="$(LATEST_CLIENT_TAG)"; if ($$t -match "client-(\d+\.\d+\.)(\d+)") { $$p=[int]$$matches[2]+1; Write-Output ($$matches[1]+$$p.ToString()) } else { Write-Output "1.0.0" }')
+      VERSION := $(shell powershell -NoProfile -ExecutionPolicy Bypass -File scripts/bump_client_version.ps1 -LatestTag $(LATEST_CLIENT_TAG))
     endif
   else
     VERSION := $(patsubst client-%,%,$(VERSION_ARG))
@@ -91,7 +91,8 @@ verify-android-keystore:
 validate-release-tag:
 	powershell -NoProfile -Command "if ('$(TAG)' -notmatch '^(?:client-|v)\d+\.\d+\.\d+$$') { Write-Error \"TAG must match client-X.Y.Z or vX.Y.Z. Got: $(TAG)\"; exit 1 }"
 
-rapk: flutter build apk --release $(DART_DEFINES)
+rapk:
+	flutter build apk --release $(DART_DEFINES)
 
 build-apk: verify-android-keystore
 	powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update_app_version.ps1 $(APP_VERSION)
