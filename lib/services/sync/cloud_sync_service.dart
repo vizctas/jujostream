@@ -466,6 +466,7 @@ class CloudSyncService {
 
         if (matchIdx >= 0) {
           final local = localComputers[matchIdx];
+          local.isCloud = true;
           if (cloudName != null && cloudName.isNotEmpty) {
             local.name = cloudName;
           }
@@ -507,6 +508,7 @@ class CloudSyncService {
             pairState: (certFingerprint != null && certFingerprint.isNotEmpty)
                 ? PairState.paired
                 : PairState.notPaired,
+            isCloud: true,
           );
           if (certFingerprint != null && certFingerprint.isNotEmpty) {
             computer.pairStatusFromHttps = true;

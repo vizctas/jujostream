@@ -59,6 +59,13 @@ class _FocusModeScreenState extends State<FocusModeScreen>
   int _currentPage = 0;
   bool _autoConnectAttempted = false;
 
+  final _appBarFocusNodes = List.generate(
+    4,
+    (i) => FocusNode(debugLabel: 'focus-appbar-icon-$i'),
+  );
+  final FocusNode _pageViewFocusNode = FocusNode(debugLabel: 'focus-pageview');
+  int _activeAppBarIndex = 0;
+
   /// True when FocusModeScreen owns the ambient audio — false while a
   /// full-screen route (Settings, AppViewScreen) is pushed on top.  Keeps
   /// the lifecycle-resume handler from restarting music while we are in
@@ -167,6 +174,10 @@ class _FocusModeScreenState extends State<FocusModeScreen>
     UiSoundService.stopAmbience();
     _healthTimer?.cancel();
     _pageController.dispose();
+    _pageViewFocusNode.dispose();
+    for (final node in _appBarFocusNodes) {
+      node.dispose();
+    }
     super.dispose();
   }
 
@@ -200,23 +211,26 @@ class _FocusModeScreenState extends State<FocusModeScreen>
       return;
     }
     if (!computer.isPaired) {
-      final ok = await showPairingDialog(context, computer);
-      if (!mounted || !ok) return;
-      // Pairing just completed — let the user manually re-enter the server
-      // so the server has time to finish persisting the pairing internally.
-      return;
-    }
-
-    // ── Entry gate: verify pairing is still valid on the server ─────
-    final provider = context.read<ComputerProvider>();
-    final stillPaired = await provider.verifyPairing(computer);
-    if (!mounted) return;
-    if (!stillPaired) {
-      final l = AppLocalizations.of(context);
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(l.serverUnpaired)));
-      return;
+      final provider = context.read<ComputerProvider>();
+      final ok = await provider.verifyPairing(computer);
+      if (!mounted) return;
+      if (!ok) {
+        final paired = await showPairingDialog(context, computer);
+        if (!mounted || !paired) return;
+        return;
+      }
+    } else {
+      // ── Entry gate: verify pairing is still valid on the server ─────
+      final provider = context.read<ComputerProvider>();
+      final stillPaired = await provider.verifyPairing(computer);
+      if (!mounted) return;
+      if (!stillPaired) {
+        final l = AppLocalizations.of(context);
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(l.serverUnpaired)));
+        return;
+      }
     }
 
     if (!mounted) return;
@@ -459,6 +473,8 @@ class _FocusModeScreenState extends State<FocusModeScreen>
   Widget _buildAppBar(ThemeProvider tp) {
     final isLight = tp.colors.isLight;
     final fgColor = isLight ? Colors.black87 : Colors.white;
+    final auth = context.watch<AuthProvider>();
+    final count = auth.isSignedIn ? 4 : 3;
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -474,14 +490,17 @@ class _FocusModeScreenState extends State<FocusModeScreen>
             ),
           ),
           const Spacer(),
-          _buildIconButton(
+          _FocusableIconBtn(
+            focusNode: _appBarFocusNodes[0],
             icon: Icons.more_vert,
             tooltip: 'More',
             color: fgColor,
             onPressed: () =>
                 PcViewScreen.pendingTour.value ? null : _showMoreMenu(context),
+            onNav: (dir) => _handleAppBarIconNav(0, dir, count),
           ),
-          _buildIconButton(
+          _FocusableIconBtn(
+            focusNode: _appBarFocusNodes[1],
             icon: Icons.settings,
             tooltip: 'Settings',
             color: fgColor,
@@ -501,70 +520,134 @@ class _FocusModeScreenState extends State<FocusModeScreen>
                 );
               }
             },
+            onNav: (dir) => _handleAppBarIconNav(1, dir, count),
           ),
           const SizedBox(width: 4),
-          Consumer<AuthProvider>(
-            builder: (context, auth, child) {
-              if (!auth.isSignedIn) {
-                return _buildIconButton(
-                  icon: Icons.cloud_off,
-                  tooltip: 'Sign in to Jujo Cloud',
-                  color: fgColor,
-                  onPressed: () {
-                    _ambientEnabled = false;
-                    UiSoundService.stopAmbience();
-                    PcViewScreen.showCloudAuth(context);
-                    // Ambient is resumed by didChangeAppLifecycleState
-                    // when the auth sheet is dismissed and app comes back.
-                  },
-                );
-              }
-              return Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _buildIconButton(
-                    icon: auth.isSyncing ? Icons.sync : Icons.cloud_done,
-                    tooltip: auth.isSyncing ? 'Syncing...' : 'Sync to cloud',
-                    color: fgColor,
-                    onPressed: auth.isSyncing
-                        ? null
-                        : () {
-                            unawaited(auth.pushToCloud());
-                          },
-                  ),
-                  const SizedBox(width: 4),
-                  _buildIconButton(
-                    icon: Icons.account_circle,
-                    tooltip: 'Account',
-                    color: fgColor,
-                    onPressed: () => PcViewScreen.showAccountPicker(context, auth),
-                  ),
-                ],
-              );
-            },
-          ),
+          if (!auth.isSignedIn)
+            _FocusableIconBtn(
+              focusNode: _appBarFocusNodes[2],
+              icon: Icons.cloud_off,
+              tooltip: 'Sign in to Jujo Cloud',
+              color: fgColor,
+              onPressed: () {
+                _ambientEnabled = false;
+                UiSoundService.stopAmbience();
+                PcViewScreen.showCloudAuth(context);
+              },
+              onNav: (dir) => _handleAppBarIconNav(2, dir, count),
+            )
+          else ...[
+            _FocusableIconBtn(
+              focusNode: _appBarFocusNodes[2],
+              icon: auth.isSyncing ? Icons.sync : Icons.cloud_done,
+              tooltip: auth.isSyncing ? 'Syncing...' : 'Sync to cloud',
+              color: fgColor,
+              onPressed: auth.isSyncing
+                  ? null
+                  : () {
+                      unawaited(auth.pushToCloud());
+                    },
+              onNav: (dir) => _handleAppBarIconNav(2, dir, count),
+            ),
+            const SizedBox(width: 4),
+            _FocusableIconBtn(
+              focusNode: _appBarFocusNodes[3],
+              icon: Icons.account_circle,
+              tooltip: 'Account',
+              color: fgColor,
+              onPressed: () => PcViewScreen.showAccountPicker(context, auth),
+              onNav: (dir) => _handleAppBarIconNav(3, dir, count),
+            ),
+          ],
         ],
       ),
     );
   }
 
-  Widget _buildIconButton({
-    required IconData icon,
-    required String tooltip,
-    required Color color,
-    required VoidCallback? onPressed,
-  }) {
-    return IconButton(
-      icon: Icon(icon, color: color),
-      tooltip: tooltip,
-      onPressed: onPressed,
-      style: IconButton.styleFrom(
-        focusColor: Colors.white.withValues(alpha: 0.14),
-        hoverColor: Colors.white.withValues(alpha: 0.08),
-        highlightColor: Colors.white.withValues(alpha: 0.18),
+class _FocusableIconBtn extends StatefulWidget {
+  final FocusNode? focusNode;
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback? onPressed;
+  final void Function(LogicalKeyboardKey dir)? onNav;
+  final Color? color;
+
+  const _FocusableIconBtn({
+    super.key,
+    this.focusNode,
+    required this.icon,
+    required this.tooltip,
+    this.onPressed,
+    this.onNav,
+    this.color,
+  });
+
+  @override
+  State<_FocusableIconBtn> createState() => _FocusableIconBtnState();
+}
+
+class _FocusableIconBtnState extends State<_FocusableIconBtn> {
+  bool _focused = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return Focus(
+      focusNode: widget.focusNode,
+      onFocusChange: (f) => setState(() => _focused = f),
+      onKeyEvent: (_, event) {
+        if (event is! KeyDownEvent) return KeyEventResult.ignored;
+        final key = event.logicalKey;
+
+        if (key == LogicalKeyboardKey.gameButtonA ||
+            key == LogicalKeyboardKey.enter ||
+            key == LogicalKeyboardKey.select) {
+          widget.onPressed?.call();
+          return KeyEventResult.handled;
+        }
+
+        if (key == LogicalKeyboardKey.arrowDown ||
+            key == LogicalKeyboardKey.arrowUp ||
+            key == LogicalKeyboardKey.arrowLeft ||
+            key == LogicalKeyboardKey.arrowRight) {
+          widget.onNav?.call(key);
+          return KeyEventResult.handled;
+        }
+
+        if (key == LogicalKeyboardKey.gameButtonB ||
+            key == LogicalKeyboardKey.goBack ||
+            key == LogicalKeyboardKey.escape) {
+          Navigator.maybePop(context);
+          return KeyEventResult.handled;
+        }
+        return KeyEventResult.ignored;
+      },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 120),
+        margin: const EdgeInsets.symmetric(horizontal: 2, vertical: 6),
+        decoration: BoxDecoration(
+          color: _focused
+              ? Colors.white.withValues(alpha: 0.15)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(8),
+          border: _focused
+              ? Border.all(color: Colors.white54, width: 1.5)
+              : null,
+        ),
+        child: IconButton(
+          icon: Icon(widget.icon, color: widget.color ?? Colors.white),
+          tooltip: widget.tooltip,
+          onPressed: widget.onPressed,
+          focusNode: FocusNode(skipTraversal: true),
+          style: IconButton.styleFrom(
+            focusColor: Colors.transparent,
+            hoverColor: Colors.transparent,
+            highlightColor: Colors.transparent,
+          ),
+        ),
       ),
     );
   }
+}
 
   // ── More menu (reuses PcViewScreen's dialog pattern) ──
 
@@ -661,6 +744,7 @@ class _FocusModeScreenState extends State<FocusModeScreen>
 
   Widget _buildPageView(List<ComputerDetails> computers, ThemeProvider tp) {
     return Focus(
+      focusNode: _pageViewFocusNode,
       autofocus: true,
       onFocusChange: (focused) {
         if (focused && _ambientEnabled && mounted) {
@@ -711,6 +795,12 @@ class _FocusModeScreenState extends State<FocusModeScreen>
               curve: Curves.easeOutCubic,
             );
           }
+          return KeyEventResult.handled;
+        }
+
+        // arrowUp → focus AppBar icons
+        if (key == LogicalKeyboardKey.arrowUp) {
+          _focusAppBarIcon(_activeAppBarIndex);
           return KeyEventResult.handled;
         }
 
@@ -849,10 +939,31 @@ class _FocusModeScreenState extends State<FocusModeScreen>
               'Exit',
               style: TextStyle(color: Colors.redAccent),
             ),
-          ),
         ],
       ),
     );
+  }
+
+  void _focusAppBarIcon(int index, {int? activeCount}) {
+    final count = activeCount ?? (context.read<AuthProvider>().isSignedIn ? 4 : 3);
+    final clamped = index.clamp(0, count - 1);
+    _activeAppBarIndex = clamped;
+    _appBarFocusNodes[clamped].requestFocus();
+  }
+
+  void _handleAppBarIconNav(int index, LogicalKeyboardKey dir, int activeCount) {
+    UiSoundService.playUiMove();
+    HapticFeedback.selectionClick();
+
+    if (dir == LogicalKeyboardKey.arrowLeft) {
+      final next = index > 0 ? index - 1 : activeCount - 1;
+      _focusAppBarIcon(next, activeCount: activeCount);
+    } else if (dir == LogicalKeyboardKey.arrowRight) {
+      final next = index < activeCount - 1 ? index + 1 : 0;
+      _focusAppBarIcon(next, activeCount: activeCount);
+    } else if (dir == LogicalKeyboardKey.arrowDown) {
+      _pageViewFocusNode.requestFocus();
+    }
   }
 }
 
@@ -1108,17 +1219,48 @@ class _FocusServerCardState extends State<_FocusServerCard>
                           ),
                         ),
 
-                        // ── More options (top-right) ──
+                        // ── Cloud label / More options (top-right) ──
                         Positioned(
                           top: 8,
                           right: 8,
-                          child: GestureDetector(
-                            onTap: widget.onLongPress,
-                            child: const Icon(
-                              Icons.more_vert,
-                              size: 20,
-                              color: Colors.white54,
-                            ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (widget.computer.isCloud)
+                                Container(
+                                  margin: const EdgeInsets.only(right: 6),
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: Colors.blueAccent.withValues(alpha: 0.15),
+                                    borderRadius: BorderRadius.circular(4),
+                                    border: Border.all(color: Colors.blueAccent.withValues(alpha: 0.3)),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const Icon(Icons.cloud, size: 10, color: Colors.blueAccent),
+                                      const SizedBox(width: 3),
+                                      Text(
+                                        'CLOUD',
+                                        style: TextStyle(
+                                          color: Colors.blueAccent.shade100,
+                                          fontSize: 8,
+                                          fontWeight: FontWeight.w700,
+                                          letterSpacing: 0.5,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              GestureDetector(
+                                onTap: widget.onLongPress,
+                                child: const Icon(
+                                  Icons.more_vert,
+                                  size: 20,
+                                  color: Colors.white54,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                         // ── Status chip + server name (bottom-left) ──
@@ -1399,24 +1541,44 @@ class _FocusServerCircleState extends State<_FocusServerCircle>
                             ),
                           ),
                         ),
-                        // ── More options (top-right area) ──
+                        // ── Cloud label / More options (top-right area) ──
                         Positioned(
                           top: 8,
                           right: 8,
-                          child: GestureDetector(
-                            onTap: widget.onLongPress,
-                            child: Container(
-                              padding: const EdgeInsets.all(4),
-                              decoration: BoxDecoration(
-                                color: Colors.black.withValues(alpha: 0.3),
-                                shape: BoxShape.circle,
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (widget.computer.isCloud)
+                                Container(
+                                  margin: const EdgeInsets.only(right: 6),
+                                  padding: const EdgeInsets.all(4),
+                                  decoration: BoxDecoration(
+                                    color: Colors.blueAccent.withValues(alpha: 0.15),
+                                    shape: BoxShape.circle,
+                                    border: Border.all(color: Colors.blueAccent.withValues(alpha: 0.3)),
+                                  ),
+                                  child: const Icon(
+                                    Icons.cloud,
+                                    size: 10,
+                                    color: Colors.blueAccent,
+                                  ),
+                                ),
+                              GestureDetector(
+                                onTap: widget.onLongPress,
+                                child: Container(
+                                  padding: const EdgeInsets.all(4),
+                                  decoration: BoxDecoration(
+                                    color: Colors.black.withValues(alpha: 0.3),
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: const Icon(
+                                    Icons.more_vert,
+                                    size: 16,
+                                    color: Colors.white70,
+                                  ),
+                                ),
                               ),
-                              child: const Icon(
-                                Icons.more_vert,
-                                size: 16,
-                                color: Colors.white70,
-                              ),
-                            ),
+                            ],
                           ),
                         ),
                       ],

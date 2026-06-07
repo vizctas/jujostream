@@ -17,6 +17,7 @@ class ComputerDetails {
   String gfeVersion;
   int serverCodecModeSupport;
   bool pairStatusFromHttps = false;
+  bool isCloud = false;
 
   ComputerDetails({
     this.uuid = '',
@@ -36,6 +37,7 @@ class ComputerDetails {
     this.serverVersion = '7.1.431.-1',
     this.gfeVersion = '',
     this.serverCodecModeSupport = 15,
+    this.isCloud = false,
   });
 
   Map<String, dynamic> toJson() => {
@@ -55,6 +57,7 @@ class ComputerDetails {
         'serverVersion': serverVersion,
         'gfeVersion': gfeVersion,
         'serverCodecModeSupport': serverCodecModeSupport,
+        'isCloud': isCloud,
       };
 
   factory ComputerDetails.fromJson(Map<String, dynamic> json) {
@@ -76,6 +79,7 @@ class ComputerDetails {
       serverVersion: json['serverVersion'] ?? '7.1.431.-1',
       gfeVersion: json['gfeVersion'] ?? '',
       serverCodecModeSupport: json['serverCodecModeSupport'] ?? 15,
+      isCloud: json['isCloud'] ?? false,
     );
   }
 

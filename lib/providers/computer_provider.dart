@@ -647,6 +647,9 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
       if (computer.serverCert.isEmpty && existing.serverCert.isNotEmpty) {
         computer.serverCert = existing.serverCert;
       }
+      if (existing.isCloud) {
+        computer.isCloud = true;
+      }
       if ((computer.name.isEmpty || computer.name.toLowerCase() == 'unknown') &&
           existing.name.isNotEmpty &&
           existing.name.toLowerCase() != 'unknown') {

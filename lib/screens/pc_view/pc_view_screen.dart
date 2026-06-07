@@ -223,7 +223,7 @@ class _PcViewScreenState extends State<PcViewScreen>
   bool _autoConnectAttempted = false;
 
   final _iconFocusNodes = List.generate(
-    2,
+    4,
     (i) => FocusNode(debugLabel: 'appbar-icon-$i'),
   );
 
@@ -474,6 +474,10 @@ class _PcViewScreenState extends State<PcViewScreen>
   @override
   Widget build(BuildContext context) {
     final tp = context.watch<ThemeProvider>();
+    final auth = context.watch<AuthProvider>();
+    final isLight = tp.colors.isLight;
+    final iconColor = isLight ? Colors.black87 : Colors.white;
+
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, _) {
@@ -540,8 +544,9 @@ class _PcViewScreenState extends State<PcViewScreen>
                         focusNode: _iconFocusNodes[0],
                         icon: Icons.more_vert,
                         tooltip: 'More options',
+                        color: iconColor,
                         onPressed: () => _showMoreMenu(context),
-                        onNav: (dir) => _handleIconNav(0, dir),
+                        onNav: (dir) => _handleIconNav(0, dir, auth.isSignedIn ? 4 : 3),
                       ),
                     ],
                   ),
@@ -550,6 +555,7 @@ class _PcViewScreenState extends State<PcViewScreen>
                     focusNode: _iconFocusNodes[1],
                     icon: Icons.settings,
                     tooltip: 'Settings',
+                    color: iconColor,
                     onPressed: () {
                       Navigator.push(
                         context,
@@ -558,47 +564,39 @@ class _PcViewScreenState extends State<PcViewScreen>
                         ),
                       );
                     },
-                    onNav: (dir) => _handleIconNav(1, dir),
+                    onNav: (dir) => _handleIconNav(1, dir, auth.isSignedIn ? 4 : 3),
                   ),
                   const SizedBox(width: 4),
-                  Consumer<AuthProvider>(
-                    builder: (context, auth, child) {
-                      if (!auth.isSignedIn) {
-                        return IconButton(
-                          icon: const Icon(Icons.cloud_off),
-                          tooltip: 'Sign in to Jujo Cloud',
-                          onPressed: () => PcViewScreen.showCloudAuth(context),
-                        );
-                      }
-                      return Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          IconButton(
-                            icon: auth.isSyncing
-                                ? const SizedBox(
-                                    width: 20,
-                                    height: 20,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: Colors.white,
-                                    ),
-                                  )
-                                : const Icon(Icons.cloud_done),
-                            tooltip: auth.isSyncing ? 'Syncing...' : 'Sync to cloud',
-                            onPressed: auth.isSyncing
-                                ? null
-                                : () => PcViewScreen.doCloudSync(context, auth),
-                          ),
-                          const SizedBox(width: 4),
-                          IconButton(
-                            icon: const Icon(Icons.account_circle),
-                            tooltip: 'Account',
-                            onPressed: () => PcViewScreen.showAccountPicker(context, auth),
-                          ),
-                        ],
-                      );
-                    },
-                  ),
+                  if (!auth.isSignedIn)
+                    _FocusableIconBtn(
+                      focusNode: _iconFocusNodes[2],
+                      icon: Icons.cloud_off,
+                      tooltip: 'Sign in to Jujo Cloud',
+                      color: iconColor,
+                      onPressed: () => PcViewScreen.showCloudAuth(context),
+                      onNav: (dir) => _handleIconNav(2, dir, 3),
+                    )
+                  else ...[
+                    _FocusableIconBtn(
+                      focusNode: _iconFocusNodes[2],
+                      icon: auth.isSyncing ? Icons.sync : Icons.cloud_done,
+                      tooltip: auth.isSyncing ? 'Syncing...' : 'Sync to cloud',
+                      color: iconColor,
+                      onPressed: auth.isSyncing
+                          ? null
+                          : () => PcViewScreen.doCloudSync(context, auth),
+                      onNav: (dir) => _handleIconNav(2, dir, 4),
+                    ),
+                    const SizedBox(width: 4),
+                    _FocusableIconBtn(
+                      focusNode: _iconFocusNodes[3],
+                      icon: Icons.account_circle,
+                      tooltip: 'Account',
+                      color: iconColor,
+                      onPressed: () => PcViewScreen.showAccountPicker(context, auth),
+                      onNav: (dir) => _handleIconNav(3, dir, 4),
+                    ),
+                  ],
                   const SizedBox(width: 8),
                 ],
         ),
@@ -1147,27 +1145,30 @@ class _PcViewScreenState extends State<PcViewScreen>
     }
 
     if (!computer.isPaired) {
-      final paired = await _showPairingDialog(computer);
-      if (!mounted || !paired) {
+      final provider = context.read<ComputerProvider>();
+      final ok = await provider.verifyPairing(computer);
+      if (!mounted) return;
+      if (!ok) {
+        final paired = await _showPairingDialog(computer);
+        if (!mounted || !paired) {
+          return;
+        }
         return;
       }
-      // Pairing just completed — let the user manually re-enter the server
-      // so the server has time to finish persisting the pairing internally.
-      return;
-    }
-
-    // ── Entry gate: verify pairing is still valid on the server ─────
-    // Prevents entering a server that revoked pairing server-side while
-    // the client still had a stale "paired" cache.
-    final provider = context.read<ComputerProvider>();
-    final stillPaired = await provider.verifyPairing(computer);
-    if (!mounted) return;
-    if (!stillPaired) {
-      final l = AppLocalizations.of(context);
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(l.serverUnpaired)));
-      return;
+    } else {
+      // ── Entry gate: verify pairing is still valid on the server ─────
+      // Prevents entering a server that revoked pairing server-side while
+      // the client still had a stale "paired" cache.
+      final provider = context.read<ComputerProvider>();
+      final stillPaired = await provider.verifyPairing(computer);
+      if (!mounted) return;
+      if (!stillPaired) {
+        final l = AppLocalizations.of(context);
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(l.serverUnpaired)));
+        return;
+      }
     }
 
     final prefs = await SharedPreferences.getInstance();
@@ -1337,16 +1338,16 @@ class _PcViewScreenState extends State<PcViewScreen>
     );
   }
 
-  void _handleIconNav(int index, LogicalKeyboardKey dir) {
+  void _handleIconNav(int index, LogicalKeyboardKey dir, int activeCount) {
     // Audio + light haptic feedback on icon bar navigation
     UiSoundService.playUiMove();
     HapticFeedback.selectionClick();
 
     if (dir == LogicalKeyboardKey.arrowLeft) {
-      final next = index > 0 ? index - 1 : _iconFocusNodes.length - 1;
+      final next = index > 0 ? index - 1 : activeCount - 1;
       _focusIcon(next);
     } else if (dir == LogicalKeyboardKey.arrowRight) {
-      final next = index < _iconFocusNodes.length - 1 ? index + 1 : 0;
+      final next = index < activeCount - 1 ? index + 1 : 0;
       _focusIcon(next);
     } else if (dir == LogicalKeyboardKey.arrowDown) {
       _focusGridItem(0);
@@ -1513,8 +1514,35 @@ class _ComputerCardState extends State<_ComputerCard> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Row(
-                        mainAxisAlignment: MainAxisAlignment.end,
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
+                          if (widget.computer.isCloud)
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: Colors.blueAccent.withValues(alpha: 0.15),
+                                borderRadius: BorderRadius.circular(4),
+                                border: Border.all(color: Colors.blueAccent.withValues(alpha: 0.3)),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(Icons.cloud, size: 12, color: Colors.blueAccent),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    'CLOUD',
+                                    style: TextStyle(
+                                      color: Colors.blueAccent.shade100,
+                                      fontSize: 9,
+                                      fontWeight: FontWeight.w700,
+                                      letterSpacing: 0.5,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            )
+                          else
+                            const SizedBox.shrink(),
                           const Icon(
                             Icons.more_vert,
                             size: 20,
@@ -1854,16 +1882,18 @@ class _FocusableIconBtn extends StatefulWidget {
   final FocusNode? focusNode;
   final IconData icon;
   final String tooltip;
-  final VoidCallback onPressed;
+  final VoidCallback? onPressed;
   final void Function(LogicalKeyboardKey dir)? onNav;
+  final Color? color;
 
   const _FocusableIconBtn({
     super.key,
     this.focusNode,
     required this.icon,
     required this.tooltip,
-    required this.onPressed,
+    this.onPressed,
     this.onNav,
+    this.color,
   });
 
   @override
@@ -1885,7 +1915,7 @@ class _FocusableIconBtnState extends State<_FocusableIconBtn> {
         if (key == LogicalKeyboardKey.gameButtonA ||
             key == LogicalKeyboardKey.enter ||
             key == LogicalKeyboardKey.select) {
-          widget.onPressed();
+          widget.onPressed?.call();
           return KeyEventResult.handled;
         }
 
@@ -1918,7 +1948,7 @@ class _FocusableIconBtnState extends State<_FocusableIconBtn> {
               : null,
         ),
         child: IconButton(
-          icon: Icon(widget.icon, color: Colors.white),
+          icon: Icon(widget.icon, color: widget.color ?? Colors.white),
           tooltip: widget.tooltip,
           onPressed: widget.onPressed,
           focusNode: FocusNode(skipTraversal: true),
