@@ -21,22 +21,33 @@ class GamepadNavigationService {
     if (!_active) return;
 
     final focus = FocusManager.instance.primaryFocus;
-    final isEditable = focus != null &&
-        (focus.context?.widget is EditableText ||
-         focus.context?.findAncestorWidgetOfExactType<EditableText>() != null);
+    if (focus == null) return;
+    final context = focus.context;
 
-    if (isEditable) {
+    final isKeyboardVisible = context != null &&
+        context.mounted &&
+        (MediaQuery.maybeViewInsetsOf(context)?.bottom ?? 0) > 0;
+
+    final isEditable =
+        focus.context?.widget is EditableText ||
+        focus.context?.findAncestorWidgetOfExactType<EditableText>() != null;
+
+    if (isKeyboardVisible || isEditable) {
       if (key == 'back') {
         focus.unfocus();
         SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
-      } else if (key == 'down') {
-        _traverse(TraversalDirection.down);
-      } else if (key == 'up') {
-        _traverse(TraversalDirection.up);
+      } else if (!isKeyboardVisible) {
+        if (key == 'down') {
+          _traverse(TraversalDirection.down);
+        } else if (key == 'up') {
+          _traverse(TraversalDirection.up);
+        }
       }
-      // Ignore other navigation inputs (like left/right) while typing to prevent cursor conflicts
+      // Ignore other inputs (like left/right) while typing to prevent cursor conflicts
+      // If keyboard is visible, also ignore up/down so OS keyboard can consume them
       return;
     }
+
 
     switch (key) {
       case 'up':

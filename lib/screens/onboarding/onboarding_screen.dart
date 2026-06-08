@@ -1,11 +1,11 @@
 import 'dart:async';
-import 'dart:ui' show ImageFilter;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../providers/theme_provider.dart';
+import '../../services/tv/tv_focus_helpers.dart';
 
 import '../auth/cloud_auth_screen.dart';
 
@@ -38,35 +38,32 @@ class OnboardingScreen extends StatefulWidget {
 }
 
 class _OnboardingScreenState extends State<OnboardingScreen> {
-  final _scrollController = ScrollController();
+  final _pageController = PageController();
   final _scrollOffset = ValueNotifier<double>(0.0);
+  int _currentPage = 0;
 
   static const int _chapterCount = 4;
 
   @override
   void initState() {
     super.initState();
-    _scrollController.addListener(_onScroll);
+    _pageController.addListener(_onPageScroll);
   }
 
-  void _onScroll() => _scrollOffset.value = _scrollController.offset;
+  void _onPageScroll() => _scrollOffset.value = _pageController.offset;
 
   @override
   void dispose() {
-    _scrollController.removeListener(_onScroll);
-    _scrollController.dispose();
+    _pageController.removeListener(_onPageScroll);
+    _pageController.dispose();
     _scrollOffset.dispose();
     super.dispose();
   }
 
   // ── Navigation ─────────────────────────────────────────────────────────────
   void _scrollNext() {
-    final vh = MediaQuery.sizeOf(context).height;
-    if (vh == 0) return;
-    final page = (_scrollController.offset / vh).round();
-    if (page < _chapterCount - 1) {
-      _scrollController.animateTo(
-        (page + 1) * vh,
+    if (_currentPage < _chapterCount - 1) {
+      _pageController.nextPage(
         duration: const Duration(milliseconds: 580),
         curve: Curves.easeInOutCubic,
       );
@@ -74,12 +71,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   }
 
   void _scrollBack() {
-    final vh = MediaQuery.sizeOf(context).height;
-    if (vh == 0) return;
-    final page = (_scrollController.offset / vh).round();
-    if (page > 0) {
-      _scrollController.animateTo(
-        (page - 1) * vh,
+    if (_currentPage > 0) {
+      _pageController.previousPage(
         duration: const Duration(milliseconds: 580),
         curve: Curves.easeInOutCubic,
       );
@@ -101,7 +94,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   // ── Build ──────────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
-    final size = MediaQuery.sizeOf(context);
     final tp = context.watch<ThemeProvider>();
 
     return Shortcuts(
@@ -110,23 +102,15 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         LogicalKeySet(LogicalKeyboardKey.goBack): const DismissIntent(),
         LogicalKeySet(LogicalKeyboardKey.escape): const DismissIntent(),
         LogicalKeySet(LogicalKeyboardKey.gameButtonRight1): const _NextIntent(),
-        LogicalKeySet(LogicalKeyboardKey.arrowRight): const _NextIntent(),
         LogicalKeySet(LogicalKeyboardKey.gameButtonLeft1): const _PrevIntent(),
-        LogicalKeySet(LogicalKeyboardKey.arrowLeft): const _PrevIntent(),
-        LogicalKeySet(LogicalKeyboardKey.arrowDown): const _NextIntent(),
-        LogicalKeySet(LogicalKeyboardKey.arrowUp): const _PrevIntent(),
       },
       child: Actions(
         actions: {
           DismissIntent: CallbackAction<DismissIntent>(
             onInvoke: (_) {
-              final vh = MediaQuery.sizeOf(context).height;
-              final page = vh > 0
-                  ? (_scrollController.offset / vh).round()
-                  : 0;
-              if (page < _chapterCount - 1) {
-                _scrollController.animateTo(
-                  (_chapterCount - 1) * vh,
+              if (_currentPage < _chapterCount - 1) {
+                _pageController.animateToPage(
+                  _chapterCount - 1,
                   duration: const Duration(milliseconds: 580),
                   curve: Curves.easeInOutCubic,
                 );
@@ -158,50 +142,44 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 // ── Ambient glow background ──────────────────────────────
                 _AmbientGlow(scrollOffset: _scrollOffset, tp: tp),
 
-                // ── Scrollable chapters ──────────────────────────────────
-                CustomScrollView(
-                  controller: _scrollController,
+                // ── Pageable chapters ──────────────────────────────────
+                PageView(
+                  scrollDirection: Axis.vertical,
+                  controller: _pageController,
                   physics: const ClampingScrollPhysics(),
-                  slivers: [
-                    SliverToBoxAdapter(
-                      child: SizedBox(
-                        height: size.height,
-                        child: _HeroChapter(
-                          scrollOffset: _scrollOffset,
-                          chapterIndex: 0,
-                          tp: tp,
-                        ),
+                  onPageChanged: (index) => setState(() => _currentPage = index),
+                  children: [
+                    FocusScope(
+                      canRequestFocus: _currentPage == 0,
+                      child: _HeroChapter(
+                        scrollOffset: _scrollOffset,
+                        chapterIndex: 0,
+                        tp: tp,
                       ),
                     ),
-                    SliverToBoxAdapter(
-                      child: SizedBox(
-                        height: size.height,
-                        child: _LatencyChapter(
-                          scrollOffset: _scrollOffset,
-                          chapterIndex: 1,
-                          tp: tp,
-                        ),
+                    FocusScope(
+                      canRequestFocus: _currentPage == 1,
+                      child: _LatencyChapter(
+                        scrollOffset: _scrollOffset,
+                        chapterIndex: 1,
+                        tp: tp,
                       ),
                     ),
-                    SliverToBoxAdapter(
-                      child: SizedBox(
-                        height: size.height,
-                        child: _GamepadChapter(
-                          scrollOffset: _scrollOffset,
-                          chapterIndex: 2,
-                          tp: tp,
-                        ),
+                    FocusScope(
+                      canRequestFocus: _currentPage == 2,
+                      child: _GamepadChapter(
+                        scrollOffset: _scrollOffset,
+                        chapterIndex: 2,
+                        tp: tp,
                       ),
                     ),
-                    SliverToBoxAdapter(
-                      child: SizedBox(
-                        height: size.height,
-                        child: _CloudChapter(
-                          scrollOffset: _scrollOffset,
-                          chapterIndex: 3,
-                          tp: tp,
-                          onGetStarted: _finish,
-                        ),
+                    FocusScope(
+                      canRequestFocus: _currentPage == 3,
+                      child: _CloudChapter(
+                        scrollOffset: _scrollOffset,
+                        chapterIndex: 3,
+                        tp: tp,
+                        onGetStarted: _finish,
                       ),
                     ),
                   ],
@@ -212,7 +190,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
                 // ── Bottom pill nav ─────────────────────────────────────
                 _BottomNav(
-                  scrollOffset: _scrollOffset,
+                  currentPage: _currentPage,
                   chapterCount: _chapterCount,
                   onNext: _scrollNext,
                   onBack: _scrollBack,
@@ -294,13 +272,7 @@ class _AmbientGlow extends StatelessWidget {
                       ],
                     ),
                   ),
-                ).animate(onPlay: (c) => c.repeat(reverse: true))
-                 .scale(
-                   begin: const Offset(0.88, 0.88),
-                   end: const Offset(1.12, 1.12),
-                   duration: 5.seconds,
-                   curve: Curves.easeInOut,
-                 ),
+                ),
               ),
               // Secondary orb
               Positioned(
@@ -318,13 +290,7 @@ class _AmbientGlow extends StatelessWidget {
                       ],
                     ),
                   ),
-                ).animate(onPlay: (c) => c.repeat(reverse: true))
-                 .scale(
-                   begin: const Offset(1.0, 1.0),
-                   end: const Offset(0.80, 0.80),
-                   duration: 4.2.seconds,
-                   curve: Curves.easeInOut,
-                 ),
+                ),
               ),
             ],
           ),
@@ -377,18 +343,22 @@ class _TopBar extends StatelessWidget {
                 ),
               ),
               const Spacer(),
-              TextButton(
-                onPressed: onSkip,
-                style: TextButton.styleFrom(
-                  foregroundColor: Colors.white54,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: _S.md,
-                    vertical: _S.sm,
+              TvFocusable(
+                onSelect: onSkip,
+                autofocus: true,
+                child: TextButton(
+                  onPressed: onSkip,
+                  style: TextButton.styleFrom(
+                    foregroundColor: Colors.white54,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: _S.md,
+                      vertical: _S.sm,
+                    ),
                   ),
-                ),
-                child: const Text(
-                  'Skip',
-                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                  child: const Text(
+                    'Skip',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                  ),
                 ),
               ),
             ],
@@ -404,14 +374,14 @@ class _TopBar extends StatelessWidget {
 // ═════════════════════════════════════════════════════════════════════════════
 
 class _BottomNav extends StatelessWidget {
-  final ValueNotifier<double> scrollOffset;
+  final int currentPage;
   final int chapterCount;
   final VoidCallback onNext;
   final VoidCallback onBack;
   final ThemeProvider tp;
 
   const _BottomNav({
-    required this.scrollOffset,
+    required this.currentPage,
     required this.chapterCount,
     required this.onNext,
     required this.onBack,
@@ -420,78 +390,69 @@ class _BottomNav extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final page = currentPage;
+
     return Positioned(
       bottom: _S.xl,
       left: 0,
       right: 0,
-      child: ValueListenableBuilder<double>(
-        valueListenable: scrollOffset,
-        builder: (context, offset, _) {
-          final vh = MediaQuery.sizeOf(context).height;
-          final page = vh > 0
-              ? (offset / vh).round().clamp(0, chapterCount - 1)
-              : 0;
-
-          return Center(
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(_R.full),
-              child: BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: _S.md,
-                    vertical: _S.xs + 2,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.06),
-                    borderRadius: BorderRadius.circular(_R.full),
-                    border: Border.all(
-                      color: Colors.white.withValues(alpha: 0.1),
-                    ),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      // Back
-                      _NavButton(
-                        icon: Icons.arrow_back_ios_new_rounded,
-                        onPressed: page > 0 ? onBack : null,
-                        tp: tp,
-                      ),
-                      const SizedBox(width: _S.sm),
-                      // Dots
-                      Row(
-                        children: List.generate(chapterCount, (i) {
-                          final active = i == page;
-                          return AnimatedContainer(
-                            duration: const Duration(milliseconds: 280),
-                            curve: Curves.easeOutCubic,
-                            margin: const EdgeInsets.symmetric(horizontal: 3),
-                            width: active ? 22 : 6,
-                            height: 6,
-                            decoration: BoxDecoration(
-                              color: active
-                                  ? tp.accent
-                                  : Colors.white.withValues(alpha: 0.2),
-                              borderRadius: BorderRadius.circular(3),
-                            ),
-                          );
-                        }),
-                      ),
-                      const SizedBox(width: _S.sm),
-                      // Next
-                      _NavButton(
-                        icon: Icons.arrow_forward_ios_rounded,
-                        onPressed: page < chapterCount - 1 ? onNext : null,
-                        tp: tp,
-                      ),
-                    ],
-                  ),
+      child: SafeArea(
+        child: Center(
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(_R.full),
+            child: Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: _S.md,
+                vertical: _S.xs + 2,
+              ),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(_R.full),
+                border: Border.all(
+                  color: Colors.white.withValues(alpha: 0.1),
                 ),
               ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Back
+                  _NavButton(
+                    icon: Icons.arrow_back_ios_new_rounded,
+                    onPressed: page > 0 ? onBack : null,
+                    tp: tp,
+                  ),
+                  const SizedBox(width: _S.sm),
+                  // Dots
+                  Row(
+                    children: List.generate(chapterCount, (i) {
+                      final active = i == page;
+                      return AnimatedContainer(
+                        duration: const Duration(milliseconds: 280),
+                        curve: Curves.easeOutCubic,
+                        margin: const EdgeInsets.symmetric(horizontal: 3),
+                        width: active ? 22 : 6,
+                        height: 6,
+                        decoration: BoxDecoration(
+                          color: active
+                              ? tp.accent
+                              : Colors.white.withValues(alpha: 0.2),
+                          borderRadius: BorderRadius.circular(3),
+                        ),
+                      );
+                    }),
+                  ),
+                  const SizedBox(width: _S.sm),
+                  // Next
+                  _NavButton(
+                    icon: Icons.arrow_forward_ios_rounded,
+                    onPressed: page < chapterCount - 1 ? onNext : null,
+                    tp: tp,
+                  ),
+                ],
+              ),
             ),
-          );
-        },
+          ),
+        ),
       ),
     );
   }
@@ -510,17 +471,21 @@ class _NavButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onPressed,
-        borderRadius: BorderRadius.circular(_R.full),
-        child: Padding(
-          padding: const EdgeInsets.all(8),
-          child: Icon(
-            icon,
-            size: 16,
-            color: onPressed != null ? tp.accent : Colors.white24,
+    return TvFocusable(
+      onSelect: onPressed,
+      borderRadius: _R.full,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onPressed,
+          borderRadius: BorderRadius.circular(_R.full),
+          child: Padding(
+            padding: const EdgeInsets.all(8),
+            child: Icon(
+              icon,
+              size: 16,
+              color: onPressed != null ? tp.accent : Colors.white24,
+            ),
           ),
         ),
       ),
@@ -584,27 +549,17 @@ class _GlassCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return ClipRRect(
       borderRadius: BorderRadius.circular(borderRadius),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
-        child: Container(
-          padding: padding,
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                Colors.white.withValues(alpha: 0.06),
-                Colors.white.withValues(alpha: 0.02),
-              ],
-            ),
-            borderRadius: BorderRadius.circular(borderRadius),
-            border: Border.all(
-              color: Colors.white.withValues(alpha: 0.1),
-              width: 1.5,
-            ),
+      child: Container(
+        padding: padding,
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.06),
+          borderRadius: BorderRadius.circular(borderRadius),
+          border: Border.all(
+            color: Colors.white.withValues(alpha: 0.1),
+            width: 1.5,
           ),
-          child: child,
         ),
+        child: child,
       ),
     );
   }
@@ -700,8 +655,7 @@ class _HeroChapter extends _ChapterBase {
             )
                 .animate()
                 .fadeIn(delay: 560.ms, duration: 700.ms)
-                .slideY(begin: 0.15, end: 0, duration: 700.ms, curve: Curves.easeOutCubic)
-                .shimmer(delay: 1200.ms, duration: 1800.ms),
+                .slideY(begin: 0.15, end: 0, duration: 700.ms, curve: Curves.easeOutCubic),
 
             const SizedBox(height: _S.xl + 8),
 
@@ -900,12 +854,7 @@ class _DiagramNode extends StatelessWidget {
             size: 24,
             color: accent ? tp.accentLight : Colors.white54,
           ),
-        ).animate(onPlay: (c) => accent ? c.repeat(reverse: true) : null)
-         .scale(
-           begin: accent ? const Offset(1.0, 1.0) : const Offset(1.0, 1.0),
-           end: accent ? const Offset(1.12, 1.12) : const Offset(1.0, 1.0),
-           duration: 1800.ms,
-         ),
+        ),
         const SizedBox(height: 8),
         Text(
           label,
@@ -1006,14 +955,7 @@ class _GamepadChapter extends _ChapterBase {
                 Icons.gamepad_rounded,
                 size: 64,
                 color: tp.accentLight,
-              )
-                  .animate(onPlay: (c) => c.repeat(reverse: true))
-                  .scale(
-                    begin: const Offset(0.9, 0.9),
-                    end: const Offset(1.08, 1.08),
-                    duration: 2.seconds,
-                    curve: Curves.easeInOut,
-                  ),
+              ),
 
               const SizedBox(height: _S.xxl),
 
@@ -1126,7 +1068,7 @@ class _CloudChapter extends _ChapterBase {
         _PillLabel(text: 'CLOUD SYNC', color: Colors.greenAccent.shade200),
         SizedBox(height: compactLayout ? _S.md : _S.xl),
 
-        // Pulsing cloud icon
+        // Cloud icon
         Stack(
           alignment: Alignment.center,
           children: [
@@ -1137,13 +1079,7 @@ class _CloudChapter extends _ChapterBase {
                 shape: BoxShape.circle,
                 color: tp.accent.withValues(alpha: 0.08),
               ),
-            ).animate(onPlay: (c) => c.repeat(reverse: true))
-             .scale(
-               begin: const Offset(1.0, 1.0),
-               end: const Offset(1.3, 1.3),
-               duration: 2.seconds,
-             )
-             .fadeIn(duration: 1.seconds),
+            ),
             Icon(
               Icons.cloud_done_rounded,
               size: compactLayout ? 42 : 52,
@@ -1194,47 +1130,49 @@ class _CloudChapter extends _ChapterBase {
         SizedBox(height: compactLayout ? _S.md : _S.xl),
 
         // CTA
-        SizedBox(
-          width: double.infinity,
-          child: ElevatedButton.icon(
-            onPressed: onGetStarted,
-            icon: const Icon(Icons.arrow_forward_rounded, size: 20),
-            label: const Text(
-              'Get Started',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w800,
+        TvFocusable(
+          onSelect: onGetStarted,
+          child: SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: onGetStarted,
+              icon: const Icon(Icons.arrow_forward_rounded, size: 20),
+              label: const Text(
+                'Get Started',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
+                ),
               ),
-            ),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: tp.accent,
-              foregroundColor: Colors.white,
-              padding: EdgeInsets.symmetric(vertical: compactLayout ? 14 : 18),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(_R.lg),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: tp.accent,
+                foregroundColor: Colors.white,
+                padding: EdgeInsets.symmetric(vertical: compactLayout ? 14 : 18),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(_R.lg),
+                ),
+                elevation: 0,
               ),
-              elevation: 0,
             ),
           ),
-        )
-            .animate()
-            .fadeIn(duration: 500.ms)
-            .scale(
-              begin: const Offset(0.95, 0.95),
-              end: const Offset(1.0, 1.0),
-              duration: 500.ms,
-              curve: Curves.easeOutBack,
-            ),
+        ),
       ],
     );
 
-    return Center(
+    return SafeArea(
       child: SingleChildScrollView(
-        physics: const BouncingScrollPhysics(),
-        padding: const EdgeInsets.symmetric(horizontal: _S.xl, vertical: _S.xl),
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 520),
-          child: content,
+        physics: const ClampingScrollPhysics(),
+        padding: EdgeInsets.only(
+          left: _S.xl,
+          right: _S.xl,
+          top: _S.xl,
+          bottom: 80,
+        ),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 520),
+            child: content,
+          ),
         ),
       ),
     );

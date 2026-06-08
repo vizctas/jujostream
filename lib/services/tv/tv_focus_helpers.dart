@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../../providers/theme_provider.dart';
+import '../../services/audio/ui_sound_service.dart';
 import 'tv_detector.dart';
 
 class TvFocusable extends StatefulWidget {
@@ -32,8 +33,6 @@ class _TvFocusableState extends State<TvFocusable> {
   late final FocusNode _focus;
   bool _hasFocus = false;
 
-  BuildContext? _ctx;
-
   @override
   void initState() {
     super.initState();
@@ -47,6 +46,7 @@ class _TvFocusableState extends State<TvFocusable> {
   }
 
   void _onFocusChange(bool focused) {
+    if (focused) UiSoundService.playUiMove();
     setState(() => _hasFocus = focused);
   }
 
@@ -57,20 +57,19 @@ class _TvFocusableState extends State<TvFocusable> {
     if (key == LogicalKeyboardKey.enter ||
         key == LogicalKeyboardKey.select ||
         key == LogicalKeyboardKey.gameButtonA) {
-      widget.onSelect?.call();
+      if (widget.onSelect != null) {
+        UiSoundService.playClick();
+        widget.onSelect!();
+      }
       return KeyEventResult.handled;
     }
 
     if (key == LogicalKeyboardKey.contextMenu ||
         key == LogicalKeyboardKey.gameButtonX) {
-      widget.onLongPress?.call();
-      return KeyEventResult.handled;
-    }
-
-    if (key == LogicalKeyboardKey.escape ||
-        key == LogicalKeyboardKey.goBack ||
-        key == LogicalKeyboardKey.gameButtonB) {
-      if (_ctx != null) Navigator.maybePop(_ctx!);
+      if (widget.onLongPress != null) {
+        UiSoundService.playClick();
+        widget.onLongPress!();
+      }
       return KeyEventResult.handled;
     }
 
@@ -79,7 +78,6 @@ class _TvFocusableState extends State<TvFocusable> {
 
   @override
   Widget build(BuildContext context) {
-    _ctx = context;
     final effectiveFocusColor = widget.focusColor ?? context.read<ThemeProvider>().accentLight;
 
     return Focus(
@@ -88,8 +86,18 @@ class _TvFocusableState extends State<TvFocusable> {
       onFocusChange: _onFocusChange,
       onKeyEvent: _onKeyEvent,
       child: GestureDetector(
-        onTap: widget.onSelect,
-        onLongPress: widget.onLongPress,
+        onTap: () {
+          if (widget.onSelect != null) {
+            UiSoundService.playClick();
+            widget.onSelect!();
+          }
+        },
+        onLongPress: () {
+          if (widget.onLongPress != null) {
+            UiSoundService.playClick();
+            widget.onLongPress!();
+          }
+        },
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 150),
           decoration: BoxDecoration(

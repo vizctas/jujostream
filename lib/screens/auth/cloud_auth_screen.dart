@@ -10,7 +10,9 @@ import 'package:supabase_flutter/supabase_flutter.dart' hide AuthState;
 import '../../providers/auth_provider.dart';
 import '../../providers/cloud_mfa_provider.dart';
 import '../../providers/theme_provider.dart';
-
+import '../../services/input/gamepad_navigation_service.dart';
+import '../../services/tv/tv_focus_helpers.dart';
+import '../../widgets/gamepad_keyboard.dart';
 
 class CloudAuthScreen extends StatefulWidget {
   final bool isFirstRun;
@@ -35,21 +37,13 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
   bool _obscurePassword = true;
   bool _isSignUp = false;
   bool _awaitingConfirmation = false;
-  bool _editingEmail = false;
-  bool _editingPassword = false;
-  bool _editingMfa = false;
+  bool _showKeyboard = false;
+  bool _keyboardNumeric = false;
+  TextEditingController? _activeController;
+
   Timer? _confirmationTimer;
   String? _error;
   String? _info;
-
-  final FocusNode _emailFocus = FocusNode(debugLabel: 'auth-email');
-  final FocusNode _passwordFocus = FocusNode(debugLabel: 'auth-password');
-  final FocusNode _submitFocus = FocusNode(debugLabel: 'auth-submit');
-  final FocusNode _mfaFocus = FocusNode(debugLabel: 'auth-mfa');
-  final FocusNode _mfaCancelFocus = FocusNode(debugLabel: 'auth-mfa-cancel');
-  final FocusNode _mfaVerifyFocus = FocusNode(debugLabel: 'auth-mfa-verify');
-  final FocusNode _toggleModeFocus = FocusNode(debugLabel: 'auth-toggle-mode');
-  final FocusNode _localModeFocus = FocusNode(debugLabel: 'auth-local-mode');
 
   late final CloudMfaProvider _mfaProvider;
   bool _wasMfaPanelShown = false;
@@ -57,27 +51,12 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
   @override
   void initState() {
     super.initState();
-    _emailFocus.addListener(_onFocusChange);
-    _passwordFocus.addListener(_onFocusChange);
-    _submitFocus.addListener(_onFocusChange);
-    _mfaFocus.addListener(_onFocusChange);
-    _mfaCancelFocus.addListener(_onFocusChange);
-    _mfaVerifyFocus.addListener(_onFocusChange);
-    _toggleModeFocus.addListener(_onFocusChange);
-    _localModeFocus.addListener(_onFocusChange);
-
-    _emailFocus.onKeyEvent = _handleTextFieldKey;
-    _passwordFocus.onKeyEvent = _handleTextFieldKey;
-    _mfaFocus.onKeyEvent = _handleTextFieldKey;
-
+    GamepadNavigationService.setActive(false);
     _mfaProvider = context.read<CloudMfaProvider>();
     _mfaProvider.addListener(_onMfaStateChange);
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _onMfaStateChange();
-      if (!_wasMfaPanelShown) {
-        _emailFocus.requestFocus();
-      }
     });
   }
 
@@ -90,28 +69,9 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
 
     if (showMfaPanel && !_wasMfaPanelShown) {
       _wasMfaPanelShown = true;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
-          _mfaFocus.requestFocus();
-        }
-      });
+      setState(() => _showKeyboard = false);
     } else if (!showMfaPanel && _wasMfaPanelShown) {
       _wasMfaPanelShown = false;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
-          _emailFocus.requestFocus();
-        }
-      });
-    }
-  }
-
-  void _onFocusChange() {
-    if (mounted) {
-      setState(() {
-        if (!_emailFocus.hasFocus) _editingEmail = false;
-        if (!_passwordFocus.hasFocus) _editingPassword = false;
-        if (!_mfaFocus.hasFocus) _editingMfa = false;
-      });
     }
   }
 
@@ -122,22 +82,7 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
     _passwordController.dispose();
     _mfaCodeController.dispose();
     _mfaProvider.removeListener(_onMfaStateChange);
-    _emailFocus.removeListener(_onFocusChange);
-    _passwordFocus.removeListener(_onFocusChange);
-    _submitFocus.removeListener(_onFocusChange);
-    _mfaFocus.removeListener(_onFocusChange);
-    _mfaCancelFocus.removeListener(_onFocusChange);
-    _mfaVerifyFocus.removeListener(_onFocusChange);
-    _toggleModeFocus.removeListener(_onFocusChange);
-    _localModeFocus.removeListener(_onFocusChange);
-    _emailFocus.dispose();
-    _passwordFocus.dispose();
-    _submitFocus.dispose();
-    _mfaFocus.dispose();
-    _mfaCancelFocus.dispose();
-    _mfaVerifyFocus.dispose();
-    _toggleModeFocus.dispose();
-    _localModeFocus.dispose();
+    GamepadNavigationService.setActive(true);
     super.dispose();
   }
 
@@ -295,7 +240,6 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
       }
     } else {
       _mfaCodeController.clear();
-      _mfaFocus.requestFocus();
     }
   }
 
@@ -307,22 +251,55 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
     context.read<CloudMfaProvider>().reset();
     setState(() {
       _mfaCodeController.clear();
-      _editingMfa = false;
+      _showKeyboard = false;
       _isLoading = false;
     });
     if (widget.popOnSuccess) {
       Navigator.of(context).pop(false);
-    } else {
-      _emailFocus.requestFocus();
     }
   }
 
-  // ── Keyboard helpers (scoped to this screen only) ───────────────────────────
-  void _dismissKeyboard() {
-    SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
+  // ── Keyboard input helpers ───────────────────────────────────────────────────
+  void _openKeyboard(TextEditingController controller, {bool numeric = false}) {
+    setState(() {
+      _showKeyboard = true;
+      _keyboardNumeric = numeric;
+      _activeController = controller;
+    });
   }
 
-  void _handleBackspace(TextEditingController controller) {
+  void _closeKeyboard() {
+    setState(() => _showKeyboard = false);
+  }
+
+  void _onKeyboardKey(String ch) {
+    final controller = _activeController;
+    if (controller == null) return;
+    final text = controller.text;
+    final selection = controller.selection;
+    if (selection.isCollapsed) {
+      final offset = selection.baseOffset;
+      final newText = text.substring(0, offset) + ch + text.substring(offset);
+      controller.value = TextEditingValue(
+        text: newText,
+        selection: TextSelection.collapsed(offset: offset + ch.length),
+      );
+    } else {
+      final newText = text.substring(0, selection.start) + ch + text.substring(selection.end);
+      controller.value = TextEditingValue(
+        text: newText,
+        selection: TextSelection.collapsed(offset: selection.start + ch.length),
+      );
+    }
+    if (_activeController == _mfaCodeController && controller.text.length == 6) {
+      _closeKeyboard();
+      _handleMfaVerify(controller.text);
+    }
+  }
+
+  void _onKeyboardBackspace() {
+    final controller = _activeController;
+    if (controller == null) return;
     final text = controller.text;
     final selection = controller.selection;
     if (selection.isCollapsed) {
@@ -346,105 +323,40 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
     }
   }
 
-  KeyEventResult _handleTextFieldKey(FocusNode node, KeyEvent event) {
-    if (event is! KeyDownEvent) return KeyEventResult.ignored;
-
-    final key = event.logicalKey;
-    final isEmail = node == _emailFocus;
-    final isPassword = node == _passwordFocus;
-    final isMfa = node == _mfaFocus;
-
-    final isEditing = (isEmail && _editingEmail) ||
-        (isPassword && _editingPassword) ||
-        (isMfa && _editingMfa);
-
-    final controller = isEmail
-        ? _emailController
-        : (isPassword ? _passwordController : _mfaCodeController);
-
-    if (isEditing) {
-      if (key == LogicalKeyboardKey.gameButtonB ||
-          key == LogicalKeyboardKey.goBack ||
-          key == LogicalKeyboardKey.escape) {
-        setState(() {
-          if (isEmail) _editingEmail = false;
-          if (isPassword) _editingPassword = false;
-          if (isMfa) _editingMfa = false;
-        });
-        _dismissKeyboard();
-        node.requestFocus();
-        return KeyEventResult.handled;
+  void _onKeyboardDone() {
+    _closeKeyboard();
+    if (_activeController == _mfaCodeController) {
+      final code = _mfaCodeController.text;
+      if (code.length == 6) {
+        _handleMfaVerify(code);
       }
-
-      if (key == LogicalKeyboardKey.gameButtonX) {
-        _handleBackspace(controller);
-        if (isMfa) {
-          final code = controller.text;
-          if (code.length == 6) {
-            _handleMfaVerify(code);
-          }
-        }
-        return KeyEventResult.handled;
-      }
-
-      return KeyEventResult.ignored;
-    } else {
-      if (key == LogicalKeyboardKey.gameButtonA ||
-          key == LogicalKeyboardKey.select ||
-          key == LogicalKeyboardKey.enter) {
-        setState(() {
-          if (isEmail) _editingEmail = true;
-          if (isPassword) _editingPassword = true;
-          if (isMfa) _editingMfa = true;
-        });
-        node.requestFocus();
-        SystemChannels.textInput.invokeMethod<void>('TextInput.show');
-        return KeyEventResult.handled;
-      }
-
-      if (key == LogicalKeyboardKey.arrowDown) {
-        node.focusInDirection(TraversalDirection.down);
-        return KeyEventResult.handled;
-      }
-
-      if (key == LogicalKeyboardKey.arrowUp) {
-        node.focusInDirection(TraversalDirection.up);
-        return KeyEventResult.handled;
-      }
-
-      return KeyEventResult.ignored;
     }
   }
 
-  KeyEventResult _handleGamepadKeyInAuthScreen(FocusNode _, KeyEvent ev) {
-    if (ev is! KeyDownEvent) return KeyEventResult.ignored;
-
-    final key = ev.logicalKey;
-    final isEditing = _editingEmail || _editingPassword || _editingMfa;
-
-    if (isEditing) {
-      return KeyEventResult.ignored;
-    }
+  KeyEventResult _handleAuthScreenKey(FocusNode _, KeyEvent event) {
+    if (event is! KeyDownEvent) return KeyEventResult.ignored;
+    final key = event.logicalKey;
 
     if (key == LogicalKeyboardKey.gameButtonB ||
         key == LogicalKeyboardKey.goBack ||
         key == LogicalKeyboardKey.escape) {
+      if (_showKeyboard) {
+        _closeKeyboard();
+        return KeyEventResult.handled;
+      }
       final mfa = context.read<CloudMfaProvider>();
       final showMfaPanel = mfa.status == CloudMfaStatus.setupRequired ||
           mfa.status == CloudMfaStatus.verifyRequired ||
           (mfa.status == CloudMfaStatus.loading && mfa.blocksCloudUser);
-
       if (showMfaPanel) {
         _cancelMfa();
         return KeyEventResult.handled;
       }
-
       if (Navigator.of(context).canPop()) {
         Navigator.of(context).pop();
         return KeyEventResult.handled;
       }
     }
-
     return KeyEventResult.ignored;
   }
 
@@ -457,45 +369,53 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
         mfa.status == CloudMfaStatus.verifyRequired ||
         (mfa.status == CloudMfaStatus.loading && mfa.blocksCloudUser);
 
-    // Wrap the entire screen in a Focus with onKeyEvent so we can intercept
-    // gamepad events BEFORE they bubble to system handlers.
     return Focus(
-      onKeyEvent: _handleGamepadKeyInAuthScreen,
+      onKeyEvent: _handleAuthScreenKey,
       child: Scaffold(
-            backgroundColor: tp.background,
-            body: Stack(
-              fit: StackFit.expand,
-              children: [
-                // Static ambient gradient — solid, no blur, no animation
-                Positioned.fill(
-                  child: Container(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: [
-                          tp.background,
-                          tp.surface,
-                        ],
-                      ),
-                    ),
+        backgroundColor: tp.background,
+        body: Stack(
+          fit: StackFit.expand,
+          children: [
+            // Static ambient gradient
+            Positioned.fill(
+              child: Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [tp.background, tp.surface],
                   ),
                 ),
-
-                Center(
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.all(24),
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 420),
-                      child: showMfaPanel
-                          ? _buildMfaLayout(context, mfa, tp)
-                          : _buildAuthLayout(context, tp),
-                    ),
-                  ),
-                ),
-              ],
+              ),
             ),
-          ),
+
+            Center(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(24),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 420),
+                  child: showMfaPanel
+                      ? _buildMfaLayout(context, mfa, tp)
+                      : _buildAuthLayout(context, tp),
+                ),
+              ),
+            ),
+
+            if (_showKeyboard)
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: GamepadKeyboard(
+                  numericOnly: _keyboardNumeric,
+                  onKey: _onKeyboardKey,
+                  onBackspace: _onKeyboardBackspace,
+                  onDone: _onKeyboardDone,
+                ),
+              ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -544,68 +464,56 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
                 ),
                 const SizedBox(height: 24),
 
-                 TextFormField(
-                  controller: _emailController,
-                  focusNode: _emailFocus,
-                  readOnly: !_editingEmail,
-                  showCursor: true,
-                  style: const TextStyle(
-                    color: Colors.white,
+                // Email field
+                TvFocusable(
+                  onSelect: () => _openKeyboard(_emailController),
+                  child: TextFormField(
+                    controller: _emailController,
+                    readOnly: true,
+                    showCursor: false,
+                    style: const TextStyle(color: Colors.white),
+                    decoration: _inputDecoration('Email', Icons.mail_outline, tp),
+                    keyboardType: TextInputType.none,
+                    validator: (value) {
+                      final email = value?.trim() ?? '';
+                      if (email.isEmpty) return 'Email is required';
+                      if (!email.contains('@')) return 'Please enter a valid email';
+                      return null;
+                    },
                   ),
-                  decoration: _inputDecoration('Email', Icons.mail_outline, tp, _emailFocus.hasFocus, _editingEmail),
-                  keyboardType: TextInputType.emailAddress,
-                  textInputAction: TextInputAction.next,
-                  onTap: () {
-                    setState(() {
-                      _editingEmail = true;
-                    });
-                    SystemChannels.textInput.invokeMethod<void>('TextInput.show');
-                  },
-                  validator: (value) {
-                    final email = value?.trim() ?? '';
-                    if (email.isEmpty) return 'Email is required';
-                    if (!email.contains('@')) return 'Please enter a valid email';
-                    return null;
-                  },
                 ),
                 const SizedBox(height: 16),
 
-                TextFormField(
-                  controller: _passwordController,
-                  focusNode: _passwordFocus,
-                  readOnly: !_editingPassword,
-                  showCursor: true,
-                  style: const TextStyle(
-                    color: Colors.white,
-                  ),
-                  obscureText: _obscurePassword,
-                  decoration: _inputDecoration('Password', Icons.lock_outline, tp, _passwordFocus.hasFocus, _editingPassword)
-                      .copyWith(
-                    suffixIcon: IconButton(
-                      icon: Icon(
-                        _obscurePassword
-                            ? Icons.visibility_off_outlined
-                            : Icons.visibility_outlined,
-                        color: Colors.white54,
-                        size: 20,
+                // Password field
+                TvFocusable(
+                  onSelect: () => _openKeyboard(_passwordController),
+                  child: TextFormField(
+                    controller: _passwordController,
+                    readOnly: true,
+                    showCursor: false,
+                    style: const TextStyle(color: Colors.white),
+                    obscureText: _obscurePassword,
+                    decoration: _inputDecoration('Password', Icons.lock_outline, tp)
+                        .copyWith(
+                      suffixIcon: IconButton(
+                        icon: Icon(
+                          _obscurePassword
+                              ? Icons.visibility_off_outlined
+                              : Icons.visibility_outlined,
+                          color: Colors.white54,
+                          size: 20,
+                        ),
+                        onPressed: () =>
+                            setState(() => _obscurePassword = !_obscurePassword),
                       ),
-                      onPressed: () =>
-                          setState(() => _obscurePassword = !_obscurePassword),
                     ),
+                    keyboardType: TextInputType.none,
+                    validator: (value) {
+                      if (value == null || value.isEmpty) return 'Password is required';
+                      if (value.length < 6) return 'Must be at least 6 characters';
+                      return null;
+                    },
                   ),
-                  textInputAction: TextInputAction.done,
-                  onFieldSubmitted: (_) => _handleSubmit(),
-                  onTap: () {
-                    setState(() {
-                      _editingPassword = true;
-                    });
-                    SystemChannels.textInput.invokeMethod<void>('TextInput.show');
-                  },
-                  validator: (value) {
-                    if (value == null || value.isEmpty) return 'Password is required';
-                    if (value.length < 6) return 'Must be at least 6 characters';
-                    return null;
-                  },
                 ),
 
                 const SizedBox(height: 20),
@@ -693,13 +601,16 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
                                   ),
                                 ],
                               ),
-                              TextButton(
-                                onPressed: _isLoading ? null : _resendEmail,
-                                child: Text(
-                                  'Resend',
-                                  style: TextStyle(
-                                    color: tp.accentLight,
-                                    fontSize: 12,
+                              TvFocusable(
+                                onSelect: _isLoading ? null : _resendEmail,
+                                child: TextButton(
+                                  onPressed: _isLoading ? null : _resendEmail,
+                                  child: Text(
+                                    'Resend',
+                                    style: TextStyle(
+                                      color: tp.accentLight,
+                                      fontSize: 12,
+                                    ),
                                   ),
                                 ),
                               ),
@@ -712,100 +623,82 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
                   const SizedBox(height: 16),
                 ],
 
-                ElevatedButton(
-                  focusNode: _submitFocus,
-                  onPressed: _isLoading ? null : _handleSubmit,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: _submitFocus.hasFocus ? tp.accentLight : tp.accent,
-                    foregroundColor: Colors.white,
-                    side: _submitFocus.hasFocus
-                        ? const BorderSide(color: Colors.white, width: 2)
-                        : BorderSide.none,
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
+                TvFocusable(
+                  onSelect: _isLoading ? null : _handleSubmit,
+                  child: ElevatedButton(
+                    onPressed: _isLoading ? null : _handleSubmit,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: tp.accent,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      elevation: 0,
                     ),
-                    elevation: _submitFocus.hasFocus ? 8 : 0,
-                    shadowColor: tp.accent.withValues(alpha: 0.5),
+                    child: _isLoading
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : Text(
+                            _isSignUp ? 'Sign Up' : 'Sign In',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 15,
+                            ),
+                          ),
                   ),
-                  child: _isLoading
-                      ? const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white,
-                          ),
-                        )
-                      : Text(
-                          _isSignUp ? 'Sign Up' : 'Sign In',
-                          style: const TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 15,
-                          ),
-                        ),
                 ),
                 const SizedBox(height: 16),
 
-                TextButton(
-                  focusNode: _toggleModeFocus,
-                  onPressed: _isLoading
+                TvFocusable(
+                  onSelect: _isLoading
                       ? null
                       : () => setState(() {
                             _isSignUp = !_isSignUp;
                             _error = null;
                             _info = null;
                           }),
-                  style: TextButton.styleFrom(
-                    foregroundColor: _toggleModeFocus.hasFocus
-                        ? tp.accentLight
-                        : Colors.white70,
-                    backgroundColor: _toggleModeFocus.hasFocus
-                        ? Colors.white.withValues(alpha: 0.05)
-                        : Colors.transparent,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      side: BorderSide(
-                        color: _toggleModeFocus.hasFocus
-                            ? tp.accentLight.withValues(alpha: 0.3)
-                            : Colors.transparent,
-                      ),
+                  child: TextButton(
+                    onPressed: _isLoading
+                        ? null
+                        : () => setState(() {
+                              _isSignUp = !_isSignUp;
+                              _error = null;
+                              _info = null;
+                            }),
+                    style: TextButton.styleFrom(
+                      foregroundColor: Colors.white70,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
                     ),
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                  ),
-                  child: Text(
-                    _isSignUp
-                        ? 'Already have an account? Sign in'
-                        : 'Need sync? Create an account',
+                    child: Text(
+                      _isSignUp
+                          ? 'Already have an account? Sign in'
+                          : 'Need sync? Create an account',
+                    ),
                   ),
                 ),
 
                 const SizedBox(height: 8),
-                TextButton(
-                  focusNode: _localModeFocus,
-                  onPressed: _isLoading
-                      ? null
-                      : () {
-                          Navigator.of(context).pushReplacementNamed('/');
-                        },
-                  style: TextButton.styleFrom(
-                    foregroundColor: _localModeFocus.hasFocus
-                        ? tp.accentLight
-                        : Colors.white38,
-                    backgroundColor: _localModeFocus.hasFocus
-                        ? Colors.white.withValues(alpha: 0.05)
-                        : Colors.transparent,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      side: BorderSide(
-                        color: _localModeFocus.hasFocus
-                            ? tp.accentLight.withValues(alpha: 0.3)
-                            : Colors.transparent,
-                      ),
+                TvFocusable(
+                  onSelect: () {
+                    Navigator.of(context).pushReplacementNamed('/');
+                  },
+                  child: TextButton(
+                    onPressed: () {
+                      Navigator.of(context).pushReplacementNamed('/');
+                    },
+                    style: TextButton.styleFrom(
+                      foregroundColor: Colors.white38,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
                     ),
-                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    child: const Text('Continue in Local-only mode'),
                   ),
-                  child: const Text('Continue in Local-only mode'),
                 ),
               ],
             ),
@@ -908,35 +801,24 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
                 const SizedBox(height: 24),
               ],
 
-              TextFormField(
-                controller: _mfaCodeController,
-                focusNode: _mfaFocus,
-                readOnly: !_editingMfa,
-                showCursor: true,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 6,
+              TvFocusable(
+                onSelect: () => _openKeyboard(_mfaCodeController, numeric: true),
+                child: TextFormField(
+                  controller: _mfaCodeController,
+                  readOnly: true,
+                  showCursor: false,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 6,
+                  ),
+                  keyboardType: TextInputType.none,
+                  maxLength: 6,
+                  textAlign: TextAlign.center,
+                  decoration: _inputDecoration('6-digit code', Icons.onetwothree_outlined, tp)
+                      .copyWith(counterText: ''),
                 ),
-                keyboardType: TextInputType.number,
-                maxLength: 6,
-                textAlign: TextAlign.center,
-                decoration: _inputDecoration('6-digit code', Icons.onetwothree_outlined, tp, _mfaFocus.hasFocus, _editingMfa)
-                    .copyWith(
-                  counterText: '',
-                ),
-                onTap: () {
-                  setState(() {
-                    _editingMfa = true;
-                  });
-                  SystemChannels.textInput.invokeMethod<void>('TextInput.show');
-                },
-                onChanged: (code) {
-                  if (code.length == 6) {
-                    _handleMfaVerify(code);
-                  }
-                },
               ),
 
               const SizedBox(height: 16),
@@ -965,63 +847,56 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
               Row(
                 children: [
                   Expanded(
-                    child: OutlinedButton(
-                      focusNode: _mfaCancelFocus,
-                      onPressed: _isLoading ? null : _cancelMfa,
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: _mfaCancelFocus.hasFocus
-                            ? tp.accentLight
-                            : Colors.white70,
-                        backgroundColor: _mfaCancelFocus.hasFocus
-                            ? Colors.white.withValues(alpha: 0.05)
-                            : Colors.transparent,
-                        side: BorderSide(
-                          color: _mfaCancelFocus.hasFocus
-                              ? tp.accentLight
-                              : Colors.white.withValues(alpha: 0.2),
-                          width: _mfaCancelFocus.hasFocus ? 2 : 1,
+                    child: TvFocusable(
+                      onSelect: _isLoading ? null : _cancelMfa,
+                      child: OutlinedButton(
+                        onPressed: _isLoading ? null : _cancelMfa,
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.white70,
+                          side: BorderSide(
+                            color: Colors.white.withValues(alpha: 0.2),
+                          ),
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
                         ),
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(16),
-                        ),
+                        child: const Text('Cancel'),
                       ),
-                      child: const Text('Cancel'),
                     ),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
-                    child: ElevatedButton(
-                      focusNode: _mfaVerifyFocus,
-                      onPressed: _isLoading
+                    child: TvFocusable(
+                      onSelect: _isLoading
                           ? null
                           : () => _handleMfaVerify(_mfaCodeController.text),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: _mfaVerifyFocus.hasFocus
-                            ? tp.accent
-                            : tp.accentLight,
-                        foregroundColor: Colors.white,
-                        side: _mfaVerifyFocus.hasFocus
-                            ? const BorderSide(color: Colors.white, width: 2)
-                            : BorderSide.none,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(16),
+                      child: ElevatedButton(
+                        onPressed: _isLoading
+                            ? null
+                            : () => _handleMfaVerify(_mfaCodeController.text),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: tp.accent,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
                         ),
-                      ),
-                      child: _isLoading
-                          ? const SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Colors.white,
+                        child: _isLoading
+                            ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : const Text(
+                                'Verify',
+                                style: TextStyle(fontWeight: FontWeight.bold),
                               ),
-                            )
-                          : const Text(
-                              'Verify',
-                              style: TextStyle(fontWeight: FontWeight.bold),
-                            ),
+                      ),
                     ),
                   ),
                 ],
@@ -1037,23 +912,17 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
     String labelText,
     IconData icon,
     ThemeProvider tp,
-    bool hasFocus,
-    bool isEditing,
   ) {
     final isLight = tp.colors.isLight;
-    final displayLabel = hasFocus && !isEditing ? '$labelText (Press Ⓐ to edit)' : labelText;
     return InputDecoration(
-      labelText: displayLabel,
+      labelText: labelText,
       labelStyle: TextStyle(
-        color: hasFocus
-            ? tp.accentLight
-            : (isLight ? Colors.black45 : Colors.white54),
+        color: Colors.white54,
         fontSize: 14,
-        fontWeight: hasFocus ? FontWeight.w600 : FontWeight.normal,
       ),
       prefixIcon: Icon(
         icon,
-        color: hasFocus ? tp.accentLight : (isLight ? Colors.black38 : Colors.white38),
+        color: isLight ? Colors.black38 : Colors.white38,
       ),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(16),
@@ -1082,11 +951,9 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
         ),
       ),
       filled: true,
-      fillColor: hasFocus
-          ? tp.accent.withValues(alpha: 0.08)
-          : (isLight
-              ? Colors.black.withValues(alpha: 0.02)
-              : Colors.white.withValues(alpha: 0.02)),
+      fillColor: isLight
+          ? Colors.black.withValues(alpha: 0.02)
+          : Colors.white.withValues(alpha: 0.02),
       contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
     );
   }
