@@ -26,7 +26,10 @@ import '../settings/device_flow_screen.dart';
 import '../settings/profile_screen.dart';
 import '../settings/settings_screen.dart';
 import '../../providers/auth_provider.dart';
+import '../../providers/cloud_mfa_provider.dart';
+import '../../services/auth/supabase_config.dart';
 import '../../services/audio/ui_sound_service.dart';
+import '../../widgets/mfa_bypassed_confirmation_dialog.dart';
 import '../../widgets/tour_overlay.dart';
 import 'focus_mode_screen.dart';
 import '../auth/cloud_auth_screen.dart';
@@ -1001,6 +1004,37 @@ class _PcViewScreenState extends State<PcViewScreen>
       final ok = await provider.verifyPairing(computer);
       if (!mounted) return;
       if (!ok) {
+        final mfa = context.read<CloudMfaProvider>();
+        final hasSession = SupabaseConfig.current.isConfigured &&
+            Supabase.instance.client.auth.currentSession != null;
+        if (computer.isCloud &&
+            hasSession &&
+            (mfa.status == CloudMfaStatus.setupRequired ||
+                mfa.status == CloudMfaStatus.verifyRequired)) {
+          final action = await MfaBypassedConfirmationDialog.show(context);
+          if (!mounted) return;
+          if (action == MfaBypassedAction.enterMfa) {
+            final verified = await Navigator.push<bool>(
+              context,
+              MaterialPageRoute(
+                builder: (_) => const CloudAuthScreen(
+                  isFirstRun: false,
+                  popOnSuccess: true,
+                ),
+              ),
+            );
+            if (!mounted) return;
+            if (verified == true) {
+              await _onComputerTapped(computer);
+            }
+            return;
+          } else if (action == MfaBypassedAction.usePin) {
+            final paired = await _showPairingDialog(computer);
+            if (!mounted || !paired) return;
+          }
+          return;
+        }
+
         final paired = await _showPairingDialog(computer);
         if (!mounted || !paired) {
           return;

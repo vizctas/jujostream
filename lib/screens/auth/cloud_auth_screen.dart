@@ -14,7 +14,12 @@ import '../../providers/theme_provider.dart';
 
 class CloudAuthScreen extends StatefulWidget {
   final bool isFirstRun;
-  const CloudAuthScreen({super.key, this.isFirstRun = false});
+  final bool popOnSuccess;
+  const CloudAuthScreen({
+    super.key,
+    this.isFirstRun = false,
+    this.popOnSuccess = false,
+  });
 
   @override
   State<CloudAuthScreen> createState() => _CloudAuthScreenState();
@@ -282,7 +287,11 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
     if (success) {
       unawaited(context.read<AuthProvider>().pullFromCloud());
       if (mounted) {
-        Navigator.of(context).pushReplacementNamed('/');
+        if (widget.popOnSuccess) {
+          Navigator.of(context).pop(true);
+        } else {
+          Navigator.of(context).pushReplacementNamed('/');
+        }
       }
     } else {
       _mfaCodeController.clear();
@@ -301,7 +310,11 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
       _editingMfa = false;
       _isLoading = false;
     });
-    _emailFocus.requestFocus();
+    if (widget.popOnSuccess) {
+      Navigator.of(context).pop(false);
+    } else {
+      _emailFocus.requestFocus();
+    }
   }
 
   // ── Keyboard helpers (scoped to this screen only) ───────────────────────────

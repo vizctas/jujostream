@@ -30,6 +30,10 @@ import '../settings/profile_screen.dart';
 import '../about/about_screen.dart';
 import 'pc_view_screen.dart';
 import '../../providers/auth_provider.dart';
+import '../../providers/cloud_mfa_provider.dart';
+import '../../services/auth/supabase_config.dart';
+import '../../widgets/mfa_bypassed_confirmation_dialog.dart';
+import '../auth/cloud_auth_screen.dart';
 
 /// Preference key for Focus Mode toggle.
 const _kFocusModeEnabled = 'focus_mode_enabled';
@@ -215,6 +219,37 @@ class _FocusModeScreenState extends State<FocusModeScreen>
       final ok = await provider.verifyPairing(computer);
       if (!mounted) return;
       if (!ok) {
+        final mfa = context.read<CloudMfaProvider>();
+        final hasSession = SupabaseConfig.current.isConfigured &&
+            Supabase.instance.client.auth.currentSession != null;
+        if (computer.isCloud &&
+            hasSession &&
+            (mfa.status == CloudMfaStatus.setupRequired ||
+                mfa.status == CloudMfaStatus.verifyRequired)) {
+          final action = await MfaBypassedConfirmationDialog.show(context);
+          if (!mounted) return;
+          if (action == MfaBypassedAction.enterMfa) {
+            final verified = await Navigator.push<bool>(
+              context,
+              MaterialPageRoute(
+                builder: (_) => const CloudAuthScreen(
+                  isFirstRun: false,
+                  popOnSuccess: true,
+                ),
+              ),
+            );
+            if (!mounted) return;
+            if (verified == true) {
+              await _onComputerTapped(computer);
+            }
+            return;
+          } else if (action == MfaBypassedAction.usePin) {
+            final paired = await showPairingDialog(context, computer);
+            if (!mounted || !paired) return;
+          }
+          return;
+        }
+
         final paired = await showPairingDialog(context, computer);
         if (!mounted || !paired) return;
         return;
