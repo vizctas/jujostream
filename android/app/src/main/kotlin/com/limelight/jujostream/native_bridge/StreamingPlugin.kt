@@ -65,10 +65,9 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
             "dimensity",   // MediaTek high-end (Dimensity 9000+)
             "mt6893",      // Dimensity 1200
             "mt6895",      // Dimensity 8100
-            "mt6983",      // Dimensity 9000
-            "amlogic",     // Amlogic SoCs (Mi Box, etc.)
-            "s905"         // Amlogic S905 series
+            "mt6983"       // Dimensity 9000
         )
+
     }
 
     private var methodChannel: MethodChannel? = null

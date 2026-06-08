@@ -91,6 +91,7 @@ class VideoDecoderRenderer(
     private var isMediaTekDecoder = false
     private var isExynosDecoder = false
     private var isQualcommDecoder = false
+    private var isAmlogicDecoder = false
 
     @Volatile private var startTimeNs = 0L
     private var zeroOutputWarningEmitted = false
@@ -186,6 +187,7 @@ class VideoDecoderRenderer(
             isMediaTekDecoder = nameLower.contains("mtk") || nameLower.contains("mediatek")
             isExynosDecoder = nameLower.contains("exynos")
             isQualcommDecoder = nameLower.contains("qcom") || nameLower.contains("c2.qti")
+            isAmlogicDecoder = nameLower.contains("amlogic")
 
             val socModel = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) Build.SOC_MODEL else "unknown"
             Log.i(TAG, "┌─── DECODER DIAGNOSTIC ───────────────────────────")
@@ -194,7 +196,7 @@ class VideoDecoderRenderer(
             Log.i(TAG, "│ Android: API ${Build.VERSION.SDK_INT} (${Build.VERSION.RELEASE})")
             Log.i(TAG, "│ Decoder: $decoderName")
             Log.i(TAG, "│ MIME: $mimeType")
-            Log.i(TAG, "│ Quirks: mtk=$isMediaTekDecoder exynos=$isExynosDecoder qcom=$isQualcommDecoder weak=$isWeakDevice")
+            Log.i(TAG, "│ Quirks: mtk=$isMediaTekDecoder exynos=$isExynosDecoder qcom=$isQualcommDecoder aml=$isAmlogicDecoder weak=$isWeakDevice")
             Log.i(TAG, "└──────────────────────────────────────────────────")
 
             // --- Build the MediaFormat with multi-try vendor low-latency strategy ---
@@ -295,7 +297,7 @@ class VideoDecoderRenderer(
         // Only for decoders where KEY_LOW_LATENCY is known safe.
         // MTK and Exynos decoders may crash or silently ignore this flag.
         if (tryNumber == 0 && !isWeakDevice && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            val safeForStandardLowLatency = !isMediaTekDecoder && !isExynosDecoder
+            val safeForStandardLowLatency = !isMediaTekDecoder && !isExynosDecoder && !isAmlogicDecoder
             if (safeForStandardLowLatency) {
                 format.setInteger(MediaFormat.KEY_LOW_LATENCY, 1)
                 Log.i(TAG, "  + KEY_LOW_LATENCY=1 (standard)")
