@@ -564,91 +564,6 @@ class _FocusModeScreenState extends State<FocusModeScreen>
     );
   }
 
-class _FocusableIconBtn extends StatefulWidget {
-  final FocusNode? focusNode;
-  final IconData icon;
-  final String tooltip;
-  final VoidCallback? onPressed;
-  final void Function(LogicalKeyboardKey dir)? onNav;
-  final Color? color;
-
-  const _FocusableIconBtn({
-    super.key,
-    this.focusNode,
-    required this.icon,
-    required this.tooltip,
-    this.onPressed,
-    this.onNav,
-    this.color,
-  });
-
-  @override
-  State<_FocusableIconBtn> createState() => _FocusableIconBtnState();
-}
-
-class _FocusableIconBtnState extends State<_FocusableIconBtn> {
-  bool _focused = false;
-
-  @override
-  Widget build(BuildContext context) {
-    return Focus(
-      focusNode: widget.focusNode,
-      onFocusChange: (f) => setState(() => _focused = f),
-      onKeyEvent: (_, event) {
-        if (event is! KeyDownEvent) return KeyEventResult.ignored;
-        final key = event.logicalKey;
-
-        if (key == LogicalKeyboardKey.gameButtonA ||
-            key == LogicalKeyboardKey.enter ||
-            key == LogicalKeyboardKey.select) {
-          widget.onPressed?.call();
-          return KeyEventResult.handled;
-        }
-
-        if (key == LogicalKeyboardKey.arrowDown ||
-            key == LogicalKeyboardKey.arrowUp ||
-            key == LogicalKeyboardKey.arrowLeft ||
-            key == LogicalKeyboardKey.arrowRight) {
-          widget.onNav?.call(key);
-          return KeyEventResult.handled;
-        }
-
-        if (key == LogicalKeyboardKey.gameButtonB ||
-            key == LogicalKeyboardKey.goBack ||
-            key == LogicalKeyboardKey.escape) {
-          Navigator.maybePop(context);
-          return KeyEventResult.handled;
-        }
-        return KeyEventResult.ignored;
-      },
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 120),
-        margin: const EdgeInsets.symmetric(horizontal: 2, vertical: 6),
-        decoration: BoxDecoration(
-          color: _focused
-              ? Colors.white.withValues(alpha: 0.15)
-              : Colors.transparent,
-          borderRadius: BorderRadius.circular(8),
-          border: _focused
-              ? Border.all(color: Colors.white54, width: 1.5)
-              : null,
-        ),
-        child: IconButton(
-          icon: Icon(widget.icon, color: widget.color ?? Colors.white),
-          tooltip: widget.tooltip,
-          onPressed: widget.onPressed,
-          focusNode: FocusNode(skipTraversal: true),
-          style: IconButton.styleFrom(
-            focusColor: Colors.transparent,
-            hoverColor: Colors.transparent,
-            highlightColor: Colors.transparent,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
   // ── More menu (reuses PcViewScreen's dialog pattern) ──
 
   void _showMoreMenu(BuildContext context) {
@@ -939,6 +854,7 @@ class _FocusableIconBtnState extends State<_FocusableIconBtn> {
               'Exit',
               style: TextStyle(color: Colors.redAccent),
             ),
+          ),
         ],
       ),
     );
@@ -2234,6 +2150,91 @@ class _FocusMenuTileState extends State<_FocusMenuTile> {
                 ),
               ],
             ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _FocusableIconBtn extends StatefulWidget {
+  final FocusNode? focusNode;
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback? onPressed;
+  final void Function(LogicalKeyboardKey dir)? onNav;
+  final Color? color;
+
+  const _FocusableIconBtn({
+    super.key,
+    this.focusNode,
+    required this.icon,
+    required this.tooltip,
+    this.onPressed,
+    this.onNav,
+    this.color,
+  });
+
+  @override
+  State<_FocusableIconBtn> createState() => _FocusableIconBtnState();
+}
+
+class _FocusableIconBtnState extends State<_FocusableIconBtn> {
+  bool _focused = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return Focus(
+      focusNode: widget.focusNode,
+      onFocusChange: (f) => setState(() => _focused = f),
+      onKeyEvent: (_, event) {
+        if (event is! KeyDownEvent) return KeyEventResult.ignored;
+        final key = event.logicalKey;
+
+        if (key == LogicalKeyboardKey.gameButtonA ||
+            key == LogicalKeyboardKey.enter ||
+            key == LogicalKeyboardKey.select) {
+          widget.onPressed?.call();
+          return KeyEventResult.handled;
+        }
+
+        if (key == LogicalKeyboardKey.arrowDown ||
+            key == LogicalKeyboardKey.arrowUp ||
+            key == LogicalKeyboardKey.arrowLeft ||
+            key == LogicalKeyboardKey.arrowRight) {
+          widget.onNav?.call(key);
+          return KeyEventResult.handled;
+        }
+
+        if (key == LogicalKeyboardKey.gameButtonB ||
+            key == LogicalKeyboardKey.goBack ||
+            key == LogicalKeyboardKey.escape) {
+          Navigator.maybePop(context);
+          return KeyEventResult.handled;
+        }
+        return KeyEventResult.ignored;
+      },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 120),
+        margin: const EdgeInsets.symmetric(horizontal: 2, vertical: 6),
+        decoration: BoxDecoration(
+          color: _focused
+              ? Colors.white.withValues(alpha: 0.15)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(8),
+          border: _focused
+              ? Border.all(color: Colors.white54, width: 1.5)
+              : null,
+        ),
+        child: IconButton(
+          icon: Icon(widget.icon, color: widget.color ?? Colors.white),
+          tooltip: widget.tooltip,
+          onPressed: widget.onPressed,
+          focusNode: FocusNode(skipTraversal: true),
+          style: IconButton.styleFrom(
+            focusColor: Colors.transparent,
+            hoverColor: Colors.transparent,
+            highlightColor: Colors.transparent,
           ),
         ),
       ),

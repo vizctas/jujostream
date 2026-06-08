@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io' show Platform;
+import 'dart:io' show Platform, HttpClient;
 
 import 'package:googleapis/drive/v3.dart' as drive;
 import 'package:http/io_client.dart';
@@ -726,7 +726,10 @@ class CloudSyncService {
 
       final uri = Uri.parse('$serverUrl/api/pair/cloud');
       
-      final ioClient = ClientIdentity.createHttpClient();
+      // Use a clean HttpClient without presenting an untrusted client certificate during the TLS handshake.
+      // The server companion will register the certificate passed in the JSON request body.
+      final ioClient = HttpClient()
+        ..badCertificateCallback = (cert, host, port) => true;
       final client = IOClient(ioClient);
       
       try {

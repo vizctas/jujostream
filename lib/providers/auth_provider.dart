@@ -58,8 +58,17 @@ class AuthProvider extends ChangeNotifier {
 
   Future<bool> loginWithCloud({required String email, required String password}) async {
     _cloudError = null;
+    // Guard: Supabase.instance.client throws LateInitializationError if not initialized.
     try {
-      final response = await Supabase.instance.client.auth.signInWithPassword(
+      Supabase.instance.client; // probe — will throw if uninitialized
+    } catch (_) {
+      _cloudError = 'Cloud sync is not configured. Please check your app settings.';
+      notifyListeners();
+      return false;
+    }
+    try {
+      final client = Supabase.instance.client;
+      final response = await client.auth.signInWithPassword(
         email: email,
         password: password,
       );
@@ -68,7 +77,7 @@ class AuthProvider extends ChangeNotifier {
         return false;
       }
       if (response.user?.emailConfirmedAt == null) {
-        await Supabase.instance.client.auth.signOut();
+        await client.auth.signOut();
         _cloudError = 'Por favor, confirma tu correo antes de iniciar sesión.';
         return false;
       }
@@ -89,6 +98,13 @@ class AuthProvider extends ChangeNotifier {
 
   Future<bool> signUpWithCloud({required String email, required String password}) async {
     _cloudError = null;
+    try {
+      Supabase.instance.client; // probe
+    } catch (_) {
+      _cloudError = 'Cloud sync is not configured. Please check your app settings.';
+      notifyListeners();
+      return false;
+    }
     try {
       final response = await Supabase.instance.client.auth.signUp(
         email: email,

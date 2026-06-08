@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../../platform_channels/gamepad_channel.dart';
 
 /// Translates WGI/XInput nav events (sent via MethodChannel) into Flutter
@@ -18,6 +19,24 @@ class GamepadNavigationService {
 
   static void _onNav(String key) {
     if (!_active) return;
+
+    final focus = FocusManager.instance.primaryFocus;
+    final isEditable = focus != null &&
+        (focus.context?.widget is EditableText ||
+         focus.context?.findAncestorWidgetOfExactType<EditableText>() != null);
+
+    if (isEditable) {
+      if (key == 'back') {
+        focus.unfocus();
+        SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
+      } else if (key == 'down') {
+        _traverse(TraversalDirection.down);
+      } else if (key == 'up') {
+        _traverse(TraversalDirection.up);
+      }
+      // Ignore other navigation inputs (like left/right) while typing to prevent cursor conflicts
+      return;
+    }
 
     switch (key) {
       case 'up':

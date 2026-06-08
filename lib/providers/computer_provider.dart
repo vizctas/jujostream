@@ -772,7 +772,10 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
 
       final uri = Uri.parse('$serverUrl/api/pair/cloud');
       
-      final ioClient = ClientIdentity.createHttpClient();
+      // Use a clean HttpClient without presenting an untrusted client certificate during the TLS handshake.
+      // The server companion will register the certificate passed in the JSON request body.
+      final ioClient = io.HttpClient()
+        ..badCertificateCallback = (cert, host, port) => true;
       final client = IOClient(ioClient);
       
       try {

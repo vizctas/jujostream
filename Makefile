@@ -44,6 +44,10 @@ DART_DEFINES = --dart-define=SUPABASE_URL=$(SUPABASE_URL) \
                --dart-define=SUPABASE_PUBLISHABLE_KEY=$(SUPABASE_PUBLISHABLE_KEY)
 PATCH_BUILT_IN_KOTLIN = powershell -NoProfile -ExecutionPolicy Bypass -File scripts/patch_flutter_plugins_built_in_kotlin.ps1
 
+
+#flutter run apk --release --dart-define=SUPABASE_URL=$(SUPABASE_URL) --dart-define=SUPABASE_PUBLISHABLE_KEY=$(SUPABASE_PUBLISHABLE_KEY)
+
+
 # Derived from TAG (e.g. client-1.1.13 or v1.1.13)
 APP_VERSION    = $(patsubst client-%,%,$(patsubst v%,%,$(TAG)))
 RELEASE_DIR    = $(RELEASE_DIST)/$(TAG)
