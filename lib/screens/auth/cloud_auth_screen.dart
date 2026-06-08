@@ -30,6 +30,9 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
   bool _obscurePassword = true;
   bool _isSignUp = false;
   bool _awaitingConfirmation = false;
+  bool _editingEmail = false;
+  bool _editingPassword = false;
+  bool _editingMfa = false;
   Timer? _confirmationTimer;
   String? _error;
   String? _info;
@@ -98,7 +101,13 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
   }
 
   void _onFocusChange() {
-    if (mounted) setState(() {});
+    if (mounted) {
+      setState(() {
+        if (!_emailFocus.hasFocus) _editingEmail = false;
+        if (!_passwordFocus.hasFocus) _editingPassword = false;
+        if (!_mfaFocus.hasFocus) _editingMfa = false;
+      });
+    }
   }
 
   @override
@@ -282,104 +291,143 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
   }
 
   Future<void> _cancelMfa() async {
+    _confirmationTimer?.cancel();
     final auth = context.read<AuthProvider>();
     await auth.signOutFromCloud();
     if (!mounted) return;
     context.read<CloudMfaProvider>().reset();
     setState(() {
       _mfaCodeController.clear();
+      _editingMfa = false;
+      _isLoading = false;
     });
     _emailFocus.requestFocus();
   }
 
   // ── Keyboard helpers (scoped to this screen only) ───────────────────────────
-
-  /// Forcefully hides the software IME and removes text-field focus.
   void _dismissKeyboard() {
-    FocusScope.of(context).unfocus();
     SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
   }
 
-  /// Handles key events at the text field level, before EditableText consumes them.
+  void _handleBackspace(TextEditingController controller) {
+    final text = controller.text;
+    final selection = controller.selection;
+    if (selection.isCollapsed) {
+      if (selection.baseOffset > 0) {
+        final newText = text.substring(0, selection.baseOffset - 1) +
+            text.substring(selection.baseOffset);
+        controller.value = TextEditingValue(
+          text: newText,
+          selection: TextSelection.collapsed(
+            offset: selection.baseOffset - 1,
+          ),
+        );
+      }
+    } else {
+      final newText = text.substring(0, selection.start) +
+          text.substring(selection.end);
+      controller.value = TextEditingValue(
+        text: newText,
+        selection: TextSelection.collapsed(offset: selection.start),
+      );
+    }
+  }
+
   KeyEventResult _handleTextFieldKey(FocusNode node, KeyEvent event) {
     if (event is! KeyDownEvent) return KeyEventResult.ignored;
 
     final key = event.logicalKey;
+    final isEmail = node == _emailFocus;
+    final isPassword = node == _passwordFocus;
+    final isMfa = node == _mfaFocus;
 
-    // B / Circle / Back / Escape → dismiss keyboard and unfocus, letting native OS hide keyboard
-    if (key == LogicalKeyboardKey.gameButtonB ||
-        key == LogicalKeyboardKey.goBack ||
-        key == LogicalKeyboardKey.escape) {
-      _dismissKeyboard();
-      return KeyEventResult.ignored; // Let the OS receive it natively to dismiss IME
+    final isEditing = (isEmail && _editingEmail) ||
+        (isPassword && _editingPassword) ||
+        (isMfa && _editingMfa);
+
+    final controller = isEmail
+        ? _emailController
+        : (isPassword ? _passwordController : _mfaCodeController);
+
+    if (isEditing) {
+      if (key == LogicalKeyboardKey.gameButtonB ||
+          key == LogicalKeyboardKey.goBack ||
+          key == LogicalKeyboardKey.escape) {
+        setState(() {
+          if (isEmail) _editingEmail = false;
+          if (isPassword) _editingPassword = false;
+          if (isMfa) _editingMfa = false;
+        });
+        _dismissKeyboard();
+        node.requestFocus();
+        return KeyEventResult.handled;
+      }
+
+      if (key == LogicalKeyboardKey.gameButtonX) {
+        _handleBackspace(controller);
+        if (isMfa) {
+          final code = controller.text;
+          if (code.length == 6) {
+            _handleMfaVerify(code);
+          }
+        }
+        return KeyEventResult.handled;
+      }
+
+      return KeyEventResult.ignored;
+    } else {
+      if (key == LogicalKeyboardKey.gameButtonA ||
+          key == LogicalKeyboardKey.select ||
+          key == LogicalKeyboardKey.enter) {
+        setState(() {
+          if (isEmail) _editingEmail = true;
+          if (isPassword) _editingPassword = true;
+          if (isMfa) _editingMfa = true;
+        });
+        node.requestFocus();
+        SystemChannels.textInput.invokeMethod<void>('TextInput.show');
+        return KeyEventResult.handled;
+      }
+
+      if (key == LogicalKeyboardKey.arrowDown) {
+        node.focusInDirection(TraversalDirection.down);
+        return KeyEventResult.handled;
+      }
+
+      if (key == LogicalKeyboardKey.arrowUp) {
+        node.focusInDirection(TraversalDirection.up);
+        return KeyEventResult.handled;
+      }
+
+      return KeyEventResult.ignored;
     }
-
-    // D-pad Down → traverse focus down
-    if (key == LogicalKeyboardKey.arrowDown) {
-      node.focusInDirection(TraversalDirection.down);
-      return KeyEventResult.handled;
-    }
-
-    // D-pad Up → traverse focus up
-    if (key == LogicalKeyboardKey.arrowUp) {
-      node.focusInDirection(TraversalDirection.up);
-      return KeyEventResult.handled;
-    }
-
-    // A / Cross / Select → enter / confirm keypress on virtual keyboard
-    if (key == LogicalKeyboardKey.gameButtonA ||
-        key == LogicalKeyboardKey.select) {
-      HardwareKeyboard.instance.handleKeyEvent(
-        KeyDownEvent(
-          physicalKey: PhysicalKeyboardKey.enter,
-          logicalKey: LogicalKeyboardKey.enter,
-          timeStamp: event.timeStamp,
-        ),
-      );
-      return KeyEventResult.handled;
-    }
-
-    return KeyEventResult.ignored;
   }
 
-  /// Intercepts gamepad keys at the screen level.
-  ///
-  /// - B / O / Back / Escape  → if editing, let OS hide IME. If not editing, pop screen.
-  /// - A / X (confirm)        → if editing, inject Enter so the IME presses the highlighted key.
   KeyEventResult _handleGamepadKeyInAuthScreen(FocusNode _, KeyEvent ev) {
     if (ev is! KeyDownEvent) return KeyEventResult.ignored;
 
-    final focus = FocusManager.instance.primaryFocus;
-    final isEditable = focus != null &&
-        (focus.context?.widget is EditableText ||
-         focus.context?.findAncestorWidgetOfExactType<EditableText>() != null);
-
     final key = ev.logicalKey;
+    final isEditing = _editingEmail || _editingPassword || _editingMfa;
+
+    if (isEditing) {
+      return KeyEventResult.ignored;
+    }
 
     if (key == LogicalKeyboardKey.gameButtonB ||
         key == LogicalKeyboardKey.goBack ||
         key == LogicalKeyboardKey.escape) {
-      if (isEditable) {
-        _dismissKeyboard();
-        return KeyEventResult.ignored; // Allow native OS to dismiss keyboard
-      } else {
-        if (Navigator.of(context).canPop()) {
-          Navigator.of(context).pop();
-          return KeyEventResult.handled;
-        }
-      }
-    }
+      final mfa = context.read<CloudMfaProvider>();
+      final showMfaPanel = mfa.status == CloudMfaStatus.setupRequired ||
+          mfa.status == CloudMfaStatus.verifyRequired ||
+          (mfa.status == CloudMfaStatus.loading && mfa.blocksCloudUser);
 
-    if (isEditable) {
-      if (key == LogicalKeyboardKey.gameButtonA ||
-          key == LogicalKeyboardKey.select) {
-        HardwareKeyboard.instance.handleKeyEvent(
-          KeyDownEvent(
-            physicalKey: PhysicalKeyboardKey.enter,
-            logicalKey: LogicalKeyboardKey.enter,
-            timeStamp: ev.timeStamp,
-          ),
-        );
+      if (showMfaPanel) {
+        _cancelMfa();
+        return KeyEventResult.handled;
+      }
+
+      if (Navigator.of(context).canPop()) {
+        Navigator.of(context).pop();
         return KeyEventResult.handled;
       }
     }
@@ -483,15 +531,23 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
                 ),
                 const SizedBox(height: 24),
 
-                TextFormField(
+                 TextFormField(
                   controller: _emailController,
                   focusNode: _emailFocus,
+                  readOnly: !_editingEmail,
+                  showCursor: true,
                   style: const TextStyle(
                     color: Colors.white,
                   ),
-                  decoration: _inputDecoration('Email', Icons.mail_outline, tp),
+                  decoration: _inputDecoration('Email', Icons.mail_outline, tp, _emailFocus.hasFocus, _editingEmail),
                   keyboardType: TextInputType.emailAddress,
                   textInputAction: TextInputAction.next,
+                  onTap: () {
+                    setState(() {
+                      _editingEmail = true;
+                    });
+                    SystemChannels.textInput.invokeMethod<void>('TextInput.show');
+                  },
                   validator: (value) {
                     final email = value?.trim() ?? '';
                     if (email.isEmpty) return 'Email is required';
@@ -504,11 +560,13 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
                 TextFormField(
                   controller: _passwordController,
                   focusNode: _passwordFocus,
+                  readOnly: !_editingPassword,
+                  showCursor: true,
                   style: const TextStyle(
                     color: Colors.white,
                   ),
                   obscureText: _obscurePassword,
-                  decoration: _inputDecoration('Password', Icons.lock_outline, tp)
+                  decoration: _inputDecoration('Password', Icons.lock_outline, tp, _passwordFocus.hasFocus, _editingPassword)
                       .copyWith(
                     suffixIcon: IconButton(
                       icon: Icon(
@@ -524,6 +582,12 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
                   ),
                   textInputAction: TextInputAction.done,
                   onFieldSubmitted: (_) => _handleSubmit(),
+                  onTap: () {
+                    setState(() {
+                      _editingPassword = true;
+                    });
+                    SystemChannels.textInput.invokeMethod<void>('TextInput.show');
+                  },
                   validator: (value) {
                     if (value == null || value.isEmpty) return 'Password is required';
                     if (value.length < 6) return 'Must be at least 6 characters';
@@ -639,13 +703,17 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
                   focusNode: _submitFocus,
                   onPressed: _isLoading ? null : _handleSubmit,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: tp.accent,
+                    backgroundColor: _submitFocus.hasFocus ? tp.accentLight : tp.accent,
                     foregroundColor: Colors.white,
+                    side: _submitFocus.hasFocus
+                        ? const BorderSide(color: Colors.white, width: 2)
+                        : BorderSide.none,
                     padding: const EdgeInsets.symmetric(vertical: 16),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(16),
                     ),
-                    elevation: 0,
+                    elevation: _submitFocus.hasFocus ? 8 : 0,
+                    shadowColor: tp.accent.withValues(alpha: 0.5),
                   ),
                   child: _isLoading
                       ? const SizedBox(
@@ -830,6 +898,8 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
               TextFormField(
                 controller: _mfaCodeController,
                 focusNode: _mfaFocus,
+                readOnly: !_editingMfa,
+                showCursor: true,
                 style: const TextStyle(
                   color: Colors.white,
                   fontSize: 18,
@@ -839,10 +909,16 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
                 keyboardType: TextInputType.number,
                 maxLength: 6,
                 textAlign: TextAlign.center,
-                decoration: _inputDecoration('6-digit code', Icons.onetwothree_outlined, tp)
+                decoration: _inputDecoration('6-digit code', Icons.onetwothree_outlined, tp, _mfaFocus.hasFocus, _editingMfa)
                     .copyWith(
                   counterText: '',
                 ),
+                onTap: () {
+                  setState(() {
+                    _editingMfa = true;
+                  });
+                  SystemChannels.textInput.invokeMethod<void>('TextInput.show');
+                },
                 onChanged: (code) {
                   if (code.length == 6) {
                     _handleMfaVerify(code);
@@ -948,17 +1024,23 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
     String labelText,
     IconData icon,
     ThemeProvider tp,
+    bool hasFocus,
+    bool isEditing,
   ) {
     final isLight = tp.colors.isLight;
+    final displayLabel = hasFocus && !isEditing ? '$labelText (Press Ⓐ to edit)' : labelText;
     return InputDecoration(
-      labelText: labelText,
+      labelText: displayLabel,
       labelStyle: TextStyle(
-        color: isLight ? Colors.black45 : Colors.white54,
+        color: hasFocus
+            ? tp.accentLight
+            : (isLight ? Colors.black45 : Colors.white54),
         fontSize: 14,
+        fontWeight: hasFocus ? FontWeight.w600 : FontWeight.normal,
       ),
       prefixIcon: Icon(
         icon,
-        color: isLight ? Colors.black38 : Colors.white38,
+        color: hasFocus ? tp.accentLight : (isLight ? Colors.black38 : Colors.white38),
       ),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(16),
@@ -970,7 +1052,7 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
         borderRadius: BorderRadius.circular(16),
         borderSide: BorderSide(
           color: tp.accent,
-          width: 2,
+          width: 2.5,
         ),
       ),
       errorBorder: OutlineInputBorder(
@@ -983,13 +1065,15 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
         borderRadius: BorderRadius.all(Radius.circular(16)),
         borderSide: BorderSide(
           color: Colors.redAccent,
-          width: 2,
+          width: 2.5,
         ),
       ),
       filled: true,
-      fillColor: isLight
-          ? Colors.black.withValues(alpha: 0.02)
-          : Colors.white.withValues(alpha: 0.02),
+      fillColor: hasFocus
+          ? tp.accent.withValues(alpha: 0.08)
+          : (isLight
+              ? Colors.black.withValues(alpha: 0.02)
+              : Colors.white.withValues(alpha: 0.02)),
       contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
     );
   }

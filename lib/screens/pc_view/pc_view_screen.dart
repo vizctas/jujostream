@@ -81,133 +81,8 @@ class PcViewScreen extends StatefulWidget {
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
-      transitionAnimationController: AnimationController(
-        vsync: Navigator.of(context).overlay!,
-        duration: const Duration(milliseconds: 350),
-      ),
       builder: (ctx) {
-        return AnimatedContainer(
-          duration: const Duration(milliseconds: 350),
-          curve: Curves.easeOutCubic,
-          decoration: BoxDecoration(
-            color: isLight ? Colors.white : const Color(0xFF1C1C1E),
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-          ),
-          child: SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    width: 36,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: isLight ? Colors.black26 : Colors.white24,
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  ListTile(
-                    leading: Icon(Icons.person_outline,
-                        color: isLight ? Colors.black87 : Colors.white),
-                    title: Text(
-                      'My Profile',
-                      style: TextStyle(
-                        color: isLight ? Colors.black87 : Colors.white,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    onTap: () {
-                      Navigator.pop(ctx);
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => const ProfileScreen(),
-                        ),
-                      );
-                    },
-                  ),
-                  ListTile(
-                    leading: Icon(Icons.sync,
-                        color: isLight ? Colors.black87 : Colors.white),
-                    title: Text(
-                      'Sync Now',
-                      style: TextStyle(
-                        color: isLight ? Colors.black87 : Colors.white,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    onTap: () {
-                      Navigator.pop(ctx);
-                      PcViewScreen.doCloudSync(context, auth);
-                    },
-                  ),
-                  const Divider(),
-                  ListTile(
-                    leading: const Icon(Icons.logout, color: Colors.redAccent),
-                    title: const Text(
-                      'Log Out',
-                      style: TextStyle(
-                        color: Colors.redAccent,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    onTap: () {
-                      Navigator.pop(ctx);
-                      showDialog(
-                        context: context,
-                        builder: (ctx2) => AlertDialog(
-                          backgroundColor:
-                              isLight ? Colors.white : const Color(0xFF1C1C1E),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                          title: Text(
-                            'Log Out?',
-                            style: TextStyle(
-                              color: isLight ? Colors.black87 : Colors.white,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                          content: Text(
-                            'You will need to sign in again to sync.',
-                            style: TextStyle(
-                              color: isLight ? Colors.black54 : Colors.white70,
-                            ),
-                          ),
-                          actions: [
-                            TextButton(
-                              onPressed: () => Navigator.pop(ctx2),
-                              child: Text(
-                                'Cancel',
-                                style: TextStyle(
-                                  color: isLight
-                                      ? Colors.black54
-                                      : Colors.white54,
-                                ),
-                              ),
-                            ),
-                            TextButton(
-                              onPressed: () {
-                                Navigator.pop(ctx2);
-                                auth.signOut();
-                              },
-                              child: const Text(
-                                'Log Out',
-                                style: TextStyle(color: Colors.redAccent),
-                              ),
-                            ),
-                          ],
-                        ),
-                      );
-                    },
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
+        return _AccountPickerBottomSheet(auth: auth, isLight: isLight);
       },
     );
   }
@@ -820,30 +695,7 @@ class _PcViewScreenState extends State<PcViewScreen>
     ]);
   }
 
-  Widget _buildBottomSheetHints(BuildContext context) {
-    final l = AppLocalizations.of(context);
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          GamepadHintIcon('A', size: 14),
-          const SizedBox(width: 4),
-          Text(
-            l.ok,
-            style: const TextStyle(color: Colors.white54, fontSize: 11),
-          ),
-          const SizedBox(width: 16),
-          GamepadHintIcon('B', size: 14),
-          const SizedBox(width: 4),
-          Text(
-            l.cancel,
-            style: const TextStyle(color: Colors.white54, fontSize: 11),
-          ),
-        ],
-      ),
-    );
-  }
+
 
   void _doExit() {
     if (io.Platform.isWindows || io.Platform.isMacOS || io.Platform.isLinux) {
@@ -2301,25 +2153,7 @@ class _MainMenuDialogState extends State<_MainMenuDialog> {
     );
   }
 
-  Widget _buildCancel(ThemeProvider tp, {required bool compact}) {
-    final isLight = tp.colors.isLight;
-    return GestureDetector(
-      onTap: () => Navigator.pop(context),
-      behavior: HitTestBehavior.opaque,
-      child: Padding(
-        padding: EdgeInsets.fromLTRB(12, compact ? 5 : 8, 12, compact ? 8 : 12),
-        child: Text(
-          'Cancel',
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            color: isLight ? Colors.black54 : Colors.white54,
-            fontSize: compact ? 13 : 14,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      ),
-    );
-  }
+
 }
 
 class _DialogMenuItemTile extends StatefulWidget {
@@ -2583,6 +2417,221 @@ class _GoogleSignInButtonState extends State<_GoogleSignInButton> {
                 SizedBox(width: compact ? 18 : 20),
               ],
             ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _AccountPickerBottomSheet extends StatelessWidget {
+  final AuthProvider auth;
+  final bool isLight;
+
+  const _AccountPickerBottomSheet({
+    required this.auth,
+    required this.isLight,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 350),
+      curve: Curves.easeOutCubic,
+      decoration: BoxDecoration(
+        color: isLight ? Colors.white : const Color(0xFF1C1C1E),
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      child: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: isLight ? Colors.black26 : Colors.white24,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(height: 16),
+              _PickerItemTile(
+                icon: Icons.person_outline,
+                label: 'My Profile',
+                autofocus: true,
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const ProfileScreen(),
+                    ),
+                  );
+                },
+              ),
+              _PickerItemTile(
+                icon: Icons.sync,
+                label: 'Sync Now',
+                onTap: () {
+                  Navigator.pop(context);
+                  PcViewScreen.doCloudSync(context, auth);
+                },
+              ),
+              Divider(
+                color: isLight ? Colors.black12 : Colors.white12,
+                height: 16,
+              ),
+              _PickerItemTile(
+                icon: Icons.logout,
+                label: 'Log Out',
+                color: Colors.redAccent,
+                onTap: () {
+                  Navigator.pop(context);
+                  showDialog(
+                    context: context,
+                    builder: (ctx2) => AlertDialog(
+                      backgroundColor:
+                          isLight ? Colors.white : const Color(0xFF1C1C1E),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      title: Text(
+                        'Log Out?',
+                        style: TextStyle(
+                          color: isLight ? Colors.black87 : Colors.white,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      content: Text(
+                        'You will need to sign in again to sync.',
+                        style: TextStyle(
+                          color: isLight ? Colors.black54 : Colors.white70,
+                        ),
+                      ),
+                      actions: [
+                        TextButton(
+                          autofocus: true,
+                          onPressed: () => Navigator.pop(ctx2),
+                          child: Text(
+                            'Cancel',
+                            style: TextStyle(
+                              color: isLight
+                                  ? Colors.black54
+                                  : Colors.white54,
+                            ),
+                          ),
+                        ),
+                        TextButton(
+                          onPressed: () {
+                            Navigator.pop(ctx2);
+                            auth.signOut();
+                          },
+                          child: const Text(
+                            'Log Out',
+                            style: TextStyle(color: Colors.redAccent),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PickerItemTile extends StatefulWidget {
+  final IconData icon;
+  final String label;
+  final Color? color;
+  final VoidCallback onTap;
+  final bool autofocus;
+
+  const _PickerItemTile({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    this.color,
+    this.autofocus = false,
+  });
+
+  @override
+  State<_PickerItemTile> createState() => _PickerItemTileState();
+}
+
+class _PickerItemTileState extends State<_PickerItemTile> {
+  bool _focused = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final tp = context.watch<ThemeProvider>();
+    final isLight = tp.colors.isLight;
+    final selected = _focused;
+
+    return Focus(
+      autofocus: widget.autofocus,
+      onFocusChange: (f) => setState(() => _focused = f),
+      onKeyEvent: (_, event) {
+        if (event is! KeyDownEvent) return KeyEventResult.ignored;
+        final key = event.logicalKey;
+        if (key == LogicalKeyboardKey.gameButtonA ||
+            key == LogicalKeyboardKey.enter ||
+            key == LogicalKeyboardKey.select) {
+          widget.onTap();
+          return KeyEventResult.handled;
+        }
+        if (key == LogicalKeyboardKey.gameButtonB ||
+            key == LogicalKeyboardKey.escape ||
+            key == LogicalKeyboardKey.goBack) {
+          Navigator.pop(context);
+          return KeyEventResult.handled;
+        }
+        return KeyEventResult.ignored;
+      },
+      child: GestureDetector(
+        onTap: widget.onTap,
+        behavior: HitTestBehavior.opaque,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 140),
+          margin: const EdgeInsets.symmetric(vertical: 4),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          decoration: BoxDecoration(
+            color: selected
+                ? tp.accent.withValues(alpha: 0.15)
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: selected ? tp.accent : Colors.transparent,
+              width: 1.5,
+            ),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                widget.icon,
+                color: widget.color ?? (isLight ? Colors.black87 : Colors.white),
+                size: 20,
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Text(
+                  widget.label,
+                  style: TextStyle(
+                    color: selected
+                        ? (isLight ? Colors.black87 : Colors.white)
+                        : (widget.color ?? (isLight ? Colors.black54 : Colors.white70)),
+                    fontSize: 15,
+                    fontWeight: selected ? FontWeight.bold : FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
       ),

@@ -124,10 +124,13 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               final page = vh > 0
                   ? (_scrollController.offset / vh).round()
                   : 0;
-              if (page > 0) {
-                _scrollBack();
+              if (page < _chapterCount - 1) {
+                _scrollController.animateTo(
+                  (_chapterCount - 1) * vh,
+                  duration: const Duration(milliseconds: 580),
+                  curve: Curves.easeInOutCubic,
+                );
               } else {
-                // On the first chapter, B/O skips the onboarding (same as Skip)
                 _finish();
               }
               return true;
@@ -1113,117 +1116,125 @@ class _CloudChapter extends _ChapterBase {
 
   @override
   Widget buildChapter(BuildContext context, double progress, double vis) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: _S.xl),
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 520),
+    final vh = MediaQuery.sizeOf(context).height;
+    final compactLayout = vh < 800;
+
+    final content = Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _PillLabel(text: 'CLOUD SYNC', color: Colors.greenAccent.shade200),
+        SizedBox(height: compactLayout ? _S.md : _S.xl),
+
+        // Pulsing cloud icon
+        Stack(
+          alignment: Alignment.center,
+          children: [
+            Container(
+              width: compactLayout ? 72 : 90,
+              height: compactLayout ? 72 : 90,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: tp.accent.withValues(alpha: 0.08),
+              ),
+            ).animate(onPlay: (c) => c.repeat(reverse: true))
+             .scale(
+               begin: const Offset(1.0, 1.0),
+               end: const Offset(1.3, 1.3),
+               duration: 2.seconds,
+             )
+             .fadeIn(duration: 1.seconds),
+            Icon(
+              Icons.cloud_done_rounded,
+              size: compactLayout ? 42 : 52,
+              color: tp.accentLight,
+            ),
+          ],
+        ),
+
+        SizedBox(height: compactLayout ? _S.lg : _S.xxl),
+
+        _GlassCard(
+          padding: EdgeInsets.all(compactLayout ? _S.md : _S.xl),
           child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _PillLabel(text: 'CLOUD SYNC', color: Colors.greenAccent.shade200),
-              const SizedBox(height: _S.xl),
-
-              // Pulsing cloud icon
-              Stack(
-                alignment: Alignment.center,
-                children: [
-                  Container(
-                    width: 90,
-                    height: 90,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: tp.accent.withValues(alpha: 0.08),
-                    ),
-                  ).animate(onPlay: (c) => c.repeat(reverse: true))
-                   .scale(
-                     begin: const Offset(1.0, 1.0),
-                     end: const Offset(1.3, 1.3),
-                     duration: 2.seconds,
-                   )
-                   .fadeIn(duration: 1.seconds),
-                  Icon(
-                    Icons.cloud_done_rounded,
-                    size: 52,
-                    color: tp.accentLight,
-                  ),
-                ],
-              ),
-
-              const SizedBox(height: _S.xxl),
-
-              _GlassCard(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'One account, every device.',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 26,
-                        fontWeight: FontWeight.w800,
-                        height: 1.2,
-                      ),
-                    ),
-                    const SizedBox(height: _S.md),
-                    Text(
-                      'Sign in with Jujo Cloud to automatically sync your server list, settings, and favourites across all your devices.',
-                      style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.6),
-                        fontSize: 14,
-                        height: 1.6,
-                      ),
-                    ),
-                    const SizedBox(height: _S.xl),
-
-                    // Feature list
-                    _CloudFeature(icon: Icons.sync_rounded, text: 'Server list sync', tp: tp),
-                    const SizedBox(height: _S.sm),
-                    _CloudFeature(icon: Icons.settings_rounded, text: 'Settings backup', tp: tp),
-                    const SizedBox(height: _S.sm),
-                    _CloudFeature(icon: Icons.favorite_rounded, text: 'Favourites everywhere', tp: tp),
-                    const SizedBox(height: _S.sm),
-                    _CloudFeature(icon: Icons.lock_rounded, text: 'End-to-end secured', tp: tp),
-                  ],
+              Text(
+                'One account, every device.',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: compactLayout ? 22 : 26,
+                  fontWeight: FontWeight.w800,
+                  height: 1.2,
                 ),
               ),
-
-              const SizedBox(height: _S.xl),
-
-              // CTA
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: onGetStarted,
-                  icon: const Icon(Icons.arrow_forward_rounded, size: 20),
-                  label: const Text(
-                    'Get Started',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: tp.accent,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 18),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(_R.lg),
-                    ),
-                    elevation: 0,
-                  ),
+              SizedBox(height: compactLayout ? _S.sm : _S.md),
+              Text(
+                'Sign in with Jujo Cloud to automatically sync your server list, settings, and favourites across all your devices.',
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.6),
+                  fontSize: compactLayout ? 13 : 14,
+                  height: 1.6,
                 ),
-              )
-                  .animate()
-                  .fadeIn(duration: 500.ms)
-                  .scale(
-                    begin: const Offset(0.95, 0.95),
-                    end: const Offset(1.0, 1.0),
-                    duration: 500.ms,
-                    curve: Curves.easeOutBack,
-                  ),
+              ),
+              SizedBox(height: compactLayout ? _S.md : _S.xl),
+
+              // Feature list
+              _CloudFeature(icon: Icons.sync_rounded, text: 'Server list sync', tp: tp),
+              const SizedBox(height: _S.sm),
+              _CloudFeature(icon: Icons.settings_rounded, text: 'Settings backup', tp: tp),
+              const SizedBox(height: _S.sm),
+              _CloudFeature(icon: Icons.favorite_rounded, text: 'Favourites everywhere', tp: tp),
+              const SizedBox(height: _S.sm),
+              _CloudFeature(icon: Icons.lock_rounded, text: 'End-to-end secured', tp: tp),
             ],
           ),
+        ),
+
+        SizedBox(height: compactLayout ? _S.md : _S.xl),
+
+        // CTA
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton.icon(
+            onPressed: onGetStarted,
+            icon: const Icon(Icons.arrow_forward_rounded, size: 20),
+            label: const Text(
+              'Get Started',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: tp.accent,
+              foregroundColor: Colors.white,
+              padding: EdgeInsets.symmetric(vertical: compactLayout ? 14 : 18),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(_R.lg),
+              ),
+              elevation: 0,
+            ),
+          ),
+        )
+            .animate()
+            .fadeIn(duration: 500.ms)
+            .scale(
+              begin: const Offset(0.95, 0.95),
+              end: const Offset(1.0, 1.0),
+              duration: 500.ms,
+              curve: Curves.easeOutBack,
+            ),
+      ],
+    );
+
+    return Center(
+      child: SingleChildScrollView(
+        physics: const BouncingScrollPhysics(),
+        padding: const EdgeInsets.symmetric(horizontal: _S.xl, vertical: _S.xl),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 520),
+          child: content,
         ),
       ),
     );
