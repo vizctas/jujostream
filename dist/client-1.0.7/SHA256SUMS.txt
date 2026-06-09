@@ -1,0 +1,2 @@
+fd02a92bbdf69dcfb2a964ae3e8be19d82c2b17ab5579769ca5f9e98a0fb5797  JujoStream-client-1.0.7-android.apk
+0d3fbe0fa8158f9a800426d3f225ed431a1435066c1fccc75b7468fb3724976b  JujoStream-client-1.0.7-windows-x64.exe
