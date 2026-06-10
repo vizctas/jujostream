@@ -24,9 +24,12 @@ class GamepadKeyboard extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       child: SafeArea(
         top: false,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: numericOnly ? _numericRows() : _qwertyRows(),
+        child: FocusTraversalGroup(
+          policy: WidgetOrderTraversalPolicy(),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: numericOnly ? _numericRows() : _qwertyRows(),
+          ),
         ),
       ),
     );

@@ -8,6 +8,25 @@ class GamepadNavigationService {
   GamepadNavigationService._();
 
   static bool _active = true;
+  // Guards the Dart 'back' nav event (background path on Windows) while an
+  // in-app on-screen keyboard is open; foreground B/Escape is handled by the
+  // focused screen itself.
+  static bool _suppressBack = false;
+
+  /// Aux buttons ('x','y','lb','rb','start') are only delivered to an
+  /// explicitly registered handler (e.g. the cloud auth screen) and never
+  /// fall through to focus traversal.
+  static void Function(String button)? _auxButtonHandler;
+
+  static void setAuxButtonHandler(void Function(String button)? handler) {
+    _auxButtonHandler = handler;
+  }
+
+  /// Clears the handler only if [handler] is still the registered one, so a
+  /// disposing screen can't clobber a registration made by another instance.
+  static void clearAuxButtonHandler(void Function(String button) handler) {
+    if (identical(_auxButtonHandler, handler)) _auxButtonHandler = null;
+  }
 
   static void init() {
     GamepadChannel.onNavInput = _onNav;
@@ -17,8 +36,17 @@ class GamepadNavigationService {
     _active = active;
   }
 
+  static void setSuppressBack(bool value) {
+    _suppressBack = value;
+  }
+
   static void _onNav(String key) {
     if (!_active) return;
+
+    if (key == 'x' || key == 'y' || key == 'lb' || key == 'rb' || key == 'start') {
+      _auxButtonHandler?.call(key);
+      return;
+    }
 
     final focus = FocusManager.instance.primaryFocus;
     if (focus == null) return;
@@ -61,6 +89,7 @@ class GamepadNavigationService {
       case 'select':
         _activateFocused();
       case 'back':
+        if (_suppressBack) return;
         _goBack();
     }
   }

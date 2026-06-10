@@ -207,8 +207,6 @@ class VideoDecoderRenderer(
             val configResult = configureDecoderWithFallback(mimeType, width, height, redrawRate)
             if (configResult != 0) return configResult
 
-            videoDecoder!!.start()
-
             Log.i(TAG, "Decoder started: $decoderName via $activeRenderPath")
             return 0
 
@@ -250,14 +248,19 @@ class VideoDecoderRenderer(
                 val format = buildMediaFormat(mimeType, width, height, redrawRate, tryNumber)
                 Log.i(TAG, "configure() attempt $tryNumber for $decoderName")
                 decoder.configure(format, renderSurface, null, 0)
-                Log.i(TAG, "configure() succeeded on attempt $tryNumber")
+                // start() must be inside the retry loop: some decoders (Amlogic SC2 AVC)
+                // accept configure() but fail start() when the format demands more output
+                // buffers than the OMX component allows ("newBufferCount 31 > 24").
+                // Stripping vendor/adaptive keys on later tries lowers the buffer demand.
+                decoder.start()
+                Log.i(TAG, "configure()+start() succeeded on attempt $tryNumber")
                 return 0
             } catch (e: Exception) {
-                Log.w(TAG, "configure() attempt $tryNumber failed: ${e.message}")
-                // MediaCodec enters Error state after a failed configure — must reset before retry
+                Log.w(TAG, "configure()/start() attempt $tryNumber failed: ${e.message}")
+                // MediaCodec enters Error state after a failed configure/start — must reset before retry
                 try { decoder.reset() } catch (_: Exception) { }
                 if (tryNumber == maxTries - 1) {
-                    Log.e(TAG, "All configure() attempts exhausted for $decoderName", e)
+                    Log.e(TAG, "All configure()/start() attempts exhausted for $decoderName", e)
                     return -1
                 }
             }
@@ -273,15 +276,22 @@ class VideoDecoderRenderer(
         mimeType: String, width: Int, height: Int, redrawRate: Int, tryNumber: Int
     ): MediaFormat {
         val format = MediaFormat.createVideoFormat(mimeType, width, height)
-        format.setInteger(MediaFormat.KEY_MAX_WIDTH, width)
-        format.setInteger(MediaFormat.KEY_MAX_HEIGHT, height)
+        // KEY_MAX_WIDTH/HEIGHT enable adaptive playback, which raises the decoder's
+        // output buffer demand. Skip them on the final bare-minimum try — Amlogic SC2
+        // OMX caps output buffers at 24 and fails start() when the demand exceeds it.
+        if (tryNumber <= 2) {
+            format.setInteger(MediaFormat.KEY_MAX_WIDTH, width)
+            format.setInteger(MediaFormat.KEY_MAX_HEIGHT, height)
+        }
 
         // --- Layer 1: Frame rate + operating rate (try 0-2) ---
         if (tryNumber <= 2 && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             format.setInteger(MediaFormat.KEY_FRAME_RATE, redrawRate)
             if (isWeakDevice) {
-                format.setFloat(MediaFormat.KEY_OPERATING_RATE, minOf(redrawRate, 30).toFloat())
-                format.setInteger(MediaFormat.KEY_PRIORITY, 1)
+                // Use the actual stream rate — capping at 30 tells the decoder to budget 30fps,
+                // which causes batch output (2 frames at once) at 60fps → latency loop drops half.
+                format.setFloat(MediaFormat.KEY_OPERATING_RATE, redrawRate.toFloat())
+                format.setInteger(MediaFormat.KEY_PRIORITY, 0)
             } else if (isQualcommDecoder) {
                 // Qualcomm decoders respond well to MAX operating rate for lowest latency.
                 // Other SoC families may silently reject this value or misbehave.

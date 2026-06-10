@@ -14,6 +14,10 @@ class TvFocusable extends StatefulWidget {
   final Color? focusColor;
   final double borderRadius;
 
+  /// Removes the child's own focus nodes (TextField, buttons) from traversal
+  /// so each element is a single focus stop handled by this wrapper.
+  final bool excludeChildFocus;
+
   const TvFocusable({
     super.key,
     required this.child,
@@ -23,6 +27,7 @@ class TvFocusable extends StatefulWidget {
     this.focusNode,
     this.focusColor,
     this.borderRadius = 12,
+    this.excludeChildFocus = false,
   });
 
   @override
@@ -37,6 +42,13 @@ class _TvFocusableState extends State<TvFocusable> {
   void initState() {
     super.initState();
     _focus = widget.focusNode ?? FocusNode();
+    if (widget.autofocus) {
+      // Flutter's Focus.autofocus is skipped when the scope already has a
+      // focused child (e.g. swapping between auth and MFA layouts). Force it.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _focus.requestFocus();
+      });
+    }
   }
 
   @override
@@ -57,19 +69,17 @@ class _TvFocusableState extends State<TvFocusable> {
     if (key == LogicalKeyboardKey.enter ||
         key == LogicalKeyboardKey.select ||
         key == LogicalKeyboardKey.gameButtonA) {
-      if (widget.onSelect != null) {
-        UiSoundService.playClick();
-        widget.onSelect!();
-      }
+      if (widget.onSelect == null) return KeyEventResult.ignored;
+      UiSoundService.playClick();
+      widget.onSelect!();
       return KeyEventResult.handled;
     }
 
     if (key == LogicalKeyboardKey.contextMenu ||
         key == LogicalKeyboardKey.gameButtonX) {
-      if (widget.onLongPress != null) {
-        UiSoundService.playClick();
-        widget.onLongPress!();
-      }
+      if (widget.onLongPress == null) return KeyEventResult.ignored;
+      UiSoundService.playClick();
+      widget.onLongPress!();
       return KeyEventResult.handled;
     }
 
@@ -120,7 +130,9 @@ class _TvFocusableState extends State<TvFocusable> {
               ? Matrix4.diagonal3Values(1.06, 1.06, 1.06)
               : Matrix4.identity(),
           transformAlignment: Alignment.center,
-          child: widget.child,
+          child: widget.excludeChildFocus
+              ? ExcludeFocus(child: widget.child)
+              : widget.child,
         ),
       ),
     );

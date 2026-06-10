@@ -116,10 +116,24 @@ static void emitDartNavEdges(
     if (pressed & LI_B)     navCb("back");
 }
 
+// Aux buttons have no VK equivalent in the UI scheme; deliver them to Dart
+// regardless of foreground state so opted-in screens (cloud auth) can use them.
+static void emitAuxDartEdges(
+    const std::function<void(const std::string&)>& navCb,
+    int pressed) {
+    if (!navCb) return;
+    if (pressed & LI_X)     navCb("x");
+    if (pressed & LI_Y)     navCb("y");
+    if (pressed & LI_LB)    navCb("lb");
+    if (pressed & LI_RB)    navCb("rb");
+    if (pressed & LI_START) navCb("start");
+}
+
 static void dispatchUiNavigation(
     const std::function<void(const std::string&)>& navCb,
     int pressed,
     int released) {
+    emitAuxDartEdges(navCb, pressed);
     if (isCurrentProcessForeground()) {
         sendUiKeyEdges(pressed, released);
         return;

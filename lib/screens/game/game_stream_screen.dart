@@ -19,6 +19,7 @@ import '../../providers/theme_provider.dart';
 import '../../services/audio/ui_sound_service.dart';
 import '../../services/pro/pro_service.dart';
 import '../../services/telemetry/beta_telemetry_service.dart';
+import '../../services/tv/tv_detector.dart';
 import '../../services/input/gamepad_button_helper.dart';
 import '../../services/stream/image_load_throttle.dart';
 import '../../widgets/session_metrics_dialog.dart';
@@ -71,6 +72,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
   bool _overlayTransitioning = false;
   bool _showPerfStats = false;
   bool _usingDirectSubmit = false;
+  bool _autoDirectSubmit = false;
   bool _showGamepad = false;
   bool _showSpecialKeys = false;
   int _specialKeyIdx = 0;
@@ -194,18 +196,31 @@ class _GameStreamScreenState extends State<GameStreamScreen>
     GamepadChannel.onPanicComboDetected = _onPanicComboDetected;
     GamepadChannel.onQuickFavComboDetected = _onQuickFavComboDetected;
 
-    if (_config.enableDirectSubmit) {
+    unawaited(_startInitialStream());
+    _listenToStats();
+    _loadQuickFavIndices();
+    // Stop UI ambience while actively streaming — resume when session ends
+    UiSoundService.enterStreamSession();
+  }
+
+  Future<void> _startInitialStream() async {
+    await TvDetector.instance.init();
+    if (!mounted) return;
+    setState(() {
+      _autoDirectSubmit =
+          TvDetector.instance.isTV || TvDetector.instance.isLowRam;
+    });
+    if (_shouldUseDirectSubmit) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _startStreaming();
       });
     } else {
       _startStreaming();
     }
-    _listenToStats();
-    _loadQuickFavIndices();
-    // Stop UI ambience while actively streaming — resume when session ends
-    UiSoundService.enterStreamSession();
   }
+
+  bool get _shouldUseDirectSubmit =>
+      _config.enableDirectSubmit || _autoDirectSubmit;
 
   @override
   void dispose() {
@@ -355,6 +370,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
       final effectiveBitrate = cfg.ultraLowLatency
           ? (cfg.bitrate * 0.75).round().clamp(1000, 150000)
           : _dynBitrate.effectiveBitrate(cfg.bitrate);
+      final useDirectSubmit = _shouldUseDirectSubmit;
 
       debugPrint('>>> STREAM CONFIG DIAGNOSTIC <<<');
       debugPrint('Resolution: ${cfg.width}x${cfg.height} @ ${cfg.fps}fps');
@@ -364,6 +380,9 @@ class _GameStreamScreenState extends State<GameStreamScreen>
       debugPrint('Video Codec: $codecStr (enum: ${cfg.videoCodec})');
       debugPrint('HDR Enabled: ${cfg.enableHdr}, fullRange: ${cfg.fullRange}');
       debugPrint('Frame Pacing: ${cfg.framePacing}');
+      debugPrint(
+        'Direct Submit: $useDirectSubmit (user=${cfg.enableDirectSubmit}, auto=$_autoDirectSubmit)',
+      );
       debugPrint('Audio Config: $audioStr (enum: ${cfg.audioConfig})');
       debugPrint('Audio Quality: ${cfg.audioQuality.name}');
       debugPrint('Scale Mode: ${cfg.scaleMode}');
@@ -380,7 +399,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
         'codec': codecStr,
         'hdr': cfg.enableHdr,
         'audio': audioStr,
-        'directSubmit': cfg.enableDirectSubmit,
+        'directSubmit': useDirectSubmit,
       });
 
       final success =
@@ -409,7 +428,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
             frameQueueDepth: cfg.frameQueueDepth,
             choreographerVsync: cfg.choreographerVsync,
             enableVrr: cfg.enableVrr,
-            directSubmit: cfg.enableDirectSubmit,
+            directSubmit: useDirectSubmit,
             lowLatencyFrameBalance: cfg.lowLatencyFrameBalance,
           ).timeout(
             const Duration(seconds: 30),
@@ -427,9 +446,9 @@ class _GameStreamScreenState extends State<GameStreamScreen>
       if (success) {
         final directSubmitActive =
             await StreamingPlatformChannel.isDirectSubmitActive();
-        // honor Dart-side config: only skip textureId when user opted into
-        // direct-submit AND native confirms it is actually active.
-        final textureId = (cfg.enableDirectSubmit && directSubmitActive)
+        // Skip textureId only when Dart requested direct-submit and native
+        // confirms the SurfaceView path is active.
+        final textureId = (useDirectSubmit && directSubmitActive)
             ? null
             : await StreamingPlatformChannel.getTextureId();
 
@@ -451,7 +470,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
           );
         }
         setState(() {
-          _usingDirectSubmit = cfg.enableDirectSubmit && directSubmitActive;
+          _usingDirectSubmit = useDirectSubmit && directSubmitActive;
           _textureId = textureId;
           _isConnecting = false;
           _isConnected = true;
@@ -1693,7 +1712,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
   };
 
   Widget _buildVideoLayer() {
-    if (_config.enableDirectSubmit && (_isConnecting || _usingDirectSubmit)) {
+    if (_shouldUseDirectSubmit && (_isConnecting || _usingDirectSubmit)) {
       final aspectRatio = _config.width / _config.height;
       return ColoredBox(
         color: Colors.black,

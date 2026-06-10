@@ -255,10 +255,23 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
         }
         if (safeEffective != effectiveCodec) activeCodecName = safeEffective
 
+        // Advertise only codecs that remain in decodersByMime. The server picks the
+        // best codec from this mask, so advertising a codec we stripped (e.g. HEVC on
+        // a weak device) makes the server negotiate a format the decoder map can't
+        // serve — the safe-probe fallback then lands on a decoder that fails start()
+        // (Amlogic HEVC: "newBufferCount 31 > 24") and aborts the whole connection.
         var supportedVideoFormats = StreamConstants.videoFormatFor(safeEffective, enableHdr)
         for (codec in allSupported) {
-            supportedVideoFormats = supportedVideoFormats or
-                StreamConstants.videoFormatFor(codec.codec, enableHdr)
+            val mime = when (codec.codec) {
+                "H264" -> "video/avc"
+                "H265" -> "video/hevc"
+                "AV1"  -> "video/av01"
+                else -> continue
+            }
+            if (mime in decodersByMime) {
+                supportedVideoFormats = supportedVideoFormats or
+                    StreamConstants.videoFormatFor(codec.codec, enableHdr)
+            }
         }
 
         val effectiveFramePacingMode = if (weakDevice && framePacingMode != VideoDecoderRenderer.FRAME_PACING_LATENCY) {

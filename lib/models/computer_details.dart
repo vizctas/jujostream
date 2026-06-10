@@ -6,6 +6,7 @@ class ComputerDetails {
   String manualAddress;
   String macAddress;
   int httpsPort;
+  int configHttpsPort;
   int externalPort;
   String serverCert;
   ComputerState state;
@@ -27,6 +28,7 @@ class ComputerDetails {
     this.manualAddress = '',
     this.macAddress = '',
     this.httpsPort = 47984,
+    this.configHttpsPort = 0,
     this.externalPort = 47989,
     this.serverCert = '',
     this.state = ComputerState.unknown,
@@ -48,6 +50,7 @@ class ComputerDetails {
         'manualAddress': manualAddress,
         'macAddress': macAddress,
         'httpsPort': httpsPort,
+        'configHttpsPort': configHttpsPort,
         'externalPort': externalPort,
         'serverCert': serverCert,
         'state': state.index,
@@ -69,6 +72,7 @@ class ComputerDetails {
       manualAddress: json['manualAddress'] ?? '',
       macAddress: json['macAddress'] ?? '',
       httpsPort: json['httpsPort'] ?? 47984,
+      configHttpsPort: json['configHttpsPort'] ?? 0,
       externalPort: json['externalPort'] ?? 47989,
       serverCert: json['serverCert'] ?? '',
       state:

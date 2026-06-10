@@ -16,6 +16,7 @@ import '../../providers/plugins_provider.dart';
 import '../../providers/theme_provider.dart';
 import '../../services/tv/tv_detector.dart';
 import '../../services/input/gamepad_button_helper.dart';
+import '../../widgets/jujo_brand_title.dart';
 import '../../widgets/now_playing_banner.dart';
 import '../../widgets/computer_options_dialog.dart';
 import '../../widgets/pairing_dialog.dart';
@@ -374,14 +375,7 @@ class _PcViewScreenState extends State<PcViewScreen>
                     letterSpacing: 0.8,
                   ),
                 )
-              : const Text(
-                  'JujoStream',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w600,
-                    fontSize: 22,
-                    letterSpacing: 1.2,
-                  ),
-                ),
+              : const JujoBrandTitle(),
           backgroundColor: tp.surface,
           foregroundColor: tp.colors.isLight ? Colors.black87 : Colors.white,
           elevation: 0,

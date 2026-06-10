@@ -38,6 +38,13 @@ class CloudSyncService {
     return DateTime.now().difference(stamp) < _cloudPairingGrace;
   }
 
+  /// Returns the confighttp HTTPS port for cloud pairing calls.
+  /// confighttp runs at base+1, nvhttp HTTPS at base-5 → offset is always 6.
+  /// Uses the stored configHttpsPort when available (set from server_url in Supabase),
+  /// falling back to httpsPort+6 for servers that were locally paired before cloud sync.
+  static int _configPort(ComputerDetails c) =>
+      c.configHttpsPort > 0 ? c.configHttpsPort : c.httpsPort + 6;
+
   static const _fileName = 'jujostream_config.json';
   static const _mimeType = 'application/json';
 
@@ -481,6 +488,11 @@ class CloudSyncService {
           if (serverVersion != null && serverVersion.isNotEmpty) {
             local.serverVersion = serverVersion;
           }
+          // Always update configHttpsPort from cloud so cloud-pairing POSTs
+          // reach the confighttp server (port base+1) rather than nvhttp (base-5).
+          if (cloudPort > 0) {
+            local.configHttpsPort = cloudPort;
+          }
           
           if (isDefault) {
             primaryServerUuid = local.uuid;
@@ -502,6 +514,7 @@ class CloudSyncService {
             localAddress: localIp,
             manualAddress: isIp ? '' : host,
             httpsPort: cloudPort,
+            configHttpsPort: cloudPort,
             remoteAddress: externalAddress ?? '',
             serverCert: certFingerprint ?? '',
             state: ComputerState.unknown,
@@ -625,7 +638,7 @@ class CloudSyncService {
             // Stamp grace period so polls don't overwrite paired state while
             // the async cloud-pairing POST is in flight.
             _cloudPairingGraceTimestamps[computer.uuid.isNotEmpty ? computer.uuid : host] = now;
-            final port = computer.httpsPort > 0 ? computer.httpsPort : 47984;
+            final port = _configPort(computer);
             final serverUrl = 'https://$host:$port';
             unawaited(_attemptCloudPairing(serverUrl, token, computer));
           }

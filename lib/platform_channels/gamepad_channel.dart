@@ -20,8 +20,13 @@ class GamepadChannel {
 
   static void Function(int controllerNumber)? onControllerDisconnected;
 
-  /// Fired when a gamepad D-Pad / A / B is pressed while not streaming.
-  /// [key] is one of: 'up', 'down', 'left', 'right', 'select', 'back'.
+  /// Fired when a gamepad button is pressed while not streaming.
+  /// [key] is one of:
+  ///  - 'up', 'down', 'left', 'right', 'select', 'back' — D-Pad/A/B, emitted
+  ///    only while the app window is in the background (foreground uses
+  ///    injected VK key events instead).
+  ///  - 'x', 'y', 'lb', 'rb', 'start' — aux buttons, always emitted
+  ///    (foreground or background) for screens that opt in.
   static void Function(String key)? onNavInput;
 
   static void init() {

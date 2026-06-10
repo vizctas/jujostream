@@ -551,11 +551,12 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
           ? computer.uuid
           : computer.localAddress;
       final pairedAt = _pairingCompletedAt[graceKey];
-      final inGracePeriod =
+      final inManualGrace =
           pairedAt != null &&
           DateTime.now().difference(pairedAt) < _pairingGracePeriod;
-      if (inGracePeriod) {
-        // Server may not have fully registered the pairing yet.
+      final inCloudGrace =
+          CloudSyncService.instance.isInCloudPairingGrace(graceKey);
+      if (inManualGrace || inCloudGrace) {
         return true;
       }
 
@@ -646,6 +647,9 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
 
       if (computer.serverCert.isEmpty && existing.serverCert.isNotEmpty) {
         computer.serverCert = existing.serverCert;
+      }
+      if (computer.configHttpsPort == 0 && existing.configHttpsPort > 0) {
+        computer.configHttpsPort = existing.configHttpsPort;
       }
       if (existing.isCloud) {
         computer.isCloud = true;
@@ -745,6 +749,12 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
     super.dispose();
   }
 
+  /// Returns the confighttp HTTPS port for cloud pairing calls.
+  /// Mirrors CloudSyncService._configPort — confighttp runs at base+1,
+  /// nvhttp HTTPS at base-5, so the offset is always 6.
+  static int _configPort(ComputerDetails c) =>
+      c.configHttpsPort > 0 ? c.configHttpsPort : c.httpsPort + 6;
+
   Future<bool> _attemptCloudPairingOnTheFly(ComputerDetails computer) async {
     try {
       final supabaseClient = Supabase.instance.client;
@@ -755,10 +765,7 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
       final address = computer.activeAddress.isNotEmpty
           ? computer.activeAddress
           : computer.localAddress;
-      final httpsPort = computer.httpsPort > 0
-          ? computer.httpsPort
-          : NvHttpClient.defaultHttpsPort;
-      final serverUrl = 'https://$address:$httpsPort';
+      final serverUrl = 'https://$address:${_configPort(computer)}';
 
       final clientPem = ClientIdentity.certPem;
       if (clientPem.isEmpty) return false;
