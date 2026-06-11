@@ -212,6 +212,15 @@ class SteamLibraryService {
     }
   }
 
+  /// Builds a minimal game list from scraped app-IDs (no API key required).
+  /// Games will have no name or playtime; callers can enrich via [getStoreInfo].
+  Future<List<SteamOwnedGame>?> getOwnedGamesFromAppIds(
+    List<int> appIds,
+  ) async {
+    if (appIds.isEmpty) return null;
+    return appIds.map((id) => SteamOwnedGame(appId: id)).toList();
+  }
+
   Future<(int, String, int, int)?> _fetchReviews(int appId) async {
     try {
       final uri = Uri.parse('$_reviewBase/$appId')

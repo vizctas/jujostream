@@ -159,6 +159,7 @@ class _PluginCardState extends State<_PluginCard> {
   bool _keyLoaded = false;
   bool _obscure = true;
   bool _isConnectingSteam = false;
+  bool _showSteamAdvanced = false;
   String? _steamPersona;
   String _videoTrigger = 'before_app';
   bool _cardFocused = false;
@@ -358,8 +359,14 @@ class _PluginCardState extends State<_PluginCard> {
     final requiresMetadataForDiscovery = widget.plugin.id == 'discovery_boost';
     final steamConnected = provider.isEnabled('steam_connect');
     final smartFiltersReady = provider.canUseSmartGenreFilters;
+    // steam_connect is considered ready when a persona is stored (auto-connect
+    // succeeded by either the key path or the keyless fallback path)
+    final steamConnectReady = widget.plugin.id == 'steam_connect' &&
+        (_steamPersona != null && _steamPersona!.isNotEmpty);
     final statusNeedsSetup =
-        apiKeyInfo != null && _keyController.text.isEmpty ||
+        (apiKeyInfo != null &&
+            _keyController.text.isEmpty &&
+            !steamConnectReady) ||
         requiresMetadataReady && !smartFiltersReady ||
         requiresSteamReady && !steamConnected ||
         requiresMetadataForDiscovery && !provider.isEnabled('metadata');
@@ -373,7 +380,9 @@ class _PluginCardState extends State<_PluginCard> {
         ? 'Steam Connect required'
         : requiresMetadataForDiscovery && !provider.isEnabled('metadata')
         ? 'Metadata plugin required'
-        : apiKeyInfo != null && _keyController.text.isEmpty
+        : apiKeyInfo != null &&
+              _keyController.text.isEmpty &&
+              !steamConnectReady
         ? 'API key required'
         : 'Active';
 
@@ -607,40 +616,84 @@ class _PluginCardState extends State<_PluginCard> {
                       const SizedBox(height: 12),
 
                       if (apiKeyInfo != null && _keyLoaded) ...[
-                        _ApiKeyField(
-                          label: apiKeyInfo.label,
-                          hint: apiKeyInfo.hint,
-                          helpText: apiKeyInfo.helpText,
-                          controller: _keyController,
-                          focusNode: _keyFocusNode,
-                          obscure: _obscure,
-                          onToggleObscure: () =>
-                              setState(() => _obscure = !_obscure),
-                          onChanged: _saveApiKey,
-                        ),
-                        const SizedBox(height: 8),
-                        // "Get Key" hyperlink below the API key field
-                        if (widget.plugin.id == 'metadata')
-                          _PluginActionButton(
-                            icon: Icons.open_in_new,
-                            label: 'Get Key',
-                            onTap: () => launchUrl(
-                              Uri.parse('https://rawg.io/apidocs'),
-                              mode: LaunchMode.externalApplication,
+                        // For steam_connect: hide the key field behind an
+                        // "Advanced" toggle — auto-connect fills it silently.
+                        if (widget.plugin.id == 'steam_connect') ...[
+                          GestureDetector(
+                            onTap: () => setState(
+                              () => _showSteamAdvanced = !_showSteamAdvanced,
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  _showSteamAdvanced
+                                      ? Icons.keyboard_arrow_up
+                                      : Icons.keyboard_arrow_down,
+                                  size: 16,
+                                  color: Colors.white38,
+                                ),
+                                const SizedBox(width: 4),
+                                const Text(
+                                  'Advanced (manual API key)',
+                                  style: TextStyle(
+                                    color: Colors.white38,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
-                        if (widget.plugin.id == 'steam_connect')
-                          _PluginActionButton(
-                            icon: Icons.open_in_new,
-                            label: 'Get Key',
-                            onTap: () => launchUrl(
-                              Uri.parse(
-                                'https://steamcommunity.com/dev/apikey',
+                          if (_showSteamAdvanced) ...[
+                            const SizedBox(height: 8),
+                            _ApiKeyField(
+                              label: apiKeyInfo.label,
+                              hint: apiKeyInfo.hint,
+                              helpText: apiKeyInfo.helpText,
+                              controller: _keyController,
+                              focusNode: _keyFocusNode,
+                              obscure: _obscure,
+                              onToggleObscure: () =>
+                                  setState(() => _obscure = !_obscure),
+                              onChanged: _saveApiKey,
+                            ),
+                            const SizedBox(height: 8),
+                            _PluginActionButton(
+                              icon: Icons.open_in_new,
+                              label: 'Get Key',
+                              onTap: () => launchUrl(
+                                Uri.parse(
+                                  'https://steamcommunity.com/dev/apikey',
+                                ),
+                                mode: LaunchMode.externalApplication,
                               ),
-                              mode: LaunchMode.externalApplication,
                             ),
+                          ],
+                          const SizedBox(height: 12),
+                        ] else ...[
+                          _ApiKeyField(
+                            label: apiKeyInfo.label,
+                            hint: apiKeyInfo.hint,
+                            helpText: apiKeyInfo.helpText,
+                            controller: _keyController,
+                            focusNode: _keyFocusNode,
+                            obscure: _obscure,
+                            onToggleObscure: () =>
+                                setState(() => _obscure = !_obscure),
+                            onChanged: _saveApiKey,
                           ),
-                        const SizedBox(height: 12),
+                          const SizedBox(height: 8),
+                          if (widget.plugin.id == 'metadata')
+                            _PluginActionButton(
+                              icon: Icons.open_in_new,
+                              label: 'Get Key',
+                              onTap: () => launchUrl(
+                                Uri.parse('https://rawg.io/apidocs'),
+                                mode: LaunchMode.externalApplication,
+                              ),
+                            ),
+                          const SizedBox(height: 12),
+                        ],
                       ],
 
                       if (widget.plugin.id == 'metadata')
@@ -797,13 +850,28 @@ class _PluginCardState extends State<_PluginCard> {
                           onPressed: _isConnectingSteam
                               ? null
                               : () async {
-                                  final steamId = await SteamLoginScreen.show(
+                                  // Capture provider before any async gap
+                                  final provider =
+                                      context.read<PluginsProvider>();
+                                  final result = await SteamLoginScreen.show(
                                     context,
                                   );
-                                  if (steamId != null && mounted) {
-                                    _steamIdController.text = steamId;
-                                    await _saveSteamId(steamId);
+                                  if (result == null || !mounted) return;
+                                  _steamIdController.text = result.steamId;
+                                  await _saveSteamId(result.steamId);
+                                  if (result.hasApiKey) {
+                                    _keyController.text = result.apiKey!;
+                                    await _saveApiKey(result.apiKey!);
                                     await _connectSteam();
+                                  } else {
+                                    if (result.hasFallbackAppIds) {
+                                      await provider.setSetting(
+                                        widget.plugin.id,
+                                        'steam_owned_appids',
+                                        result.ownedAppIds.join(','),
+                                      );
+                                    }
+                                    await _connectSteamBasic(result.steamId);
                                   }
                                 },
                         ),
