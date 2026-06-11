@@ -34,6 +34,7 @@ import '../../providers/cloud_mfa_provider.dart';
 import '../../services/auth/supabase_config.dart';
 import '../../widgets/mfa_bypassed_confirmation_dialog.dart';
 import '../auth/cloud_auth_screen.dart';
+import '../../widgets/jujo_brand_title.dart';
 
 /// Preference key for Focus Mode toggle.
 const _kFocusModeEnabled = 'focus_mode_enabled';
@@ -49,6 +50,9 @@ Future<void> setFocusModeEnabled(bool value) async {
   final prefs = await SharedPreferences.getInstance();
   await prefs.setBool(_kFocusModeEnabled, value);
 }
+
+String _focusDefaultAsset(int index) =>
+    'assets/images/focus/default_focus00${index % 4}.jpg';
 
 class FocusModeScreen extends StatefulWidget {
   const FocusModeScreen({super.key});
@@ -220,7 +224,8 @@ class _FocusModeScreenState extends State<FocusModeScreen>
       if (!mounted) return;
       if (!ok) {
         final mfa = context.read<CloudMfaProvider>();
-        final hasSession = SupabaseConfig.current.isConfigured &&
+        final hasSession =
+            SupabaseConfig.current.isConfigured &&
             Supabase.instance.client.auth.currentSession != null;
         if (computer.isCloud &&
             hasSession &&
@@ -420,10 +425,17 @@ class _FocusModeScreenState extends State<FocusModeScreen>
 
                 return rank(a).compareTo(rank(b));
               });
-            final currentBgPath =
+            final currentComputer =
                 computers.isNotEmpty && _currentPage < computers.length
-                ? _bgPaths[computers[_currentPage].uuid]
+                ? computers[_currentPage]
                 : null;
+            final currentBgPath =
+                currentComputer != null && currentComputer.isPaired
+                ? _bgPaths[currentComputer.uuid]
+                : null;
+            final currentBgAsset = currentComputer != null
+                ? _focusDefaultAsset(_currentPage)
+                : _focusDefaultAsset(0);
 
             return Stack(
               fit: StackFit.expand,
@@ -431,6 +443,7 @@ class _FocusModeScreenState extends State<FocusModeScreen>
                 // ── Blurred wallpaper ──
                 _BlurredWallpaper(
                   imagePath: currentBgPath,
+                  assetPath: currentBgAsset,
                   fallbackColor: tp.background,
                 ),
 
@@ -515,15 +528,7 @@ class _FocusModeScreenState extends State<FocusModeScreen>
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: Row(
         children: [
-          Text(
-            'JujoStream',
-            style: TextStyle(
-              color: fgColor,
-              fontWeight: FontWeight.w600,
-              fontSize: 22,
-              letterSpacing: 1.2,
-            ),
-          ),
+          const JujoBrandTitle(),
           const Spacer(),
           _FocusableIconBtn(
             focusNode: _appBarFocusNodes[0],
@@ -896,13 +901,18 @@ class _FocusModeScreenState extends State<FocusModeScreen>
   }
 
   void _focusAppBarIcon(int index, {int? activeCount}) {
-    final count = activeCount ?? (context.read<AuthProvider>().isSignedIn ? 4 : 3);
+    final count =
+        activeCount ?? (context.read<AuthProvider>().isSignedIn ? 4 : 3);
     final clamped = index.clamp(0, count - 1);
     _activeAppBarIndex = clamped;
     _appBarFocusNodes[clamped].requestFocus();
   }
 
-  void _handleAppBarIconNav(int index, LogicalKeyboardKey dir, int activeCount) {
+  void _handleAppBarIconNav(
+    int index,
+    LogicalKeyboardKey dir,
+    int activeCount,
+  ) {
     UiSoundService.playUiMove();
     HapticFeedback.selectionClick();
 
@@ -920,9 +930,14 @@ class _FocusModeScreenState extends State<FocusModeScreen>
 
 class _BlurredWallpaper extends StatelessWidget {
   final String? imagePath;
+  final String assetPath;
   final Color fallbackColor;
 
-  const _BlurredWallpaper({this.imagePath, required this.fallbackColor});
+  const _BlurredWallpaper({
+    this.imagePath,
+    required this.assetPath,
+    required this.fallbackColor,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -930,7 +945,7 @@ class _BlurredWallpaper extends StatelessWidget {
     if (imagePath != null && imagePath!.isNotEmpty) {
       imageProvider = FileImage(io.File(imagePath!));
     } else {
-      imageProvider = const AssetImage('assets/images/focus/default_focus.jpg');
+      imageProvider = AssetImage(assetPath);
     }
 
     return Stack(
@@ -1145,12 +1160,12 @@ class _FocusServerCardState extends State<_FocusServerCard>
                                   io.File(widget.bgPath!),
                                   fit: BoxFit.cover,
                                   errorBuilder: (_, _, _) => Image.asset(
-                                    'assets/images/focus/default_focus00${widget.index % 4}.jpg',
+                                    _focusDefaultAsset(widget.index),
                                     fit: BoxFit.cover,
                                   ),
                                 )
                               : Image.asset(
-                                  'assets/images/focus/default_focus00${widget.index % 4}.jpg',
+                                  _focusDefaultAsset(widget.index),
                                   fit: BoxFit.cover,
                                 ),
                         ),
@@ -1180,16 +1195,29 @@ class _FocusServerCardState extends State<_FocusServerCard>
                               if (widget.computer.isCloud)
                                 Container(
                                   margin: const EdgeInsets.only(right: 6),
-                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 6,
+                                    vertical: 2,
+                                  ),
                                   decoration: BoxDecoration(
-                                    color: Colors.blueAccent.withValues(alpha: 0.15),
+                                    color: Colors.blueAccent.withValues(
+                                      alpha: 0.15,
+                                    ),
                                     borderRadius: BorderRadius.circular(4),
-                                    border: Border.all(color: Colors.blueAccent.withValues(alpha: 0.3)),
+                                    border: Border.all(
+                                      color: Colors.blueAccent.withValues(
+                                        alpha: 0.3,
+                                      ),
+                                    ),
                                   ),
                                   child: Row(
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
-                                      const Icon(Icons.cloud, size: 10, color: Colors.blueAccent),
+                                      const Icon(
+                                        Icons.cloud,
+                                        size: 10,
+                                        color: Colors.blueAccent,
+                                      ),
                                       const SizedBox(width: 3),
                                       Text(
                                         'CLOUD',
@@ -1472,12 +1500,12 @@ class _FocusServerCircleState extends State<_FocusServerCircle>
                                 io.File(widget.bgPath!),
                                 fit: BoxFit.cover,
                                 errorBuilder: (_, _, _) => Image.asset(
-                                  'assets/images/focus/default_focus00${widget.index % 4}.jpg',
+                                  _focusDefaultAsset(widget.index),
                                   fit: BoxFit.cover,
                                 ),
                               )
                             : Image.asset(
-                                'assets/images/focus/default_focus00${widget.index % 4}.jpg',
+                                _focusDefaultAsset(widget.index),
                                 fit: BoxFit.cover,
                               ),
                         // ── Subtle vignette ──
@@ -1504,9 +1532,15 @@ class _FocusServerCircleState extends State<_FocusServerCircle>
                                   margin: const EdgeInsets.only(right: 6),
                                   padding: const EdgeInsets.all(4),
                                   decoration: BoxDecoration(
-                                    color: Colors.blueAccent.withValues(alpha: 0.15),
+                                    color: Colors.blueAccent.withValues(
+                                      alpha: 0.15,
+                                    ),
                                     shape: BoxShape.circle,
-                                    border: Border.all(color: Colors.blueAccent.withValues(alpha: 0.3)),
+                                    border: Border.all(
+                                      color: Colors.blueAccent.withValues(
+                                        alpha: 0.3,
+                                      ),
+                                    ),
                                   ),
                                   child: const Icon(
                                     Icons.cloud,

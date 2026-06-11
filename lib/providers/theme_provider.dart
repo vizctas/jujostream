@@ -34,14 +34,14 @@ class ThemeProvider extends ChangeNotifier {
     required String ambienceLayout,
     required String standbySound,
     required String ambienceEffect,
-  })  : _themeId = themeId,
-        _reduceEffects = reduceEffects,
-        _performanceMode = performanceMode,
-        _artQuality = artQuality,
-        _launcherThemeId = launcherThemeId,
-        _ambienceLayout = ambienceLayout,
-        _standbySound = standbySound,
-        _ambienceEffect = ambienceEffect;
+  }) : _themeId = themeId,
+       _reduceEffects = reduceEffects,
+       _performanceMode = performanceMode,
+       _artQuality = artQuality,
+       _launcherThemeId = launcherThemeId,
+       _ambienceLayout = ambienceLayout,
+       _standbySound = standbySound,
+       _ambienceEffect = ambienceEffect;
 
   static Future<ThemeProvider> load() async {
     final prefs = await SharedPreferences.getInstance();
@@ -58,14 +58,16 @@ class ThemeProvider extends ChangeNotifier {
       launcherThemeId: LauncherThemeRegistry.fromName(launcherName),
       ambienceLayout: prefs.getString(_keyAmbienceLayout) ?? 'card',
       standbySound: prefs.getString(_keyStandbySound) ?? 'Alone',
-      ambienceEffect: prefs.getString(_keyAmbienceEffect) ?? 'waves', // Default to waves for better performance on Android TV
+      ambienceEffect:
+          prefs.getString(_keyAmbienceEffect) ??
+          'waves', // Default to waves for better performance on Android TV
     );
   }
 
   AppThemeId get themeId => _themeId;
 
   AppThemeColors get colors =>
-      AppThemes.presets[_themeId] ?? AppThemes.presets[AppThemeId.jujo]!;
+      AppThemes.presets[_themeId] ?? AppThemes.presets[AppThemeId.oled]!;
 
   bool get reduceEffects => _reduceEffects;
 
@@ -75,15 +77,19 @@ class ThemeProvider extends ChangeNotifier {
 
   int? get artQualityCacheWidth {
     switch (_artQuality) {
-      case 'medium': return 720;
-      case 'low': return 400;
-      default: return null;
+      case 'medium':
+        return 720;
+      case 'low':
+        return 400;
+      default:
+        return null;
     }
   }
 
   LauncherThemeId get launcherThemeId => _launcherThemeId;
 
-  LauncherTheme get launcherTheme => LauncherThemeRegistry.get(_launcherThemeId);
+  LauncherTheme get launcherTheme =>
+      LauncherThemeRegistry.get(_launcherThemeId);
 
   String get ambienceLayout => _ambienceLayout;
 
@@ -219,15 +225,15 @@ class ThemeProvider extends ChangeNotifier {
       ),
       cardTheme: CardThemeData(
         color: c.surface,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
 
       dialogTheme: DialogThemeData(
         backgroundColor: c.surface,
         titleTextStyle: TextStyle(
-          color: onSurface, fontSize: 18, fontWeight: FontWeight.bold,
+          color: onSurface,
+          fontSize: 18,
+          fontWeight: FontWeight.bold,
         ),
         contentTextStyle: TextStyle(color: onSurfaceMedium, fontSize: 14),
       ),

@@ -256,7 +256,7 @@ class CompanionServer {
           prefs.getString('app_locale') ??
           'en',
       'app_theme':
-          themeProvider?.themeId.name ?? prefs.getString('app_theme') ?? 'jujo',
+          themeProvider?.themeId.name ?? prefs.getString('app_theme') ?? 'oled',
       'reduce_effects':
           themeProvider?.reduceEffects ??
           prefs.getBool('reduce_effects') ??
@@ -381,10 +381,8 @@ class CompanionServer {
           streamConfig?['overlayTriggerCombo'] ?? 0x0330,
       'stream_overlay_trigger_hold_ms':
           streamConfig?['overlayTriggerHoldMs'] ?? 0,
-      'stream_quick_fav_combo':
-          streamConfig?['quickFavCombo'] ?? 0x30030,
-      'stream_quick_fav_hold_ms':
-          streamConfig?['quickFavHoldMs'] ?? 0,
+      'stream_quick_fav_combo': streamConfig?['quickFavCombo'] ?? 0x30030,
+      'stream_quick_fav_hold_ms': streamConfig?['quickFavHoldMs'] ?? 0,
 
       'stream_rumble': streamConfig?['enableRumble'] ?? true,
       'stream_vibrate_fallback': streamConfig?['vibrateFallback'] ?? false,
@@ -1557,7 +1555,7 @@ async function load() {
     document.getElementById('microtrailerDelay').value = c.microtrailer_delay_secs || 3;
     // App settings
     document.getElementById('appLocale').value = c.app_locale || 'en';
-    document.getElementById('appTheme').value = c.app_theme || 'jujo';
+    document.getElementById('appTheme').value = c.app_theme || 'oled';
     document.getElementById('reduceEffects').checked = c.reduce_effects || false;
     document.getElementById('performanceMode').checked = c.performance_mode || false;
     // Launcher layout

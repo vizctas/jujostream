@@ -1,7 +1,9 @@
 import 'dart:io' as io;
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
@@ -89,19 +91,803 @@ class PluginsScreen extends StatelessWidget {
                   final plugins = provider.plugins
                       .where((p) => p.id != 'discovery_boost')
                       .toList();
-                  return ListView.separated(
-                    padding: EdgeInsets.fromLTRB(
-                      16,
-                      0,
-                      16,
-                      550 + MediaQuery.paddingOf(context).bottom,
-                    ),
-                    itemCount: plugins.length,
-                    separatorBuilder: (_, _) => const SizedBox(height: 8),
-                    itemBuilder: (context, index) =>
-                        _PluginCard(plugin: plugins[index]),
-                  );
+                  return _PluginsBody(plugins: plugins);
                 },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Adaptive plugin grid with a slide-in settings drawer.
+///
+/// Cards form a 1-4 column grid (by width). Dpad moves through the grid via
+/// geometric focus traversal, A opens the settings drawer for the focused
+/// plugin, X toggles it, B backs out (drawer first, then the screen).
+class _PluginsBody extends StatefulWidget {
+  const _PluginsBody({required this.plugins});
+
+  final List<PluginConfig> plugins;
+
+  @override
+  State<_PluginsBody> createState() => _PluginsBodyState();
+}
+
+class _PluginsBodyState extends State<_PluginsBody> {
+  PluginConfig? _drawerPlugin;
+  int? _focusedCardIndex;
+  final FocusNode _drawerFocusNode = FocusNode(debugLabel: 'pluginDrawer');
+  late final List<FocusNode> _cardNodes;
+  final ScrollController _scroll = ScrollController();
+
+  @override
+  void initState() {
+    super.initState();
+    _cardNodes = List.generate(
+      widget.plugins.length,
+      (i) => FocusNode(debugLabel: 'pluginCard$i'),
+    );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _cardNodes.isNotEmpty) _cardNodes.first.requestFocus();
+    });
+  }
+
+  @override
+  void dispose() {
+    _drawerFocusNode.dispose();
+    for (final n in _cardNodes) {
+      n.dispose();
+    }
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  // Column count of the current layout, kept in sync by the LayoutBuilder.
+  int _cols = 3;
+
+  /// Deterministic dpad movement over the bento grid. Geometric traversal
+  /// reads mid-animation positions and lands on the wrong card, so arrows
+  /// are resolved with plain col/row math instead.
+  ///
+  /// Indexing is strictly linear/row-major: (col1,row1)=0, (col2,row1)=1,
+  /// (col3,row1)=2, (col1,row2)=3… Left/right follow that reading order and
+  /// continue onto the previous/next row at the edges; up/down stay in the
+  /// same column.
+  bool _moveFocus(int from, int dx, int dy) {
+    final n = widget.plugins.length;
+    final rows = (n / _cols).ceil();
+    int idx;
+    if (dx != 0) {
+      idx = from + dx;
+      if (idx < 0 || idx >= n) return false;
+    } else {
+      final col = from % _cols;
+      final row = from ~/ _cols + dy;
+      if (row < 0 || row >= rows) return false;
+      idx = row * _cols + col;
+      if (idx >= n) idx = n - 1; // partial last row: land on its last card
+    }
+    _cardNodes[idx].requestFocus();
+    return true;
+  }
+
+  void _openDrawer(int index) {
+    setState(() => _drawerPlugin = widget.plugins[index]);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _drawerFocusNode.requestFocus();
+    });
+  }
+
+  void _closeDrawer() {
+    final closed = _drawerPlugin;
+    setState(() => _drawerPlugin = null);
+    if (closed != null) {
+      final i = widget.plugins.indexWhere((p) => p.id == closed.id);
+      // Post-frame: the grid sits in an ExcludeFocus while the drawer is
+      // open, so the card can only take focus after this rebuild lands.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && i >= 0 && i < _cardNodes.length) {
+          _cardNodes[i].requestFocus();
+        }
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isEs = Localizations.localeOf(context).languageCode == 'es';
+    final bottomInset = MediaQuery.paddingOf(context).bottom;
+
+    return PopScope(
+      // System back closes the drawer first; only pops the screen when no
+      // drawer is open.
+      canPop: _drawerPlugin == null,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _closeDrawer();
+      },
+      child: Stack(
+        children: [
+          // While the drawer is open the whole grid leaves the focus tree:
+          // arrows inside the drawer must never escape to the cards behind
+          // the scrim.
+          ExcludeFocus(
+            excluding: _drawerPlugin != null,
+            child: Column(
+              children: [
+                Expanded(
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      // Bento grid: the focused card's column and row tracks
+                      // expand (the card grows toward a square) while every
+                      // neighbor is pushed aside on the same animation curve.
+                      final n = widget.plugins.length;
+                      final cols = constraints.maxWidth < 640 ? 2 : 3;
+                      _cols = cols;
+                      final rows = (n / cols).ceil();
+                      const pad = 20.0;
+                      const gap = 14.0;
+                      const colWeight = 1.35;
+                      final innerW =
+                          constraints.maxWidth - pad * 2 - gap * (cols - 1);
+                      final innerH =
+                          constraints.maxHeight - 12 - 24 - gap * (rows - 1);
+                      final focusIdx = _drawerPlugin == null
+                          ? _focusedCardIndex
+                          : null;
+                      final focusCol = focusIdx == null ? -1 : focusIdx % cols;
+                      final focusRow = focusIdx == null ? -1 : focusIdx ~/ cols;
+
+                      final wOther = focusCol < 0
+                          ? innerW / cols
+                          : innerW / (colWeight + cols - 1);
+                      final wFocus = focusCol < 0 ? wOther : wOther * colWeight;
+                      final baseH = (innerH / rows).clamp(138.0, 200.0);
+                      final hFocus = focusRow < 0
+                          ? baseH
+                          : math.min(wFocus * 0.82, baseH * 1.8);
+
+                      double colX(int c) {
+                        var x = pad;
+                        for (var i = 0; i < c; i++) {
+                          x += (i == focusCol ? wFocus : wOther) + gap;
+                        }
+                        return x;
+                      }
+
+                      double rowY(int r) {
+                        var y = 12.0;
+                        for (var i = 0; i < r; i++) {
+                          y += (i == focusRow ? hFocus : baseH) + gap;
+                        }
+                        return y;
+                      }
+
+                      final totalH = rowY(rows) - gap + 24 + bottomInset;
+                      final canvasH = math.max(totalH, constraints.maxHeight);
+
+                      // Scroll is driven here (not via ensureVisible): the
+                      // focused row's final rect is known before the cards
+                      // animate, so the scroll runs in sync with the growth.
+                      if (focusIdx != null) {
+                        final target =
+                            (rowY(focusRow) -
+                                    (constraints.maxHeight - hFocus) / 2)
+                                .clamp(
+                                  0.0,
+                                  math.max(
+                                    0.0,
+                                    canvasH - constraints.maxHeight,
+                                  ),
+                                )
+                                .toDouble();
+                        WidgetsBinding.instance.addPostFrameCallback((_) {
+                          if (!mounted || !_scroll.hasClients) return;
+                          if ((_scroll.offset - target).abs() > 4) {
+                            _scroll.animateTo(
+                              target,
+                              duration: const Duration(milliseconds: 260),
+                              curve: Curves.easeOutCubic,
+                            );
+                          }
+                        });
+                      }
+
+                      return FocusTraversalGroup(
+                        child: SingleChildScrollView(
+                          controller: _scroll,
+                          child: SizedBox(
+                            height: canvasH,
+                            width: constraints.maxWidth,
+                            child: Stack(
+                              children: [
+                                for (var i = 0; i < n; i++)
+                                  AnimatedPositioned(
+                                    key: ValueKey(widget.plugins[i].id),
+                                    duration: const Duration(milliseconds: 260),
+                                    curve: Curves.easeOutCubic,
+                                    left: colX(i % cols),
+                                    top: rowY(i ~/ cols),
+                                    width: i % cols == focusCol
+                                        ? wFocus
+                                        : wOther,
+                                    height: i ~/ cols == focusRow
+                                        ? hFocus
+                                        : baseH,
+                                    child: _PluginGridCard(
+                                      plugin: widget.plugins[i],
+                                      focusNode: _cardNodes[i],
+                                      isDimmed:
+                                          _drawerPlugin == null &&
+                                          _focusedCardIndex != null &&
+                                          _focusedCardIndex != i,
+                                      onFocusChanged: (focused) {
+                                        setState(() {
+                                          if (focused) {
+                                            _focusedCardIndex = i;
+                                          } else if (_focusedCardIndex == i) {
+                                            _focusedCardIndex = null;
+                                          }
+                                        });
+                                      },
+                                      onMove: (dx, dy) => _moveFocus(i, dx, dy),
+                                      onOpen: () => _openDrawer(i),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                // Gamepad hint bar — same convention as the Settings screen.
+                Padding(
+                  padding: EdgeInsets.fromLTRB(16, 6, 16, 10 + bottomInset),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      GamepadHintIcon('A', size: 16),
+                      const SizedBox(width: 4),
+                      Text(
+                        isEs ? 'Configurar' : 'Configure',
+                        style: TextStyle(
+                          color: Theme.of(
+                            context,
+                          ).colorScheme.onSurface.withValues(alpha: 0.45),
+                          fontSize: 11,
+                        ),
+                      ),
+                      const SizedBox(width: 18),
+                      GamepadHintIcon('X', size: 16),
+                      const SizedBox(width: 4),
+                      Text(
+                        isEs ? 'Activar' : 'Toggle',
+                        style: TextStyle(
+                          color: Theme.of(
+                            context,
+                          ).colorScheme.onSurface.withValues(alpha: 0.45),
+                          fontSize: 11,
+                        ),
+                      ),
+                      const SizedBox(width: 18),
+                      GamepadHintIcon('B', size: 16),
+                      const SizedBox(width: 4),
+                      Text(
+                        isEs ? 'Atrás' : 'Back',
+                        style: TextStyle(
+                          color: Theme.of(
+                            context,
+                          ).colorScheme.onSurface.withValues(alpha: 0.45),
+                          fontSize: 11,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (_drawerPlugin != null) ...[
+            // Scrim — isolates the drawer, tap to dismiss.
+            Positioned.fill(
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: _closeDrawer,
+                child: Container(color: Colors.black.withValues(alpha: 0.55)),
+              ),
+            ),
+            Positioned(
+              top: 0,
+              bottom: 0,
+              right: 0,
+              width: math.min(480, MediaQuery.sizeOf(context).width * 0.92),
+              child: TweenAnimationBuilder<double>(
+                tween: Tween(begin: 1, end: 0),
+                duration: const Duration(milliseconds: 220),
+                curve: Curves.easeOutCubic,
+                builder: (context, dx, child) => FractionalTranslation(
+                  translation: Offset(dx, 0),
+                  child: child,
+                ),
+                child: _PluginSettingsDrawer(
+                  key: ValueKey(_drawerPlugin!.id),
+                  plugin: _drawerPlugin!,
+                  focusNode: _drawerFocusNode,
+                  onClose: _closeDrawer,
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// One tile of the plugin grid: icon, name, type, truncated description,
+/// status pill and a touch toggle. The tile fills whatever rect the bento
+/// layout assigns it; only decoration and content react to focus here.
+class _PluginGridCard extends StatefulWidget {
+  const _PluginGridCard({
+    required this.plugin,
+    required this.focusNode,
+    required this.isDimmed,
+    required this.onFocusChanged,
+    required this.onMove,
+    required this.onOpen,
+  });
+
+  final PluginConfig plugin;
+  final FocusNode focusNode;
+  final bool isDimmed;
+  final ValueChanged<bool> onFocusChanged;
+  final bool Function(int dx, int dy) onMove;
+  final VoidCallback onOpen;
+
+  @override
+  State<_PluginGridCard> createState() => _PluginGridCardState();
+}
+
+class _PluginGridCardState extends State<_PluginGridCard> {
+  bool _focused = false;
+  bool _pressed = false;
+
+  static const _motionDuration = Duration(milliseconds: 260);
+  static const _motionCurve = Curves.easeOutCubic;
+
+  // Tabler icons (via Iconify), bundled under assets/icons/plugins/.
+  static String _iconAssetFor(String id) => switch (id) {
+    'metadata' => 'assets/icons/plugins/world-search.svg',
+    'game_video' => 'assets/icons/plugins/video.svg',
+    'smart_genre_filters' => 'assets/icons/plugins/filter.svg',
+    'steam_connect' => 'assets/icons/plugins/brand-steam.svg',
+    'steam_library_info' => 'assets/icons/plugins/chart-dots.svg',
+    'startup_intro_video' => 'assets/icons/plugins/movie.svg',
+    'screensaver' => 'assets/icons/plugins/photo.svg',
+    _ => 'assets/icons/plugins/puzzle.svg',
+  };
+
+  String _localizedName(BuildContext context) {
+    final l = AppLocalizations.of(context);
+    return switch (widget.plugin.id) {
+      'steam_library_info' => l.steamLibraryInfoName,
+      'metadata_enrichment' => l.pluginMetadataName,
+      'rawg_trailer_video' => l.pluginVideoName,
+      _ => widget.plugin.name,
+    };
+  }
+
+  String _localizedDescription(BuildContext context) {
+    final l = AppLocalizations.of(context);
+    return switch (widget.plugin.id) {
+      'steam_library_info' => l.steamLibraryInfoDesc,
+      'metadata_enrichment' => l.pluginMetadataDesc,
+      'rawg_trailer_video' => l.pluginVideoDesc,
+      _ => widget.plugin.description,
+    };
+  }
+
+  void _toggle() {
+    final provider = context.read<PluginsProvider>();
+    final newState = !widget.plugin.enabled;
+    provider.setEnabled(widget.plugin.id, enabled: newState);
+    if (newState && context.mounted) {
+      context.read<AppListProvider>().triggerMetadataEnrichment();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final tp = context.read<ThemeProvider>();
+    final provider = context.watch<PluginsProvider>();
+    final enabled = widget.plugin.enabled;
+    final isEs = Localizations.localeOf(context).languageCode == 'es';
+
+    final cs = Theme.of(context).colorScheme;
+
+    final needsSetup =
+        enabled &&
+        ((widget.plugin.id == 'smart_genre_filters' &&
+                !provider.canUseSmartGenreFilters) ||
+            (widget.plugin.id == 'steam_library_info' &&
+                !provider.isEnabled('steam_connect')));
+
+    // Category uses the theme's two accent tones — no hardcoded hues.
+    final categoryColor = switch (widget.plugin.category) {
+      PluginCategory.metadata => tp.accentLight,
+      PluginCategory.extraMetadata => tp.secondary,
+    };
+    final categoryLabel = switch (widget.plugin.category) {
+      PluginCategory.metadata => 'Metadata',
+      PluginCategory.extraMetadata => 'Extra Metadata',
+    };
+
+    // Status pill — tinted from theme, not neon literals.
+    final pillBg = needsSetup
+        ? tp.warm.withValues(alpha: 0.18)
+        : enabled
+        ? tp.accent.withValues(alpha: 0.14)
+        : cs.onSurface.withValues(alpha: 0.07);
+    final pillFg = needsSetup
+        ? tp.warm
+        : enabled
+        ? tp.accentLight
+        : cs.onSurface.withValues(alpha: 0.40);
+    final pillText = needsSetup
+        ? (isEs ? 'Configurar' : 'Setup')
+        : enabled
+        ? (isEs ? 'Activo' : 'Active')
+        : 'Off';
+
+    return Focus(
+      focusNode: widget.focusNode,
+      onFocusChange: (f) {
+        setState(() => _focused = f);
+        widget.onFocusChanged(f);
+      },
+      onKeyEvent: (node, event) {
+        if (event is! KeyDownEvent) return KeyEventResult.ignored;
+        final key = event.logicalKey;
+        if (key == LogicalKeyboardKey.enter ||
+            key == LogicalKeyboardKey.select ||
+            key == LogicalKeyboardKey.gameButtonA) {
+          widget.onOpen();
+          return KeyEventResult.handled;
+        }
+        if (key == LogicalKeyboardKey.gameButtonX) {
+          _toggle();
+          return KeyEventResult.handled;
+        }
+        // Arrows are always consumed so geometric traversal never kicks in;
+        // at a grid edge the focus simply stays put.
+        if (key == LogicalKeyboardKey.arrowRight) {
+          widget.onMove(1, 0);
+          return KeyEventResult.handled;
+        }
+        if (key == LogicalKeyboardKey.arrowLeft) {
+          widget.onMove(-1, 0);
+          return KeyEventResult.handled;
+        }
+        if (key == LogicalKeyboardKey.arrowDown) {
+          widget.onMove(0, 1);
+          return KeyEventResult.handled;
+        }
+        if (key == LogicalKeyboardKey.arrowUp) {
+          widget.onMove(0, -1);
+          return KeyEventResult.handled;
+        }
+        return KeyEventResult.ignored;
+      },
+      child: RepaintBoundary(
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTapDown: (_) => setState(() => _pressed = true),
+          onTapCancel: () => setState(() => _pressed = false),
+          onTapUp: (_) => setState(() => _pressed = false),
+          onTap: () {
+            // First touch only focuses (hover equivalent); a second touch on
+            // the already-focused card opens the settings drawer.
+            if (widget.focusNode.hasFocus) {
+              widget.onOpen();
+            } else {
+              widget.focusNode.requestFocus();
+            }
+          },
+          child: AnimatedOpacity(
+            opacity: widget.isDimmed ? 0.70 : 1,
+            duration: _motionDuration,
+            curve: _motionCurve,
+            child: AnimatedScale(
+              scale: _pressed ? 0.985 : 1,
+              duration: _motionDuration,
+              curve: _motionCurve,
+              child: AnimatedContainer(
+                duration: _motionDuration,
+                curve: _motionCurve,
+                padding: EdgeInsets.all(_focused ? 18 : 14),
+                decoration: BoxDecoration(
+                  color: _focused
+                      ? Color.alphaBlend(
+                          tp.accent.withValues(alpha: 0.09),
+                          tp.surfaceVariant,
+                        )
+                      : tp.surface,
+                  borderRadius: BorderRadius.circular(_focused ? 20 : 16),
+                  border: Border.all(
+                    color: _focused
+                        ? tp.accent.withValues(alpha: 0.80)
+                        : cs.onSurface.withValues(
+                            alpha: widget.isDimmed ? 0.04 : 0.09,
+                          ),
+                    width: _focused ? 1.5 : 1,
+                  ),
+                  // Depth-only shadow — no coloured glow.
+                  boxShadow: _focused
+                      ? [
+                          BoxShadow(
+                            color: cs.shadow.withValues(alpha: 0.28),
+                            blurRadius: 20,
+                            offset: const Offset(0, 8),
+                          ),
+                        ]
+                      : [
+                          BoxShadow(
+                            color: cs.shadow.withValues(
+                              alpha: widget.isDimmed ? 0.06 : 0.14,
+                            ),
+                            blurRadius: 8,
+                            offset: const Offset(0, 3),
+                          ),
+                        ],
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        AnimatedScale(
+                          scale: _focused ? 1.10 : 1,
+                          duration: _motionDuration,
+                          curve: _motionCurve,
+                          child: SvgPicture.asset(
+                            _iconAssetFor(widget.plugin.id),
+                            width: 30,
+                            height: 30,
+                            colorFilter: ColorFilter.mode(
+                              enabled || _focused
+                                  ? tp.accentLight
+                                  : cs.onSurface.withValues(alpha: 0.35),
+                              BlendMode.srcIn,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                _localizedName(context),
+                                style: TextStyle(
+                                  color: cs.onSurface.withValues(
+                                    alpha: _focused ? 1.0 : 0.88,
+                                  ),
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 15,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              const SizedBox(height: 3),
+                              Row(
+                                children: [
+                                  Container(
+                                    width: 5,
+                                    height: 5,
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: categoryColor.withValues(
+                                        alpha: 0.75,
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 5),
+                                  Flexible(
+                                    child: Text(
+                                      categoryLabel,
+                                      style: TextStyle(
+                                        color: categoryColor.withValues(
+                                          alpha: 0.70,
+                                        ),
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 7,
+                            vertical: 3,
+                          ),
+                          decoration: BoxDecoration(
+                            color: pillBg,
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            pillText,
+                            style: TextStyle(
+                              color: pillFg,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w600,
+                              letterSpacing: 0.2,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    SizedBox(height: _focused ? 12 : 10),
+                    Expanded(
+                      child: Text(
+                        _localizedDescription(context),
+                        style: TextStyle(
+                          color: cs.onSurface.withValues(
+                            alpha: _focused ? 0.62 : 0.42,
+                          ),
+                          fontSize: 12,
+                          height: 1.4,
+                        ),
+                        maxLines: _focused ? 5 : 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.settings_outlined,
+                          size: 14,
+                          color: cs.onSurface.withValues(
+                            alpha: _focused ? 0.55 : 0.22,
+                          ),
+                        ),
+                        const Spacer(),
+                        ExcludeFocus(
+                          child: SizedBox(
+                            height: 28,
+                            child: FittedBox(
+                              fit: BoxFit.contain,
+                              child: Switch(
+                                value: enabled,
+                                activeThumbColor: tp.accent,
+                                onChanged: (_) => _toggle(),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Right-docked settings drawer hosting the full plugin configuration.
+class _PluginSettingsDrawer extends StatelessWidget {
+  const _PluginSettingsDrawer({
+    super.key,
+    required this.plugin,
+    required this.focusNode,
+    required this.onClose,
+  });
+
+  final PluginConfig plugin;
+  final FocusNode focusNode;
+  final VoidCallback onClose;
+
+  @override
+  Widget build(BuildContext context) {
+    final tp = context.read<ThemeProvider>();
+    final cs = Theme.of(context).colorScheme;
+    final isEs = Localizations.localeOf(context).languageCode == 'es';
+
+    return Container(
+      decoration: BoxDecoration(
+        color: tp.surfaceVariant,
+        borderRadius: const BorderRadius.only(
+          topLeft: Radius.circular(20),
+          bottomLeft: Radius.circular(20),
+        ),
+        border: Border(
+          left: BorderSide(color: cs.onSurface.withValues(alpha: 0.09)),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: cs.shadow.withValues(alpha: 0.38),
+            blurRadius: 32,
+            offset: const Offset(-6, 0),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: const BorderRadius.only(
+          topLeft: Radius.circular(20),
+          bottomLeft: Radius.circular(20),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 18, 16, 6),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      isEs ? 'AJUSTES DEL PLUGIN' : 'PLUGIN SETTINGS',
+                      style: TextStyle(
+                        color: cs.onSurface.withValues(alpha: 0.45),
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: 1.4,
+                      ),
+                    ),
+                  ),
+                  GamepadHintIcon('B', size: 15),
+                  const SizedBox(width: 4),
+                  Text(
+                    isEs ? 'Cerrar' : 'Close',
+                    style: TextStyle(
+                      color: cs.onSurface.withValues(alpha: 0.45),
+                      fontSize: 11,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  ExcludeFocus(
+                    child: IconButton(
+                      icon: Icon(
+                        Icons.close,
+                        size: 18,
+                        color: cs.onSurface.withValues(alpha: 0.50),
+                      ),
+                      onPressed: onClose,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: ListView(
+                padding: EdgeInsets.fromLTRB(
+                  16,
+                  4,
+                  16,
+                  300 + MediaQuery.paddingOf(context).bottom,
+                ),
+                children: [
+                  _PluginCard(
+                    plugin: plugin,
+                    detailMode: true,
+                    detailFocusNode: focusNode,
+                    onExitDetail: onClose,
+                  ),
+                ],
               ),
             ),
           ],
@@ -140,9 +926,20 @@ class _ApiKeyInfo {
 }
 
 class _PluginCard extends StatefulWidget {
-  const _PluginCard({required this.plugin});
+  const _PluginCard({
+    required this.plugin,
+    this.detailMode = false,
+    this.detailFocusNode,
+    this.onExitDetail,
+  });
 
   final PluginConfig plugin;
+
+  /// True when hosted in the settings drawer: always expanded, no collapse
+  /// chevron, B/left at the root hands focus back (closes the drawer).
+  final bool detailMode;
+  final FocusNode? detailFocusNode;
+  final VoidCallback? onExitDetail;
 
   @override
   State<_PluginCard> createState() => _PluginCardState();
@@ -172,6 +969,7 @@ class _PluginCardState extends State<_PluginCard> {
     _keyFocusNode = FocusNode(skipTraversal: true);
     _steamIdFocusNode = FocusNode(skipTraversal: true);
     _videPathFocusNode = FocusNode(skipTraversal: true);
+    if (widget.detailMode) _expanded = true;
     _loadApiKey();
   }
 
@@ -361,7 +1159,8 @@ class _PluginCardState extends State<_PluginCard> {
     final smartFiltersReady = provider.canUseSmartGenreFilters;
     // steam_connect is considered ready when a persona is stored (auto-connect
     // succeeded by either the key path or the keyless fallback path)
-    final steamConnectReady = widget.plugin.id == 'steam_connect' &&
+    final steamConnectReady =
+        widget.plugin.id == 'steam_connect' &&
         (_steamPersona != null && _steamPersona!.isNotEmpty);
     final statusNeedsSetup =
         (apiKeyInfo != null &&
@@ -387,6 +1186,7 @@ class _PluginCardState extends State<_PluginCard> {
         : 'Active';
 
     return Focus(
+      focusNode: widget.detailFocusNode,
       onFocusChange: (focused) {
         setState(() => _cardFocused = focused);
         if (focused) {
@@ -402,9 +1202,29 @@ class _PluginCardState extends State<_PluginCard> {
         final key = event.logicalKey;
 
         if (node.hasPrimaryFocus) {
+          if (widget.detailMode &&
+              (key == LogicalKeyboardKey.gameButtonB ||
+                  key == LogicalKeyboardKey.escape ||
+                  key == LogicalKeyboardKey.arrowLeft)) {
+            widget.onExitDetail?.call();
+            return KeyEventResult.handled;
+          }
+
           if (key == LogicalKeyboardKey.enter ||
               key == LogicalKeyboardKey.select ||
               key == LogicalKeyboardKey.gameButtonA) {
+            if (widget.detailMode) {
+              // Always expanded — A dives straight into the settings.
+              if (isEnabled) {
+                for (final d in node.descendants) {
+                  if (d.canRequestFocus && !d.skipTraversal) {
+                    d.requestFocus();
+                    return KeyEventResult.handled;
+                  }
+                }
+              }
+              return KeyEventResult.handled;
+            }
             setState(() => _expanded = !_expanded);
             return KeyEventResult.handled;
           }
@@ -482,7 +1302,9 @@ class _PluginCardState extends State<_PluginCard> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               GestureDetector(
-                onTap: () => setState(() => _expanded = !_expanded),
+                onTap: widget.detailMode
+                    ? null
+                    : () => setState(() => _expanded = !_expanded),
                 behavior: HitTestBehavior.opaque,
                 child: Row(
                   children: [
@@ -511,16 +1333,18 @@ class _PluginCardState extends State<_PluginCard> {
                       ),
                     ),
 
-                    AnimatedRotation(
-                      turns: _expanded ? 0.5 : 0.0,
-                      duration: const Duration(milliseconds: 200),
-                      child: Icon(
-                        Icons.expand_more,
-                        color: _cardFocused ? Colors.white : Colors.white38,
-                        size: 22,
+                    if (!widget.detailMode) ...[
+                      AnimatedRotation(
+                        turns: _expanded ? 0.5 : 0.0,
+                        duration: const Duration(milliseconds: 200),
+                        child: Icon(
+                          Icons.expand_more,
+                          color: _cardFocused ? Colors.white : Colors.white38,
+                          size: 22,
+                        ),
                       ),
-                    ),
-                    const SizedBox(width: 4),
+                      const SizedBox(width: 4),
+                    ],
 
                     ExcludeFocus(
                       child: Switch(
@@ -561,7 +1385,11 @@ class _PluginCardState extends State<_PluginCard> {
                       GamepadHintIcon('A', size: 14),
                       const SizedBox(width: 3),
                       Text(
-                        _expanded ? 'Collapse' : 'Expand',
+                        widget.detailMode
+                            ? 'Configure'
+                            : _expanded
+                            ? 'Collapse'
+                            : 'Expand',
                         style: const TextStyle(
                           color: Colors.white38,
                           fontSize: 9,
@@ -851,8 +1679,8 @@ class _PluginCardState extends State<_PluginCard> {
                               ? null
                               : () async {
                                   // Capture provider before any async gap
-                                  final provider =
-                                      context.read<PluginsProvider>();
+                                  final provider = context
+                                      .read<PluginsProvider>();
                                   final result = await SteamLoginScreen.show(
                                     context,
                                   );

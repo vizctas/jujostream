@@ -12,6 +12,9 @@ class TvFocusable extends StatefulWidget {
   final bool autofocus;
   final FocusNode? focusNode;
   final Color? focusColor;
+  final Color? focusFillColor;
+  final double focusBorderWidth;
+  final double focusScale;
   final double borderRadius;
 
   /// Removes the child's own focus nodes (TextField, buttons) from traversal
@@ -26,6 +29,9 @@ class TvFocusable extends StatefulWidget {
     this.autofocus = false,
     this.focusNode,
     this.focusColor,
+    this.focusFillColor,
+    this.focusBorderWidth = 3,
+    this.focusScale = 1.06,
     this.borderRadius = 12,
     this.excludeChildFocus = false,
   });
@@ -88,7 +94,8 @@ class _TvFocusableState extends State<TvFocusable> {
 
   @override
   Widget build(BuildContext context) {
-    final effectiveFocusColor = widget.focusColor ?? context.read<ThemeProvider>().accentLight;
+    final effectiveFocusColor =
+        widget.focusColor ?? context.read<ThemeProvider>().accentLight;
 
     return Focus(
       focusNode: _focus,
@@ -111,12 +118,13 @@ class _TvFocusableState extends State<TvFocusable> {
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 150),
           decoration: BoxDecoration(
+            color: _hasFocus ? widget.focusFillColor : null,
             borderRadius: BorderRadius.circular(widget.borderRadius),
             border: Border.all(
               color: _hasFocus ? effectiveFocusColor : Colors.transparent,
-              width: _hasFocus ? 3 : 0,
+              width: _hasFocus ? widget.focusBorderWidth : 0,
             ),
-            boxShadow: _hasFocus
+            boxShadow: _hasFocus && widget.focusScale > 1
                 ? [
                     BoxShadow(
                       color: Colors.black.withValues(alpha: 0.30),
@@ -127,7 +135,11 @@ class _TvFocusableState extends State<TvFocusable> {
                 : null,
           ),
           transform: _hasFocus
-              ? Matrix4.diagonal3Values(1.06, 1.06, 1.06)
+              ? Matrix4.diagonal3Values(
+                  widget.focusScale,
+                  widget.focusScale,
+                  widget.focusScale,
+                )
               : Matrix4.identity(),
           transformAlignment: Alignment.center,
           child: widget.excludeChildFocus
@@ -139,8 +151,6 @@ class _TvFocusableState extends State<TvFocusable> {
   }
 }
 
-double tvFontSize(double base) =>
-    base * TvDetector.instance.fontScale;
+double tvFontSize(double base) => base * TvDetector.instance.fontScale;
 
-double tvSpacing(double base) =>
-    base * TvDetector.instance.spacingScale;
+double tvSpacing(double base) => base * TvDetector.instance.spacingScale;

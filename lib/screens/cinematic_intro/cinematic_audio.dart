@@ -25,7 +25,7 @@ class CinematicAudio {
     await File(path).writeAsBytes(wav);
     _fallPlayer?.dispose();
     _fallPlayer = AudioPlayer();
-    await _fallPlayer!.setVolume(0.5);
+    await _fallPlayer!.setVolume(0.23);
     await _fallPlayer!.play(DeviceFileSource(path));
   }
 

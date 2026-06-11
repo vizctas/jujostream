@@ -233,10 +233,10 @@ class AppThemes {
   }
 
   static AppThemeId fromName(String? name) {
-    if (name == null) return AppThemeId.jujo;
+    if (name == null) return AppThemeId.oled;
     return AppThemeId.values.firstWhere(
       (e) => e.name == name,
-      orElse: () => AppThemeId.jujo,
+      orElse: () => AppThemeId.oled,
     );
   }
 }

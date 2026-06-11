@@ -205,9 +205,6 @@ class _SettingsScreenState extends State<SettingsScreen>
                       child: ListView(
                         padding: const EdgeInsets.only(top: 16, bottom: 160),
                         children: [
-                          _buildAccountCard(context),
-                          const SizedBox(height: 4),
-
                           _section(_tr(context, 'Appearance', 'Apariencia')),
                           _CollapsableSection(
                             title: _tr(
@@ -538,9 +535,8 @@ class _SettingsScreenState extends State<SettingsScreen>
                               'Pasa el audio del micrófono del cliente al dispositivo virtual en el servidor',
                             ),
                             c.clientMic,
-                            (v) => settings.updateConfig(
-                              c.copyWith(clientMic: v),
-                            ),
+                            (v) =>
+                                settings.updateConfig(c.copyWith(clientMic: v)),
                           ),
                           _buildKofiSection(context),
                         ],
@@ -694,7 +690,8 @@ class _SettingsScreenState extends State<SettingsScreen>
                               (v) => settings.updateConfig(
                                 c.copyWith(trackpadSensitivityX: v.toInt()),
                               ),
-                              labelBuilder: (v) => '${(v / 100).toStringAsFixed(1)}x',
+                              labelBuilder: (v) =>
+                                  '${(v / 100).toStringAsFixed(1)}x',
                             ),
                             _sliderTile(
                               _tr(
@@ -710,7 +707,8 @@ class _SettingsScreenState extends State<SettingsScreen>
                               (v) => settings.updateConfig(
                                 c.copyWith(trackpadSensitivityY: v.toInt()),
                               ),
-                              labelBuilder: (v) => '${(v / 100).toStringAsFixed(1)}x',
+                              labelBuilder: (v) =>
+                                  '${(v / 100).toStringAsFixed(1)}x',
                             ),
                           ],
 
@@ -1224,7 +1222,11 @@ class _SettingsScreenState extends State<SettingsScreen>
                           ),
                           if (c.enableSessionMetrics)
                             _sliderTile(
-                              _tr(context, 'Metrics Auto-Dismiss', 'Auto-cerrar métricas'),
+                              _tr(
+                                context,
+                                'Metrics Auto-Dismiss',
+                                'Auto-cerrar métricas',
+                              ),
                               c.metricsDismissSec == 0
                                   ? _tr(context, 'Off', 'Desactivado')
                                   : '${c.metricsDismissSec}s',
@@ -1565,6 +1567,7 @@ class _SettingsScreenState extends State<SettingsScreen>
     );
   }
 
+  // ignore: unused_element
   Widget _buildAccountCard(BuildContext context) {
     final auth = context.watch<AuthProvider>();
     final tp = context.watch<ThemeProvider>();

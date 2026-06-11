@@ -92,13 +92,25 @@ class NvHttpClient {
         final response = await client.get(Uri.parse(url)).timeout(timeout);
 
         if (response.statusCode == 200) {
-          final info = parseServerInfo(
-            response.body,
-            resolvedAddress,
-            httpPort,
-          );
-          info.pairStatusFromHttps = true;
-          return info;
+          // on_verify_failed (nvhttp.cpp) sends HTTP 200 with status_code="401" as an XML
+          // attribute when the client cert is unrecognized. extractXmlValue uses an element
+          // regex and misses attributes — without this check we'd return pairStatusFromHttps=true
+          // + pairState=notPaired, falsely treating the server as "HTTPS confirmed not paired".
+          final attrMatch = RegExp(r'status_code="(\d+)"').firstMatch(response.body);
+          final xmlAttrStatus = attrMatch?.group(1);
+          if (xmlAttrStatus != null && xmlAttrStatus != '200') {
+            _log.w('serverinfo HTTPS XML status_code=$xmlAttrStatus (cert unrecognized), '
+                'falling back to HTTP');
+            // fall through to HTTP fallback below
+          } else {
+            final info = parseServerInfo(
+              response.body,
+              resolvedAddress,
+              httpPort,
+            );
+            info.pairStatusFromHttps = true;
+            return info;
+          }
         }
         _log.w('serverinfo HTTPS ${response.statusCode}, falling back to HTTP');
       } finally {

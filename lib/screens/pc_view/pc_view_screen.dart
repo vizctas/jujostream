@@ -49,10 +49,7 @@ class PcViewScreen extends StatefulWidget {
           final slide = Tween<Offset>(
             begin: const Offset(0, 1),
             end: Offset.zero,
-          ).animate(CurvedAnimation(
-            parent: anim,
-            curve: Curves.easeOutCubic,
-          ));
+          ).animate(CurvedAnimation(parent: anim, curve: Curves.easeOutCubic));
           final fade = Tween<double>(begin: 0, end: 1).animate(
             CurvedAnimation(parent: anim, curve: const Interval(0, 0.5)),
           );
@@ -66,27 +63,31 @@ class PcViewScreen extends StatefulWidget {
     );
   }
 
-  static Future<void> doCloudSync(BuildContext context, AuthProvider auth) async {
+  static Future<void> doCloudSync(
+    BuildContext context,
+    AuthProvider auth,
+  ) async {
     final ok = await auth.pushToCloud();
     if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          ok ? 'Synced to cloud' : 'Sync failed: ${auth.cloudError ?? 'Unknown error'}',
+          ok
+              ? 'Synced to cloud'
+              : 'Sync failed: ${auth.cloudError ?? 'Unknown error'}',
         ),
       ),
     );
   }
 
   static void showAccountPicker(BuildContext context, AuthProvider auth) {
-    final brightness = Theme.of(context).brightness;
-    final isLight = brightness == Brightness.light;
+    final tp = context.read<ThemeProvider>();
 
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
       builder: (ctx) {
-        return _AccountPickerBottomSheet(auth: auth, isLight: isLight);
+        return _AccountPickerBottomSheet(auth: auth, theme: tp);
       },
     );
   }
@@ -418,7 +419,8 @@ class _PcViewScreenState extends State<PcViewScreen>
                         tooltip: 'More options',
                         color: iconColor,
                         onPressed: () => _showMoreMenu(context),
-                        onNav: (dir) => _handleIconNav(0, dir, auth.isSignedIn ? 4 : 3),
+                        onNav: (dir) =>
+                            _handleIconNav(0, dir, auth.isSignedIn ? 4 : 3),
                       ),
                     ],
                   ),
@@ -436,7 +438,8 @@ class _PcViewScreenState extends State<PcViewScreen>
                         ),
                       );
                     },
-                    onNav: (dir) => _handleIconNav(1, dir, auth.isSignedIn ? 4 : 3),
+                    onNav: (dir) =>
+                        _handleIconNav(1, dir, auth.isSignedIn ? 4 : 3),
                   ),
                   const SizedBox(width: 4),
                   if (!auth.isSignedIn)
@@ -465,7 +468,8 @@ class _PcViewScreenState extends State<PcViewScreen>
                       icon: Icons.account_circle,
                       tooltip: 'Account',
                       color: iconColor,
-                      onPressed: () => PcViewScreen.showAccountPicker(context, auth),
+                      onPressed: () =>
+                          PcViewScreen.showAccountPicker(context, auth),
                       onNav: (dir) => _handleIconNav(3, dir, 4),
                     ),
                   ],
@@ -691,8 +695,6 @@ class _PcViewScreenState extends State<PcViewScreen>
       ),
     ]);
   }
-
-
 
   void _doExit() {
     if (io.Platform.isWindows || io.Platform.isMacOS || io.Platform.isLinux) {
@@ -999,7 +1001,8 @@ class _PcViewScreenState extends State<PcViewScreen>
       if (!mounted) return;
       if (!ok) {
         final mfa = context.read<CloudMfaProvider>();
-        final hasSession = SupabaseConfig.current.isConfigured &&
+        final hasSession =
+            SupabaseConfig.current.isConfigured &&
             Supabase.instance.client.auth.currentSession != null;
         if (computer.isCloud &&
             hasSession &&
@@ -1398,16 +1401,29 @@ class _ComputerCardState extends State<_ComputerCard> {
                         children: [
                           if (widget.computer.isCloud)
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 2,
+                              ),
                               decoration: BoxDecoration(
-                                color: Colors.blueAccent.withValues(alpha: 0.15),
+                                color: Colors.blueAccent.withValues(
+                                  alpha: 0.15,
+                                ),
                                 borderRadius: BorderRadius.circular(4),
-                                border: Border.all(color: Colors.blueAccent.withValues(alpha: 0.3)),
+                                border: Border.all(
+                                  color: Colors.blueAccent.withValues(
+                                    alpha: 0.3,
+                                  ),
+                                ),
                               ),
                               child: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  const Icon(Icons.cloud, size: 12, color: Colors.blueAccent),
+                                  const Icon(
+                                    Icons.cloud,
+                                    size: 12,
+                                    color: Colors.blueAccent,
+                                  ),
                                   const SizedBox(width: 4),
                                   Text(
                                     'CLOUD',
@@ -1947,63 +1963,6 @@ class _MainMenuDialogState extends State<_MainMenuDialog> {
                                   order: 0,
                                   autofocus: true,
                                   compact: compact,
-                                  icon: Icons.person_outline,
-                                  iconBubble: tp.accent.withValues(alpha: 0.17),
-                                  iconColor: tp.accent,
-                                  label: l.myProfile,
-                                  accentColor: tp.accent,
-                                  onTap: () {
-                                    final nav = Navigator.of(
-                                      widget.parentContext,
-                                    );
-                                    Navigator.pop(context);
-                                    nav.push(
-                                      MaterialPageRoute(
-                                        builder: (_) => const ProfileScreen(),
-                                      ),
-                                    );
-                                  },
-                                ),
-                                _DialogMenuItemTile(
-                                  order: 1,
-                                  compact: compact,
-                                  icon: Icons.info_outline,
-                                  iconBubble: tp.accent.withValues(alpha: 0.17),
-                                  iconColor: tp.secondary,
-                                  label: l.about,
-                                  accentColor: tp.accent,
-                                  onTap: () {
-                                    final nav = Navigator.of(
-                                      widget.parentContext,
-                                    );
-                                    Navigator.pop(context);
-                                    nav.push(
-                                      MaterialPageRoute(
-                                        builder: (_) => const AboutScreen(),
-                                      ),
-                                    );
-                                  },
-                                ),
-                                _DialogMenuItemTile(
-                                  order: 2,
-                                  compact: compact,
-                                  icon: Icons.smartphone_outlined,
-                                  iconBubble: tp.accentLight.withValues(
-                                    alpha: 0.17,
-                                  ),
-                                  iconColor: tp.accent,
-                                  label: l.configureFromPhoneBtn,
-                                  accentColor: tp.accent,
-                                  onTap: () {
-                                    Navigator.pop(context);
-                                    CompanionQrScreen.show(
-                                      widget.parentContext,
-                                    );
-                                  },
-                                ),
-                                _DialogMenuItemTile(
-                                  order: 3,
-                                  compact: compact,
                                   icon: Icons.center_focus_strong_outlined,
                                   iconBubble: tp.accentLight.withValues(
                                     alpha: 0.17,
@@ -2035,7 +1994,7 @@ class _MainMenuDialogState extends State<_MainMenuDialog> {
                                   },
                                 ),
                                 _DialogMenuItemTile(
-                                  order: 4,
+                                  order: 1,
                                   compact: compact,
                                   icon: Icons.grid_view_rounded,
                                   iconBubble: tp.accentLight.withValues(
@@ -2047,6 +2006,43 @@ class _MainMenuDialogState extends State<_MainMenuDialog> {
                                   onTap: () {
                                     Navigator.pop(context);
                                     widget.onRearrange?.call();
+                                  },
+                                ),
+                                _DialogMenuItemTile(
+                                  order: 2,
+                                  compact: compact,
+                                  icon: Icons.info_outline,
+                                  iconBubble: tp.accent.withValues(alpha: 0.17),
+                                  iconColor: tp.secondary,
+                                  label: l.about,
+                                  accentColor: tp.accent,
+                                  onTap: () {
+                                    final nav = Navigator.of(
+                                      widget.parentContext,
+                                    );
+                                    Navigator.pop(context);
+                                    nav.push(
+                                      MaterialPageRoute(
+                                        builder: (_) => const AboutScreen(),
+                                      ),
+                                    );
+                                  },
+                                ),
+                                _DialogMenuItemTile(
+                                  order: 3,
+                                  compact: compact,
+                                  icon: Icons.smartphone_outlined,
+                                  iconBubble: tp.accentLight.withValues(
+                                    alpha: 0.17,
+                                  ),
+                                  iconColor: tp.accent,
+                                  label: l.configureFromPhoneBtn,
+                                  accentColor: tp.accent,
+                                  onTap: () {
+                                    Navigator.pop(context);
+                                    CompanionQrScreen.show(
+                                      widget.parentContext,
+                                    );
                                   },
                                 ),
                                 SizedBox(height: compact ? 6 : 10),
@@ -2180,8 +2176,6 @@ class _MainMenuDialogState extends State<_MainMenuDialog> {
       ),
     );
   }
-
-
 }
 
 class _DialogMenuItemTile extends StatefulWidget {
@@ -2454,20 +2448,18 @@ class _GoogleSignInButtonState extends State<_GoogleSignInButton> {
 
 class _AccountPickerBottomSheet extends StatelessWidget {
   final AuthProvider auth;
-  final bool isLight;
+  final ThemeProvider theme;
 
-  const _AccountPickerBottomSheet({
-    required this.auth,
-    required this.isLight,
-  });
+  const _AccountPickerBottomSheet({required this.auth, required this.theme});
 
   @override
   Widget build(BuildContext context) {
+    final isLight = theme.colors.isLight;
     return AnimatedContainer(
       duration: const Duration(milliseconds: 350),
       curve: Curves.easeOutCubic,
       decoration: BoxDecoration(
-        color: isLight ? Colors.white : const Color(0xFF1C1C1E),
+        color: theme.surface,
         borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
       ),
       child: SafeArea(
@@ -2480,7 +2472,7 @@ class _AccountPickerBottomSheet extends StatelessWidget {
                 width: 36,
                 height: 4,
                 decoration: BoxDecoration(
-                  color: isLight ? Colors.black26 : Colors.white24,
+                  color: theme.muted.withValues(alpha: isLight ? 0.34 : 0.62),
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
@@ -2493,9 +2485,7 @@ class _AccountPickerBottomSheet extends StatelessWidget {
                   Navigator.pop(context);
                   Navigator.push(
                     context,
-                    MaterialPageRoute(
-                      builder: (_) => const ProfileScreen(),
-                    ),
+                    MaterialPageRoute(builder: (_) => const ProfileScreen()),
                   );
                 },
               ),
@@ -2520,8 +2510,7 @@ class _AccountPickerBottomSheet extends StatelessWidget {
                   showDialog(
                     context: context,
                     builder: (ctx2) => AlertDialog(
-                      backgroundColor:
-                          isLight ? Colors.white : const Color(0xFF1C1C1E),
+                      backgroundColor: theme.surface,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(16),
                       ),
@@ -2545,9 +2534,7 @@ class _AccountPickerBottomSheet extends StatelessWidget {
                           child: Text(
                             'Cancel',
                             style: TextStyle(
-                              color: isLight
-                                  ? Colors.black54
-                                  : Colors.white54,
+                              color: isLight ? Colors.black54 : Colors.white54,
                             ),
                           ),
                         ),
@@ -2643,7 +2630,8 @@ class _PickerItemTileState extends State<_PickerItemTile> {
             children: [
               Icon(
                 widget.icon,
-                color: widget.color ?? (isLight ? Colors.black87 : Colors.white),
+                color:
+                    widget.color ?? (isLight ? Colors.black87 : Colors.white),
                 size: 20,
               ),
               const SizedBox(width: 16),
@@ -2653,7 +2641,8 @@ class _PickerItemTileState extends State<_PickerItemTile> {
                   style: TextStyle(
                     color: selected
                         ? (isLight ? Colors.black87 : Colors.white)
-                        : (widget.color ?? (isLight ? Colors.black54 : Colors.white70)),
+                        : (widget.color ??
+                              (isLight ? Colors.black54 : Colors.white70)),
                     fontSize: 15,
                     fontWeight: selected ? FontWeight.bold : FontWeight.w600,
                   ),

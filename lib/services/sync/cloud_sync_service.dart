@@ -26,7 +26,7 @@ class CloudSyncService {
   /// Grace period timestamps for cloud-paired servers.
   /// Prevents the next poll from flipping pairState back to notPaired while
   /// the async _attemptCloudPairing POST is in flight or just completed.
-  static const Duration _cloudPairingGrace = Duration(seconds: 20);
+  static const Duration _cloudPairingGrace = Duration(seconds: 60);
   final Map<String, DateTime> _cloudPairingGraceTimestamps = {};
 
   /// Returns true if the given server key (UUID or localAddress) is within
@@ -744,62 +744,103 @@ class CloudSyncService {
       final ioClient = HttpClient()
         ..badCertificateCallback = (cert, host, port) => true;
       final client = IOClient(ioClient);
-      
-      try {
-        final response = await client.post(
-          uri,
-          headers: {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
-          },
-          body: body,
-        ).timeout(const Duration(seconds: 10));
 
-        if (response.statusCode == 200) {
-          final resBody = jsonDecode(response.body) as Map<String, dynamic>;
-          if (resBody['status'] == true) {
-            _log.i('Cloud pairing succeeded with $serverUrl');
-            // Update the computer object in-memory and persist so the UI
-            // immediately reflects paired state without waiting for the next poll.
-            computer.pairState = PairState.paired;
-            computer.pairStatusFromHttps = true;
-            _cloudPairingGraceTimestamps[
-              computer.uuid.isNotEmpty ? computer.uuid : computer.localAddress
-            ] = DateTime.now();
-            // Re-persist all computers with updated state.
-            final prefs = await SharedPreferences.getInstance();
-            final saved = prefs.getStringList(_kSavedComputers) ?? [];
-            final updatedList = <String>[];
-            for (final entry in saved) {
-              try {
-                final map = jsonDecode(entry) as Map<String, dynamic>;
-                final c = ComputerDetails.fromJson(map);
-                if ((computer.uuid.isNotEmpty && c.uuid == computer.uuid) ||
-                    (c.localAddress.isNotEmpty &&
-                        c.localAddress == computer.localAddress)) {
-                  c.pairState = PairState.paired;
-                  updatedList.add(jsonEncode(c.toJson()));
-                } else {
-                  updatedList.add(entry);
+      try {
+        const maxAttempts = 3;
+        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+          try {
+            final response = await client.post(
+              uri,
+              headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+              },
+              body: body,
+            ).timeout(const Duration(seconds: 10));
+
+            if (response.statusCode == 200) {
+              final resBody = jsonDecode(response.body) as Map<String, dynamic>;
+              if (resBody['status'] == true) {
+                _log.i('Cloud pairing succeeded with $serverUrl');
+                // Update the computer object in-memory and persist so the UI
+                // immediately reflects paired state without waiting for the next poll.
+                computer.pairState = PairState.paired;
+                computer.pairStatusFromHttps = true;
+                _cloudPairingGraceTimestamps[
+                  computer.uuid.isNotEmpty ? computer.uuid : computer.localAddress
+                ] = DateTime.now();
+                // Re-persist all computers with updated state.
+                final prefs = await SharedPreferences.getInstance();
+                final saved = prefs.getStringList(_kSavedComputers) ?? [];
+                final updatedList = <String>[];
+                for (final entry in saved) {
+                  try {
+                    final map = jsonDecode(entry) as Map<String, dynamic>;
+                    final c = ComputerDetails.fromJson(map);
+                    if ((computer.uuid.isNotEmpty && c.uuid == computer.uuid) ||
+                        (c.localAddress.isNotEmpty &&
+                            c.localAddress == computer.localAddress)) {
+                      c.pairState = PairState.paired;
+                      updatedList.add(jsonEncode(c.toJson()));
+                    } else {
+                      updatedList.add(entry);
+                    }
+                  } catch (_) {
+                    updatedList.add(entry);
+                  }
                 }
-              } catch (_) {
-                updatedList.add(entry);
+                await prefs.setStringList(_kSavedComputers, updatedList);
+                // Fire sync-completed so ComputerProvider reloads.
+                _syncCompletedController.add(null);
+                return;
+              } else {
+                _log.w('Cloud pairing rejected by $serverUrl: ${resBody["error"]}');
+                return; // business rejection — don't retry
               }
+            } else {
+              _log.w('Cloud pairing HTTP ${response.statusCode} from $serverUrl '
+                  '(attempt $attempt/$maxAttempts)');
+              // server error — retry after backoff
             }
-            await prefs.setStringList(_kSavedComputers, updatedList);
-            // Fire sync-completed so ComputerProvider reloads.
-            _syncCompletedController.add(null);
-          } else {
-            _log.w('Cloud pairing rejected by $serverUrl: ${resBody["error"]}');
+          } catch (e) {
+            _log.w('Cloud pairing attempt $attempt/$maxAttempts failed for $serverUrl: $e');
           }
-        } else {
-          _log.w('Cloud pairing HTTP ${response.statusCode} from $serverUrl: ${response.body}');
+          if (attempt < maxAttempts) {
+            await Future.delayed(Duration(seconds: attempt * 3));
+          }
         }
       } finally {
         client.close();
       }
     } catch (e) {
       _log.w('Cloud pairing failed for $serverUrl: $e');
+    }
+  }
+
+  /// Re-fires cloud pairing for any `isCloud` server not yet confirmed paired.
+  /// Called on app resume so a failed login-time POST gets another chance.
+  Future<void> retryUnpairedCloudServers(String token) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final saved = prefs.getStringList(_kSavedComputers) ?? [];
+      final now = DateTime.now();
+      for (final entry in saved) {
+        try {
+          final computer =
+              ComputerDetails.fromJson(jsonDecode(entry) as Map<String, dynamic>);
+          if (!computer.isCloud) continue;
+          if (computer.pairState == PairState.paired) continue;
+          final host = computer.manualAddress.isNotEmpty
+              ? computer.manualAddress
+              : computer.localAddress;
+          if (host.isEmpty) continue;
+          final graceKey = computer.uuid.isNotEmpty ? computer.uuid : host;
+          _cloudPairingGraceTimestamps[graceKey] = now;
+          unawaited(_attemptCloudPairing('https://$host:${_configPort(computer)}', token, computer));
+        } catch (_) {}
+      }
+    } catch (e) {
+      _log.w('retryUnpairedCloudServers failed: $e');
     }
   }
 }

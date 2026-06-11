@@ -161,6 +161,8 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
       // Trigger an immediate poll so the UI updates without waiting for the
       // next timer tick (3s).
       _pollAll();
+      // Re-attempt cloud pairing for any server that failed at login time.
+      _retryCloudPairingOnResume();
     } else {
       _pollTimer?.cancel();
       _pollTimer = null;
@@ -754,6 +756,12 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
   /// nvhttp HTTPS at base-5, so the offset is always 6.
   static int _configPort(ComputerDetails c) =>
       c.configHttpsPort > 0 ? c.configHttpsPort : c.httpsPort + 6;
+
+  void _retryCloudPairingOnResume() {
+    final session = Supabase.instance.client.auth.currentSession;
+    if (session == null) return;
+    unawaited(CloudSyncService.instance.retryUnpairedCloudServers(session.accessToken));
+  }
 
   Future<bool> _attemptCloudPairingOnTheFly(ComputerDetails computer) async {
     try {

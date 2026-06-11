@@ -66,6 +66,7 @@ dependencies:
   supabase_flutter: ^2.12.4
   flutter_secure_storage: ^10.0.0
   flutter_animate: ^4.5.2
+  flutter_svg: ^2.0.10
 
   # Google Sign-In + Drive API for cloud config sync
   google_sign_in: ^7.2.0
@@ -95,6 +96,7 @@ flutter:
   uses-material-design: true
 
   assets:
+    - assets/icons/plugins/
     - assets/images/
     - assets/images/avatar/
     - assets/images/focus/
