@@ -85,3 +85,4 @@ devtools_options.yaml
 .github/instructions/codacy.instructions.md
 android/.kotlin/sessions/kotlin-compiler-7137538555249836085.salive
 dist/
+*logcat*
