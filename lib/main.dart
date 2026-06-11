@@ -13,7 +13,7 @@ import 'providers/auth_provider.dart';
 import 'providers/cloud_mfa_provider.dart';
 import 'services/auth/supabase_config.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'screens/onboarding/onboarding_screen.dart';
+import 'screens/cinematic_intro/cinematic_intro_screen.dart';
 import 'screens/auth/cloud_auth_screen.dart';
 import 'providers/computer_provider.dart';
 import 'providers/app_list_provider.dart';
@@ -187,10 +187,8 @@ class _FirstRunGate extends StatefulWidget {
 
 class _FirstRunGateState extends State<_FirstRunGate>
     with WidgetsBindingObserver {
-  static const _prefKey = 'first_run_shown';
   bool _checked = false;
-  bool _shouldShow = false;
-  bool _disclaimerShowing = false;
+  bool _showCinematic = true;
   bool _showStartupVideo = false;
   String? _startupVideoPath;
   bool _focusModeEnabled = false;
@@ -221,7 +219,6 @@ class _FirstRunGateState extends State<_FirstRunGate>
 
   Future<void> _check() async {
     final prefs = await SharedPreferences.getInstance();
-    final shown = prefs.getBool(_prefKey) ?? false;
     final startupEnabled =
         prefs.getBool('plugin_enabled_startup_intro_video') ?? false;
     final startupPath = prefs.getString(
@@ -231,144 +228,32 @@ class _FirstRunGateState extends State<_FirstRunGate>
         startupPath != null &&
         startupPath.isNotEmpty &&
         await io.File(startupPath).exists();
-    final videoTrigger =
-        prefs.getString(
-          PluginsProvider.settingPref('startup_intro_video', 'video_trigger'),
-        ) ??
-        'before_app';
     final focusMode = prefs.getBool('focus_mode_enabled') ?? false;
     if (!mounted) return;
     setState(() {
       _checked = true;
-      _shouldShow = !shown;
-      _showStartupVideo =
-          startupEnabled && startupPathExists && videoTrigger == 'before_app';
+      _showStartupVideo = startupEnabled && startupPathExists;
       _startupVideoPath = startupPath;
       _focusModeEnabled = focusMode;
     });
-    if (_shouldShow && !_disclaimerShowing) {
-      _disclaimerShowing = true;
-      WidgetsBinding.instance.addPostFrameCallback((_) => _showDisclaimer());
-    }
   }
 
-  Future<void> _showDisclaimer() async {
-    final l = AppLocalizations.of(context);
-    final isEs = l.locale.languageCode == 'es';
-    await showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => Focus(
-        skipTraversal: true,
-        onKeyEvent: (_, event) {
-          if (event is! KeyDownEvent) return KeyEventResult.ignored;
-          final key = event.logicalKey;
-          if (key == LogicalKeyboardKey.gameButtonB ||
-              key == LogicalKeyboardKey.escape ||
-              key == LogicalKeyboardKey.goBack) {
-            SharedPreferences.getInstance().then(
-              (p) => p.setBool(_prefKey, true),
-            );
-            Navigator.pop(ctx);
-            return KeyEventResult.handled;
-          }
-          if (key == LogicalKeyboardKey.gameButtonA ||
-              key == LogicalKeyboardKey.enter ||
-              key == LogicalKeyboardKey.select) {
-            SharedPreferences.getInstance().then(
-              (p) => p.setBool(_prefKey, true),
-            );
-            Navigator.pop(ctx);
-            return KeyEventResult.handled;
-          }
-          return KeyEventResult.ignored;
-        },
-        child: AlertDialog(
-          backgroundColor: ctx.read<ThemeProvider>().colors.surface,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(18),
-          ),
-          title: Row(
-            children: [
-              Icon(
-                Icons.info_outline,
-                color: ctx.read<ThemeProvider>().colors.accentLight,
-                size: 24,
-              ),
-              const SizedBox(width: 10),
-              Text(
-                isEs ? 'Bienvenido a JUJO.Stream' : 'Welcome to JUJO.Stream',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 18,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ],
-          ),
-          content: Text(
-            isEs
-                ? 'Para la mejor experiencia, se recomienda usar JUJO.Stream junto con '
-                      'Vibepollo + Playnite o Sunshine + PlayniteWatcher.\n\n'
-                      'Si no usas Vibepollo, puedes agregar tus juegos manualmente '
-                      'desde las apps del servidor (Sunshine/Apollo).\n\n'
-                      'Activa los plugins de Metadatos y Videos en la sección de Plugins '
-                      'para enriquecer tu biblioteca automáticamente.'
-                : 'For the best experience, it is recommended to use JUJO.Stream together with '
-                      'Vibepollo + Playnite or Sunshine + PlayniteWatcher.\n\n'
-                      'If you don\'t use Vibepollo, you can add your games manually '
-                      'from the server apps (Sunshine/Apollo).\n\n'
-                      'Enable the Metadata and Video plugins in the Plugins section '
-                      'to automatically enrich your library.',
-            style: const TextStyle(
-              color: Colors.white70,
-              fontSize: 14,
-              height: 1.5,
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () async {
-                final prefs = await SharedPreferences.getInstance();
-                await prefs.setBool(_prefKey, true);
-                if (ctx.mounted) Navigator.pop(ctx);
-              },
-              child: Text(
-                isEs ? 'Entendido' : 'Got it',
-                style: TextStyle(
-                  color: ctx.read<ThemeProvider>().colors.accentLight,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-
-    PcViewScreen.pendingTour.value = true;
+  void _onCinematicComplete() {
+    if (!mounted) return;
+    setState(() => _showCinematic = false);
   }
 
   @override
   Widget build(BuildContext context) {
     if (!_checked) {
       return Scaffold(
-        backgroundColor: context.read<ThemeProvider>().background,
+        backgroundColor: const Color(0xFF000000),
         body: const Center(child: CircularProgressIndicator()),
       );
     }
-    
-    // If onboarding is not completed, show OnboardingScreen
-    if (_shouldShow) {
-      return const OnboardingScreen();
-    }
-    
-    // If logged in via Jujo Cloud (Supabase), but 2FA is not satisfied, lock them out
-    final mfa = context.watch<CloudMfaProvider>();
-    final hasSession = SupabaseConfig.current.isConfigured && 
-                       Supabase.instance.client.auth.currentSession != null;
-    if (hasSession && mfa.blocksCloudUser) {
-      return const CloudAuthScreen(isFirstRun: false);
+
+    if (_showCinematic) {
+      return CinematicIntroScreen(onComplete: _onCinematicComplete);
     }
 
     final Widget base = _focusModeEnabled
