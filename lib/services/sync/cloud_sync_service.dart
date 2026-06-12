@@ -307,109 +307,49 @@ class CloudSyncService {
       final primaryServerUuid = prefs.getString(_kPrimaryServerKey);
       final customOrder = prefs.getStringList(_kCustomOrderKey) ?? const [];
 
-      // Fetch existing cloud profiles to detect conflicting server URLs for the same cert fingerprint
+      // Only the server's cloud agent creates/owns user_server_profiles rows.
+      // The client only UPDATES preference fields (is_default, display_order)
+      // on rows that already exist — never inserts, never touches server_url.
       final cloudProfilesResponse = await client
           .from('user_server_profiles')
-          .select('id, server_url, cert_fingerprint')
+          .select('id, server_url, cert_fingerprint, local_addresses, server_uuid')
           .eq('user_id', userId);
       final cloudProfiles = cloudProfilesResponse as List<dynamic>;
 
-      final List<Map<String, dynamic>> rows = [];
-      final Set<String> seenCerts = {};
-      final List<String> idsToDelete = [];
-
+      int updated = 0;
       for (final entry in savedComputers) {
         try {
           final map = jsonDecode(entry) as Map<String, dynamic>;
           final computer = ComputerDetails.fromJson(map);
 
-          final host = computer.manualAddress.isNotEmpty
-              ? computer.manualAddress
-              : computer.localAddress;
-          if (host.isEmpty) continue;
-
-          final cert = computer.serverCert.trim();
-          final certValue = cert.isNotEmpty ? cert : null;
-
-          if (certValue != null) {
-            final certLower = certValue.toLowerCase();
-            if (seenCerts.contains(certLower)) {
-              _log.w('pushConfigToSupabase: skipping duplicate cert fingerprint: $certValue');
-              continue;
-            }
-            seenCerts.add(certLower);
-
-            // Detect conflict: cloud has this cert but under a different URL
-            for (final row in cloudProfiles) {
-              final cloudMap = row as Map<String, dynamic>;
-              final cloudCert = cloudMap['cert_fingerprint']?.toString().trim();
-              if (cloudCert != null && cloudCert.toLowerCase() == certLower) {
-                final port = computer.httpsPort > 0 ? computer.httpsPort : 47984;
-                final serverUrl = 'https://$host:$port';
-                final cloudUrl = cloudMap['server_url']?.toString() ?? '';
-                if (cloudUrl != serverUrl) {
-                  _log.i('pushConfigToSupabase: URL changed for cert $certValue (cloud: $cloudUrl, local: $serverUrl). Scheduling delete.');
-                  idsToDelete.add(cloudMap['id']?.toString() ?? '');
-                }
-              }
+          Map<String, dynamic>? matchedRow;
+          for (final row in cloudProfiles) {
+            if (_doesMatch(computer, row as Map<String, dynamic>)) {
+              matchedRow = row;
+              break;
             }
           }
+          if (matchedRow == null) continue;
 
-          final port = computer.httpsPort > 0 ? computer.httpsPort : 47984;
-          final serverUrl = 'https://$host:$port';
-
-          final localAddresses = <String>[];
-          if (computer.localAddress.isNotEmpty) {
-            localAddresses.add(computer.localAddress);
-          }
-          if (computer.activeAddress.isNotEmpty &&
-              !localAddresses.contains(computer.activeAddress)) {
-            localAddresses.add(computer.activeAddress);
-          }
-          if (computer.manualAddress.isNotEmpty &&
-              !localAddresses.contains(computer.manualAddress)) {
-            localAddresses.add(computer.manualAddress);
-          }
+          final rowId = matchedRow['id']?.toString();
+          if (rowId == null || rowId.isEmpty) continue;
 
           final key = computer.uuid.isNotEmpty ? computer.uuid : computer.localAddress;
           final orderIndex = customOrder.indexOf(key);
           final displayOrder = orderIndex >= 0 ? orderIndex : 0;
-
           final isDefault = computer.uuid.isNotEmpty && computer.uuid == primaryServerUuid;
 
-          rows.add({
-            'user_id': userId,
-            'server_url': serverUrl,
-            'server_name': computer.name,
-            'local_addresses': localAddresses,
-            'cert_fingerprint': certValue,
+          await client.from('user_server_profiles').update({
             'is_default': isDefault,
             'display_order': displayOrder,
-            'external_address': computer.remoteAddress.isNotEmpty ? computer.remoteAddress : null,
-            'server_version': computer.serverVersion,
-          });
+          }).eq('id', rowId);
+          updated++;
         } catch (e) {
-          _log.w('pushConfigToSupabase: failed to parse computer entry: $e');
+          _log.w('pushConfigToSupabase: failed to process computer entry: $e');
         }
       }
 
-      // Delete conflicting cloud profiles first
-      if (idsToDelete.isNotEmpty) {
-        _log.i('pushConfigToSupabase: Deleting conflicting cloud profiles before upsert: $idsToDelete');
-        await client
-            .from('user_server_profiles')
-            .delete()
-            .inFilter('id', idsToDelete);
-      }
-
-      if (rows.isNotEmpty) {
-        await client.from('user_server_profiles').upsert(
-          rows,
-          onConflict: 'user_id,server_url',
-        );
-      }
-
-      _log.i('pushConfigToSupabase OK (${rows.length} servers)');
+      _log.i('pushConfigToSupabase OK ($updated profile updates)');
       return true;
     } catch (e, stack) {
       _log.e('pushConfigToSupabase failed: $e\n$stack');
@@ -448,7 +388,6 @@ class CloudSyncService {
       }
 
       String? primaryServerUuid = prefs.getString(_kPrimaryServerKey);
-      final List<String> customOrder = prefs.getStringList(_kCustomOrderKey) ?? [];
 
       for (final row in cloudProfiles) {
         final cloudMap = row as Map<String, dynamic>;
@@ -462,6 +401,16 @@ class CloudSyncService {
         final String? externalAddress = cloudMap['external_address'];
         final String? serverVersion = cloudMap['server_version'];
         final bool isDefault = cloudMap['is_default'] ?? false;
+
+        // Rows without a cert fingerprint are not maintained by the server's
+        // cloud agent (stale rows from older client versions, or localhost
+        // registrations). They can never be cloud-paired — skip them so they
+        // don't poison configHttpsPort, isCloud, or spawn ghost computers.
+        final hasCert = certFingerprint != null && certFingerprint.trim().isNotEmpty;
+        if (!hasCert) {
+          _log.w('pullConfigFromSupabase: skipping profile without cert: $serverUrl');
+          continue;
+        }
 
         int matchIdx = -1;
         for (int i = 0; i < localComputers.length; i++) {
@@ -535,84 +484,26 @@ class CloudSyncService {
         }
       }
 
-      final List<Map<String, dynamic>> localOnlyRows = [];
-      final Set<String> seenCerts = {};
-      for (final row in cloudProfiles) {
-        final cloudMap = row as Map<String, dynamic>;
-        final String? cert = cloudMap['cert_fingerprint']?.toString().trim();
-        if (cert != null && cert.isNotEmpty) {
-          seenCerts.add(cert.toLowerCase());
-        }
-      }
-
+      // Only the server registers itself in the cloud (via its cloud agent).
+      // The client must never create user_server_profiles rows — doing so made
+      // every local server look cloud-registered (CLOUD chip everywhere) and
+      // produced stale duplicate rows that cloud pairing could never satisfy.
+      // Local computers that match no cloud profile are local-only: clear the
+      // flag so the chip reflects genuine cloud registration.
       for (final local in localComputers) {
         bool matchedInCloud = false;
         for (final row in cloudProfiles) {
-          if (_doesMatch(local, row as Map<String, dynamic>)) {
+          final cloudMap = row as Map<String, dynamic>;
+          final cert = cloudMap['cert_fingerprint']?.toString().trim() ?? '';
+          if (cert.isEmpty) continue; // not a server-agent row
+          if (_doesMatch(local, cloudMap)) {
             matchedInCloud = true;
             break;
           }
         }
-
         if (!matchedInCloud) {
-          final host = local.manualAddress.isNotEmpty ? local.manualAddress : local.localAddress;
-          if (host.isEmpty) continue;
-
-          final cert = local.serverCert.trim();
-          final certValue = cert.isNotEmpty ? cert : null;
-
-          if (certValue != null) {
-            if (seenCerts.contains(certValue.toLowerCase())) {
-              _log.w('pullConfigFromSupabase: skipping local-only duplicate cert fingerprint: $certValue');
-              continue;
-            }
-            seenCerts.add(certValue.toLowerCase());
-          }
-
-          final port = local.httpsPort > 0 ? local.httpsPort : 47984;
-          final serverUrl = 'https://$host:$port';
-
-          final localAddresses = <String>[];
-          if (local.localAddress.isNotEmpty) {
-            localAddresses.add(local.localAddress);
-          }
-          if (local.activeAddress.isNotEmpty &&
-              !localAddresses.contains(local.activeAddress)) {
-            localAddresses.add(local.activeAddress);
-          }
-          if (local.manualAddress.isNotEmpty &&
-              !localAddresses.contains(local.manualAddress)) {
-            localAddresses.add(local.manualAddress);
-          }
-
-          final key = local.uuid.isNotEmpty ? local.uuid : local.localAddress;
-          final orderIndex = customOrder.indexOf(key);
-          final displayOrder = orderIndex >= 0 ? orderIndex : 0;
-
-          final isDefault = local.uuid.isNotEmpty && local.uuid == primaryServerUuid;
-
-          localOnlyRows.add({
-            'user_id': userId,
-            'server_url': serverUrl,
-            'server_name': local.name,
-            'local_addresses': localAddresses,
-            'cert_fingerprint': certValue,
-            'is_default': isDefault,
-            'display_order': displayOrder,
-            'external_address': local.remoteAddress.isNotEmpty ? local.remoteAddress : null,
-            'server_version': local.serverVersion,
-            // Push the real Sunshine server uniqueid so other devices can use it
-            if (local.uuid.isNotEmpty) 'server_uuid': local.uuid,
-          });
+          local.isCloud = false;
         }
-      }
-
-      if (localOnlyRows.isNotEmpty) {
-        _log.i('pullConfigFromSupabase: pushing ${localOnlyRows.length} local-only servers to cloud');
-        await client.from('user_server_profiles').upsert(
-          localOnlyRows,
-          onConflict: 'user_id,server_url',
-        );
       }
 
       final jsonList = localComputers.map((c) => jsonEncode(c.toJson())).toList();
@@ -814,6 +705,52 @@ class CloudSyncService {
       }
     } catch (e) {
       _log.w('Cloud pairing failed for $serverUrl: $e');
+    }
+  }
+
+  /// Re-attempts cloud pairing for a single computer regardless of its local
+  /// pairState. Used as a recovery path when the server rejects the client
+  /// cert (e.g. applist 401) even though local state says paired — the cloud
+  /// row exists but the cert never landed in the server's registry.
+  Future<void> repairCloudPairing(ComputerDetails computer) async {
+    final session = Supabase.instance.client.auth.currentSession;
+    if (session == null) return;
+    final host = computer.activeAddress.isNotEmpty
+        ? computer.activeAddress
+        : computer.manualAddress.isNotEmpty
+            ? computer.manualAddress
+            : computer.localAddress;
+    if (host.isEmpty) return;
+    final graceKey = computer.uuid.isNotEmpty ? computer.uuid : host;
+    _cloudPairingGraceTimestamps[graceKey] = DateTime.now();
+    await _attemptCloudPairing(
+      'https://$host:${_configPort(computer)}',
+      session.accessToken,
+      computer,
+    );
+  }
+
+  /// Clears the isCloud flag on all persisted computers. Called on sign-out
+  /// so CLOUD chips don't linger for an account that's no longer logged in.
+  Future<void> clearCloudFlags() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final saved = prefs.getStringList(_kSavedComputers) ?? [];
+      if (saved.isEmpty) return;
+      final updated = <String>[];
+      for (final entry in saved) {
+        try {
+          final c = ComputerDetails.fromJson(jsonDecode(entry) as Map<String, dynamic>);
+          c.isCloud = false;
+          updated.add(jsonEncode(c.toJson()));
+        } catch (_) {
+          updated.add(entry);
+        }
+      }
+      await prefs.setStringList(_kSavedComputers, updated);
+      _syncCompletedController.add(null);
+    } catch (e) {
+      _log.w('clearCloudFlags failed: $e');
     }
   }
 

@@ -16,6 +16,11 @@ class NvHttpClient {
   static const int defaultHttpsPort = 47984;
   static const int defaultHttpPort = 47989;
 
+  /// True when the most recent getAppList call returned empty because the
+  /// server rejected the client certificate (vs a network failure).
+  /// Lets callers trigger cloud-pairing recovery instead of just erroring.
+  bool lastAppListCertRejected = false;
+
   static String get uniqueId => ClientIdentity.uniqueId;
 
   http.Client _newHttpsClient() {
@@ -186,6 +191,7 @@ class NvHttpClient {
     String address, {
     int httpsPort = defaultHttpsPort,
   }) async {
+    lastAppListCertRejected = false;
     final resolvedAddress = await _resolveAddress(address);
     try {
       final url =
@@ -211,8 +217,21 @@ class NvHttpClient {
         final xmlStatus = extractXmlValue(response.body, 'status_code');
         if (xmlStatus != null && xmlStatus != '200') {
           _log.w('applist XML status_code=$xmlStatus (not paired or error)');
+          lastAppListCertRejected = true;
           return [];
         }
+        // on_verify_failed sends the status_code as an XML attribute
+        // (<root status_code="401" .../>), which extractXmlValue misses.
+        final attrMatch =
+            RegExp(r'status_code="(\d+)"').firstMatch(response.body);
+        final attrStatus = attrMatch?.group(1);
+        if (attrStatus != null && attrStatus != '200') {
+          _log.w('applist XML attr status_code=$attrStatus '
+              '(client cert not recognized by server)');
+          lastAppListCertRejected = true;
+          return [];
+        }
+        lastAppListCertRejected = false;
         return parseAppList(response.body, resolvedAddress, httpsPort);
       }
       _log.w(

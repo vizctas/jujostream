@@ -12,6 +12,7 @@ import '../../providers/cloud_mfa_provider.dart';
 import '../../providers/theme_provider.dart';
 import '../../services/input/gamepad_navigation_service.dart';
 import '../../services/tv/tv_focus_helpers.dart';
+import '../../widgets/gamepad_keyboard.dart';
 
 class CloudAuthScreen extends StatefulWidget {
   final bool isFirstRun;
@@ -33,29 +34,13 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
   final _mfaCodeController = TextEditingController();
 
   bool _isLoading = false;
+  bool _syncingServers = false;
   bool _obscurePassword = true;
   bool _isSignUp = false;
   bool _awaitingConfirmation = false;
-  // Wrapper nodes: the gamepad navigation stops (focus ring).
-  final _emailFocus = FocusNode(debugLabel: 'authEmail');
-  final _passwordFocus = FocusNode(debugLabel: 'authPassword');
-  final _submitFocus = FocusNode(debugLabel: 'authSubmit');
-  final _mfaCodeFocus = FocusNode(debugLabel: 'mfaCode');
-
-  // Inner edit nodes: focused only while typing with the native IME.
-  // skipTraversal keeps them out of D-pad traversal.
-  final _emailEditFocus = FocusNode(
-    debugLabel: 'authEmailEdit',
-    skipTraversal: true,
-  );
-  final _passwordEditFocus = FocusNode(
-    debugLabel: 'authPasswordEdit',
-    skipTraversal: true,
-  );
-  final _mfaEditFocus = FocusNode(
-    debugLabel: 'mfaCodeEdit',
-    skipTraversal: true,
-  );
+  bool _showKeyboard = false;
+  bool _keyboardNumeric = false;
+  TextEditingController? _activeController;
 
   Timer? _confirmationTimer;
   String? _error;
@@ -67,42 +52,27 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
   @override
   void initState() {
     super.initState();
+    GamepadNavigationService.setActive(false);
     _mfaProvider = context.read<CloudMfaProvider>();
     _mfaProvider.addListener(_onMfaStateChange);
-    _mfaCodeController.addListener(_onMfaCodeChanged);
-    GamepadNavigationService.setAuxButtonHandler(_handleAuxButton);
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _onMfaStateChange();
-      if (!mounted) return;
-      if (_wasMfaPanelShown) {
-        _mfaCodeFocus.requestFocus();
-      } else {
-        _emailFocus.requestFocus();
-      }
     });
   }
 
   void _onMfaStateChange() {
     if (!mounted) return;
     final status = _mfaProvider.status;
-    final showMfaPanel =
-        status == CloudMfaStatus.setupRequired ||
+    final showMfaPanel = status == CloudMfaStatus.setupRequired ||
         status == CloudMfaStatus.verifyRequired ||
         (status == CloudMfaStatus.loading && _mfaProvider.blocksCloudUser);
 
     if (showMfaPanel && !_wasMfaPanelShown) {
       _wasMfaPanelShown = true;
-      SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
-      if (_handsOffMfaToGate) return; // gate instance owns MFA focus
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _mfaCodeFocus.requestFocus();
-      });
+      setState(() => _showKeyboard = false);
     } else if (!showMfaPanel && _wasMfaPanelShown) {
       _wasMfaPanelShown = false;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _emailFocus.requestFocus();
-      });
     }
   }
 
@@ -111,17 +81,9 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
     _confirmationTimer?.cancel();
     _emailController.dispose();
     _passwordController.dispose();
-    _mfaCodeController.removeListener(_onMfaCodeChanged);
     _mfaCodeController.dispose();
-    _emailFocus.dispose();
-    _passwordFocus.dispose();
-    _submitFocus.dispose();
-    _mfaCodeFocus.dispose();
-    _emailEditFocus.dispose();
-    _passwordEditFocus.dispose();
-    _mfaEditFocus.dispose();
     _mfaProvider.removeListener(_onMfaStateChange);
-    GamepadNavigationService.clearAuxButtonHandler(_handleAuxButton);
+    GamepadNavigationService.setActive(true);
     super.dispose();
   }
 
@@ -156,7 +118,6 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
         if (mfa.status == CloudMfaStatus.setupRequired) {
           await mfa.startTotpSetup();
         }
-        _popIfMfaGateTakesOver(mfa);
       } else {
         setState(() {
           _error = auth.cloudError ?? 'Login failed';
@@ -238,24 +199,8 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
         if (mfa.status == CloudMfaStatus.setupRequired) {
           await mfa.startTotpSetup();
         }
-        if (mounted) _popIfMfaGateTakesOver(mfa);
       }
     });
-  }
-
-  /// Once a cloud session exists and MFA blocks it, the app root replaces the
-  /// home widget with its own CloudAuthScreen (main.dart). If this instance
-  /// was pushed on top, two live instances fight over focus and the hidden
-  /// one wins — so hand off to the gate by popping this route.
-  bool get _handsOffMfaToGate =>
-      !widget.popOnSuccess &&
-      !widget.isFirstRun &&
-      (Navigator.maybeOf(context)?.canPop() ?? false);
-
-  void _popIfMfaGateTakesOver(CloudMfaProvider mfa) {
-    if (!mfa.blocksCloudUser) return;
-    if (!_handsOffMfaToGate) return;
-    Navigator.of(context).pop();
   }
 
   Future<void> _resendEmail() async {
@@ -283,18 +228,29 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
     final success = await mfa.verifyCode(code);
 
     if (!mounted) return;
-    setState(() => _isLoading = false);
 
     if (success) {
-      unawaited(context.read<AuthProvider>().pullFromCloud());
-      if (mounted) {
-        if (widget.popOnSuccess) {
-          Navigator.of(context).pop(true);
-        } else {
-          Navigator.of(context).pushReplacementNamed('/');
-        }
+      // Await the cloud pull BEFORE navigating — navigating first made cloud
+      // servers appear only after an app restart, because the main screen
+      // rendered with stale local data while the pull was still in flight.
+      setState(() => _syncingServers = true);
+      try {
+        await context
+            .read<AuthProvider>()
+            .pullFromCloud()
+            .timeout(const Duration(seconds: 8));
+      } catch (_) {
+        // Timeout or network error — proceed anyway; polling and resume
+        // retries will catch up. Never trap the user on the login screen.
+      }
+      if (!mounted) return;
+      if (widget.popOnSuccess) {
+        Navigator.of(context).pop(true);
+      } else {
+        Navigator.of(context).pushReplacementNamed('/');
       }
     } else {
+      setState(() => _isLoading = false);
       _mfaCodeController.clear();
     }
   }
@@ -305,9 +261,9 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
     await auth.signOutFromCloud();
     if (!mounted) return;
     context.read<CloudMfaProvider>().reset();
-    SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
     setState(() {
       _mfaCodeController.clear();
+      _showKeyboard = false;
       _isLoading = false;
     });
     if (widget.popOnSuccess) {
@@ -315,81 +271,63 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
     }
   }
 
-  // ── Native IME editing helpers ───────────────────────────────────────────────
-  bool get _isEditing =>
-      _emailEditFocus.hasFocus ||
-      _passwordEditFocus.hasFocus ||
-      _mfaEditFocus.hasFocus;
-
-  FocusNode? _activeEditFocus() {
-    if (_emailEditFocus.hasFocus) return _emailEditFocus;
-    if (_passwordEditFocus.hasFocus) return _passwordEditFocus;
-    if (_mfaEditFocus.hasFocus) return _mfaEditFocus;
-    return null;
+  // ── Keyboard input helpers ───────────────────────────────────────────────────
+  void _openKeyboard(TextEditingController controller, {bool numeric = false}) {
+    setState(() {
+      _showKeyboard = true;
+      _keyboardNumeric = numeric;
+      _activeController = controller;
+    });
   }
 
-  FocusNode _wrapperFor(FocusNode editFocus) {
-    if (editFocus == _emailEditFocus) return _emailFocus;
-    if (editFocus == _passwordEditFocus) return _passwordFocus;
-    return _mfaCodeFocus;
+  void _closeKeyboard() {
+    setState(() => _showKeyboard = false);
   }
 
-  void _beginEdit(FocusNode editFocus) {
-    editFocus.requestFocus();
-    SystemChannels.textInput.invokeMethod<void>('TextInput.show');
-  }
-
-  void _stopEditing() {
-    final edit = _activeEditFocus();
-    SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
-    if (edit != null) _wrapperFor(edit).requestFocus();
-  }
-
-  void _onMfaCodeChanged() {
-    if (!mounted || _isLoading) return;
-    final digits = _mfaCodeController.text
-        .replaceAll(RegExp(r'\D'), '')
-        .split('')
-        .take(6)
-        .join();
-    if (digits != _mfaCodeController.text) {
-      _mfaCodeController.value = TextEditingValue(
-        text: digits,
-        selection: TextSelection.collapsed(offset: digits.length),
-      );
-      return;
-    }
-    if (_mfaEditFocus.hasFocus && _mfaCodeController.text.length == 6) {
-      _stopEditing();
-      _handleMfaVerify(_mfaCodeController.text);
-    }
-  }
-
-  // Programmatic edits can hit an invalid selection (baseOffset -1) before the
-  // field ever had a caret.
-  TextSelection _validSelection(TextEditingController controller) {
-    final selection = controller.selection;
-    return selection.isValid
-        ? selection
-        : TextSelection.collapsed(offset: controller.text.length);
-  }
-
-  void _backspaceController(TextEditingController controller) {
+  void _onKeyboardKey(String ch) {
+    final controller = _activeController;
+    if (controller == null) return;
     final text = controller.text;
-    final selection = _validSelection(controller);
+    final selection = controller.selection;
+    if (selection.isCollapsed) {
+      final offset = selection.baseOffset;
+      final newText = text.substring(0, offset) + ch + text.substring(offset);
+      controller.value = TextEditingValue(
+        text: newText,
+        selection: TextSelection.collapsed(offset: offset + ch.length),
+      );
+    } else {
+      final newText = text.substring(0, selection.start) + ch + text.substring(selection.end);
+      controller.value = TextEditingValue(
+        text: newText,
+        selection: TextSelection.collapsed(offset: selection.start + ch.length),
+      );
+    }
+    if (_activeController == _mfaCodeController && controller.text.length == 6) {
+      _closeKeyboard();
+      _handleMfaVerify(controller.text);
+    }
+  }
+
+  void _onKeyboardBackspace() {
+    final controller = _activeController;
+    if (controller == null) return;
+    final text = controller.text;
+    final selection = controller.selection;
     if (selection.isCollapsed) {
       if (selection.baseOffset > 0) {
-        final newText =
-            text.substring(0, selection.baseOffset - 1) +
+        final newText = text.substring(0, selection.baseOffset - 1) +
             text.substring(selection.baseOffset);
         controller.value = TextEditingValue(
           text: newText,
-          selection: TextSelection.collapsed(offset: selection.baseOffset - 1),
+          selection: TextSelection.collapsed(
+            offset: selection.baseOffset - 1,
+          ),
         );
       }
     } else {
-      final newText =
-          text.substring(0, selection.start) + text.substring(selection.end);
+      final newText = text.substring(0, selection.start) +
+          text.substring(selection.end);
       controller.value = TextEditingValue(
         text: newText,
         selection: TextSelection.collapsed(offset: selection.start),
@@ -397,109 +335,13 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
     }
   }
 
-  bool get _showingMfaPanel {
-    final mfa = context.read<CloudMfaProvider>();
-    return mfa.status == CloudMfaStatus.setupRequired ||
-        mfa.status == CloudMfaStatus.verifyRequired ||
-        (mfa.status == CloudMfaStatus.loading && mfa.blocksCloudUser);
-  }
-
-  // ── Aux gamepad buttons (X/Y/LB/RB/Start) ────────────────────────────────
-  // Fed by real KeyEvents on Android (_handleAuthScreenKey) and by nav-channel
-  // strings on Windows (GamepadNavigationService.setAuxButtonHandler).
-  void _handleAuxButton(String button) {
-    if (!mounted || _isLoading) return;
-    switch (button) {
-      case 'x': // backspace
-        final focused = _focusedFieldController();
-        if (focused != null) _backspaceController(focused);
-      case 'y': // password visibility
-        if (_passwordFocus.hasFocus || _passwordEditFocus.hasFocus) {
-          setState(() => _obscurePassword = !_obscurePassword);
-        }
-      case 'lb':
-        _cycleField(-1);
-      case 'rb':
-        _cycleField(1);
-      case 'start':
-        _handleStart();
-    }
-  }
-
-  TextEditingController? _focusedFieldController() {
-    if (_emailFocus.hasFocus || _emailEditFocus.hasFocus) {
-      return _emailController;
-    }
-    if (_passwordFocus.hasFocus || _passwordEditFocus.hasFocus) {
-      return _passwordController;
-    }
-    if (_mfaCodeFocus.hasFocus || _mfaEditFocus.hasFocus) {
-      return _mfaCodeController;
-    }
-    return null;
-  }
-
-  void _continueLocalOnly() {
-    SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
-    if (!widget.isFirstRun && (Navigator.maybeOf(context)?.canPop() ?? false)) {
-      Navigator.of(context).pop();
-      return;
-    }
-    Navigator.of(context).pushReplacementNamed('/');
-  }
-
-  Widget _orderedAuthFocus({
-    required double order,
-    required Widget child,
-    FocusNode? focusNode,
-    bool autofocus = false,
-    bool excludeChildFocus = false,
-    VoidCallback? onSelect,
-    double borderRadius = 16,
-  }) {
-    return FocusTraversalOrder(
-      order: NumericFocusOrder(order),
-      child: TvFocusable(
-        focusNode: focusNode,
-        autofocus: autofocus,
-        excludeChildFocus: excludeChildFocus,
-        onSelect: onSelect,
-        borderRadius: borderRadius,
-        focusColor: Colors.white.withValues(alpha: 0.18),
-        focusFillColor: Colors.white.withValues(alpha: 0.08),
-        focusBorderWidth: 1.2,
-        focusScale: 1.0,
-        child: child,
-      ),
-    );
-  }
-
-  void _cycleField(int dir) {
-    if (_showingMfaPanel) return; // single field — D-pad covers the rest
-    if (_isEditing) {
-      // Jump straight to editing the other field; IME stays open.
-      _beginEdit(
-        _emailEditFocus.hasFocus ? _passwordEditFocus : _emailEditFocus,
-      );
-      return;
-    }
-    final order = [_emailFocus, _passwordFocus, _submitFocus];
-    var index = order.indexWhere((node) => node.hasFocus);
-    if (index < 0) index = 0;
-    order[(index + dir + order.length) % order.length].requestFocus();
-  }
-
-  void _handleStart() {
-    if (_isEditing) _stopEditing();
-    if (_showingMfaPanel) {
+  void _onKeyboardDone() {
+    _closeKeyboard();
+    if (_activeController == _mfaCodeController) {
       final code = _mfaCodeController.text;
       if (code.length == 6) {
         _handleMfaVerify(code);
-      } else {
-        _mfaCodeFocus.requestFocus();
       }
-    } else {
-      _handleSubmit();
     }
   }
 
@@ -507,33 +349,18 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
     if (event is! KeyDownEvent) return KeyEventResult.ignored;
     final key = event.logicalKey;
 
-    // Android delivers gamepad buttons as real KeyEvents.
-    String? aux;
-    if (key == LogicalKeyboardKey.gameButtonX ||
-        key == LogicalKeyboardKey.backspace) {
-      aux = 'x';
-    } else if (key == LogicalKeyboardKey.gameButtonY) {
-      aux = 'y';
-    } else if (key == LogicalKeyboardKey.gameButtonLeft1) {
-      aux = 'lb';
-    } else if (key == LogicalKeyboardKey.gameButtonRight1) {
-      aux = 'rb';
-    } else if (key == LogicalKeyboardKey.gameButtonStart) {
-      aux = 'start';
-    }
-    if (aux != null) {
-      _handleAuxButton(aux);
-      return KeyEventResult.handled;
-    }
-
     if (key == LogicalKeyboardKey.gameButtonB ||
         key == LogicalKeyboardKey.goBack ||
         key == LogicalKeyboardKey.escape) {
-      if (_isEditing) {
-        _stopEditing();
+      if (_showKeyboard) {
+        _closeKeyboard();
         return KeyEventResult.handled;
       }
-      if (_showingMfaPanel) {
+      final mfa = context.read<CloudMfaProvider>();
+      final showMfaPanel = mfa.status == CloudMfaStatus.setupRequired ||
+          mfa.status == CloudMfaStatus.verifyRequired ||
+          (mfa.status == CloudMfaStatus.loading && mfa.blocksCloudUser);
+      if (showMfaPanel) {
         _cancelMfa();
         return KeyEventResult.handled;
       }
@@ -550,15 +377,11 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
     final mfa = context.watch<CloudMfaProvider>();
     final tp = context.watch<ThemeProvider>();
 
-    final showMfaPanel =
-        mfa.status == CloudMfaStatus.setupRequired ||
+    final showMfaPanel = mfa.status == CloudMfaStatus.setupRequired ||
         mfa.status == CloudMfaStatus.verifyRequired ||
         (mfa.status == CloudMfaStatus.loading && mfa.blocksCloudUser);
 
     return Focus(
-      // Key-event tap only: must never take focus itself, or directional
-      // traversal lands on this full-screen node and the ring vanishes.
-      canRequestFocus: false,
       onKeyEvent: _handleAuthScreenKey,
       child: Scaffold(
         backgroundColor: tp.background,
@@ -584,15 +407,24 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
                 child: ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 420),
                   child: showMfaPanel
-                      // The home-route gate owns the MFA panel; a pushed
-                      // instance just shows a spinner while it pops itself.
-                      ? (_handsOffMfaToGate
-                            ? const Center(child: CircularProgressIndicator())
-                            : _buildMfaLayout(context, mfa, tp))
+                      ? _buildMfaLayout(context, mfa, tp)
                       : _buildAuthLayout(context, tp),
                 ),
               ),
             ),
+
+            if (_showKeyboard)
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: GamepadKeyboard(
+                  numericOnly: _keyboardNumeric,
+                  onKey: _onKeyboardKey,
+                  onBackspace: _onKeyboardBackspace,
+                  onDone: _onKeyboardDone,
+                ),
+              ),
           ],
         ),
       ),
@@ -623,308 +455,264 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
           ),
           child: Form(
             key: _formKey,
-            child: FocusTraversalGroup(
-              policy: OrderedTraversalPolicy(),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Icon(
-                    Icons.cloud,
-                    size: 44,
-                    color: tp.accent,
-                  ).animate().scale(delay: 200.ms, duration: 400.ms),
-                  const SizedBox(height: 16),
-                  Text(
-                    _isSignUp
-                        ? 'Create Jujo Cloud Account'
-                        : 'Sign in to Jujo Cloud',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 20,
-                      fontWeight: FontWeight.w900,
-                    ),
-                    textAlign: TextAlign.center,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Icon(
+                  Icons.cloud,
+                  size: 44,
+                  color: tp.accent,
+                ).animate().scale(delay: 200.ms, duration: 400.ms),
+                const SizedBox(height: 16),
+                Text(
+                  _isSignUp ? 'Create Jujo Cloud Account' : 'Sign in to Jujo Cloud',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w900,
                   ),
-                  const SizedBox(height: 24),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 24),
 
-                  // Email field
-                  _orderedAuthFocus(
-                    order: 0,
-                    focusNode: _emailFocus,
-                    // Applies whenever the auth layout (re)mounts — initial open
-                    // and return from the MFA panel — without racing the focus
-                    // cleanup of the unmounted layout's nodes.
-                    autofocus: true,
-                    onSelect: () => _beginEdit(_emailEditFocus),
-                    child: TextFormField(
-                      controller: _emailController,
-                      focusNode: _emailEditFocus,
-                      style: const TextStyle(color: Colors.white),
-                      decoration: _inputDecoration(
-                        'Email',
-                        Icons.mail_outline,
-                        tp,
+                // Email field
+                TvFocusable(
+                  onSelect: () => _openKeyboard(_emailController),
+                  child: TextFormField(
+                    controller: _emailController,
+                    readOnly: true,
+                    showCursor: false,
+                    style: const TextStyle(color: Colors.white),
+                    decoration: _inputDecoration('Email', Icons.mail_outline, tp),
+                    keyboardType: TextInputType.none,
+                    validator: (value) {
+                      final email = value?.trim() ?? '';
+                      if (email.isEmpty) return 'Email is required';
+                      if (!email.contains('@')) return 'Please enter a valid email';
+                      return null;
+                    },
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                // Password field
+                TvFocusable(
+                  onSelect: () => _openKeyboard(_passwordController),
+                  child: TextFormField(
+                    controller: _passwordController,
+                    readOnly: true,
+                    showCursor: false,
+                    style: const TextStyle(color: Colors.white),
+                    obscureText: _obscurePassword,
+                    decoration: _inputDecoration('Password', Icons.lock_outline, tp)
+                        .copyWith(
+                      suffixIcon: IconButton(
+                        icon: Icon(
+                          _obscurePassword
+                              ? Icons.visibility_off_outlined
+                              : Icons.visibility_outlined,
+                          color: Colors.white54,
+                          size: 20,
+                        ),
+                        onPressed: () =>
+                            setState(() => _obscurePassword = !_obscurePassword),
                       ),
-                      keyboardType: TextInputType.emailAddress,
-                      textInputAction: TextInputAction.next,
-                      autocorrect: false,
-                      onFieldSubmitted: (_) => _beginEdit(_passwordEditFocus),
-                      validator: (value) {
-                        final email = value?.trim() ?? '';
-                        if (email.isEmpty) return 'Email is required';
-                        if (!email.contains('@')) {
-                          return 'Please enter a valid email';
-                        }
-                        return null;
-                      },
+                    ),
+                    keyboardType: TextInputType.none,
+                    validator: (value) {
+                      if (value == null || value.isEmpty) return 'Password is required';
+                      if (value.length < 6) return 'Must be at least 6 characters';
+                      return null;
+                    },
+                  ),
+                ),
+
+                const SizedBox(height: 20),
+
+                if (_error != null) ...[
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.red.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: Colors.redAccent.withValues(alpha: 0.3),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.error_outline,
+                            color: Colors.redAccent, size: 18),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            _error!,
+                            style: const TextStyle(
+                              color: Colors.redAccent,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                   const SizedBox(height: 16),
+                ],
 
-                  // Password field
-                  _orderedAuthFocus(
-                    order: 1,
-                    focusNode: _passwordFocus,
-                    onSelect: () => _beginEdit(_passwordEditFocus),
-                    child: TextFormField(
-                      controller: _passwordController,
-                      focusNode: _passwordEditFocus,
-                      style: const TextStyle(color: Colors.white),
-                      obscureText: _obscurePassword,
-                      textInputAction: TextInputAction.done,
-                      autocorrect: false,
-                      enableSuggestions: false,
-                      onFieldSubmitted: (_) => _stopEditing(),
-                      decoration:
-                          _inputDecoration(
-                            'Password',
-                            Icons.lock_outline,
-                            tp,
-                          ).copyWith(
-                            suffixIcon: ExcludeFocus(
-                              child: IconButton(
-                                icon: Icon(
-                                  _obscurePassword
-                                      ? Icons.visibility_off_outlined
-                                      : Icons.visibility_outlined,
-                                  color: Colors.white54,
-                                  size: 20,
-                                ),
-                                onPressed: () => setState(
-                                  () => _obscurePassword = !_obscurePassword,
+                if (_info != null) ...[
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: tp.accent.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: tp.accent.withValues(alpha: 0.3),
+                      ),
+                    ),
+                    child: Column(
+                      children: [
+                        Row(
+                          children: [
+                            Icon(Icons.mark_email_unread_outlined,
+                                color: tp.accentLight, size: 18),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                _info!,
+                                style: TextStyle(
+                                  color: tp.accentLight,
+                                  fontSize: 13,
                                 ),
                               ),
                             ),
-                          ),
-                      validator: (value) {
-                        if (value == null || value.isEmpty) {
-                          return 'Password is required';
-                        }
-                        if (value.length < 6) {
-                          return 'Must be at least 6 characters';
-                        }
-                        return null;
-                      },
-                    ),
-                  ),
-
-                  const SizedBox(height: 20),
-
-                  if (_error != null) ...[
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Colors.red.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: Colors.redAccent.withValues(alpha: 0.3),
+                          ],
                         ),
-                      ),
-                      child: Row(
-                        children: [
-                          const Icon(
-                            Icons.error_outline,
-                            color: Colors.redAccent,
-                            size: 18,
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              _error!,
-                              style: const TextStyle(
-                                color: Colors.redAccent,
-                                fontSize: 13,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                  ],
-
-                  if (_info != null) ...[
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: tp.accent.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: tp.accent.withValues(alpha: 0.3),
-                        ),
-                      ),
-                      child: Column(
-                        children: [
+                        if (_awaitingConfirmation) ...[
+                          const SizedBox(height: 12),
                           Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              Icon(
-                                Icons.mark_email_unread_outlined,
-                                color: tp.accentLight,
-                                size: 18,
+                              Row(
+                                children: [
+                                  SizedBox(
+                                    width: 14,
+                                    height: 14,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: tp.accentLight,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  const Text(
+                                    'Waiting for confirmation...',
+                                    style: TextStyle(
+                                      color: Colors.white54,
+                                      fontSize: 11,
+                                    ),
+                                  ),
+                                ],
                               ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  _info!,
-                                  style: TextStyle(
-                                    color: tp.accentLight,
-                                    fontSize: 13,
+                              TvFocusable(
+                                onSelect: _isLoading ? null : _resendEmail,
+                                child: TextButton(
+                                  onPressed: _isLoading ? null : _resendEmail,
+                                  child: Text(
+                                    'Resend',
+                                    style: TextStyle(
+                                      color: tp.accentLight,
+                                      fontSize: 12,
+                                    ),
                                   ),
                                 ),
                               ),
                             ],
                           ),
-                          if (_awaitingConfirmation) ...[
-                            const SizedBox(height: 12),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Row(
-                                  children: [
-                                    SizedBox(
-                                      width: 14,
-                                      height: 14,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                        color: tp.accentLight,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    const Text(
-                                      'Waiting for confirmation...',
-                                      style: TextStyle(
-                                        color: Colors.white54,
-                                        fontSize: 11,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                TvFocusable(
-                                  excludeChildFocus: true,
-                                  onSelect: _isLoading ? null : _resendEmail,
-                                  child: TextButton(
-                                    onPressed: _isLoading ? null : _resendEmail,
-                                    child: Text(
-                                      'Resend',
-                                      style: TextStyle(
-                                        color: tp.accentLight,
-                                        fontSize: 12,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
                         ],
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                  ],
-
-                  _orderedAuthFocus(
-                    order: 2,
-                    focusNode: _submitFocus,
-                    excludeChildFocus: true,
-                    onSelect: _isLoading ? null : _handleSubmit,
-                    child: ElevatedButton(
-                      onPressed: _isLoading ? null : _handleSubmit,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: tp.accent,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                        elevation: 0,
-                      ),
-                      child: _isLoading
-                          ? const SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Colors.white,
-                              ),
-                            )
-                          : Text(
-                              _isSignUp ? 'Sign Up' : 'Sign In',
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 15,
-                              ),
-                            ),
+                      ],
                     ),
                   ),
                   const SizedBox(height: 16),
+                ],
 
-                  _orderedAuthFocus(
-                    order: 3,
-                    excludeChildFocus: true,
-                    onSelect: _isLoading
-                        ? null
-                        : () => setState(() {
+                TvFocusable(
+                  onSelect: _isLoading ? null : _handleSubmit,
+                  child: ElevatedButton(
+                    onPressed: _isLoading ? null : _handleSubmit,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: tp.accent,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      elevation: 0,
+                    ),
+                    child: _isLoading
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : Text(
+                            _isSignUp ? 'Sign Up' : 'Sign In',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 15,
+                            ),
+                          ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                TvFocusable(
+                  onSelect: _isLoading
+                      ? null
+                      : () => setState(() {
                             _isSignUp = !_isSignUp;
                             _error = null;
                             _info = null;
                           }),
-                    child: TextButton(
-                      onPressed: _isLoading
-                          ? null
-                          : () => setState(() {
+                  child: TextButton(
+                    onPressed: _isLoading
+                        ? null
+                        : () => setState(() {
                               _isSignUp = !_isSignUp;
                               _error = null;
                               _info = null;
                             }),
-                      style: TextButton.styleFrom(
-                        foregroundColor: Colors.white70,
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                      ),
-                      child: Text(
-                        _isSignUp
-                            ? 'Already have an account? Sign in'
-                            : 'Need sync? Create an account',
-                      ),
+                    style: TextButton.styleFrom(
+                      foregroundColor: Colors.white70,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                    child: Text(
+                      _isSignUp
+                          ? 'Already have an account? Sign in'
+                          : 'Need sync? Create an account',
                     ),
                   ),
+                ),
 
-                  const SizedBox(height: 8),
-                  _orderedAuthFocus(
-                    order: 4,
-                    excludeChildFocus: true,
-                    onSelect: _continueLocalOnly,
-                    child: TextButton(
-                      onPressed: _continueLocalOnly,
-                      style: TextButton.styleFrom(
-                        foregroundColor: Colors.white38,
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                      ),
-                      child: const Text('Continue in Local-only mode'),
+                const SizedBox(height: 8),
+                TvFocusable(
+                  onSelect: () {
+                    Navigator.of(context).pushReplacementNamed('/');
+                  },
+                  child: TextButton(
+                    onPressed: () {
+                      Navigator.of(context).pushReplacementNamed('/');
+                    },
+                    style: TextButton.styleFrom(
+                      foregroundColor: Colors.white38,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
                     ),
+                    child: const Text('Continue in Local-only mode'),
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
         ),
@@ -960,174 +748,193 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
               width: 1.5,
             ),
           ),
-          child: FocusTraversalGroup(
-            policy: OrderedTraversalPolicy(),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Icon(
-                  Icons.security,
-                  size: 40,
-                  color: tp.accentLight,
-                ).animate().shake(),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Icon(
+                Icons.security,
+                size: 40,
+                color: tp.accentLight,
+              ).animate().shake(),
+              const SizedBox(height: 16),
+              Text(
+                isSetup ? '2FA Setup Required' : '2FA Verification Required',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w900,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 12),
+              Text(
+                isSetup
+                    ? 'Scan the QR code with Google Authenticator or Authy to register your account, then enter the 6-digit code.'
+                    : 'Enter the 6-digit code from your authenticator app.',
+                style: const TextStyle(
+                  color: Colors.white70,
+                  fontSize: 13,
+                  height: 1.4,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 24),
+
+              if (isSetup && mfa.enrollmentUri != null) ...[
+                Center(
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(16),
+                    child: Container(
+                      color: Colors.white,
+                      padding: const EdgeInsets.all(12),
+                      width: 180,
+                      height: 180,
+                      child: QrImageView(
+                        data: mfa.enrollmentUri!,
+                        version: QrVersions.auto,
+                        size: 180.0,
+                      ),
+                    ),
+                  ),
+                ),
                 const SizedBox(height: 16),
-                Text(
-                  isSetup ? '2FA Setup Required' : '2FA Verification Required',
+                Center(
+                  child: SelectableText(
+                    'Secret: ${mfa.enrollmentSecret ?? ""}',
+                    style: const TextStyle(
+                      color: Colors.white54,
+                      fontSize: 12,
+                      fontFamily: 'monospace',
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+                const SizedBox(height: 24),
+              ],
+
+              TvFocusable(
+                onSelect: () => _openKeyboard(_mfaCodeController, numeric: true),
+                child: TextFormField(
+                  controller: _mfaCodeController,
+                  readOnly: true,
+                  showCursor: false,
                   style: const TextStyle(
                     color: Colors.white,
                     fontSize: 18,
-                    fontWeight: FontWeight.w900,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 6,
                   ),
+                  keyboardType: TextInputType.none,
+                  maxLength: 6,
                   textAlign: TextAlign.center,
+                  decoration: _inputDecoration('6-digit code', Icons.onetwothree_outlined, tp)
+                      .copyWith(counterText: ''),
                 ),
-                const SizedBox(height: 12),
-                Text(
-                  isSetup
-                      ? 'Scan the QR code with Google Authenticator or Authy to register your account, then enter the 6-digit code.'
-                      : 'Enter the 6-digit code from your authenticator app.',
-                  style: const TextStyle(
-                    color: Colors.white70,
-                    fontSize: 13,
-                    height: 1.4,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 24),
+              ),
 
-                if (isSetup && mfa.enrollmentUri != null) ...[
-                  Center(
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(16),
-                      child: Container(
-                        color: Colors.white,
-                        padding: const EdgeInsets.all(12),
-                        width: 180,
-                        height: 180,
-                        child: QrImageView(
-                          data: mfa.enrollmentUri!,
-                          version: QrVersions.auto,
-                          size: 180.0,
-                        ),
-                      ),
+              const SizedBox(height: 16),
+              if (mfa.error != null) ...[
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.red.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: Colors.redAccent.withValues(alpha: 0.3),
                     ),
                   ),
-                  const SizedBox(height: 16),
-                  Center(
-                    // Plain Text: SelectableText is a focusable EditableText that
-                    // traps D-pad focus (arrows move its caret, not traversal).
-                    child: Text(
-                      'Secret: ${mfa.enrollmentSecret ?? ""}',
-                      style: const TextStyle(
-                        color: Colors.white54,
-                        fontSize: 12,
-                        fontFamily: 'monospace',
-                      ),
-                      textAlign: TextAlign.center,
+                  child: Text(
+                    mfa.error!,
+                    style: const TextStyle(
+                      color: Colors.redAccent,
+                      fontSize: 13,
                     ),
-                  ),
-                  const SizedBox(height: 24),
-                ],
-
-                _orderedAuthFocus(
-                  order: 0,
-                  focusNode: _mfaCodeFocus,
-                  autofocus: true,
-                  onSelect: () => _beginEdit(_mfaEditFocus),
-                  child: _OtpCodeInput(
-                    controller: _mfaCodeController,
-                    editFocusNode: _mfaEditFocus,
-                    theme: tp,
-                    onSubmitted: _stopEditing,
+                    textAlign: TextAlign.center,
                   ),
                 ),
+                const SizedBox(height: 20),
+              ],
 
-                const SizedBox(height: 16),
-                if (mfa.error != null) ...[
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.red.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: Colors.redAccent.withValues(alpha: 0.3),
-                      ),
-                    ),
-                    child: Text(
-                      mfa.error!,
-                      style: const TextStyle(
-                        color: Colors.redAccent,
-                        fontSize: 13,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                ],
-
-                Row(
-                  children: [
-                    Expanded(
-                      child: _orderedAuthFocus(
-                        order: 1,
-                        excludeChildFocus: true,
-                        onSelect: _isLoading ? null : _cancelMfa,
-                        child: OutlinedButton(
-                          onPressed: _isLoading ? null : _cancelMfa,
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: Colors.white70,
-                            side: BorderSide(
-                              color: Colors.white.withValues(alpha: 0.2),
-                            ),
-                            padding: const EdgeInsets.symmetric(vertical: 14),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(16),
-                            ),
+              Row(
+                children: [
+                  Expanded(
+                    child: TvFocusable(
+                      onSelect: _isLoading ? null : _cancelMfa,
+                      child: OutlinedButton(
+                        onPressed: _isLoading ? null : _cancelMfa,
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.white70,
+                          side: BorderSide(
+                            color: Colors.white.withValues(alpha: 0.2),
                           ),
-                          child: const Text('Cancel'),
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
                         ),
+                        child: const Text('Cancel'),
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _orderedAuthFocus(
-                        order: 2,
-                        excludeChildFocus: true,
-                        onSelect: _isLoading
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: TvFocusable(
+                      onSelect: _isLoading
+                          ? null
+                          : () => _handleMfaVerify(_mfaCodeController.text),
+                      child: ElevatedButton(
+                        onPressed: _isLoading
                             ? null
                             : () => _handleMfaVerify(_mfaCodeController.text),
-                        child: ElevatedButton(
-                          onPressed: _isLoading
-                              ? null
-                              : () => _handleMfaVerify(_mfaCodeController.text),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: tp.accent,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 14),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(16),
-                            ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: tp.accent,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
                           ),
-                          child: _isLoading
-                              ? const SizedBox(
-                                  width: 20,
-                                  height: 20,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: Colors.white,
-                                  ),
-                                )
-                              : const Text(
-                                  'Verify',
-                                  style: TextStyle(fontWeight: FontWeight.bold),
-                                ),
                         ),
+                        child: _isLoading
+                            ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : const Text(
+                                'Verify',
+                                style: TextStyle(fontWeight: FontWeight.bold),
+                              ),
                       ),
+                    ),
+                  ),
+                ],
+              ),
+              if (_syncingServers) ...[
+                const SizedBox(height: 16),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: tp.accentLight,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    const Text(
+                      'Syncing your servers…',
+                      style: TextStyle(color: Colors.white54, fontSize: 12),
                     ),
                   ],
                 ),
               ],
-            ),
+            ],
           ),
         ),
       ),
@@ -1142,140 +949,45 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
     final isLight = tp.colors.isLight;
     return InputDecoration(
       labelText: labelText,
-      labelStyle: TextStyle(color: Colors.white54, fontSize: 14),
-      prefixIcon: Icon(icon, color: isLight ? Colors.black38 : Colors.white38),
+      labelStyle: TextStyle(
+        color: Colors.white54,
+        fontSize: 14,
+      ),
+      prefixIcon: Icon(
+        icon,
+        color: isLight ? Colors.black38 : Colors.white38,
+      ),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(16),
         borderSide: BorderSide(
-          color: isLight
-              ? Colors.black12
-              : Colors.white.withValues(alpha: 0.12),
+          color: isLight ? Colors.black12 : Colors.white.withValues(alpha: 0.12),
         ),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(16),
         borderSide: BorderSide(
-          color: Colors.white.withValues(alpha: 0.18),
-          width: 1.2,
+          color: tp.accent,
+          width: 2.5,
         ),
       ),
       errorBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(16),
-        borderSide: BorderSide(color: Colors.redAccent.withValues(alpha: 0.5)),
+        borderSide: BorderSide(
+          color: Colors.redAccent.withValues(alpha: 0.5),
+        ),
       ),
       focusedErrorBorder: const OutlineInputBorder(
         borderRadius: BorderRadius.all(Radius.circular(16)),
-        borderSide: BorderSide(color: Colors.redAccent, width: 1.2),
+        borderSide: BorderSide(
+          color: Colors.redAccent,
+          width: 2.5,
+        ),
       ),
       filled: true,
       fillColor: isLight
           ? Colors.black.withValues(alpha: 0.02)
           : Colors.white.withValues(alpha: 0.02),
       contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
-    );
-  }
-}
-
-class _OtpCodeInput extends StatefulWidget {
-  final TextEditingController controller;
-  final FocusNode editFocusNode;
-  final ThemeProvider theme;
-  final VoidCallback onSubmitted;
-
-  const _OtpCodeInput({
-    required this.controller,
-    required this.editFocusNode,
-    required this.theme,
-    required this.onSubmitted,
-  });
-
-  @override
-  State<_OtpCodeInput> createState() => _OtpCodeInputState();
-}
-
-class _OtpCodeInputState extends State<_OtpCodeInput> {
-  @override
-  void initState() {
-    super.initState();
-    widget.controller.addListener(_refresh);
-    widget.editFocusNode.addListener(_refresh);
-  }
-
-  @override
-  void dispose() {
-    widget.controller.removeListener(_refresh);
-    widget.editFocusNode.removeListener(_refresh);
-    super.dispose();
-  }
-
-  void _refresh() {
-    if (mounted) setState(() {});
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final text = widget.controller.text;
-    final isEditing = widget.editFocusNode.hasFocus;
-    final activeIndex = text.length.clamp(0, 5);
-
-    return Stack(
-      alignment: Alignment.center,
-      children: [
-        SizedBox(
-          width: 1,
-          height: 1,
-          child: Opacity(
-            opacity: 0.01,
-            child: TextField(
-              controller: widget.controller,
-              focusNode: widget.editFocusNode,
-              keyboardType: TextInputType.number,
-              inputFormatters: [
-                FilteringTextInputFormatter.digitsOnly,
-                LengthLimitingTextInputFormatter(6),
-              ],
-              textInputAction: TextInputAction.done,
-              onSubmitted: (_) => widget.onSubmitted(),
-              enableSuggestions: false,
-              autocorrect: false,
-            ),
-          ),
-        ),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: List.generate(6, (index) {
-            final filled = index < text.length;
-            final active = isEditing && index == activeIndex;
-            return Expanded(
-              child: Container(
-                height: 54,
-                margin: EdgeInsets.only(right: index == 5 ? 0 : 8),
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: active
-                      ? Colors.white.withValues(alpha: 0.12)
-                      : Colors.white.withValues(alpha: 0.05),
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(
-                    color: active
-                        ? Colors.white.withValues(alpha: 0.22)
-                        : Colors.white.withValues(alpha: 0.10),
-                    width: active ? 1.2 : 1,
-                  ),
-                ),
-                child: Text(
-                  filled ? text[index] : '',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 22,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ),
-            );
-          }),
-        ),
-      ],
     );
   }
 }

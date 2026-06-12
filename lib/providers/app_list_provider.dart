@@ -15,6 +15,7 @@ import '../services/database/app_override_service.dart';
 import '../services/database/metadata_database.dart';
 import '../services/database/session_history_service.dart';
 import '../services/notifications/notification_service.dart';
+import '../services/sync/cloud_sync_service.dart';
 import 'plugins_provider.dart';
 
 export '../services/http_api/nv_http_client.dart' show LaunchResult;
@@ -42,6 +43,7 @@ class AppListProvider extends ChangeNotifier {
   int _enrichGeneration = 0;
   bool _enrichedOnce = false;
   bool _silentRefreshInProgress = false;
+  bool _cloudRepairAttempted = false;
 
   final Map<int, NvApp> _fullAppCache = {};
 
@@ -147,6 +149,7 @@ class AppListProvider extends ChangeNotifier {
       _apps = [];
       if (isNewServer) {
         _fullAppCache.clear();
+        _cloudRepairAttempted = false;
         // reload persisted cache so we don't lose apps after crash/restart
         await _restoreAppCache(computer.uuid);
       }
@@ -281,9 +284,25 @@ class AppListProvider extends ChangeNotifier {
           return;
         }
         _error = 'No apps returned — server may not be paired or HTTPS failed.';
-        // Sunshine/Apollo can take a few seconds to persist the pairing
-        // before /applist returns apps. Retry once after a short delay.
-        if (isNewServer && !silent) {
+        if (!silent &&
+            _httpClient.lastAppListCertRejected &&
+            computer.isCloud &&
+            !_cloudRepairAttempted) {
+          // Server rejected our cert but this server is cloud-registered:
+          // the cert never landed in the server's registry (e.g. the
+          // cloud-pair POST failed earlier). Re-run cloud pairing for this
+          // computer once, then reload.
+          _cloudRepairAttempted = true;
+          unawaited(
+            CloudSyncService.instance.repairCloudPairing(computer).then((_) {
+              if (!_disposed && _apps.isEmpty && _currentComputer != null) {
+                loadApps(_currentComputer!);
+              }
+            }),
+          );
+        } else if (isNewServer && !silent) {
+          // Sunshine/Apollo can take a few seconds to persist the pairing
+          // before /applist returns apps. Retry once after a short delay.
           Future.delayed(const Duration(seconds: 2), () {
             if (!_disposed && _apps.isEmpty && _currentComputer != null) {
               loadApps(_currentComputer!);
