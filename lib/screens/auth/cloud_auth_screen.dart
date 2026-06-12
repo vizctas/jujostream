@@ -12,7 +12,6 @@ import '../../providers/cloud_mfa_provider.dart';
 import '../../providers/theme_provider.dart';
 import '../../services/input/gamepad_navigation_service.dart';
 import '../../services/tv/tv_focus_helpers.dart';
-import '../../widgets/gamepad_keyboard.dart';
 
 class CloudAuthScreen extends StatefulWidget {
   final bool isFirstRun;
@@ -32,15 +31,15 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _mfaCodeController = TextEditingController();
+  final _emailFocusNode = FocusNode();
+  final _passwordFocusNode = FocusNode();
+  final _mfaCodeFocusNode = FocusNode();
 
   bool _isLoading = false;
   bool _syncingServers = false;
   bool _obscurePassword = true;
   bool _isSignUp = false;
   bool _awaitingConfirmation = false;
-  bool _showKeyboard = false;
-  bool _keyboardNumeric = false;
-  TextEditingController? _activeController;
 
   Timer? _confirmationTimer;
   String? _error;
@@ -64,13 +63,14 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
   void _onMfaStateChange() {
     if (!mounted) return;
     final status = _mfaProvider.status;
-    final showMfaPanel = status == CloudMfaStatus.setupRequired ||
+    final showMfaPanel =
+        status == CloudMfaStatus.setupRequired ||
         status == CloudMfaStatus.verifyRequired ||
         (status == CloudMfaStatus.loading && _mfaProvider.blocksCloudUser);
 
     if (showMfaPanel && !_wasMfaPanelShown) {
       _wasMfaPanelShown = true;
-      setState(() => _showKeyboard = false);
+      FocusScope.of(context).unfocus();
     } else if (!showMfaPanel && _wasMfaPanelShown) {
       _wasMfaPanelShown = false;
     }
@@ -82,6 +82,9 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
     _emailController.dispose();
     _passwordController.dispose();
     _mfaCodeController.dispose();
+    _emailFocusNode.dispose();
+    _passwordFocusNode.dispose();
+    _mfaCodeFocusNode.dispose();
     _mfaProvider.removeListener(_onMfaStateChange);
     GamepadNavigationService.setActive(true);
     super.dispose();
@@ -235,10 +238,9 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
       // rendered with stale local data while the pull was still in flight.
       setState(() => _syncingServers = true);
       try {
-        await context
-            .read<AuthProvider>()
-            .pullFromCloud()
-            .timeout(const Duration(seconds: 8));
+        await context.read<AuthProvider>().pullFromCloud().timeout(
+          const Duration(seconds: 8),
+        );
       } catch (_) {
         // Timeout or network error — proceed anyway; polling and resume
         // retries will catch up. Never trap the user on the login screen.
@@ -263,7 +265,6 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
     context.read<CloudMfaProvider>().reset();
     setState(() {
       _mfaCodeController.clear();
-      _showKeyboard = false;
       _isLoading = false;
     });
     if (widget.popOnSuccess) {
@@ -271,78 +272,44 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
     }
   }
 
-  // ── Keyboard input helpers ───────────────────────────────────────────────────
-  void _openKeyboard(TextEditingController controller, {bool numeric = false}) {
-    setState(() {
-      _showKeyboard = true;
-      _keyboardNumeric = numeric;
-      _activeController = controller;
-    });
+  // Native IME helpers. Gamepad select focuses the real field, touch uses the
+  // same TextFormField path, so the device keyboard stays native.
+  void _focusNativeInput(FocusNode focusNode) {
+    focusNode.requestFocus();
+    SystemChannels.textInput.invokeMethod<void>('TextInput.show');
   }
 
-  void _closeKeyboard() {
-    setState(() => _showKeyboard = false);
+  void _continueLocalOnly() {
+    FocusScope.of(context).unfocus();
+    if (!widget.isFirstRun && (Navigator.maybeOf(context)?.canPop() ?? false)) {
+      Navigator.of(context).pop();
+      return;
+    }
+    Navigator.of(context).pushReplacementNamed('/');
   }
 
-  void _onKeyboardKey(String ch) {
-    final controller = _activeController;
-    if (controller == null) return;
-    final text = controller.text;
-    final selection = controller.selection;
-    if (selection.isCollapsed) {
-      final offset = selection.baseOffset;
-      final newText = text.substring(0, offset) + ch + text.substring(offset);
-      controller.value = TextEditingValue(
-        text: newText,
-        selection: TextSelection.collapsed(offset: offset + ch.length),
-      );
-    } else {
-      final newText = text.substring(0, selection.start) + ch + text.substring(selection.end);
-      controller.value = TextEditingValue(
-        text: newText,
-        selection: TextSelection.collapsed(offset: selection.start + ch.length),
-      );
-    }
-    if (_activeController == _mfaCodeController && controller.text.length == 6) {
-      _closeKeyboard();
-      _handleMfaVerify(controller.text);
-    }
-  }
-
-  void _onKeyboardBackspace() {
-    final controller = _activeController;
-    if (controller == null) return;
-    final text = controller.text;
-    final selection = controller.selection;
-    if (selection.isCollapsed) {
-      if (selection.baseOffset > 0) {
-        final newText = text.substring(0, selection.baseOffset - 1) +
-            text.substring(selection.baseOffset);
-        controller.value = TextEditingValue(
-          text: newText,
-          selection: TextSelection.collapsed(
-            offset: selection.baseOffset - 1,
-          ),
-        );
-      }
-    } else {
-      final newText = text.substring(0, selection.start) +
-          text.substring(selection.end);
-      controller.value = TextEditingValue(
-        text: newText,
-        selection: TextSelection.collapsed(offset: selection.start),
-      );
-    }
-  }
-
-  void _onKeyboardDone() {
-    _closeKeyboard();
-    if (_activeController == _mfaCodeController) {
-      final code = _mfaCodeController.text;
-      if (code.length == 6) {
-        _handleMfaVerify(code);
-      }
-    }
+  Widget _orderedAuthFocus({
+    required double order,
+    required Widget child,
+    VoidCallback? onSelect,
+    bool autofocus = false,
+    bool excludeChildFocus = false,
+    double borderRadius = 16,
+  }) {
+    return FocusTraversalOrder(
+      order: NumericFocusOrder(order),
+      child: TvFocusable(
+        autofocus: autofocus,
+        excludeChildFocus: excludeChildFocus,
+        onSelect: onSelect,
+        borderRadius: borderRadius,
+        focusColor: Colors.white.withValues(alpha: 0.18),
+        focusFillColor: Colors.white.withValues(alpha: 0.08),
+        focusBorderWidth: 1.2,
+        focusScale: 1.0,
+        child: child,
+      ),
+    );
   }
 
   KeyEventResult _handleAuthScreenKey(FocusNode _, KeyEvent event) {
@@ -352,12 +319,17 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
     if (key == LogicalKeyboardKey.gameButtonB ||
         key == LogicalKeyboardKey.goBack ||
         key == LogicalKeyboardKey.escape) {
-      if (_showKeyboard) {
-        _closeKeyboard();
+      final focused = FocusManager.instance.primaryFocus;
+      if (focused == _emailFocusNode ||
+          focused == _passwordFocusNode ||
+          focused == _mfaCodeFocusNode) {
+        focused?.unfocus();
+        SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
         return KeyEventResult.handled;
       }
       final mfa = context.read<CloudMfaProvider>();
-      final showMfaPanel = mfa.status == CloudMfaStatus.setupRequired ||
+      final showMfaPanel =
+          mfa.status == CloudMfaStatus.setupRequired ||
           mfa.status == CloudMfaStatus.verifyRequired ||
           (mfa.status == CloudMfaStatus.loading && mfa.blocksCloudUser);
       if (showMfaPanel) {
@@ -377,7 +349,8 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
     final mfa = context.watch<CloudMfaProvider>();
     final tp = context.watch<ThemeProvider>();
 
-    final showMfaPanel = mfa.status == CloudMfaStatus.setupRequired ||
+    final showMfaPanel =
+        mfa.status == CloudMfaStatus.setupRequired ||
         mfa.status == CloudMfaStatus.verifyRequired ||
         (mfa.status == CloudMfaStatus.loading && mfa.blocksCloudUser);
 
@@ -412,19 +385,6 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
                 ),
               ),
             ),
-
-            if (_showKeyboard)
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: 0,
-                child: GamepadKeyboard(
-                  numericOnly: _keyboardNumeric,
-                  onKey: _onKeyboardKey,
-                  onBackspace: _onKeyboardBackspace,
-                  onDone: _onKeyboardDone,
-                ),
-              ),
           ],
         ),
       ),
@@ -455,264 +415,300 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
           ),
           child: Form(
             key: _formKey,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Icon(
-                  Icons.cloud,
-                  size: 44,
-                  color: tp.accent,
-                ).animate().scale(delay: 200.ms, duration: 400.ms),
-                const SizedBox(height: 16),
-                Text(
-                  _isSignUp ? 'Create Jujo Cloud Account' : 'Sign in to Jujo Cloud',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 20,
-                    fontWeight: FontWeight.w900,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 24),
-
-                // Email field
-                TvFocusable(
-                  onSelect: () => _openKeyboard(_emailController),
-                  child: TextFormField(
-                    controller: _emailController,
-                    readOnly: true,
-                    showCursor: false,
-                    style: const TextStyle(color: Colors.white),
-                    decoration: _inputDecoration('Email', Icons.mail_outline, tp),
-                    keyboardType: TextInputType.none,
-                    validator: (value) {
-                      final email = value?.trim() ?? '';
-                      if (email.isEmpty) return 'Email is required';
-                      if (!email.contains('@')) return 'Please enter a valid email';
-                      return null;
-                    },
-                  ),
-                ),
-                const SizedBox(height: 16),
-
-                // Password field
-                TvFocusable(
-                  onSelect: () => _openKeyboard(_passwordController),
-                  child: TextFormField(
-                    controller: _passwordController,
-                    readOnly: true,
-                    showCursor: false,
-                    style: const TextStyle(color: Colors.white),
-                    obscureText: _obscurePassword,
-                    decoration: _inputDecoration('Password', Icons.lock_outline, tp)
-                        .copyWith(
-                      suffixIcon: IconButton(
-                        icon: Icon(
-                          _obscurePassword
-                              ? Icons.visibility_off_outlined
-                              : Icons.visibility_outlined,
-                          color: Colors.white54,
-                          size: 20,
-                        ),
-                        onPressed: () =>
-                            setState(() => _obscurePassword = !_obscurePassword),
-                      ),
+            child: FocusTraversalGroup(
+              policy: OrderedTraversalPolicy(),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Icon(
+                    Icons.cloud,
+                    size: 44,
+                    color: tp.accent,
+                  ).animate().scale(delay: 200.ms, duration: 400.ms),
+                  const SizedBox(height: 16),
+                  Text(
+                    _isSignUp
+                        ? 'Create Jujo Cloud Account'
+                        : 'Sign in to Jujo Cloud',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 20,
+                      fontWeight: FontWeight.w900,
                     ),
-                    keyboardType: TextInputType.none,
-                    validator: (value) {
-                      if (value == null || value.isEmpty) return 'Password is required';
-                      if (value.length < 6) return 'Must be at least 6 characters';
-                      return null;
-                    },
+                    textAlign: TextAlign.center,
                   ),
-                ),
+                  const SizedBox(height: 24),
 
-                const SizedBox(height: 20),
-
-                if (_error != null) ...[
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.red.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: Colors.redAccent.withValues(alpha: 0.3),
+                  // Email field
+                  _orderedAuthFocus(
+                    order: 0,
+                    autofocus: true,
+                    onSelect: () => _focusNativeInput(_emailFocusNode),
+                    child: TextFormField(
+                      controller: _emailController,
+                      focusNode: _emailFocusNode,
+                      style: const TextStyle(color: Colors.white),
+                      decoration: _inputDecoration(
+                        'Email',
+                        Icons.mail_outline,
+                        tp,
                       ),
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.error_outline,
-                            color: Colors.redAccent, size: 18),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            _error!,
-                            style: const TextStyle(
-                              color: Colors.redAccent,
-                              fontSize: 13,
-                            ),
-                          ),
-                        ),
-                      ],
+                      keyboardType: TextInputType.emailAddress,
+                      textInputAction: TextInputAction.next,
+                      autocorrect: false,
+                      enableSuggestions: false,
+                      onFieldSubmitted: (_) =>
+                          _focusNativeInput(_passwordFocusNode),
+                      validator: (value) {
+                        final email = value?.trim() ?? '';
+                        if (email.isEmpty) return 'Email is required';
+                        if (!email.contains('@')) {
+                          return 'Please enter a valid email';
+                        }
+                        return null;
+                      },
                     ),
                   ),
                   const SizedBox(height: 16),
-                ],
 
-                if (_info != null) ...[
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: tp.accent.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: tp.accent.withValues(alpha: 0.3),
-                      ),
-                    ),
-                    child: Column(
-                      children: [
-                        Row(
-                          children: [
-                            Icon(Icons.mark_email_unread_outlined,
-                                color: tp.accentLight, size: 18),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                _info!,
-                                style: TextStyle(
-                                  color: tp.accentLight,
-                                  fontSize: 13,
-                                ),
+                  // Password field
+                  _orderedAuthFocus(
+                    order: 1,
+                    onSelect: () => _focusNativeInput(_passwordFocusNode),
+                    child: TextFormField(
+                      controller: _passwordController,
+                      focusNode: _passwordFocusNode,
+                      style: const TextStyle(color: Colors.white),
+                      obscureText: _obscurePassword,
+                      decoration:
+                          _inputDecoration(
+                            'Password',
+                            Icons.lock_outline,
+                            tp,
+                          ).copyWith(
+                            suffixIcon: IconButton(
+                              icon: Icon(
+                                _obscurePassword
+                                    ? Icons.visibility_off_outlined
+                                    : Icons.visibility_outlined,
+                                color: Colors.white54,
+                                size: 20,
+                              ),
+                              onPressed: () => setState(
+                                () => _obscurePassword = !_obscurePassword,
                               ),
                             ),
-                          ],
+                          ),
+                      keyboardType: TextInputType.visiblePassword,
+                      textInputAction: TextInputAction.done,
+                      autocorrect: false,
+                      enableSuggestions: false,
+                      onFieldSubmitted: (_) => _handleSubmit(),
+                      validator: (value) {
+                        if (value == null || value.isEmpty) {
+                          return 'Password is required';
+                        }
+                        if (value.length < 6) {
+                          return 'Must be at least 6 characters';
+                        }
+                        return null;
+                      },
+                    ),
+                  ),
+
+                  const SizedBox(height: 20),
+
+                  if (_error != null) ...[
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.red.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: Colors.redAccent.withValues(alpha: 0.3),
                         ),
-                        if (_awaitingConfirmation) ...[
-                          const SizedBox(height: 12),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Row(
-                                children: [
-                                  SizedBox(
-                                    width: 14,
-                                    height: 14,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: tp.accentLight,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  const Text(
-                                    'Waiting for confirmation...',
-                                    style: TextStyle(
-                                      color: Colors.white54,
-                                      fontSize: 11,
-                                    ),
-                                  ),
-                                ],
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(
+                            Icons.error_outline,
+                            color: Colors.redAccent,
+                            size: 18,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              _error!,
+                              style: const TextStyle(
+                                color: Colors.redAccent,
+                                fontSize: 13,
                               ),
-                              TvFocusable(
-                                onSelect: _isLoading ? null : _resendEmail,
-                                child: TextButton(
-                                  onPressed: _isLoading ? null : _resendEmail,
-                                  child: Text(
-                                    'Resend',
-                                    style: TextStyle(
-                                      color: tp.accentLight,
-                                      fontSize: 12,
-                                    ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                  ],
+
+                  if (_info != null) ...[
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: tp.accent.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: tp.accent.withValues(alpha: 0.3),
+                        ),
+                      ),
+                      child: Column(
+                        children: [
+                          Row(
+                            children: [
+                              Icon(
+                                Icons.mark_email_unread_outlined,
+                                color: tp.accentLight,
+                                size: 18,
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  _info!,
+                                  style: TextStyle(
+                                    color: tp.accentLight,
+                                    fontSize: 13,
                                   ),
                                 ),
                               ),
                             ],
                           ),
+                          if (_awaitingConfirmation) ...[
+                            const SizedBox(height: 12),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Row(
+                                  children: [
+                                    SizedBox(
+                                      width: 14,
+                                      height: 14,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: tp.accentLight,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    const Text(
+                                      'Waiting for confirmation...',
+                                      style: TextStyle(
+                                        color: Colors.white54,
+                                        fontSize: 11,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                _orderedAuthFocus(
+                                  order: 1.5,
+                                  onSelect: _isLoading ? null : _resendEmail,
+                                  child: TextButton(
+                                    onPressed: _isLoading ? null : _resendEmail,
+                                    child: Text(
+                                      'Resend',
+                                      style: TextStyle(
+                                        color: tp.accentLight,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
                         ],
-                      ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                  ],
+
+                  _orderedAuthFocus(
+                    order: 2,
+                    onSelect: _isLoading ? null : _handleSubmit,
+                    child: ElevatedButton(
+                      onPressed: _isLoading ? null : _handleSubmit,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: tp.accent,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        elevation: 0,
+                      ),
+                      child: _isLoading
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : Text(
+                              _isSignUp ? 'Sign Up' : 'Sign In',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 15,
+                              ),
+                            ),
                     ),
                   ),
                   const SizedBox(height: 16),
-                ],
 
-                TvFocusable(
-                  onSelect: _isLoading ? null : _handleSubmit,
-                  child: ElevatedButton(
-                    onPressed: _isLoading ? null : _handleSubmit,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: tp.accent,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      elevation: 0,
-                    ),
-                    child: _isLoading
-                        ? const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.white,
-                            ),
-                          )
-                        : Text(
-                            _isSignUp ? 'Sign Up' : 'Sign In',
-                            style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 15,
-                            ),
-                          ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-
-                TvFocusable(
-                  onSelect: _isLoading
-                      ? null
-                      : () => setState(() {
+                  _orderedAuthFocus(
+                    order: 3,
+                    onSelect: _isLoading
+                        ? null
+                        : () => setState(() {
                             _isSignUp = !_isSignUp;
                             _error = null;
                             _info = null;
                           }),
-                  child: TextButton(
-                    onPressed: _isLoading
-                        ? null
-                        : () => setState(() {
+                    child: TextButton(
+                      onPressed: _isLoading
+                          ? null
+                          : () => setState(() {
                               _isSignUp = !_isSignUp;
                               _error = null;
                               _info = null;
                             }),
-                    style: TextButton.styleFrom(
-                      foregroundColor: Colors.white70,
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                    ),
-                    child: Text(
-                      _isSignUp
-                          ? 'Already have an account? Sign in'
-                          : 'Need sync? Create an account',
+                      style: TextButton.styleFrom(
+                        foregroundColor: Colors.white70,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                      child: Text(
+                        _isSignUp
+                            ? 'Already have an account? Sign in'
+                            : 'Need sync? Create an account',
+                      ),
                     ),
                   ),
-                ),
 
-                const SizedBox(height: 8),
-                TvFocusable(
-                  onSelect: () {
-                    Navigator.of(context).pushReplacementNamed('/');
-                  },
-                  child: TextButton(
-                    onPressed: () {
-                      Navigator.of(context).pushReplacementNamed('/');
-                    },
-                    style: TextButton.styleFrom(
-                      foregroundColor: Colors.white38,
-                      padding: const EdgeInsets.symmetric(vertical: 12),
+                  const SizedBox(height: 8),
+                  _orderedAuthFocus(
+                    order: 4,
+                    onSelect: _continueLocalOnly,
+                    child: TextButton(
+                      onPressed: _continueLocalOnly,
+                      style: TextButton.styleFrom(
+                        foregroundColor: Colors.white38,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                      child: const Text('Continue in Local-only mode'),
                     ),
-                    child: const Text('Continue in Local-only mode'),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
@@ -748,193 +744,219 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
               width: 1.5,
             ),
           ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Icon(
-                Icons.security,
-                size: 40,
-                color: tp.accentLight,
-              ).animate().shake(),
-              const SizedBox(height: 16),
-              Text(
-                isSetup ? '2FA Setup Required' : '2FA Verification Required',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 18,
-                  fontWeight: FontWeight.w900,
-                ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 12),
-              Text(
-                isSetup
-                    ? 'Scan the QR code with Google Authenticator or Authy to register your account, then enter the 6-digit code.'
-                    : 'Enter the 6-digit code from your authenticator app.',
-                style: const TextStyle(
-                  color: Colors.white70,
-                  fontSize: 13,
-                  height: 1.4,
-                ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 24),
-
-              if (isSetup && mfa.enrollmentUri != null) ...[
-                Center(
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(16),
-                    child: Container(
-                      color: Colors.white,
-                      padding: const EdgeInsets.all(12),
-                      width: 180,
-                      height: 180,
-                      child: QrImageView(
-                        data: mfa.enrollmentUri!,
-                        version: QrVersions.auto,
-                        size: 180.0,
-                      ),
-                    ),
-                  ),
-                ),
+          child: FocusTraversalGroup(
+            policy: OrderedTraversalPolicy(),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Icon(
+                  Icons.security,
+                  size: 40,
+                  color: tp.accentLight,
+                ).animate().shake(),
                 const SizedBox(height: 16),
-                Center(
-                  child: SelectableText(
-                    'Secret: ${mfa.enrollmentSecret ?? ""}',
-                    style: const TextStyle(
-                      color: Colors.white54,
-                      fontSize: 12,
-                      fontFamily: 'monospace',
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                ),
-                const SizedBox(height: 24),
-              ],
-
-              TvFocusable(
-                onSelect: () => _openKeyboard(_mfaCodeController, numeric: true),
-                child: TextFormField(
-                  controller: _mfaCodeController,
-                  readOnly: true,
-                  showCursor: false,
+                Text(
+                  isSetup ? '2FA Setup Required' : '2FA Verification Required',
                   style: const TextStyle(
                     color: Colors.white,
                     fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 6,
+                    fontWeight: FontWeight.w900,
                   ),
-                  keyboardType: TextInputType.none,
-                  maxLength: 6,
                   textAlign: TextAlign.center,
-                  decoration: _inputDecoration('6-digit code', Icons.onetwothree_outlined, tp)
-                      .copyWith(counterText: ''),
                 ),
-              ),
-
-              const SizedBox(height: 16),
-              if (mfa.error != null) ...[
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.red.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: Colors.redAccent.withValues(alpha: 0.3),
-                    ),
+                const SizedBox(height: 12),
+                Text(
+                  isSetup
+                      ? 'Scan the QR code with Google Authenticator or Authy to register your account, then enter the 6-digit code.'
+                      : 'Enter the 6-digit code from your authenticator app.',
+                  style: const TextStyle(
+                    color: Colors.white70,
+                    fontSize: 13,
+                    height: 1.4,
                   ),
-                  child: Text(
-                    mfa.error!,
-                    style: const TextStyle(
-                      color: Colors.redAccent,
-                      fontSize: 13,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
+                  textAlign: TextAlign.center,
                 ),
-                const SizedBox(height: 20),
-              ],
+                const SizedBox(height: 24),
 
-              Row(
-                children: [
-                  Expanded(
-                    child: TvFocusable(
-                      onSelect: _isLoading ? null : _cancelMfa,
-                      child: OutlinedButton(
-                        onPressed: _isLoading ? null : _cancelMfa,
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: Colors.white70,
-                          side: BorderSide(
-                            color: Colors.white.withValues(alpha: 0.2),
-                          ),
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(16),
-                          ),
+                if (isSetup && mfa.enrollmentUri != null) ...[
+                  Center(
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(16),
+                      child: Container(
+                        color: Colors.white,
+                        padding: const EdgeInsets.all(12),
+                        width: 180,
+                        height: 180,
+                        child: QrImageView(
+                          data: mfa.enrollmentUri!,
+                          version: QrVersions.auto,
+                          size: 180.0,
                         ),
-                        child: const Text('Cancel'),
                       ),
                     ),
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: TvFocusable(
-                      onSelect: _isLoading
-                          ? null
-                          : () => _handleMfaVerify(_mfaCodeController.text),
-                      child: ElevatedButton(
-                        onPressed: _isLoading
+                  const SizedBox(height: 16),
+                  Center(
+                    child: SelectableText(
+                      'Secret: ${mfa.enrollmentSecret ?? ""}',
+                      style: const TextStyle(
+                        color: Colors.white54,
+                        fontSize: 12,
+                        fontFamily: 'monospace',
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                ],
+
+                _orderedAuthFocus(
+                  order: 0,
+                  autofocus: true,
+                  onSelect: () => _focusNativeInput(_mfaCodeFocusNode),
+                  child: TextFormField(
+                    controller: _mfaCodeController,
+                    focusNode: _mfaCodeFocusNode,
+                    autofocus: true,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 22,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 8,
+                    ),
+                    keyboardType: TextInputType.number,
+                    textInputAction: TextInputAction.done,
+                    textAlign: TextAlign.center,
+                    maxLength: 6,
+                    inputFormatters: [
+                      FilteringTextInputFormatter.digitsOnly,
+                      LengthLimitingTextInputFormatter(6),
+                    ],
+                    decoration: _inputDecoration(
+                      '6-digit code',
+                      Icons.onetwothree_outlined,
+                      tp,
+                    ).copyWith(counterText: ''),
+                    onChanged: (code) {
+                      if (code.length == 6 && !_isLoading) {
+                        FocusScope.of(context).unfocus();
+                        _handleMfaVerify(code);
+                      }
+                    },
+                    onFieldSubmitted: (code) {
+                      if (code.length == 6 && !_isLoading) {
+                        _handleMfaVerify(code);
+                      }
+                    },
+                  ),
+                ),
+
+                const SizedBox(height: 16),
+                if (mfa.error != null) ...[
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.red.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: Colors.redAccent.withValues(alpha: 0.3),
+                      ),
+                    ),
+                    child: Text(
+                      mfa.error!,
+                      style: const TextStyle(
+                        color: Colors.redAccent,
+                        fontSize: 13,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                ],
+
+                Row(
+                  children: [
+                    Expanded(
+                      child: _orderedAuthFocus(
+                        order: 1,
+                        onSelect: _isLoading ? null : _cancelMfa,
+                        child: OutlinedButton(
+                          onPressed: _isLoading ? null : _cancelMfa,
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.white70,
+                            side: BorderSide(
+                              color: Colors.white.withValues(alpha: 0.2),
+                            ),
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                          ),
+                          child: const Text('Cancel'),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _orderedAuthFocus(
+                        order: 2,
+                        onSelect: _isLoading
                             ? null
                             : () => _handleMfaVerify(_mfaCodeController.text),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: tp.accent,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(16),
+                        child: ElevatedButton(
+                          onPressed: _isLoading
+                              ? null
+                              : () => _handleMfaVerify(_mfaCodeController.text),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: tp.accent,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16),
+                            ),
                           ),
-                        ),
-                        child: _isLoading
-                            ? const SizedBox(
-                                width: 20,
-                                height: 20,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Colors.white,
+                          child: _isLoading
+                              ? const SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : const Text(
+                                  'Verify',
+                                  style: TextStyle(fontWeight: FontWeight.bold),
                                 ),
-                              )
-                            : const Text(
-                                'Verify',
-                                style: TextStyle(fontWeight: FontWeight.bold),
-                              ),
+                        ),
                       ),
-                    ),
-                  ),
-                ],
-              ),
-              if (_syncingServers) ...[
-                const SizedBox(height: 16),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    SizedBox(
-                      width: 14,
-                      height: 14,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: tp.accentLight,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    const Text(
-                      'Syncing your servers…',
-                      style: TextStyle(color: Colors.white54, fontSize: 12),
                     ),
                   ],
                 ),
+                if (_syncingServers) ...[
+                  const SizedBox(height: 16),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: tp.accentLight,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      const Text(
+                        'Syncing your servers…',
+                        style: TextStyle(color: Colors.white54, fontSize: 12),
+                      ),
+                    ],
+                  ),
+                ],
               ],
-            ],
+            ),
           ),
         ),
       ),
@@ -949,39 +971,30 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
     final isLight = tp.colors.isLight;
     return InputDecoration(
       labelText: labelText,
-      labelStyle: TextStyle(
-        color: Colors.white54,
-        fontSize: 14,
-      ),
-      prefixIcon: Icon(
-        icon,
-        color: isLight ? Colors.black38 : Colors.white38,
-      ),
+      labelStyle: TextStyle(color: Colors.white54, fontSize: 14),
+      prefixIcon: Icon(icon, color: isLight ? Colors.black38 : Colors.white38),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(16),
         borderSide: BorderSide(
-          color: isLight ? Colors.black12 : Colors.white.withValues(alpha: 0.12),
+          color: isLight
+              ? Colors.black12
+              : Colors.white.withValues(alpha: 0.12),
         ),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(16),
         borderSide: BorderSide(
-          color: tp.accent,
-          width: 2.5,
+          color: Colors.white.withValues(alpha: 0.18),
+          width: 1.2,
         ),
       ),
       errorBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(16),
-        borderSide: BorderSide(
-          color: Colors.redAccent.withValues(alpha: 0.5),
-        ),
+        borderSide: BorderSide(color: Colors.redAccent.withValues(alpha: 0.5)),
       ),
       focusedErrorBorder: const OutlineInputBorder(
         borderRadius: BorderRadius.all(Radius.circular(16)),
-        borderSide: BorderSide(
-          color: Colors.redAccent,
-          width: 2.5,
-        ),
+        borderSide: BorderSide(color: Colors.redAccent, width: 1.2),
       ),
       filled: true,
       fillColor: isLight

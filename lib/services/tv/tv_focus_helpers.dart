@@ -103,6 +103,7 @@ class _TvFocusableState extends State<TvFocusable> {
       onFocusChange: _onFocusChange,
       onKeyEvent: _onKeyEvent,
       child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
         onTap: () {
           if (widget.onSelect != null) {
             UiSoundService.playClick();
