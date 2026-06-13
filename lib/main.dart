@@ -228,7 +228,7 @@ class _FirstRunGateState extends State<_FirstRunGate>
         startupPath != null &&
         startupPath.isNotEmpty &&
         await io.File(startupPath).exists();
-    final focusMode = prefs.getBool('focus_mode_enabled') ?? false;
+    final focusMode = prefs.getBool('focus_mode_enabled') ?? true;
     if (!mounted) return;
     setState(() {
       _checked = true;

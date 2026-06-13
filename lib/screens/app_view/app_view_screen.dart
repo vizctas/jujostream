@@ -2000,7 +2000,7 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
               url: selected.posterUrl!,
               fit: BoxFit.cover,
               fadeInDuration: const Duration(milliseconds: 200),
-              memCacheWidth: 480,
+              memCacheWidth: context.read<ThemeProvider>().performanceMode ? 720 : 1280,
               errorWidget: (_, _, _) => Container(color: _tp.background),
             ),
           )
@@ -2009,7 +2009,7 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
             url: selected.posterUrl!,
             fit: BoxFit.cover,
             key: const ValueKey('static-bg'),
-            memCacheWidth: 480,
+            memCacheWidth: context.read<ThemeProvider>().performanceMode ? 720 : 1280,
             errorWidget: (_, _, _) => Container(color: _tp.background),
           ),
         if (!(showVideo || context.read<ThemeProvider>().performanceMode))

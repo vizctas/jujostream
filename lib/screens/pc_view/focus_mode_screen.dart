@@ -881,6 +881,20 @@ class _FocusModeScreenState extends State<FocusModeScreen>
             child: const Text('Cancel'),
           ),
           TextButton(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              await setFocusModeEnabled(false);
+              if (context.mounted) {
+                Navigator.pushAndRemoveUntil(
+                  context,
+                  MaterialPageRoute(builder: (_) => const PcViewScreen()),
+                  (_) => false,
+                );
+              }
+            },
+            child: const Text('Switch to PC View'),
+          ),
+          TextButton(
             onPressed: () {
               if (io.Platform.isWindows ||
                   io.Platform.isMacOS ||
@@ -891,7 +905,7 @@ class _FocusModeScreenState extends State<FocusModeScreen>
               }
             },
             child: const Text(
-              'Exit',
+              'Exit App',
               style: TextStyle(color: Colors.redAccent),
             ),
           ),

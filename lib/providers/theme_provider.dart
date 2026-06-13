@@ -56,7 +56,7 @@ class ThemeProvider extends ChangeNotifier {
       performanceMode: perf,
       artQuality: artQuality,
       launcherThemeId: LauncherThemeRegistry.fromName(launcherName),
-      ambienceLayout: prefs.getString(_keyAmbienceLayout) ?? 'card',
+      ambienceLayout: prefs.getString(_keyAmbienceLayout) ?? 'circular',
       standbySound: prefs.getString(_keyStandbySound) ?? 'Alone',
       ambienceEffect:
           prefs.getString(_keyAmbienceEffect) ??
