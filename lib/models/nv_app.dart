@@ -24,6 +24,7 @@ class NvApp {
   final String? steamVideoUrl;
   final String? steamVideoThumb;
   final String? rawgClipUrl;
+  final String? rawgBackgroundUrl;
 
   NvApp({
     required this.appId,
@@ -43,6 +44,7 @@ class NvApp {
     this.steamVideoUrl,
     this.steamVideoThumb,
     this.rawgClipUrl,
+    this.rawgBackgroundUrl,
   });
 
   NvApp copyWith({
@@ -62,6 +64,7 @@ class NvApp {
     String? steamVideoUrl,
     String? steamVideoThumb,
     String? rawgClipUrl,
+    String? rawgBackgroundUrl,
   }) {
     return NvApp(
       appId: appId ?? this.appId,
@@ -80,6 +83,7 @@ class NvApp {
       steamVideoUrl: steamVideoUrl ?? this.steamVideoUrl,
       steamVideoThumb: steamVideoThumb ?? this.steamVideoThumb,
       rawgClipUrl: rawgClipUrl ?? this.rawgClipUrl,
+      rawgBackgroundUrl: rawgBackgroundUrl ?? this.rawgBackgroundUrl,
     );
   }
 
@@ -121,6 +125,7 @@ class NvApp {
         if (steamVideoUrl != null) 'steamVideoUrl': steamVideoUrl,
         if (steamVideoThumb != null) 'steamVideoThumb': steamVideoThumb,
         if (rawgClipUrl != null) 'rawgClipUrl': rawgClipUrl,
+        if (rawgBackgroundUrl != null) 'rawgBackgroundUrl': rawgBackgroundUrl,
       };
 
   factory NvApp.fromJson(Map<String, dynamic> json) {
@@ -142,6 +147,7 @@ class NvApp {
       steamVideoUrl: json['steamVideoUrl'],
       steamVideoThumb: json['steamVideoThumb'],
       rawgClipUrl: json['rawgClipUrl'],
+      rawgBackgroundUrl: json['rawgBackgroundUrl'],
     );
   }
 
@@ -160,6 +166,7 @@ class NvApp {
     if (steamVideoUrl != other.steamVideoUrl) return false;
     if (steamVideoThumb != other.steamVideoThumb) return false;
     if (rawgClipUrl != other.rawgClipUrl) return false;
+    if (rawgBackgroundUrl != other.rawgBackgroundUrl) return false;
     if (tags.length != other.tags.length) return false;
     if (metadataGenres.length != other.metadataGenres.length) return false;
     for (var i = 0; i < tags.length; i++) {

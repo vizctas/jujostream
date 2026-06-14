@@ -312,9 +312,10 @@ class _BigScreenBodyState extends State<_BigScreenBody> {
 
   String? _posterUrlForApp(NvApp app) {
     final override = _posterOverrides[app.appId];
-    // If this URL already failed, never return it again.  Return the recovery
-    // override once available, or null to show the text-fallback while loading.
     if (_failedPosterIds.contains(app.appId)) return override;
+    // Prefer RAWG high-res screenshot for full-bleed backgrounds.
+    final bg = app.rawgBackgroundUrl;
+    if (bg != null && bg.isNotEmpty) return bg;
     final posterUrl = app.posterUrl;
     if (posterUrl != null && posterUrl.isNotEmpty) return posterUrl;
     return override;

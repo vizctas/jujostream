@@ -494,13 +494,13 @@ class _HeroBodyState extends State<_HeroBody>
             if (widget.videoWidget != null &&
                 widget.videoForAppId == bgApp?.appId)
               Positioned.fill(child: widget.videoWidget!)
-            else if (bgApp?.posterUrl != null && bgApp!.posterUrl!.isNotEmpty)
+            else if ((bgApp?.rawgBackgroundUrl ?? bgApp?.posterUrl) != null)
               Positioned.fill(
                 child: AnimatedSwitcher(
                   duration: const Duration(milliseconds: 500),
                   child: PosterImage(
-                    key: ValueKey(bgApp.appId),
-                    url: bgApp.posterUrl!,
+                    key: ValueKey(bgApp!.appId),
+                    url: bgApp.rawgBackgroundUrl ?? bgApp.posterUrl!,
                     fit: BoxFit.cover,
                     width: double.infinity,
                     height: double.infinity,

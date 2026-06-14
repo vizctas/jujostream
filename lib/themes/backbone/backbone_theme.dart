@@ -443,13 +443,13 @@ class _BodyState extends State<_Body> {
                 widget.videoForAppId == bgApp?.appId &&
                 _view == _View.detail)
               Positioned.fill(child: widget.videoWidget!)
-            else if (bgApp?.posterUrl != null && bgApp!.posterUrl!.isNotEmpty)
+            else if ((bgApp?.rawgBackgroundUrl ?? bgApp?.posterUrl) != null)
               Positioned.fill(
                 child: AnimatedSwitcher(
                   duration: const Duration(milliseconds: 500),
                   child: PosterImage(
-                    key: ValueKey(bgApp.appId),
-                    url: bgApp.posterUrl!,
+                    key: ValueKey(bgApp!.appId),
+                    url: bgApp.rawgBackgroundUrl ?? bgApp.posterUrl!,
                     fit: BoxFit.cover,
                     width: double.infinity,
                     height: double.infinity,

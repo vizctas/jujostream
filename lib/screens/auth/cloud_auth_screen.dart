@@ -416,7 +416,7 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
           child: Form(
             key: _formKey,
             child: FocusTraversalGroup(
-              policy: OrderedTraversalPolicy(),
+              policy: _WrapOrderedTraversalPolicy(),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -745,7 +745,7 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
             ),
           ),
           child: FocusTraversalGroup(
-            policy: OrderedTraversalPolicy(),
+            policy: _WrapOrderedTraversalPolicy(),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1002,5 +1002,31 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
           : Colors.white.withValues(alpha: 0.02),
       contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
     );
+  }
+}
+
+/// Focus traversal policy that wraps around — pressing DPad past the last
+/// item loops to the first, and vice-versa. Prevents focus loss on TV/gamepad.
+class _WrapOrderedTraversalPolicy extends OrderedTraversalPolicy {
+  @override
+  bool next(FocusNode currentNode) {
+    if (!super.next(currentNode)) {
+      final scope = currentNode.nearestScope;
+      if (scope != null) {
+        findFirstFocus(scope, ignoreCurrentFocus: true)?.requestFocus();
+      }
+    }
+    return true;
+  }
+
+  @override
+  bool previous(FocusNode currentNode) {
+    if (!super.previous(currentNode)) {
+      final scope = currentNode.nearestScope;
+      if (scope != null) {
+        findLastFocus(scope, ignoreCurrentFocus: true).requestFocus();
+      }
+    }
+    return true;
   }
 }

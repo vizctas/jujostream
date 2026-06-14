@@ -271,6 +271,7 @@ class AppListProvider extends ChangeNotifier {
                 steamVideoUrl: prev.steamVideoUrl,
                 steamVideoThumb: prev.steamVideoThumb,
                 rawgClipUrl: prev.rawgClipUrl,
+                rawgBackgroundUrl: prev.rawgBackgroundUrl,
               );
             })
             .toList(growable: false);
@@ -512,6 +513,7 @@ class AppListProvider extends ChangeNotifier {
             description: rawg.description.isNotEmpty ? rawg.description : null,
             metadataGenres: rawg.genres,
             rawgClipUrl: rawg.clipUrl,
+            rawgBackgroundUrl: rawg.backgroundUrl,
           );
         })
         .toList(growable: false);
@@ -526,6 +528,7 @@ class AppListProvider extends ChangeNotifier {
       description: detail.descriptionRaw ?? '',
       genres: detail.genres,
       clipUrl: detail.clipUrl,
+      backgroundUrl: detail.backgroundImage,
     );
   }
 
@@ -816,6 +819,7 @@ class _RawgResult {
   final String description;
   final List<String> genres;
   final String? clipUrl;
+  final String? backgroundUrl;
 
   const _RawgResult({
     required this.appId,
@@ -823,5 +827,6 @@ class _RawgResult {
     required this.description,
     required this.genres,
     this.clipUrl,
+    this.backgroundUrl,
   });
 }
