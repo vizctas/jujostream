@@ -312,43 +312,81 @@ class UiSoundService {
     _ambiencePlayFuture = _playAmbienceAsync();
   }
 
+  /// Imports a user-picked audio file as the custom stand-by track. Copies the
+  /// bytes into the app-support audio cache under a fixed name (one track at a
+  /// time) and returns the stable absolute path for playback.
+  static Future<String> importStandbyTrack(
+    Uint8List bytes,
+    String fileName,
+  ) async {
+    final dir = await _ensureAudioCacheDir();
+    final ext = p.extension(fileName).toLowerCase();
+    final safeExt = (ext.isEmpty || ext.length > 5) ? '.mp3' : ext;
+    final filePath = p.join(dir, 'standby_custom$safeExt');
+    final file = io.File(filePath);
+    await file.writeAsBytes(bytes, flush: true);
+    return filePath;
+  }
+
   static Future<void> _playAmbienceAsync() async {
     try {
       if (!_ambiencePlaying) return;
 
       final prefs = await SharedPreferences.getInstance();
       final soundKey = prefs.getString('standby_sound') ?? 'Alone';
-
-      String assetName;
-      switch (soundKey) {
-        case 'Lost':
-          assetName = 'startup_loop_sound_003.mp3';
-          break;
-        case 'Room':
-          assetName = 'startup_loop_sound_002.mp3';
-          break;
-        case 'Stars':
-          assetName = 'startup_loop_sound_001.mp3';
-          break;
-        case 'Alone':
-        default:
-          assetName = 'startup_loop_sound.mp3';
-          break;
-      }
+      final volume = (prefs.getDouble('standby_volume') ?? 0.25).clamp(
+        0.0,
+        1.0,
+      );
 
       final player = _getAmbiencePlayer();
+      await player.setVolume(volume);
 
-      // Write asset to app-support directory, then play via DeviceFileSource.
-      // This avoids the macOS sandbox issue where audioplayers_darwin's
-      // internal BytesSource→cache conversion fails (AVPlayerItem.Status.failed).
-      String? filePath = await _loadAssetToFile('sound/ambience/$assetName');
+      String? filePath;
 
-      // Fallback to default sound if the selected file is missing.
-      if (filePath == null && assetName != 'startup_loop_sound.mp3') {
-        debugPrint('[UiSound] $assetName not found, falling back to default');
-        filePath = await _loadAssetToFile(
-          'sound/ambience/startup_loop_sound.mp3',
-        );
+      // Custom track: play the imported file directly (already in the cache).
+      if (soundKey == 'custom') {
+        final customPath = prefs.getString('standby_custom_path') ?? '';
+        if (customPath.isNotEmpty && io.File(customPath).existsSync()) {
+          filePath = customPath;
+        } else {
+          debugPrint(
+            '[UiSound] custom standby track missing, falling back to default',
+          );
+        }
+      }
+
+      // Presets (and custom fallback): resolve the bundled asset.
+      if (filePath == null) {
+        String assetName;
+        switch (soundKey) {
+          case 'Lost':
+            assetName = 'startup_loop_sound_003.mp3';
+            break;
+          case 'Room':
+            assetName = 'startup_loop_sound_002.mp3';
+            break;
+          case 'Stars':
+            assetName = 'startup_loop_sound_001.mp3';
+            break;
+          case 'Alone':
+          default:
+            assetName = 'startup_loop_sound.mp3';
+            break;
+        }
+
+        // Write asset to app-support directory, then play via DeviceFileSource.
+        // This avoids the macOS sandbox issue where audioplayers_darwin's
+        // internal BytesSource→cache conversion fails (AVPlayerItem.Status.failed).
+        filePath = await _loadAssetToFile('sound/ambience/$assetName');
+
+        // Fallback to default sound if the selected file is missing.
+        if (filePath == null && assetName != 'startup_loop_sound.mp3') {
+          debugPrint('[UiSound] $assetName not found, falling back to default');
+          filePath = await _loadAssetToFile(
+            'sound/ambience/startup_loop_sound.mp3',
+          );
+        }
       }
 
       if (filePath == null || !_ambiencePlaying) return;

@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:file_selector/file_selector.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../l10n/app_localizations.dart';
+import '../../services/audio/ui_sound_service.dart';
 import '../../models/stream_configuration.dart';
 import '../../models/theme_config.dart';
 import '../../providers/auth_provider.dart';
@@ -259,8 +261,26 @@ class _SettingsScreenState extends State<SettingsScreen>
                           _choiceTile(
                             context,
                             _tr(context, 'Stand-by sound', 'Sonido de espera'),
-                            themeProvider.standbySound,
+                            themeProvider.standbySound == 'custom'
+                                ? (themeProvider.standbyCustomName.isNotEmpty
+                                      ? themeProvider.standbyCustomName
+                                      : _tr(context, 'Custom', 'Personalizado'))
+                                : themeProvider.standbySound,
                             () => _pickStandbySound(context, themeProvider),
+                          ),
+                          _sliderTile(
+                            _tr(
+                              context,
+                              'Stand-by volume',
+                              'Volumen de espera',
+                            ),
+                            '',
+                            (themeProvider.standbyVolume * 100).clamp(0, 100),
+                            0,
+                            100,
+                            20,
+                            (v) => themeProvider.setStandbyVolume(v / 100),
+                            labelBuilder: (v) => '${v.round()}%',
                           ),
 
                           _section('Language / Idioma'),
@@ -2257,7 +2277,30 @@ class _SettingsScreenState extends State<SettingsScreen>
       ('Lost', () => tp.setStandbySound('Lost')),
       ('Room', () => tp.setStandbySound('Room')),
       ('Stars', () => tp.setStandbySound('Stars')),
+      (
+        _tr(ctx, 'Custom track…', 'Pista personalizada…'),
+        () => _pickCustomStandbyTrack(tp),
+      ),
     ]);
+  }
+
+  /// Opens a file picker for an audio file, copies it into the app audio cache
+  /// and activates it as the custom stand-by track. No-op if the user cancels.
+  Future<void> _pickCustomStandbyTrack(ThemeProvider tp) async {
+    try {
+      const typeGroup = XTypeGroup(
+        label: 'audio',
+        extensions: ['mp3', 'm4a', 'aac', 'wav', 'ogg'],
+        mimeTypes: ['audio/*'],
+      );
+      final file = await openFile(acceptedTypeGroups: [typeGroup]);
+      if (file == null) return; // cancelled
+      final bytes = await file.readAsBytes();
+      final path = await UiSoundService.importStandbyTrack(bytes, file.name);
+      await tp.setStandbyCustomPath(path, file.name);
+    } catch (e) {
+      debugPrint('[Settings] custom standby track pick failed: $e');
+    }
   }
 
   void _pickResolution(
