@@ -2625,6 +2625,10 @@ class _GameStreamScreenState extends State<GameStreamScreen>
           Icons.logout_rounded,
           AppLocalizations.of(context).disconnect,
           () {
+            // Close the overlay first so native overlayVisible is reset to false.
+            // Otherwise it stays true through teardown and the NEXT session starts
+            // input-gated (dead gamepads) until the user toggles the overlay again.
+            _setOverlayVisible(false);
             _stopStreaming(clearActiveSession: false);
             Navigator.pop(context);
           },
