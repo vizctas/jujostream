@@ -18,6 +18,7 @@ import '../../services/tv/tv_detector.dart';
 import '../../services/input/gamepad_button_helper.dart';
 import '../../widgets/jujo_brand_title.dart';
 import '../../widgets/now_playing_banner.dart';
+import '../../widgets/notification_mirror_overlay.dart';
 import '../../widgets/computer_options_dialog.dart';
 import '../../widgets/pairing_dialog.dart';
 import '../about/about_screen.dart';
@@ -488,26 +489,33 @@ class _PcViewScreenState extends State<PcViewScreen>
               });
             }
 
-            return Column(
+            return Stack(
               children: [
-                if (provider.computers.isEmpty && provider.isDiscovering)
-                  _buildDiscoveryBanner(),
-                Expanded(child: _buildComputerGrid(provider)),
+                Column(
+                  children: [
+                    if (provider.computers.isEmpty && provider.isDiscovering)
+                      _buildDiscoveryBanner(),
+                    Expanded(child: _buildComputerGrid(provider)),
 
-                if (_rearrangeMode) _buildRearrangeHintBanner(),
+                    if (_rearrangeMode) _buildRearrangeHintBanner(),
 
-                NowPlayingBanner(
-                  onTap: () {
-                    final computer = provider.activeSessionComputer;
-                    if (computer != null) {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => AppViewScreen(computer: computer),
-                        ),
-                      );
-                    }
-                  },
+                    NowPlayingBanner(
+                      onTap: () {
+                        final computer = provider.activeSessionComputer;
+                        if (computer != null) {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => AppViewScreen(computer: computer),
+                            ),
+                          );
+                        }
+                      },
+                    ),
+                  ],
+                ),
+                NotificationMirrorOverlay(
+                  bottomOffset: provider.activeSessionApp == null ? 24 : 76,
                 ),
               ],
             );

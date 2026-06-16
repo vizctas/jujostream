@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:file_selector/file_selector.dart';
@@ -5,6 +7,8 @@ import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../l10n/app_localizations.dart';
 import '../../services/audio/ui_sound_service.dart';
+import '../../services/companion/companion_server.dart';
+import '../../models/notification_mirror_pairing.dart';
 import '../../models/stream_configuration.dart';
 import '../../models/theme_config.dart';
 import '../../providers/auth_provider.dart';
@@ -13,6 +17,10 @@ import '../../providers/settings_provider.dart';
 import '../../providers/plugins_provider.dart';
 import '../../providers/theme_provider.dart';
 import '../../services/input/gamepad_button_helper.dart';
+import '../../services/notifications/notification_mirror_controller.dart';
+import '../../services/notifications/notification_mirror_discovery_service.dart';
+import '../../services/notifications/notification_mirror_pairing_client.dart';
+import '../../services/notifications/notification_mirror_platform.dart';
 import '../../services/tv/tv_detector.dart';
 import '../../services/window/fullscreen_service.dart';
 import '../../services/preferences/launcher_preferences.dart';
@@ -29,6 +37,9 @@ import 'vpn_guide_sheet.dart';
 String _tr(BuildContext context, String en, String es) {
   return AppLocalizations.of(context).locale.languageCode == 'es' ? es : en;
 }
+
+String formatStandbyVolumeLabel(double value) =>
+    value.clamp(0.0, 1.0).toStringAsFixed(2);
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -95,6 +106,23 @@ class _SettingsScreenState extends State<SettingsScreen>
         curve: Curves.easeOutCubic,
       );
     }
+  }
+
+  /// Responsive horizontal padding so settings content doesn't hug the edges
+  /// on large screens while staying compact on phones/TVs.
+  EdgeInsets _tabPadding(BuildContext context) {
+    final width = MediaQuery.of(context).size.width;
+    final horizontal = width > 1200
+        ? 64.0
+        : width > 800
+        ? 32.0
+        : 16.0;
+    return EdgeInsets.only(
+      top: 16,
+      bottom: 160,
+      left: horizontal,
+      right: horizontal,
+    );
   }
 
   @override
@@ -205,7 +233,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                     child: FocusTraversalGroup(
                       policy: OrderedTraversalPolicy(),
                       child: ListView(
-                        padding: const EdgeInsets.only(top: 16, bottom: 160),
+                        padding: _tabPadding(context),
                         children: [
                           _section(_tr(context, 'Appearance', 'Apariencia')),
                           _CollapsableSection(
@@ -275,12 +303,40 @@ class _SettingsScreenState extends State<SettingsScreen>
                               'Volumen de espera',
                             ),
                             '',
-                            (themeProvider.standbyVolume * 100).clamp(0, 100),
+                            themeProvider.standbyVolume.clamp(0.0, 1.0),
                             0,
+                            1,
                             100,
-                            20,
-                            (v) => themeProvider.setStandbyVolume(v / 100),
-                            labelBuilder: (v) => '${v.round()}%',
+                            themeProvider.setStandbyVolume,
+                            labelBuilder: formatStandbyVolumeLabel,
+                          ),
+                          _sliderTile(
+                            _tr(
+                              context,
+                              'Now Playing Scale',
+                              'Escala Now Playing',
+                            ),
+                            themeProvider.focusMusicScale.toStringAsFixed(2),
+                            themeProvider.focusMusicScale,
+                            0.40,
+                            1.50,
+                            22,
+                            themeProvider.setFocusMusicScale,
+                            labelBuilder: (v) => v.toStringAsFixed(2),
+                          ),
+                          _sliderTile(
+                            _tr(
+                              context,
+                              'Now Playing Opacity',
+                              'Opacidad Now Playing',
+                            ),
+                            themeProvider.focusMusicOpacity.toStringAsFixed(2),
+                            themeProvider.focusMusicOpacity,
+                            0.20,
+                            1.00,
+                            16,
+                            themeProvider.setFocusMusicOpacity,
+                            labelBuilder: (v) => v.toStringAsFixed(2),
                           ),
 
                           _section('Language / Idioma'),
@@ -333,7 +389,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                     child: FocusTraversalGroup(
                       policy: OrderedTraversalPolicy(),
                       child: ListView(
-                        padding: const EdgeInsets.only(top: 16, bottom: 160),
+                        padding: _tabPadding(context),
                         children: [
                           _section(_tr(context, 'Video', 'Video')),
                           _choiceTile(
@@ -568,7 +624,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                     child: FocusTraversalGroup(
                       policy: OrderedTraversalPolicy(),
                       child: ListView(
-                        padding: const EdgeInsets.only(top: 16, bottom: 160),
+                        padding: _tabPadding(context),
                         children: [
                           _section(
                             _tr(context, 'Input / Touch', 'Entrada / táctil'),
@@ -1117,7 +1173,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                     child: FocusTraversalGroup(
                       policy: OrderedTraversalPolicy(),
                       child: ListView(
-                        padding: const EdgeInsets.only(top: 16, bottom: 160),
+                        padding: _tabPadding(context),
                         children: [
                           _section(_tr(context, 'Desktop', 'Escritorio')),
                           _toggle(
@@ -1147,7 +1203,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                     child: FocusTraversalGroup(
                       policy: OrderedTraversalPolicy(),
                       child: ListView(
-                        padding: const EdgeInsets.only(top: 16, bottom: 160),
+                        padding: _tabPadding(context),
                         children: [
                           _section(_tr(context, 'Host', 'Host')),
                           _toggle(
@@ -1221,6 +1277,8 @@ class _SettingsScreenState extends State<SettingsScreen>
                           ),
 
                           _section('Jujo Labs'),
+                          _buildNotificationMirrorControls(context),
+                          const SizedBox(height: 8),
                           // Dynamic Bitrate removed — causes excessive reconnects
                           // that depend on server-side support. Disabled until
                           // in-band bitrate renegotiation is implemented.
@@ -1474,6 +1532,293 @@ class _SettingsScreenState extends State<SettingsScreen>
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildNotificationMirrorControls(BuildContext context) {
+    final mirror = context.watch<NotificationMirrorController>();
+    final allowedCount = mirror.allowedPackages.length;
+    final pendingCount = mirror.pendingPairRequests.length;
+    final authorizedCount = mirror.authorizedReceivers.length;
+    final pairedCount = mirror.pairedBroadcasters.length;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _choiceTile(
+          context,
+          _tr(
+            context,
+            'Notification Mirror Mode',
+            'Modo espejo de notificaciones',
+          ),
+          _notificationModeLabel(context, mirror.mode),
+          () => _pickNotificationMirrorMode(context, mirror),
+          leading: const Icon(
+            Icons.notifications_active_outlined,
+            color: Colors.white54,
+            size: 18,
+          ),
+        ),
+        _choiceTile(
+          context,
+          _tr(context, 'Notification Access', 'Acceso a notificaciones'),
+          mirror.notificationAccessGranted
+              ? _tr(context, 'Access granted', 'Acceso concedido')
+              : _tr(
+                  context,
+                  'Open Android Notification Access',
+                  'Abrir acceso a notificaciones de Android',
+                ),
+          () async {
+            await mirror.openNotificationAccessSettings();
+            await mirror.refreshNotificationAccess();
+            await mirror.refreshInstalledApps();
+          },
+          leading: Icon(
+            mirror.notificationAccessGranted
+                ? Icons.verified_user_outlined
+                : Icons.security_outlined,
+            color: Colors.white54,
+            size: 18,
+          ),
+        ),
+        _choiceTile(
+          context,
+          _tr(context, 'Allowed Apps', 'Apps permitidas'),
+          allowedCount == 0
+              ? _tr(context, 'None selected', 'Ninguna seleccionada')
+              : '$allowedCount apps',
+          () => _showNotificationAllowlist(context, mirror),
+          leading: const Icon(
+            Icons.checklist_rounded,
+            color: Colors.white54,
+            size: 18,
+          ),
+        ),
+        _toggle(
+          _tr(context, 'Ignore Ongoing', 'Ignorar persistentes'),
+          _tr(
+            context,
+            'Skip media, VPN, charging, and other persistent notifications',
+            'Omite multimedia, VPN, carga y otras notificaciones persistentes',
+          ),
+          mirror.ignoreOngoing,
+          mirror.setIgnoreOngoing,
+          leading: const Icon(
+            Icons.low_priority_rounded,
+            color: Colors.white54,
+            size: 18,
+          ),
+        ),
+        _toggle(
+          _tr(context, 'Ignore Silent', 'Ignorar silenciosas'),
+          _tr(
+            context,
+            'Skip notifications Android marks as low importance',
+            'Omite notificaciones que Android marca como baja importancia',
+          ),
+          mirror.ignoreSilent,
+          mirror.setIgnoreSilent,
+          leading: const Icon(
+            Icons.notifications_off_outlined,
+            color: Colors.white54,
+            size: 18,
+          ),
+        ),
+        _sliderTile(
+          _tr(context, 'Notification Duration', 'Duracion de notificacion'),
+          '${mirror.overlayDuration.inSeconds}s',
+          mirror.overlayDuration.inSeconds.toDouble(),
+          2,
+          30,
+          28,
+          (v) => mirror.setOverlayDuration(Duration(seconds: v.round())),
+          labelBuilder: (v) => '${v.round()}s',
+        ),
+        _sliderTile(
+          _tr(context, 'Visible Stack', 'Pila visible'),
+          mirror.maxVisible.toString(),
+          mirror.maxVisible.toDouble(),
+          1,
+          6,
+          5,
+          (v) => mirror.setMaxVisible(v.round()),
+          labelBuilder: (v) => v.round().toString(),
+        ),
+        _choiceTile(
+          context,
+          _tr(context, 'Notification Detail', 'Detalle de notificacion'),
+          _notificationDetailLabel(context, mirror.detailMode),
+          () => _pickNotificationDetailMode(context, mirror),
+          leading: const Icon(
+            Icons.subject_rounded,
+            color: Colors.white54,
+            size: 18,
+          ),
+        ),
+        _sliderTile(
+          _tr(context, 'Notification Size', 'Tamano de notificacion'),
+          mirror.sizeScale.toStringAsFixed(2),
+          mirror.sizeScale,
+          0.50,
+          2.00,
+          30,
+          mirror.setSizeScale,
+          labelBuilder: (v) => v.toStringAsFixed(2),
+        ),
+        _sliderTile(
+          _tr(context, 'Notification Opacity', 'Opacidad de notificacion'),
+          mirror.opacity.toStringAsFixed(2),
+          mirror.opacity,
+          0.20,
+          1.00,
+          16,
+          mirror.setOpacity,
+          labelBuilder: (v) => v.toStringAsFixed(2),
+        ),
+        _choiceTile(
+          context,
+          _tr(context, 'Notification Position', 'Posicion de notificacion'),
+          _notificationPositionLabel(context, mirror.position),
+          () => _pickNotificationPosition(context, mirror),
+          leading: const Icon(
+            Icons.open_with_rounded,
+            color: Colors.white54,
+            size: 18,
+          ),
+        ),
+        _toggle(
+          _tr(context, 'Stream Notifications', 'Notificaciones en streaming'),
+          _tr(
+            context,
+            'Show notification cards while streaming',
+            'Muestra tarjetas de notificacion durante streaming',
+          ),
+          mirror.streamEnabled,
+          mirror.setStreamEnabled,
+          leading: const Icon(
+            Icons.live_tv_rounded,
+            color: Colors.white54,
+            size: 18,
+          ),
+        ),
+        if (mirror.mode.canBroadcast) ...[
+          _toggle(
+            _tr(context, 'Broadcast Available', 'Transmision disponible'),
+            _tr(
+              context,
+              'Advertise this device so receivers can request access',
+              'Anuncia este dispositivo para que receptores pidan acceso',
+            ),
+            mirror.broadcastAvailable,
+            (v) => _setNotificationBroadcastAvailable(context, mirror, v),
+            leading: const Icon(
+              Icons.wifi_tethering_rounded,
+              color: Colors.white54,
+              size: 18,
+            ),
+          ),
+          _choiceTile(
+            context,
+            _tr(context, 'Receiver Requests', 'Solicitudes de receptores'),
+            pendingCount == 0
+                ? _tr(
+                    context,
+                    'No pending requests',
+                    'Sin solicitudes pendientes',
+                  )
+                : '$pendingCount pending',
+            () => _showNotificationPairRequests(context, mirror),
+            leading: const Icon(
+              Icons.mark_email_unread_outlined,
+              color: Colors.white54,
+              size: 18,
+            ),
+          ),
+          _choiceTile(
+            context,
+            _tr(context, 'Authorized Receivers', 'Receptores autorizados'),
+            authorizedCount == 0
+                ? _tr(
+                    context,
+                    'No receivers authorized',
+                    'Sin receptores autorizados',
+                  )
+                : '$authorizedCount receivers',
+            () => _showAuthorizedReceivers(context, mirror),
+            leading: const Icon(
+              Icons.tv_rounded,
+              color: Colors.white54,
+              size: 18,
+            ),
+          ),
+          _choiceTile(
+            context,
+            _tr(context, 'Battery Optimization', 'Optimizacion de bateria'),
+            _tr(
+              context,
+              'Recommended for reliable background broadcast',
+              'Recomendado para transmision confiable en segundo plano',
+            ),
+            () => _showBatteryOptimizationDisclaimer(context),
+            leading: const Icon(
+              Icons.battery_saver_rounded,
+              color: Colors.white54,
+              size: 18,
+            ),
+          ),
+        ],
+        if (mirror.mode.canReceive) ...[
+          _choiceTile(
+            context,
+            _tr(context, 'Find Broadcasters', 'Buscar transmisores'),
+            _tr(
+              context,
+              'Scan LAN and request access',
+              'Escanea LAN y solicita acceso',
+            ),
+            () => _showFindBroadcastersDialog(context, mirror),
+            leading: const Icon(
+              Icons.travel_explore_rounded,
+              color: Colors.white54,
+              size: 18,
+            ),
+          ),
+          _choiceTile(
+            context,
+            _tr(context, 'Paired Broadcasters', 'Transmisores vinculados'),
+            pairedCount == 0
+                ? _tr(
+                    context,
+                    'No broadcasters paired',
+                    'Sin transmisores vinculados',
+                  )
+                : '$pairedCount broadcasters',
+            () => _showPairedBroadcasters(context, mirror),
+            leading: const Icon(
+              Icons.send_to_mobile_rounded,
+              color: Colors.white54,
+              size: 18,
+            ),
+          ),
+        ],
+        _choiceTile(
+          context,
+          _tr(
+            context,
+            'This Device Receiver Token',
+            'Token receptor de este dispositivo',
+          ),
+          mirror.receiverToken,
+          () => Clipboard.setData(ClipboardData(text: mirror.receiverToken)),
+          leading: const Icon(
+            Icons.key_rounded,
+            color: Colors.white54,
+            size: 18,
+          ),
+        ),
+      ],
     );
   }
 
@@ -2663,6 +3008,490 @@ class _SettingsScreenState extends State<SettingsScreen>
           ),
         ),
       ),
+    );
+  }
+
+  String _notificationModeLabel(
+    BuildContext context,
+    NotificationMirrorMode mode,
+  ) {
+    switch (mode) {
+      case NotificationMirrorMode.receiver:
+        return _tr(context, 'Receiver', 'Receptor');
+      case NotificationMirrorMode.broadcaster:
+        return _tr(context, 'Broadcaster', 'Transmisor');
+      case NotificationMirrorMode.both:
+        return _tr(context, 'Both', 'Ambos');
+      case NotificationMirrorMode.off:
+        return _tr(context, 'Off', 'Desactivado');
+    }
+  }
+
+  String _notificationDetailLabel(
+    BuildContext context,
+    NotificationDetailMode mode,
+  ) {
+    switch (mode) {
+      case NotificationDetailMode.summary:
+        return _tr(context, 'No details', 'Sin detalles');
+      case NotificationDetailMode.full:
+        return _tr(context, 'Full notification', 'Notificacion completa');
+    }
+  }
+
+  String _notificationPositionLabel(
+    BuildContext context,
+    NotificationOverlayPosition position,
+  ) {
+    switch (position) {
+      case NotificationOverlayPosition.topLeft:
+        return _tr(context, 'Top left', 'Arriba izquierda');
+      case NotificationOverlayPosition.topRight:
+        return _tr(context, 'Top right', 'Arriba derecha');
+      case NotificationOverlayPosition.bottomLeft:
+        return _tr(context, 'Bottom left', 'Abajo izquierda');
+      case NotificationOverlayPosition.bottomRight:
+        return _tr(context, 'Bottom right', 'Abajo derecha');
+    }
+  }
+
+  void _pickNotificationMirrorMode(
+    BuildContext context,
+    NotificationMirrorController mirror,
+  ) {
+    final pluginsProvider = context.read<PluginsProvider>();
+    final settingsProvider = context.read<SettingsProvider>();
+    final localeProvider = context.read<LocaleProvider>();
+    final themeProvider = context.read<ThemeProvider>();
+    final launcherPreferences = context.read<LauncherPreferences>();
+
+    Future<void> setMode(NotificationMirrorMode mode) async {
+      await mirror.setMode(mode);
+      if (mode != NotificationMirrorMode.off) {
+        await CompanionServer.instance.start(
+          pluginsProvider,
+          settingsProvider: settingsProvider,
+          localeProvider: localeProvider,
+          themeProvider: themeProvider,
+          launcherPreferences: launcherPreferences,
+          notificationMirror: mirror,
+        );
+      }
+      await NotificationMirrorDiscoveryService.instance.updateAdvertising(
+        mirror,
+      );
+    }
+
+    _showPicker(
+      context,
+      _tr(context, 'Notification Mirror Mode', 'Modo espejo'),
+      [
+        (
+          _tr(context, 'Off', 'Desactivado'),
+          () => setMode(NotificationMirrorMode.off),
+        ),
+        (
+          _tr(context, 'Receiver', 'Receptor'),
+          () => setMode(NotificationMirrorMode.receiver),
+        ),
+        (
+          _tr(context, 'Broadcaster', 'Transmisor'),
+          () => setMode(NotificationMirrorMode.broadcaster),
+        ),
+        (
+          _tr(context, 'Both', 'Ambos'),
+          () => setMode(NotificationMirrorMode.both),
+        ),
+      ],
+    );
+  }
+
+  void _pickNotificationDetailMode(
+    BuildContext context,
+    NotificationMirrorController mirror,
+  ) {
+    _showPicker(
+      context,
+      _tr(context, 'Notification Detail', 'Detalle de notificacion'),
+      [
+        (
+          _tr(context, 'No details', 'Sin detalles'),
+          () => mirror.setDetailMode(NotificationDetailMode.summary),
+        ),
+        (
+          _tr(context, 'Full notification', 'Notificacion completa'),
+          () => mirror.setDetailMode(NotificationDetailMode.full),
+        ),
+      ],
+    );
+  }
+
+  void _pickNotificationPosition(
+    BuildContext context,
+    NotificationMirrorController mirror,
+  ) {
+    _showPicker(
+      context,
+      _tr(context, 'Notification Position', 'Posicion de notificacion'),
+      [
+        (
+          _tr(context, 'Top left', 'Arriba izquierda'),
+          () => mirror.setPosition(NotificationOverlayPosition.topLeft),
+        ),
+        (
+          _tr(context, 'Top right', 'Arriba derecha'),
+          () => mirror.setPosition(NotificationOverlayPosition.topRight),
+        ),
+        (
+          _tr(context, 'Bottom left', 'Abajo izquierda'),
+          () => mirror.setPosition(NotificationOverlayPosition.bottomLeft),
+        ),
+        (
+          _tr(context, 'Bottom right', 'Abajo derecha'),
+          () => mirror.setPosition(NotificationOverlayPosition.bottomRight),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _setNotificationBroadcastAvailable(
+    BuildContext context,
+    NotificationMirrorController mirror,
+    bool value,
+  ) async {
+    final pluginsProvider = context.read<PluginsProvider>();
+    final settingsProvider = context.read<SettingsProvider>();
+    final localeProvider = context.read<LocaleProvider>();
+    final themeProvider = context.read<ThemeProvider>();
+    final launcherPreferences = context.read<LauncherPreferences>();
+
+    await mirror.setBroadcastAvailable(value);
+    if (value) {
+      await CompanionServer.instance.start(
+        pluginsProvider,
+        settingsProvider: settingsProvider,
+        localeProvider: localeProvider,
+        themeProvider: themeProvider,
+        launcherPreferences: launcherPreferences,
+        notificationMirror: mirror,
+      );
+    }
+    await NotificationMirrorDiscoveryService.instance.updateAdvertising(mirror);
+  }
+
+  void _showNotificationPairRequests(
+    BuildContext context,
+    NotificationMirrorController mirror,
+  ) {
+    final tp = context.read<ThemeProvider>();
+    _showMirrorListDialog(
+      context,
+      title: _tr(context, 'Receiver Requests', 'Solicitudes de receptores'),
+      empty: _tr(context, 'No pending requests', 'Sin solicitudes pendientes'),
+      children: mirror.pendingPairRequests.map((request) {
+        return ListTile(
+          title: Text(
+            request.receiverName,
+            style: const TextStyle(color: Colors.white),
+          ),
+          subtitle: Text(
+            request.receiverUrl,
+            style: const TextStyle(color: Colors.white38),
+          ),
+          trailing: Wrap(
+            spacing: 8,
+            children: [
+              TextButton(
+                onPressed: () {
+                  mirror.denyPairRequest(request.requestId);
+                  Navigator.pop(context);
+                  _showNotificationPairRequests(context, mirror);
+                },
+                child: Text(
+                  _tr(context, 'Deny', 'Denegar'),
+                  style: const TextStyle(color: Colors.white54),
+                ),
+              ),
+              TextButton(
+                onPressed: () async {
+                  await mirror.acceptPairRequest(request.requestId);
+                  if (!context.mounted) return;
+                  Navigator.pop(context);
+                  _showNotificationPairRequests(context, mirror);
+                },
+                child: Text(
+                  _tr(context, 'Accept', 'Aceptar'),
+                  style: TextStyle(color: tp.accent),
+                ),
+              ),
+            ],
+          ),
+        );
+      }).toList(),
+    );
+  }
+
+  void _showAuthorizedReceivers(
+    BuildContext context,
+    NotificationMirrorController mirror,
+  ) {
+    _showMirrorListDialog(
+      context,
+      title: _tr(context, 'Authorized Receivers', 'Receptores autorizados'),
+      empty: _tr(
+        context,
+        'No receivers authorized',
+        'Sin receptores autorizados',
+      ),
+      children: mirror.authorizedReceivers.map((receiver) {
+        return ListTile(
+          title: Text(
+            receiver.receiverName,
+            style: const TextStyle(color: Colors.white),
+          ),
+          subtitle: Text(
+            receiver.receiverUrl,
+            style: const TextStyle(color: Colors.white38),
+          ),
+          trailing: IconButton(
+            icon: const Icon(Icons.delete_outline, color: Colors.white54),
+            onPressed: () async {
+              await mirror.removeAuthorizedReceiver(receiver.receiverDeviceId);
+              if (!context.mounted) return;
+              Navigator.pop(context);
+              _showAuthorizedReceivers(context, mirror);
+            },
+          ),
+        );
+      }).toList(),
+    );
+  }
+
+  Future<void> _showFindBroadcastersDialog(
+    BuildContext context,
+    NotificationMirrorController mirror,
+  ) async {
+    final pluginsProvider = context.read<PluginsProvider>();
+    final settingsProvider = context.read<SettingsProvider>();
+    final localeProvider = context.read<LocaleProvider>();
+    final themeProvider = context.read<ThemeProvider>();
+    final launcherPreferences = context.read<LauncherPreferences>();
+
+    await CompanionServer.instance.start(
+      pluginsProvider,
+      settingsProvider: settingsProvider,
+      localeProvider: localeProvider,
+      themeProvider: themeProvider,
+      launcherPreferences: launcherPreferences,
+      notificationMirror: mirror,
+    );
+    if (!context.mounted) return;
+    showDialog(
+      context: context,
+      builder: (_) => _FindBroadcastersDialog(mirror: mirror),
+    );
+  }
+
+  void _showPairedBroadcasters(
+    BuildContext context,
+    NotificationMirrorController mirror,
+  ) {
+    _showMirrorListDialog(
+      context,
+      title: _tr(context, 'Paired Broadcasters', 'Transmisores vinculados'),
+      empty: _tr(
+        context,
+        'No broadcasters paired',
+        'Sin transmisores vinculados',
+      ),
+      children: mirror.pairedBroadcasters.map((broadcaster) {
+        return ListTile(
+          title: Text(
+            broadcaster.deviceName,
+            style: const TextStyle(color: Colors.white),
+          ),
+          subtitle: Text(
+            broadcaster.url,
+            style: const TextStyle(color: Colors.white38),
+          ),
+          trailing: IconButton(
+            icon: const Icon(Icons.link_off_rounded, color: Colors.white54),
+            onPressed: () async {
+              await mirror.removePairedBroadcaster(broadcaster.deviceId);
+              if (!context.mounted) return;
+              Navigator.pop(context);
+              _showPairedBroadcasters(context, mirror);
+            },
+          ),
+        );
+      }).toList(),
+    );
+  }
+
+  Future<void> _showBatteryOptimizationDisclaimer(BuildContext context) async {
+    final tp = context.read<ThemeProvider>();
+    final alreadyIgnored = await NotificationMirrorPlatform.instance
+        .isIgnoringBatteryOptimizations();
+    if (!context.mounted) return;
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: tp.surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        title: Text(
+          _tr(context, 'Battery Optimization', 'Optimizacion de bateria'),
+          style: const TextStyle(color: Colors.white),
+        ),
+        content: Text(
+          alreadyIgnored
+              ? _tr(
+                  context,
+                  'Jujo is already excluded from battery optimization.',
+                  'Jujo ya esta excluido de la optimizacion de bateria.',
+                )
+              : _tr(
+                  context,
+                  'Android can deep sleep background apps. Excluding Jujo helps notification broadcasting stay reliable while the phone screen is off.',
+                  'Android puede suspender apps en segundo plano. Excluir Jujo ayuda a transmitir notificaciones cuando la pantalla esta apagada.',
+                ),
+          style: const TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: Text(
+              _tr(context, 'Cancel', 'Cancelar'),
+              style: const TextStyle(color: Colors.white54),
+            ),
+          ),
+          if (!alreadyIgnored)
+            TextButton(
+              onPressed: () async {
+                await NotificationMirrorPlatform.instance
+                    .openBatteryOptimizationRequest();
+                if (dialogContext.mounted) Navigator.pop(dialogContext);
+              },
+              child: Text(
+                _tr(context, 'Open Settings', 'Abrir ajustes'),
+                style: TextStyle(color: tp.accent),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  void _showMirrorListDialog(
+    BuildContext context, {
+    required String title,
+    required String empty,
+    required List<Widget> children,
+  }) {
+    final tp = context.read<ThemeProvider>();
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: tp.surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        title: Text(title, style: const TextStyle(color: Colors.white)),
+        content: SizedBox(
+          width: 460,
+          child: children.isEmpty
+              ? Text(empty, style: const TextStyle(color: Colors.white70))
+              : ListView(shrinkWrap: true, children: children),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: Text(
+              _tr(context, 'Done', 'Listo'),
+              style: TextStyle(color: tp.accent),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showNotificationAllowlist(
+    BuildContext context,
+    NotificationMirrorController mirror,
+  ) async {
+    await mirror.refreshInstalledApps();
+    if (!context.mounted) return;
+    final tp = context.read<ThemeProvider>();
+    final apps = mirror.observedApps;
+    showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          backgroundColor: tp.surface,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(18),
+          ),
+          title: Text(
+            _tr(context, 'Allowed Apps', 'Apps permitidas'),
+            style: const TextStyle(color: Colors.white),
+          ),
+          content: SizedBox(
+            width: 420,
+            child: apps.isEmpty
+                ? Text(
+                    _tr(
+                      context,
+                      'No launchable apps found on this device.',
+                      'No se encontraron apps iniciables en este dispositivo.',
+                    ),
+                    style: const TextStyle(color: Colors.white70),
+                  )
+                : StatefulBuilder(
+                    builder: (context, setDialogState) {
+                      return ListView.builder(
+                        shrinkWrap: true,
+                        itemCount: apps.length,
+                        itemBuilder: (context, index) {
+                          final app = apps[index];
+                          final selected = mirror.allowedPackages.contains(
+                            app.packageName,
+                          );
+                          return CheckboxListTile(
+                            value: selected,
+                            activeColor: tp.accent,
+                            checkColor: tp.colors.isLight
+                                ? Colors.black
+                                : Colors.white,
+                            title: Text(
+                              app.label,
+                              style: const TextStyle(color: Colors.white),
+                            ),
+                            subtitle: Text(
+                              app.packageName,
+                              style: const TextStyle(color: Colors.white38),
+                            ),
+                            onChanged: (value) async {
+                              await mirror.setAllowedPackage(
+                                app.packageName,
+                                value == true,
+                              );
+                              setDialogState(() {});
+                            },
+                          );
+                        },
+                      );
+                    },
+                  ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: Text(
+                _tr(context, 'Done', 'Listo'),
+                style: TextStyle(color: tp.accent),
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -3964,6 +4793,125 @@ class _ThemeCardState extends State<_ThemeCard> {
     height: 10,
     decoration: BoxDecoration(color: color, shape: BoxShape.circle),
   );
+}
+
+class _FindBroadcastersDialog extends StatefulWidget {
+  final NotificationMirrorController mirror;
+
+  const _FindBroadcastersDialog({required this.mirror});
+
+  @override
+  State<_FindBroadcastersDialog> createState() =>
+      _FindBroadcastersDialogState();
+}
+
+class _FindBroadcastersDialogState extends State<_FindBroadcastersDialog> {
+  final _statuses = <String, NotificationPairStatus>{};
+  StreamSubscription<DiscoveredNotificationBroadcaster>? _sub;
+  bool _scanning = true;
+
+  @override
+  void initState() {
+    super.initState();
+    final service = NotificationMirrorDiscoveryService.instance;
+    _sub = service.onBroadcasterFound.listen((_) {
+      if (mounted) setState(() {});
+    });
+    service.startScan().whenComplete(() {
+      if (mounted) setState(() => _scanning = false);
+    });
+  }
+
+  @override
+  void dispose() {
+    _sub?.cancel();
+    unawaited(NotificationMirrorDiscoveryService.instance.stopScan());
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final tp = context.watch<ThemeProvider>();
+    final broadcasters =
+        NotificationMirrorDiscoveryService.instance.foundBroadcasters;
+
+    return AlertDialog(
+      backgroundColor: tp.surface,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      title: Text(
+        _tr(context, 'Find Broadcasters', 'Buscar transmisores'),
+        style: const TextStyle(color: Colors.white),
+      ),
+      content: SizedBox(
+        width: 480,
+        child: broadcasters.isEmpty
+            ? Text(
+                _scanning
+                    ? _tr(context, 'Scanning LAN...', 'Escaneando LAN...')
+                    : _tr(
+                        context,
+                        'No broadcasters found. Make sure broadcaster mode and Broadcast Available are enabled on the phone.',
+                        'No se encontraron transmisores. Activa modo transmisor y Transmision disponible en el telefono.',
+                      ),
+                style: const TextStyle(color: Colors.white70),
+              )
+            : ListView.builder(
+                shrinkWrap: true,
+                itemCount: broadcasters.length,
+                itemBuilder: (context, index) {
+                  final broadcaster = broadcasters[index];
+                  final status = _statuses[broadcaster.deviceId];
+                  return ListTile(
+                    title: Text(
+                      broadcaster.deviceName,
+                      style: const TextStyle(color: Colors.white),
+                    ),
+                    subtitle: Text(
+                      status == null
+                          ? broadcaster.url
+                          : '${broadcaster.url} • ${status.name}',
+                      style: const TextStyle(color: Colors.white38),
+                    ),
+                    trailing: TextButton(
+                      onPressed: status == NotificationPairStatus.pending
+                          ? null
+                          : () => _requestAccess(broadcaster),
+                      child: Text(
+                        status == NotificationPairStatus.accepted
+                            ? _tr(context, 'Paired', 'Vinculado')
+                            : _tr(context, 'Request', 'Solicitar'),
+                        style: TextStyle(color: tp.accent),
+                      ),
+                    ),
+                  );
+                },
+              ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: Text(
+            _tr(context, 'Done', 'Listo'),
+            style: TextStyle(color: tp.accent),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _requestAccess(
+    DiscoveredNotificationBroadcaster broadcaster,
+  ) async {
+    setState(
+      () => _statuses[broadcaster.deviceId] = NotificationPairStatus.pending,
+    );
+    final status = await NotificationMirrorPairingClient.requestAccess(
+      broadcaster: broadcaster,
+      controller: widget.mirror,
+    );
+    if (!mounted) return;
+    setState(() => _statuses[broadcaster.deviceId] = status);
+  }
 }
 
 class _FocusableSwitchTile extends StatefulWidget {

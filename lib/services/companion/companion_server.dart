@@ -16,6 +16,9 @@ import '../../providers/computer_provider.dart';
 import '../preferences/launcher_preferences.dart';
 import '../pro/pro_service.dart';
 import '../stream/host_preset_profiles.dart';
+import '../../models/mirrored_notification.dart';
+import '../notifications/notification_mirror_controller.dart';
+import '../crypto/client_identity.dart';
 
 class CompanionServer {
   CompanionServer._();
@@ -28,6 +31,7 @@ class CompanionServer {
   ThemeProvider? _themeProvider;
   LauncherPreferences? _launcherPreferences;
   ComputerProvider? _computerProvider;
+  NotificationMirrorController? _notificationMirror;
 
   // Pairing state (ephemeral, lives only while a pairing attempt is active)
   String? _pairingPin;
@@ -49,6 +53,7 @@ class CompanionServer {
     ThemeProvider? themeProvider,
     LauncherPreferences? launcherPreferences,
     ComputerProvider? computerProvider,
+    NotificationMirrorController? notificationMirror,
   }) async {
     _plugins = plugins;
     _settingsProvider = settingsProvider ?? _settingsProvider;
@@ -56,6 +61,7 @@ class CompanionServer {
     _themeProvider = themeProvider ?? _themeProvider;
     _launcherPreferences = launcherPreferences ?? _launcherPreferences;
     _computerProvider = computerProvider ?? _computerProvider;
+    _notificationMirror = notificationMirror ?? _notificationMirror;
     if (_server != null) return;
     try {
       _server = await HttpServer.bind(InternetAddress.anyIPv4, port);
@@ -142,7 +148,10 @@ class CompanionServer {
     req.response.headers
       ..set('Access-Control-Allow-Origin', '*')
       ..set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-      ..set('Access-Control-Allow-Headers', 'Content-Type');
+      ..set(
+        'Access-Control-Allow-Headers',
+        'Content-Type, X-Jujo-Notification-Token',
+      );
 
     if (req.method == 'OPTIONS') {
       req.response.statusCode = 204;
@@ -182,9 +191,138 @@ class CompanionServer {
       return;
     }
 
+    if (path == '/api/notifications/hello' && req.method == 'GET') {
+      await _handleNotificationHello(req);
+      return;
+    }
+
+    if (path == '/api/notifications/pair/request' && req.method == 'POST') {
+      await _handleNotificationPairRequest(req);
+      return;
+    }
+
+    if (path == '/api/notifications/pair/status' && req.method == 'GET') {
+      await _handleNotificationPairStatus(req);
+      return;
+    }
+
+    if (path == '/api/notifications/mirror' && req.method == 'POST') {
+      await _handleNotificationMirror(req);
+      return;
+    }
+
     req.response
       ..statusCode = 404
       ..write('Not Found');
+    await req.response.close();
+  }
+
+  Future<void> _handleNotificationHello(HttpRequest req) async {
+    final mirror = _notificationMirror ?? NotificationMirrorController.instance;
+    req.response
+      ..statusCode = 200
+      ..headers.contentType = ContentType.json
+      ..write(
+        jsonEncode({
+          'ok': true,
+          'deviceId': ClientIdentity.uniqueId,
+          'deviceName': Platform.localHostname.isNotEmpty
+              ? Platform.localHostname
+              : 'Jujo Device',
+          'role': mirror.mode.name,
+          'apiVersion': 1,
+          'broadcastAvailable': mirror.broadcastAvailable,
+        }),
+      );
+    await req.response.close();
+  }
+
+  Future<void> _handleNotificationPairRequest(HttpRequest req) async {
+    final mirror = _notificationMirror ?? NotificationMirrorController.instance;
+    if (!mirror.mode.canBroadcast || !mirror.broadcastAvailable) {
+      req.response
+        ..statusCode = 403
+        ..headers.contentType = ContentType.json
+        ..write(jsonEncode({'ok': false, 'error': 'broadcast_unavailable'}));
+      await req.response.close();
+      return;
+    }
+
+    try {
+      final body = await utf8.decoder.bind(req).join();
+      final data = jsonDecode(body) as Map<String, dynamic>;
+      final request = mirror.receivePairRequest(
+        receiverDeviceId: (data['receiverDeviceId'] ?? '').toString(),
+        receiverName: (data['receiverName'] ?? '').toString(),
+        receiverUrl: (data['receiverUrl'] ?? '').toString(),
+        receiverToken: (data['receiverToken'] ?? '').toString(),
+      );
+      req.response
+        ..statusCode = 202
+        ..headers.contentType = ContentType.json
+        ..write(
+          jsonEncode({
+            'ok': true,
+            'requestId': request.requestId,
+            'status': request.status.name,
+          }),
+        );
+    } catch (_) {
+      req.response
+        ..statusCode = 400
+        ..headers.contentType = ContentType.json
+        ..write(jsonEncode({'ok': false, 'error': 'bad_payload'}));
+    }
+    await req.response.close();
+  }
+
+  Future<void> _handleNotificationPairStatus(HttpRequest req) async {
+    final mirror = _notificationMirror ?? NotificationMirrorController.instance;
+    final requestId = req.uri.queryParameters['requestId'] ?? '';
+    if (requestId.isEmpty) {
+      req.response
+        ..statusCode = 400
+        ..headers.contentType = ContentType.json
+        ..write(jsonEncode({'ok': false, 'error': 'missing_request_id'}));
+      await req.response.close();
+      return;
+    }
+    final status = mirror.pairRequestStatus(requestId);
+    req.response
+      ..statusCode = 200
+      ..headers.contentType = ContentType.json
+      ..write(
+        jsonEncode({'ok': true, 'requestId': requestId, 'status': status.name}),
+      );
+    await req.response.close();
+  }
+
+  Future<void> _handleNotificationMirror(HttpRequest req) async {
+    final mirror = _notificationMirror ?? NotificationMirrorController.instance;
+    final token = req.headers.value('X-Jujo-Notification-Token') ?? '';
+    if (!mirror.acceptsToken(token)) {
+      req.response
+        ..statusCode = 401
+        ..headers.contentType = ContentType.json
+        ..write(jsonEncode({'ok': false, 'error': 'invalid_token'}));
+      await req.response.close();
+      return;
+    }
+
+    try {
+      final body = await utf8.decoder.bind(req).join();
+      final data = jsonDecode(body) as Map<String, dynamic>;
+      mirror.handleRemotePosted(MirroredNotification.fromJson(data));
+      req.response
+        ..statusCode = 202
+        ..headers.contentType = ContentType.json
+        ..write(jsonEncode({'ok': true}));
+    } catch (e) {
+      req.response
+        ..statusCode = 400
+        ..headers.contentType = ContentType.json
+        ..write(jsonEncode({'ok': false, 'error': 'bad_payload'}));
+    }
     await req.response.close();
   }
 

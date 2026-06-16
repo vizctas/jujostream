@@ -1088,7 +1088,9 @@ class _Background extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final url = posterUrl ?? app?.posterUrl;
+    final url = posterUrl ??
+        app?.rawgBackgroundUrl ??
+        app?.posterUrl;
     return Stack(
       fit: StackFit.expand,
       children: [

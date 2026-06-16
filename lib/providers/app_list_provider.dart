@@ -44,6 +44,7 @@ class AppListProvider extends ChangeNotifier {
   bool _enrichedOnce = false;
   bool _silentRefreshInProgress = false;
   bool _cloudRepairAttempted = false;
+  bool _forceRawgRefreshPending = false;
 
   final Map<int, NvApp> _fullAppCache = {};
 
@@ -228,7 +229,23 @@ class AppListProvider extends ChangeNotifier {
       // always merge — never discard previously discovered apps
       // (some servers return only the running app during active sessions)
       for (final app in freshApps) {
-        _fullAppCache[app.appId] = app;
+        final previous = _fullAppCache[app.appId];
+        _fullAppCache[app.appId] = previous == null
+            ? app
+            : app.copyWith(
+                posterUrl: previous.posterUrl,
+                playniteId: previous.playniteId,
+                playtimeMinutes: previous.playtimeMinutes,
+                lastPlayed: previous.lastPlayed,
+                description: previous.description,
+                tags: previous.tags,
+                metadataGenres: previous.metadataGenres,
+                pluginName: previous.pluginName,
+                steamVideoUrl: previous.steamVideoUrl,
+                steamVideoThumb: previous.steamVideoThumb,
+                rawgClipUrl: previous.rawgClipUrl,
+                rawgBackgroundUrl: previous.rawgBackgroundUrl,
+              );
       }
       // persist so a crash/restart doesn't lose the full list
       unawaited(_persistAppCache(computer.uuid));
@@ -261,6 +278,7 @@ class AppListProvider extends ChangeNotifier {
               final prev = prevById[app.appId];
               if (prev == null) return app;
               return app.copyWith(
+                posterUrl: prev.posterUrl,
                 playniteId: prev.playniteId,
                 playtimeMinutes: prev.playtimeMinutes,
                 lastPlayed: prev.lastPlayed,
@@ -390,7 +408,12 @@ class AppListProvider extends ChangeNotifier {
             ),
           );
           final preRawg = _apps;
-          await _enrichWithRawg(apiKey);
+          if (_forceRawgRefreshPending) {
+            _forceRawgRefreshPending = false;
+            await _refreshAllRawgPosters(apiKey, generation);
+          } else {
+            await _enrichWithRawg(apiKey);
+          }
           unawaited(MetadataDatabase.saveAll(_apps));
           if (!_disposed &&
               _enrichGeneration == generation &&
@@ -485,7 +508,9 @@ class AppListProvider extends ChangeNotifier {
             );
           })
           .toList(growable: false);
-    } catch (e) {}
+    } catch (_) {
+      // Playnite metadata is optional; RAWG/Steam enrichment can continue.
+    }
   }
 
   static String _norm(String s) => s.toLowerCase().trim();
@@ -493,9 +518,18 @@ class AppListProvider extends ChangeNotifier {
   static const int _kMaxConcurrent = 2;
 
   Future<void> _enrichWithRawg(String apiKey) async {
-    final targets = _apps
-        .where((a) => a.description == null || a.description!.isEmpty)
-        .toList();
+    final targets = _apps.where((a) {
+      final needsDesc = a.description == null || a.description!.isEmpty;
+      final needsBg =
+          a.rawgBackgroundUrl == null || a.rawgBackgroundUrl!.isEmpty;
+      // Re-fetch older background_image URLs so they are replaced by
+      // higher-resolution screenshots on the next enrichment run.
+      final hasOldBg =
+          a.rawgBackgroundUrl != null &&
+          a.rawgBackgroundUrl!.isNotEmpty &&
+          !a.rawgBackgroundUrl!.contains('/media/screenshots/');
+      return needsDesc || needsBg || hasOldBg;
+    }).toList();
     if (targets.isEmpty) return;
 
     final semaphore = _Semaphore(_kMaxConcurrent);
@@ -522,13 +556,18 @@ class AppListProvider extends ChangeNotifier {
   Future<_RawgResult?> _fetchRawg(NvApp app, String apiKey) async {
     final detail = await _rawgClient.lookupGame(app.appName, apiKey);
     if (detail == null) return null;
+    // Prefer a high-resolution screenshot over the compressed hero image.
+    final screenshots = await _rawgClient.getScreenshots(detail.id, apiKey);
+    final backgroundUrl = screenshots.isNotEmpty
+        ? screenshots.first
+        : detail.backgroundImage;
     return _RawgResult(
       appId: app.appId,
       rawgId: detail.id,
       description: detail.descriptionRaw ?? '',
       genres: detail.genres,
       clipUrl: detail.clipUrl,
-      backgroundUrl: detail.backgroundImage,
+      backgroundUrl: backgroundUrl,
     );
   }
 
@@ -664,6 +703,112 @@ class AppListProvider extends ChangeNotifier {
       _isEnriching = false;
       unawaited(NotificationService.dismissEnrichment());
       notifyListeners();
+    }
+  }
+
+  Future<void> triggerRawgPosterRefresh() async {
+    _forceRawgRefreshPending = true;
+    if (_apps.isEmpty || _currentComputer == null) return;
+
+    final apiKey = await _plugins.getApiKey('metadata');
+    if (apiKey == null || apiKey.isEmpty) return;
+
+    _forceRawgRefreshPending = false;
+    _enrichGeneration++;
+    final myGeneration = _enrichGeneration;
+    _isEnriching = true;
+    if (!_disposed) notifyListeners();
+
+    unawaited(
+      NotificationService.showEnrichment('Actualizando posters RAWG...'),
+    );
+    unawaited(_runRawgPosterRefreshBackground(apiKey, myGeneration));
+  }
+
+  Future<void> _runRawgPosterRefreshBackground(
+    String apiKey,
+    int generation,
+  ) async {
+    try {
+      await _refreshAllRawgPosters(apiKey, generation);
+      if (!_disposed && _enrichGeneration == generation) {
+        await MetadataDatabase.saveAll(_apps);
+        final computer = _currentComputer;
+        if (computer != null) unawaited(_persistAppCache(computer.uuid));
+      }
+    } finally {
+      if (!_disposed && _enrichGeneration == generation) {
+        _applyUserOverrides();
+        _isEnriching = false;
+        unawaited(NotificationService.dismissEnrichment());
+        notifyListeners();
+      }
+    }
+  }
+
+  Future<void> _refreshAllRawgPosters(String apiKey, int generation) async {
+    final targets = List<NvApp>.from(_apps);
+    if (targets.isEmpty) return;
+
+    var changedSinceSave = false;
+    for (var i = 0; i < targets.length; i++) {
+      if (_disposed || _enrichGeneration != generation) return;
+      final rawg = await _fetchRawg(targets[i], apiKey);
+      if (rawg == null) continue;
+
+      final updated = _applyRawgResult(targets[i], rawg, replacePoster: true);
+      if (updated == null) continue;
+
+      _replaceApp(updated);
+      changedSinceSave = true;
+
+      if (i % 4 == 3) {
+        await MetadataDatabase.saveAll(_apps);
+        final computer = _currentComputer;
+        if (computer != null) unawaited(_persistAppCache(computer.uuid));
+        if (!_disposed && _enrichGeneration == generation) notifyListeners();
+        changedSinceSave = false;
+      }
+    }
+
+    if (changedSinceSave && !_disposed && _enrichGeneration == generation) {
+      await MetadataDatabase.saveAll(_apps);
+      final computer = _currentComputer;
+      if (computer != null) unawaited(_persistAppCache(computer.uuid));
+      notifyListeners();
+    }
+  }
+
+  NvApp? _applyRawgResult(
+    NvApp app,
+    _RawgResult rawg, {
+    required bool replacePoster,
+  }) {
+    final posterUrl = replacePoster && rawg.backgroundUrl != null
+        ? rawg.backgroundUrl
+        : null;
+    return app.copyWith(
+      posterUrl: posterUrl,
+      description: rawg.description.isNotEmpty ? rawg.description : null,
+      metadataGenres: rawg.genres,
+      rawgClipUrl: rawg.clipUrl,
+      rawgBackgroundUrl: rawg.backgroundUrl,
+    );
+  }
+
+  void _replaceApp(NvApp updated) {
+    _apps = _apps
+        .map((app) => app.appId == updated.appId ? updated : app)
+        .toList(growable: false);
+    final cached = _fullAppCache[updated.appId];
+    if (cached != null) {
+      _fullAppCache[updated.appId] = cached.copyWith(
+        posterUrl: updated.posterUrl,
+        description: updated.description,
+        metadataGenres: updated.metadataGenres,
+        rawgClipUrl: updated.rawgClipUrl,
+        rawgBackgroundUrl: updated.rawgBackgroundUrl,
+      );
     }
   }
 

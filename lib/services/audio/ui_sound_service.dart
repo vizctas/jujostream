@@ -18,6 +18,7 @@ class UiSoundService {
   static bool _configured = false;
   static bool _ambiencePlaying = false;
   static bool _isStreaming = false;
+  static double _ambienceVolume = 0.25;
   static Future<void>? _ambiencePlayFuture;
 
   /// Monotonically increasing generation counter.  Every call to
@@ -123,7 +124,7 @@ class UiSoundService {
         ),
       );
       p.setReleaseMode(ReleaseMode.stop);
-      p.setVolume(0.25);
+      p.setVolume(_ambienceVolume);
       // Manual loop: when the track finishes, replay from the cached file.
       p.onPlayerComplete.listen((_) {
         if (_ambiencePlaying && _lastAmbienceFilePath != null) {
@@ -312,6 +313,12 @@ class UiSoundService {
     _ambiencePlayFuture = _playAmbienceAsync();
   }
 
+  static Future<void> setAmbienceVolume(double value) async {
+    final volume = value.clamp(0.0, 1.0);
+    _ambienceVolume = volume;
+    await _ambiencePlayer?.setVolume(volume);
+  }
+
   /// Imports a user-picked audio file as the custom stand-by track. Copies the
   /// bytes into the app-support audio cache under a fixed name (one track at a
   /// time) and returns the stable absolute path for playback.
@@ -340,7 +347,7 @@ class UiSoundService {
       );
 
       final player = _getAmbiencePlayer();
-      await player.setVolume(volume);
+      await setAmbienceVolume(volume);
 
       String? filePath;
 

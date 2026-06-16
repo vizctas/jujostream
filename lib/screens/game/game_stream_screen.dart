@@ -22,6 +22,7 @@ import '../../services/telemetry/beta_telemetry_service.dart';
 import '../../services/tv/tv_detector.dart';
 import '../../services/input/gamepad_button_helper.dart';
 import '../../services/stream/image_load_throttle.dart';
+import '../../widgets/notification_mirror_overlay.dart';
 import '../../widgets/session_metrics_dialog.dart';
 import '../../widgets/virtual_gamepad/virtual_gamepad_overlay.dart';
 import 'direct_touch_handler.dart';
@@ -514,8 +515,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
             'GS_WRONG_STATE detected — cancelling stale server session and retrying…',
           );
           setState(() {
-            _reconnectMessage =
-                isEs
+            _reconnectMessage = isEs
                 ? 'Sesión anterior detectada — cancelando…'
                 : 'Stale session detected — cancelling…';
           });
@@ -1015,7 +1015,10 @@ class _GameStreamScreenState extends State<GameStreamScreen>
       if (direction == 'down') {
         setState(() => _quickFavFocusIdx = (_quickFavFocusIdx + 1) % favCount);
       } else if (direction == 'up') {
-        setState(() => _quickFavFocusIdx = (_quickFavFocusIdx - 1 + favCount) % favCount);
+        setState(
+          () =>
+              _quickFavFocusIdx = (_quickFavFocusIdx - 1 + favCount) % favCount,
+        );
       }
       return;
     }
@@ -1297,6 +1300,10 @@ class _GameStreamScreenState extends State<GameStreamScreen>
               if (_showQuickFavPanel && _isConnected && !_showOverlay)
                 _buildQuickFavPanel(),
               if (_keyboardVisible) _buildHiddenKeyboardField(),
+              const NotificationMirrorOverlay(
+                bottomOffset: 24,
+                streamOverlay: true,
+              ),
             ],
           ),
         ),
@@ -2946,8 +2953,10 @@ class _GameStreamScreenState extends State<GameStreamScreen>
     }
     if (key == LogicalKeyboardKey.arrowUp) {
       if (favCount > 0) {
-        setState(() =>
-            _quickFavFocusIdx = (_quickFavFocusIdx - 1 + favCount) % favCount);
+        setState(
+          () =>
+              _quickFavFocusIdx = (_quickFavFocusIdx - 1 + favCount) % favCount,
+        );
       }
       return KeyEventResult.handled;
     }

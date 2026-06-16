@@ -2,13 +2,16 @@ package com.limelight.jujostream
 
 import android.Manifest
 import android.app.ActivityManager
+import android.app.NotificationManager
 import android.app.PictureInPictureParams
+import android.content.ComponentName
 import android.content.Context
 import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
 import android.content.Intent
 import android.provider.Settings
 import com.limelight.jujostream.native_bridge.PairingForegroundService
@@ -21,6 +24,7 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
 import com.limelight.jujostream.native_bridge.GamepadHandler
 import com.limelight.jujostream.native_bridge.StreamingPlugin
@@ -147,6 +151,56 @@ class MainActivity : FlutterActivity() {
                 }
             }
 
+        EventChannel(flutterEngine.dartExecutor.binaryMessenger, "com.jujostream/notification_mirror_events")
+            .setStreamHandler(object : EventChannel.StreamHandler {
+                override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+                    NotificationMirrorBridge.attach(events)
+                }
+
+                override fun onCancel(arguments: Any?) {
+                    NotificationMirrorBridge.detach()
+                }
+            })
+
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.jujostream/notification_mirror")
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "isNotificationAccessGranted" -> result.success(isNotificationAccessGranted())
+                    "openNotificationAccessSettings" -> {
+                        try {
+                            startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+                            result.success(true)
+                        } catch (e: Exception) {
+                            result.success(false)
+                        }
+                    }
+                    "getInstalledNotificationApps" -> {
+                        result.success(getInstalledNotificationApps())
+                    }
+                    "isIgnoringBatteryOptimizations" -> {
+                        val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+                        result.success(pm.isIgnoringBatteryOptimizations(packageName))
+                    }
+                    "openBatteryOptimizationRequest" -> {
+                        try {
+                            val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                                data = Uri.parse("package:$packageName")
+                            }
+                            startActivity(intent)
+                            result.success(true)
+                        } catch (e: Exception) {
+                            try {
+                                startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+                                result.success(true)
+                            } catch (_: Exception) {
+                                result.success(false)
+                            }
+                        }
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.jujostream/pairing_locks")
             .setMethodCallHandler { call, result ->
                 when (call.method) {
@@ -218,6 +272,44 @@ class MainActivity : FlutterActivity() {
                     else -> result.notImplemented()
                 }
             }
+    }
+
+    private fun isNotificationAccessGranted(): Boolean {
+        val component = ComponentName(this, JujoNotificationListenerService::class.java)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+            val manager = getSystemService(NotificationManager::class.java)
+            return manager?.isNotificationListenerAccessGranted(component) == true
+        }
+        val enabled = Settings.Secure.getString(
+            contentResolver,
+            "enabled_notification_listeners"
+        ) ?: return false
+        return enabled.contains(packageName)
+    }
+
+    private fun getInstalledNotificationApps(): List<Map<String, String>> {
+        val launcherIntent = Intent(Intent.ACTION_MAIN).apply {
+            addCategory(Intent.CATEGORY_LAUNCHER)
+        }
+        val activities = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            packageManager.queryIntentActivities(
+                launcherIntent,
+                PackageManager.ResolveInfoFlags.of(0)
+            )
+        } else {
+            @Suppress("DEPRECATION")
+            packageManager.queryIntentActivities(launcherIntent, 0)
+        }
+        return activities
+            .mapNotNull { info ->
+                val packageName = info.activityInfo?.packageName ?: return@mapNotNull null
+                val label = info.loadLabel(packageManager)?.toString()
+                    ?.takeIf { it.isNotBlank() }
+                    ?: packageName
+                mapOf("packageName" to packageName, "label" to label)
+            }
+            .distinctBy { it["packageName"] }
+            .sortedBy { it["label"]?.lowercase() ?: "" }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
