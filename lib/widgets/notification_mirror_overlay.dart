@@ -55,6 +55,11 @@ class NotificationMirrorOverlay extends StatelessWidget {
                     detailMode: controller.detailMode,
                     sizeScale: controller.sizeScale,
                     opacity: controller.opacity,
+                    notificationCount:
+                        notification.dedupKey == notifications.last.dedupKey &&
+                            notifications.length > 1
+                        ? notifications.length
+                        : null,
                     onDismiss: () => controller.dismiss(notification.dedupKey),
                   ),
                 ),
@@ -71,6 +76,7 @@ class _NotificationMirrorCard extends StatelessWidget {
   final NotificationDetailMode detailMode;
   final double sizeScale;
   final double opacity;
+  final int? notificationCount;
   final VoidCallback onDismiss;
 
   const _NotificationMirrorCard({
@@ -78,6 +84,7 @@ class _NotificationMirrorCard extends StatelessWidget {
     required this.detailMode,
     required this.sizeScale,
     required this.opacity,
+    required this.notificationCount,
     required this.onDismiss,
   });
 
@@ -85,115 +92,172 @@ class _NotificationMirrorCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final tp = context.watch<ThemeProvider>();
     final isLight = tp.colors.isLight;
-    final fg = isLight ? Colors.black87 : Colors.white;
-    final sub = isLight ? Colors.black54 : Colors.white70;
+    final fg = isLight ? Colors.black87 : const Color(0xFF202124);
+    final sub = isLight ? Colors.black54 : Colors.black.withValues(alpha: 0.66);
     final width = MediaQuery.sizeOf(context).width;
     final scale = sizeScale.clamp(0.50, 2.0);
     final effectiveOpacity = opacity.clamp(0.20, 1.00);
     final cardWidth = width < 520
         ? width - 32
-        : (236.0 * scale).clamp(160.0, 472.0);
-    final showBody =
-        detailMode == NotificationDetailMode.full &&
-        notification.body.isNotEmpty;
+        : (242.0 * scale).clamp(170.0, 484.0);
+    final header = notification.appLabel.isEmpty
+        ? notification.packageName
+        : notification.appLabel;
+    final message = _messageText(notification, detailMode);
+    final bg = isLight
+        ? tp.surface.withValues(alpha: effectiveOpacity)
+        : Colors.white.withValues(alpha: 0.96 * effectiveOpacity);
 
     return Material(
       color: Colors.transparent,
       child: Container(
-        width: cardWidth.clamp(160.0, 472.0),
-        constraints: BoxConstraints(minHeight: 66 * scale),
+        width: cardWidth.clamp(170.0, 484.0),
+        constraints: BoxConstraints(minHeight: 72 * scale),
         padding: EdgeInsets.fromLTRB(
           10 * scale,
           9 * scale,
           8 * scale,
-          9 * scale,
+          10 * scale,
         ),
         decoration: BoxDecoration(
-          color: tp.surface.withValues(
-            alpha: (isLight ? 0.94 : 0.86) * effectiveOpacity,
+          color: bg,
+          borderRadius: BorderRadius.circular(8 * scale),
+          border: Border.all(
+            color: isLight
+                ? Colors.black.withValues(alpha: 0.05)
+                : Colors.white.withValues(alpha: 0.18 * effectiveOpacity),
           ),
-          borderRadius: BorderRadius.circular(86),
-          border: Border.all(color: tp.accent.withValues(alpha: 0.30)),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: isLight ? 0.16 : 0.36),
-              blurRadius: 22 * scale,
-              offset: Offset(0, 8 * scale),
+              color: Colors.black.withValues(
+                alpha: (isLight ? 0.12 : 0.24) * effectiveOpacity,
+              ),
+              blurRadius: 14 * scale,
+              offset: Offset(0, 5 * scale),
             ),
           ],
         ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Container(
-              width: 48 * scale,
-              height: 48 * scale,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: tp.accent.withValues(alpha: isLight ? 0.16 : 0.22),
-              ),
-              child: Icon(
-                Icons.notifications_rounded,
-                color: tp.accent,
-                size: 24 * scale,
-              ),
-            ),
-            SizedBox(width: 12 * scale),
-            Expanded(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    notification.appLabel.isEmpty
-                        ? notification.packageName
-                        : notification.appLabel,
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Container(
+                  width: 11 * scale,
+                  height: 11 * scale,
+                  decoration: BoxDecoration(
+                    color: tp.accent,
+                    borderRadius: BorderRadius.circular(3 * scale),
+                  ),
+                ),
+                SizedBox(width: 7 * scale),
+                Expanded(
+                  child: Text(
+                    header,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
-                      color: sub,
-                      fontSize: 10 * scale,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 0.3,
+                      color: fg,
+                      fontSize: 11.5 * scale,
+                      fontWeight: FontWeight.w800,
+                      height: 1.0,
                     ),
                   ),
-                  SizedBox(height: 3 * scale),
-                  if (notification.title.isNotEmpty)
-                    Text(
-                      notification.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: fg,
-                        fontSize: 12 * scale,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  if (showBody) ...[
-                    SizedBox(height: 2 * scale),
-                    Text(
-                      notification.body,
-                      maxLines: scale < 1 ? 1 : 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: sub,
-                        fontSize: 11 * scale,
-                        height: 1.2,
-                      ),
-                    ),
-                  ],
+                ),
+                if (notificationCount != null) ...[
+                  SizedBox(width: 6 * scale),
+                  _NotificationCountBadge(
+                    count: notificationCount!,
+                    scale: scale,
+                    accent: tp.accent,
+                  ),
                 ],
-              ),
+                GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: onDismiss,
+                  child: Padding(
+                    padding: EdgeInsets.all(3 * scale),
+                    child: Icon(
+                      Icons.close_rounded,
+                      color: sub,
+                      size: 14 * scale,
+                    ),
+                  ),
+                ),
+              ],
             ),
-            GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: onDismiss,
-              child: Padding(
-                padding: EdgeInsets.all(5 * scale),
-                child: Icon(Icons.close_rounded, color: sub, size: 16 * scale),
+            if (message.isNotEmpty) ...[
+              SizedBox(height: 9 * scale),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Padding(
+                  padding: EdgeInsets.only(left: 18 * scale, right: 6 * scale),
+                  child: Text(
+                    message,
+                    maxLines: detailMode == NotificationDetailMode.full ? 2 : 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: sub,
+                      fontSize: 10.5 * scale,
+                      fontWeight: FontWeight.w500,
+                      height: 1.25,
+                    ),
+                  ),
+                ),
               ),
-            ),
+            ],
           ],
+        ),
+      ),
+    );
+  }
+
+  String _messageText(
+    MirroredNotification notification,
+    NotificationDetailMode detailMode,
+  ) {
+    final title = notification.title.trim();
+    final body = notification.body.trim();
+    if (detailMode == NotificationDetailMode.summary) {
+      return title.isNotEmpty ? title : body;
+    }
+    if (title.isEmpty) return body;
+    if (body.isEmpty || body == title) return title;
+    return '$title\n$body';
+  }
+}
+
+class _NotificationCountBadge extends StatelessWidget {
+  final int count;
+  final double scale;
+  final Color accent;
+
+  const _NotificationCountBadge({
+    required this.count,
+    required this.scale,
+    required this.accent,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final label = count > 99 ? '99+' : count.toString();
+    return Container(
+      constraints: BoxConstraints(minWidth: 18 * scale),
+      padding: EdgeInsets.symmetric(horizontal: 5 * scale, vertical: 2 * scale),
+      decoration: BoxDecoration(
+        color: accent.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: accent.withValues(alpha: 0.35)),
+      ),
+      alignment: Alignment.center,
+      child: Text(
+        label,
+        style: TextStyle(
+          color: accent,
+          fontSize: 9 * scale,
+          fontWeight: FontWeight.w800,
+          height: 1.0,
         ),
       ),
     );

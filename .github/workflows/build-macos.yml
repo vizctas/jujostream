@@ -3,7 +3,7 @@ name: Build macOS
 on:
   push:
     branches:
-      - 'master'
+      - '**'
 
 jobs:
   build-macos:
@@ -22,17 +22,38 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
+      # ── macOS SDK native components ──────────────────────────────
+      - name: Build native dependencies (OpenSSL & libopus)
+        run: |
+          chmod +x setup_macos_native_deps.sh
+          ./setup_macos_native_deps.sh
+
+      # ── iOS / macOS specific setup ───────────────────────────────
       - name: Disable Swift Package Manager (use CocoaPods)
         run: flutter config --no-enable-swift-package-manager
 
       - name: Install CocoaPods dependencies
         run: cd macos && pod install --repo-update
 
+      # ── Build macOS App ──────────────────────────────────────────
       - name: Build macOS app
-        run: flutter build macos --release
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL || 'https://faadppubtdxjnnvubnsi.supabase.co' }}
+          SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY || 'sb_publishable_xSfpJSBypMPXXCWeeYBgVQ_U6gu57NH' }}
+        run: |
+          flutter build macos --release \
+            --dart-define=SUPABASE_URL=$SUPABASE_URL \
+            --dart-define=SUPABASE_PUBLISHABLE_KEY=$SUPABASE_PUBLISHABLE_KEY
+
+      # ── Package and Upload artifact ──────────────────────────────
+      - name: Compress macOS app
+        run: |
+          cd build/macos/Build/Products/Release
+          # Compress the .app bundle into a zip file to preserve macOS symlinks and file permissions
+          zip -ry JujoStream-macOS.zip *.app
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
           name: macos-build
-          path: build/macos/Build/Products/Release/*.app
+          path: build/macos/Build/Products/Release/JujoStream-macOS.zip

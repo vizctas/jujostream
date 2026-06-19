@@ -9,6 +9,7 @@ class MirroredNotification {
   final DateTime postedAt;
   final bool isOngoing;
   final bool isSilent;
+  final bool isGroupSummary;
   final String? icon;
 
   const MirroredNotification({
@@ -22,6 +23,7 @@ class MirroredNotification {
     required this.postedAt,
     required this.isOngoing,
     this.isSilent = false,
+    this.isGroupSummary = false,
     this.icon,
   });
 
@@ -42,6 +44,7 @@ class MirroredNotification {
     'postedAt': postedAt.toUtc().toIso8601String(),
     'isOngoing': isOngoing,
     'isSilent': isSilent,
+    'isGroupSummary': isGroupSummary,
     if (icon != null) 'icon': icon,
   };
 
@@ -57,6 +60,7 @@ class MirroredNotification {
       postedAt: _parsePostedAt(json['postedAt']),
       isOngoing: json['isOngoing'] == true,
       isSilent: json['isSilent'] == true,
+      isGroupSummary: json['isGroupSummary'] == true,
       icon: json['icon']?.toString(),
     );
   }
@@ -86,6 +90,7 @@ class MirroredNotification {
     DateTime? postedAt,
     bool? isOngoing,
     bool? isSilent,
+    bool? isGroupSummary,
     String? icon,
   }) {
     return MirroredNotification(
@@ -99,6 +104,7 @@ class MirroredNotification {
       postedAt: postedAt ?? this.postedAt,
       isOngoing: isOngoing ?? this.isOngoing,
       isSilent: isSilent ?? this.isSilent,
+      isGroupSummary: isGroupSummary ?? this.isGroupSummary,
       icon: icon ?? this.icon,
     );
   }

@@ -24,6 +24,7 @@ class JujoNotificationListenerService : NotificationListenerService() {
         }.getOrDefault(sbn.packageName)
         val isOngoing = notification.flags and Notification.FLAG_ONGOING_EVENT != 0
         val isSilent = isSilentNotification(sbn)
+        val isGroupSummary = notification.flags and Notification.FLAG_GROUP_SUMMARY != 0
 
         NotificationMirrorBridge.emit(
             mapOf(
@@ -37,7 +38,8 @@ class JujoNotificationListenerService : NotificationListenerService() {
                 "body" to body,
                 "postedAt" to sbn.postTime,
                 "isOngoing" to isOngoing,
-                "isSilent" to isSilent
+                "isSilent" to isSilent,
+                "isGroupSummary" to isGroupSummary
             )
         )
     }

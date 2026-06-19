@@ -50,8 +50,9 @@ void main() {
       ),
     );
 
-    expect(find.text('Ride update a'), findsOneWidget);
-    expect(find.text('Ride update b'), findsOneWidget);
+    expect(find.textContaining('Ride update a'), findsOneWidget);
+    expect(find.textContaining('Ride update b'), findsOneWidget);
+    expect(find.text('2'), findsOneWidget);
 
     await tester.tap(find.byIcon(Icons.close_rounded).first);
     await tester.pump();

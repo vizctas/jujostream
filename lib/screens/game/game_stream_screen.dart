@@ -530,6 +530,21 @@ class _GameStreamScreenState extends State<GameStreamScreen>
           return;
         }
 
+        if (detail?.contains('DIRECT_SUBMIT_SURFACE_UNAVAILABLE') == true &&
+            _shouldUseDirectSubmit &&
+            _presetReconnectRetries < _maxPresetReconnectRetries) {
+          _presetReconnectRetries++;
+          setState(() {
+            _reconnectMessage = AppLocalizations.of(context).reconnectingLabel;
+          });
+          await Future.delayed(const Duration(milliseconds: 750));
+          if (mounted) {
+            _lastDisconnectTime = null;
+            _startStreaming();
+          }
+          return;
+        }
+
         setState(() {
           _isConnecting = false;
           _showOverlay = false;
@@ -778,6 +793,17 @@ class _GameStreamScreenState extends State<GameStreamScreen>
             unawaited(_stopStreaming());
             _startStreaming();
           }
+        case 'renderStalled':
+          BetaTelemetryService.event('native_render_stalled', {
+            'framesReceived': event['framesReceived'] ?? 0,
+            'framesRendered': event['framesRendered'] ?? 0,
+            'framesDropped': event['framesDropped'] ?? 0,
+            'queueDepth': event['queueDepth'] ?? 0,
+            'decoderName': event['decoderName'] ?? '',
+            'renderPath': event['renderPath'] ?? '',
+            'directSubmit': event['directSubmit'] ?? false,
+          });
+          unawaited(_onConnectionTerminated(-9001));
         default:
           // Wrap stat parsing in try-catch to handle unexpected types or
           // missing keys from different server versions (Vibepollo, Sunshine,

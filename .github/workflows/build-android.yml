@@ -66,7 +66,13 @@ jobs:
 
       # ── Build APK ──────────────────────────────────────────────
       - name: Build Android APK (release)
-        run: flutter build apk --release
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL || 'https://faadppubtdxjnnvubnsi.supabase.co' }}
+          SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY || 'sb_publishable_xSfpJSBypMPXXCWeeYBgVQ_U6gu57NH' }}
+        run: |
+          flutter build apk --release \
+            --dart-define=SUPABASE_URL=$SUPABASE_URL \
+            --dart-define=SUPABASE_PUBLISHABLE_KEY=$SUPABASE_PUBLISHABLE_KEY
 
       # ── Upload artifact ─────────────────────────────────────────
       - name: Upload APK artifact

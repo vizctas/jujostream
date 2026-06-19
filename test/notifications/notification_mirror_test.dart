@@ -13,6 +13,7 @@ void main() {
     String body = 'Driver arriving soon',
     bool isOngoing = false,
     bool isSilent = false,
+    bool isGroupSummary = false,
     DateTime? postedAt,
   }) {
     return MirroredNotification(
@@ -26,6 +27,7 @@ void main() {
       postedAt: postedAt ?? DateTime.utc(2026, 6, 14, 18),
       isOngoing: isOngoing,
       isSilent: isSilent,
+      isGroupSummary: isGroupSummary,
     );
   }
 
@@ -102,6 +104,19 @@ void main() {
       expect(controller.visibleNotifications, isEmpty);
     },
   );
+
+  test('controller filters Android group summary notifications', () async {
+    final controller = NotificationMirrorController();
+    await controller.load();
+    await controller.setMode(NotificationMirrorMode.receiver);
+    await controller.setAllowedPackage('com.ubercab', true);
+
+    controller.handleLocalPosted(
+      sample(id: 'summary', title: '2 notifications', isGroupSummary: true),
+    );
+
+    expect(controller.visibleNotifications, isEmpty);
+  });
 
   test(
     'controller enforces max stack and dedupes repeated notifications',

@@ -475,6 +475,7 @@ class NotificationMirrorController extends ChangeNotifier {
   }) {
     if (_mode == NotificationMirrorMode.off) return false;
     if (!notification.hasVisibleContent) return false;
+    if (notification.isGroupSummary) return false;
     if (_ignoreOngoing && notification.isOngoing) return false;
     if (_ignoreSilent && notification.isSilent) return false;
     if (requireAllowlist &&

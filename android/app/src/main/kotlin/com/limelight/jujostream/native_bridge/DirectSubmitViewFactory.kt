@@ -33,12 +33,21 @@ class DirectSubmitViewFactory : PlatformViewFactory(StandardMessageCodec.INSTANC
         private var surfaceLatch = CountDownLatch(1)
 
         fun awaitSurface(timeoutMs: Long): Surface? {
-            if (activeSurface != null) return activeSurface
+            activeSurface?.let { surface ->
+                if (surface.isValid) return surface
+                activeSurface = null
+            }
             surfaceLatch.await(timeoutMs, TimeUnit.MILLISECONDS)
-            return activeSurface
+            return activeSurface?.takeIf { it.isValid }
         }
 
         fun reset() {
+            val surface = activeSurface
+            if (surface != null && surface.isValid) {
+                Log.d(TAG, "Preserving live direct submit surface across stream cleanup")
+                surfaceLatch.countDown()
+                return
+            }
             activeSurface = null
             surfaceLatch = CountDownLatch(1)
         }
@@ -75,6 +84,7 @@ class DirectSubmitViewFactory : PlatformViewFactory(StandardMessageCodec.INSTANC
                 override fun surfaceDestroyed(holder: SurfaceHolder) {
                     Log.i(TAG, "Direct submit surface destroyed")
                     activeSurface = null
+                    surfaceLatch = CountDownLatch(1)
                 }
             })
         }
