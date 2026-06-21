@@ -733,6 +733,16 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
                     }
 
                     if (!renderStallNotified && stagnantRenderTicks >= 15) {
+                        if (renderer.requestCodecRecoveryForRenderStall()) {
+                            Log.w(
+                                TAG,
+                                "Render stall recovery requested: recv=$currentReceived rendered=$currentFrames " +
+                                    "decoder=$decoderName path=$renderPath"
+                            )
+                            stagnantRenderTicks = 0
+                            return
+                        }
+
                         renderStallNotified = true
                         Log.e(
                             TAG,
