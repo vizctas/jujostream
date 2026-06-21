@@ -54,6 +54,10 @@ class VideoDecoderRenderer(
     private var rendererThread: Thread? = null
 
     @Volatile private var stopping = false
+    @Volatile private var decoderRestarting = false
+    @Volatile private var codecRecoveryRequested = false
+    private val codecRecoveryLock = Any()
+    private var lastCodecRecoveryNs = 0L
 
     private var videoFormat = 0
     var initialWidth = 0
@@ -277,11 +281,14 @@ class VideoDecoderRenderer(
     ): MediaFormat {
         val format = MediaFormat.createVideoFormat(mimeType, width, height)
         // KEY_MAX_WIDTH/HEIGHT enable adaptive playback, which raises the decoder's
-        // output buffer demand. Skip them on the final bare-minimum try — Amlogic SC2
-        // OMX caps output buffers at 24 and fails start() when the demand exceeds it.
-        if (tryNumber <= 2) {
+        // output buffer demand. Weak Amlogic OMX decoders cap output buffers at 24 and
+        // can wedge after a runtime buffer-manager reset while trying to allocate more.
+        val allowAdaptivePlayback = tryNumber <= 2 && !(isWeakDevice && isAmlogicDecoder)
+        if (allowAdaptivePlayback) {
             format.setInteger(MediaFormat.KEY_MAX_WIDTH, width)
             format.setInteger(MediaFormat.KEY_MAX_HEIGHT, height)
+        } else if (tryNumber == 0 && isWeakDevice && isAmlogicDecoder) {
+            Log.i(TAG, "  - Adaptive playback disabled for weak Amlogic decoder")
         }
 
         // --- Layer 1: Frame rate + operating rate (try 0-2) ---
@@ -411,8 +418,14 @@ class VideoDecoderRenderer(
 
     fun start() {
         stopping = false
+        decoderRestarting = false
+        codecRecoveryRequested = false
         pendingFrames.clear()
 
+        startRendererThreads()
+    }
+
+    private fun startRendererThreads() {
         if (useChoreographerVsync && Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN) {
             rendererThread = Thread({
                 android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_DISPLAY)
@@ -428,7 +441,7 @@ class VideoDecoderRenderer(
                 val choreographer = Choreographer.getInstance()
                 val vsyncCallback = object : Choreographer.FrameCallback {
                     override fun doFrame(frameTimeNanos: Long) {
-                        if (stopping) return
+                        if (stopping || decoderRestarting) return
                         presentAtVsync(frameTimeNanos)
                         choreographer.postFrameCallback(this)
                     }
@@ -474,7 +487,7 @@ class VideoDecoderRenderer(
         val info = MediaCodec.BufferInfo()
         val decoder = videoDecoder ?: return
 
-        while (!stopping) {
+        while (!stopping && !decoderRestarting) {
             try {
                 val firstIdx = decoder.dequeueOutputBuffer(info, 2_000)
                 if (firstIdx == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
@@ -507,7 +520,18 @@ class VideoDecoderRenderer(
             } catch (e: InterruptedException) {
                 break
             } catch (e: IllegalStateException) {
-                if (!stopping) Log.e(TAG, "Render error (minLatency)", e)
+                if (stopping) break
+                Log.e(TAG, "Render error (minLatency)", e)
+                // dequeueOutputBuffer only throws ISE when the codec is in an
+                // error state (e.g. Amlogic NotifyError after a corrupt/invalid
+                // resolution change). It will keep throwing on every retry, so
+                // request codec recovery immediately instead of spinning until
+                // the stats-timer stall detector notices ~3s later — that delay
+                // was the visible multi-second freeze users had to escape by
+                // closing and reopening the session. Back off so we don't flood
+                // the log / burn CPU while the input thread restarts the codec.
+                requestCodecRecoveryForRenderStall()
+                try { Thread.sleep(50) } catch (_: InterruptedException) { break }
             }
         }
     }
@@ -516,7 +540,7 @@ class VideoDecoderRenderer(
         val info = MediaCodec.BufferInfo()
         val decoder = videoDecoder ?: return
 
-        while (!stopping) {
+        while (!stopping && !decoderRestarting) {
             try {
                 val outIndex = decoder.dequeueOutputBuffer(info, 5000)
                 when {
@@ -542,7 +566,7 @@ class VideoDecoderRenderer(
         val decoder = videoDecoder ?: return
         val vsyncPeriodUs = if (redrawRateFps > 0) 1_000_000L / redrawRateFps else 16_667L
 
-        while (!stopping) {
+        while (!stopping && !decoderRestarting) {
             try {
                 val outIndex = decoder.dequeueOutputBuffer(info, 5000)
                 when {
@@ -572,7 +596,7 @@ class VideoDecoderRenderer(
         val info = MediaCodec.BufferInfo()
         val decoder = videoDecoder ?: return
 
-        while (!stopping) {
+        while (!stopping && !decoderRestarting) {
             try {
                 val outIndex = decoder.dequeueOutputBuffer(info, 5000)
                 when {
@@ -598,7 +622,7 @@ class VideoDecoderRenderer(
         var consecutiveSmooth = 0
         var useLatencyMode = false
 
-        while (!stopping) {
+        while (!stopping && !decoderRestarting) {
             try {
                 if (useLatencyMode) {
                     // Drain to freshest frame
@@ -674,7 +698,7 @@ class VideoDecoderRenderer(
         val decoder = videoDecoder ?: return
         val effectiveDepth = if (maxQueueDepth > 0) maxQueueDepth else 2
 
-        while (!stopping) {
+        while (!stopping && !decoderRestarting) {
             try {
                 val idx = decoder.dequeueOutputBuffer(info, 8_000)
                 when {
@@ -788,6 +812,12 @@ class VideoDecoderRenderer(
         receiveTimeMs: Long, enqueueTimeMs: Long
     ): Int {
         if (stopping) return DR_OK
+        if (codecRecoveryRequested) {
+            codecRecoveryRequested = false
+            recoverWeakAmlogicDecoder(force = true)
+            return DR_NEED_IDR
+        }
+        if (decoderRestarting) return DR_NEED_IDR
         val decoder = videoDecoder ?: return DR_NEED_IDR
         totalFramesReceived++
 
@@ -835,6 +865,7 @@ class VideoDecoderRenderer(
 
             val inputIndex = acquireInputBuffer(decoder)
             if (inputIndex < 0) {
+                recoverWeakAmlogicDecoder(force = false)
                 return DR_NEED_IDR
             }
 
@@ -880,6 +911,69 @@ class VideoDecoderRenderer(
         val totalMs = timeoutsUs.sum() / 1000
         Log.w(TAG, "No input buffer after ${totalMs}ms (${timeoutsUs.size} attempts) — requesting IDR")
         return -1
+    }
+
+    fun requestCodecRecoveryForRenderStall(): Boolean {
+        if (!isWeakDevice || !isAmlogicDecoder || useChoreographerVsync || stopping) return false
+        if (System.nanoTime() - lastCodecRecoveryNs < 10_000_000_000L) return false
+
+        codecRecoveryRequested = true
+        return true
+    }
+
+    private fun recoverWeakAmlogicDecoder(force: Boolean): Boolean {
+        if (!isWeakDevice || !isAmlogicDecoder || useChoreographerVsync || stopping) return false
+
+        val nowNs = System.nanoTime()
+        val outputStalledNs = if (lastRenderNs > 0L) nowNs - lastRenderNs else 0L
+        if ((!force && outputStalledNs < 250_000_000L) ||
+            nowNs - lastCodecRecoveryNs < 10_000_000_000L) {
+            return false
+        }
+
+        synchronized(codecRecoveryLock) {
+            if (stopping || decoderRestarting) return false
+            lastCodecRecoveryNs = nowNs
+            decoderRestarting = true
+
+            Log.e(TAG, "Amlogic codec output stalled with no input buffers; restarting MediaCodec")
+            val drainingThread = rendererThread
+            drainingThread?.interrupt()
+            try { drainingThread?.join(500) } catch (_: InterruptedException) { }
+            if (drainingThread?.isAlive == true) {
+                decoderRestarting = false
+                Log.e(TAG, "Amlogic MediaCodec restart aborted; renderer thread is still active")
+                return false
+            }
+            rendererThread = null
+
+            val decoder = videoDecoder ?: run {
+                decoderRestarting = false
+                return false
+            }
+
+            return try {
+                decoder.reset()
+                submittedCsd = false
+                pendingFrames.clear()
+                synchronized(queueTimestampNs) { queueTimestampNs.clear() }
+
+                val mimeType = StreamConstants.mimeTypeForFormat(videoFormat)
+                    ?: throw IllegalStateException("Unknown video format during codec recovery")
+                if (configureDecoderWithFallback(mimeType, initialWidth, initialHeight, redrawRateFps) != 0) {
+                    throw IllegalStateException("MediaCodec reconfiguration failed")
+                }
+
+                decoderRestarting = false
+                startRendererThreads()
+                Log.i(TAG, "Amlogic MediaCodec restart complete; waiting for IDR")
+                true
+            } catch (e: Exception) {
+                decoderRestarting = false
+                Log.e(TAG, "Amlogic MediaCodec restart failed", e)
+                false
+            }
+        }
     }
 
     private fun isDecoderSafeForClearPlayback(decoder: MediaCodec, mimeType: String): Boolean {
@@ -940,6 +1034,8 @@ class VideoDecoderRenderer(
 
     fun stop() {
         stopping = true
+        decoderRestarting = false
+        codecRecoveryRequested = false
         rendererThread?.interrupt()
         try { rendererThread?.join(1000) } catch (_: InterruptedException) { }
         vsyncPresenterThread?.let { t ->
