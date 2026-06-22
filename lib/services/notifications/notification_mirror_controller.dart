@@ -82,6 +82,7 @@ class NotificationMirrorController extends ChangeNotifier {
   static const _kDurationSeconds = 'notification_mirror_duration_seconds';
   static const _kIgnoreOngoing = 'notification_mirror_ignore_ongoing';
   static const _kIgnoreSilent = 'notification_mirror_ignore_silent';
+  static const _kAllowRepeat = 'notification_mirror_allow_repeat';
   static const _kReceiverToken = 'notification_mirror_receiver_token';
   static const _kBroadcastUrl = 'notification_mirror_broadcast_url';
   static const _kBroadcastToken = 'notification_mirror_broadcast_token';
@@ -116,6 +117,7 @@ class NotificationMirrorController extends ChangeNotifier {
   Duration _overlayDuration = const Duration(seconds: 8);
   bool _ignoreOngoing = true;
   bool _ignoreSilent = true;
+  bool _allowRepeatNotifications = false;
   String _receiverToken = '';
   String _broadcastReceiverUrl = '';
   String _broadcastToken = '';
@@ -135,6 +137,7 @@ class NotificationMirrorController extends ChangeNotifier {
   Duration get overlayDuration => _overlayDuration;
   bool get ignoreOngoing => _ignoreOngoing;
   bool get ignoreSilent => _ignoreSilent;
+  bool get allowRepeatNotifications => _allowRepeatNotifications;
   String get receiverToken => _receiverToken;
   String get broadcastReceiverUrl => _broadcastReceiverUrl;
   String get broadcastToken => _broadcastToken;
@@ -180,6 +183,7 @@ class NotificationMirrorController extends ChangeNotifier {
     );
     _ignoreOngoing = prefs.getBool(_kIgnoreOngoing) ?? true;
     _ignoreSilent = prefs.getBool(_kIgnoreSilent) ?? true;
+    _allowRepeatNotifications = prefs.getBool(_kAllowRepeat) ?? false;
     _receiverToken = prefs.getString(_kReceiverToken) ?? '';
     if (_receiverToken.isEmpty) {
       _receiverToken = _generateToken();
@@ -298,6 +302,17 @@ class NotificationMirrorController extends ChangeNotifier {
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_kIgnoreSilent, value);
+  }
+
+  /// When OFF (default), an identical notification (same [stableKey]) is shown
+  /// only once — re-posts with a refreshed timestamp are suppressed so banners
+  /// don't re-appear like reminders. When ON, re-posts re-show.
+  Future<void> setAllowRepeatNotifications(bool value) async {
+    if (_allowRepeatNotifications == value) return;
+    _allowRepeatNotifications = value;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kAllowRepeat, value);
   }
 
   Future<void> setBroadcastTarget({
@@ -486,8 +501,15 @@ class NotificationMirrorController extends ChangeNotifier {
   }
 
   void _show(MirroredNotification notification) {
-    if (_seen.contains(notification.dedupKey)) return;
-    _seen.add(notification.dedupKey);
+    // Default: dedup on the stable identity (no timestamp) so an app re-posting
+    // the same notification doesn't re-show it like a reminder. When the user
+    // opts into repeats, fall back to the timestamp-inclusive key so genuine
+    // re-posts are treated as new and re-appear.
+    final seenKey = _allowRepeatNotifications
+        ? notification.dedupKey
+        : notification.stableKey;
+    if (_seen.contains(seenKey)) return;
+    _seen.add(seenKey);
     _visible.removeWhere((item) => item.dedupKey == notification.dedupKey);
     _visible.add(notification);
     while (_visible.length > _maxVisible) {

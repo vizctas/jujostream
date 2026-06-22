@@ -30,6 +30,13 @@ class MirroredNotification {
   String get dedupKey =>
       '$sourceDeviceId|$packageName|$id|${postedAt.millisecondsSinceEpoch}';
 
+  /// Identity of a notification WITHOUT the posted timestamp. Apps frequently
+  /// re-post the same notification (same package + id) with a refreshed
+  /// timestamp; [dedupKey] changes each time, which would let the banner
+  /// re-appear like a "reminder". [stableKey] stays constant across those
+  /// re-posts so the controller can suppress repeats by default.
+  String get stableKey => '$sourceDeviceId|$packageName|$id';
+
   bool get hasVisibleContent =>
       title.trim().isNotEmpty || body.trim().isNotEmpty;
 

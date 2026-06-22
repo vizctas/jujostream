@@ -1626,6 +1626,21 @@ class _SettingsScreenState extends State<SettingsScreen>
             size: 18,
           ),
         ),
+        _toggle(
+          _tr(context, 'Repeat Notifications', 'Notificaciones repetidas'),
+          _tr(
+            context,
+            'Show the same notification again when an app re-posts it (off by default)',
+            'Muestra la misma notificacion de nuevo cuando una app la reenvia (apagado por defecto)',
+          ),
+          mirror.allowRepeatNotifications,
+          mirror.setAllowRepeatNotifications,
+          leading: const Icon(
+            Icons.repeat_rounded,
+            color: Colors.white54,
+            size: 18,
+          ),
+        ),
         _sliderTile(
           _tr(context, 'Notification Duration', 'Duracion de notificacion'),
           '${mirror.overlayDuration.inSeconds}s',
