@@ -1068,7 +1068,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
     setState(() {
       switch (direction) {
         case 'down':
-          _overlayRow = (_overlayRow + 1).clamp(0, 7);
+          _overlayRow = (_overlayRow + 1).clamp(0, 6);
           if (_overlayRow == 0) {
             _overlayCol = _overlayCol.clamp(0, 3);
           } else if (_overlayRow == 1) {
@@ -1077,7 +1077,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
             _overlayCol = 0;
           }
         case 'up':
-          _overlayRow = (_overlayRow - 1).clamp(0, 7);
+          _overlayRow = (_overlayRow - 1).clamp(0, 6);
           if (_overlayRow == 0) {
             _overlayCol = _overlayCol.clamp(0, 3);
           } else if (_overlayRow == 1) {
@@ -1161,13 +1161,8 @@ class _GameStreamScreenState extends State<GameStreamScreen>
       case 3:
         _pasteClipboardToPC();
       case 4:
-        setState(() {
-          _config = _config.copyWith(clientMic: !_config.clientMic);
-        });
-        _reconnectWithNewConfig();
-      case 5:
         _closeSessionAndExit();
-      case 6:
+      case 5:
         setState(() {
           _showQuitConfirm = true;
           _quitConfirmSelection = 0;
@@ -1176,7 +1171,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) _overlayFocusNode.requestFocus();
         });
-      case 7:
+      case 6:
         _setOverlayVisible(false);
     }
   }
@@ -1573,7 +1568,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
       if (_showOverlay && !_showSpecialKeys) {
         if (key == LogicalKeyboardKey.arrowDown) {
           setState(() {
-            _overlayRow = (_overlayRow + 1).clamp(0, 7);
+            _overlayRow = (_overlayRow + 1).clamp(0, 6);
 
             if (_overlayRow == 0) {
               _overlayCol = _overlayCol.clamp(0, 3);
@@ -1588,7 +1583,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
         }
         if (key == LogicalKeyboardKey.arrowUp) {
           setState(() {
-            _overlayRow = (_overlayRow - 1).clamp(0, 7);
+            _overlayRow = (_overlayRow - 1).clamp(0, 6);
             if (_overlayRow == 0) {
               _overlayCol = _overlayCol.clamp(0, 3);
             } else if (_overlayRow == 1) {
@@ -2085,7 +2080,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
       if (_showQuitConfirm) {
         setState(() {
           _showQuitConfirm = false;
-          _overlayRow = 5;
+          _overlayRow = 4;
         });
       } else if (_showSpecialKeys) {
         setState(() {
@@ -2103,7 +2098,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
       if (key == LogicalKeyboardKey.gameButtonX) {
         setState(() {
           _showQuitConfirm = false;
-          _overlayRow = 5;
+          _overlayRow = 4;
         });
         return KeyEventResult.handled;
       }
@@ -2112,7 +2107,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
         if (_quitConfirmSelection == 0) {
           setState(() {
             _showQuitConfirm = false;
-            _overlayRow = 5;
+            _overlayRow = 4;
           });
         } else {
           _executeQuit();
@@ -2135,7 +2130,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
         if (_quitConfirmSelection == 0) {
           setState(() {
             _showQuitConfirm = false;
-            _overlayRow = 5;
+            _overlayRow = 4;
           });
         } else {
           _executeQuit();
@@ -2148,7 +2143,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
     if (!_showSpecialKeys) {
       if (key == LogicalKeyboardKey.arrowDown) {
         setState(() {
-          _overlayRow = (_overlayRow + 1).clamp(0, 7);
+          _overlayRow = (_overlayRow + 1).clamp(0, 6);
           if (_overlayRow == 0) {
             _overlayCol = _overlayCol.clamp(0, 3);
           } else if (_overlayRow == 1) {
@@ -2162,7 +2157,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
       }
       if (key == LogicalKeyboardKey.arrowUp) {
         setState(() {
-          _overlayRow = (_overlayRow - 1).clamp(0, 7);
+          _overlayRow = (_overlayRow - 1).clamp(0, 6);
           if (_overlayRow == 0) {
             _overlayCol = _overlayCol.clamp(0, 3);
           } else if (_overlayRow == 1) {
@@ -2307,7 +2302,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
         if (_showQuitConfirm) {
           setState(() {
             _showQuitConfirm = false;
-            _overlayRow = 5;
+            _overlayRow = 4;
           });
           return;
         }
@@ -2394,7 +2389,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
                 onTap: () {
                   setState(() {
                     _showQuitConfirm = false;
-                    _overlayRow = 5;
+                    _overlayRow = 4;
                   });
                 },
               ),
@@ -2644,17 +2639,6 @@ class _GameStreamScreenState extends State<GameStreamScreen>
           focused: _overlayRow == 3,
         ),
         buildMenuTile(
-          _config.clientMic ? Icons.mic : Icons.mic_off,
-          _config.clientMic ? 'Mic Passthrough: ON' : 'Mic Passthrough: OFF',
-          () {
-            setState(() {
-              _config = _config.copyWith(clientMic: !_config.clientMic);
-            });
-            _reconnectWithNewConfig();
-          },
-          focused: _overlayRow == 4,
-        ),
-        buildMenuTile(
           Icons.logout_rounded,
           AppLocalizations.of(context).disconnect,
           () {
@@ -2666,7 +2650,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
             Navigator.pop(context);
           },
           color: Colors.orangeAccent,
-          focused: _overlayRow == 5,
+          focused: _overlayRow == 4,
         ),
         buildMenuTile(
           Icons.power_settings_new,
@@ -2675,7 +2659,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
             _confirmQuit();
           },
           color: Colors.redAccent,
-          focused: _overlayRow == 6,
+          focused: _overlayRow == 5,
         ),
         const SizedBox(height: 4),
         buildMenuTile(
@@ -2684,7 +2668,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
           () {
             _setOverlayVisible(false);
           },
-          focused: _overlayRow == 7,
+          focused: _overlayRow == 6,
         ),
         Padding(
           padding: const EdgeInsets.only(top: 8),
