@@ -486,463 +486,477 @@ class _PluginEditScreenState extends State<PluginEditScreen> {
           }
           return KeyEventResult.ignored;
         },
-        child: Column(
-          children: [
-            Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 720),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Header
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Container(
-                            width: 56,
-                            height: 56,
-                            decoration: BoxDecoration(
-                              color: tp.surface,
-                              borderRadius: BorderRadius.circular(16),
-                              border: Border.all(
-                                color: tp.accent.withValues(alpha: 0.25),
+        child: FocusTraversalGroup(
+          // Deterministic top-to-bottom gamepad traversal through all controls
+          // (toggle, fields, sliders, Cancel/Save), matching the Settings
+          // screen. Combined with autofocus on the first control, this is what
+          // lets the user navigate inside the feature page at all.
+          policy: OrderedTraversalPolicy(),
+          child: Column(
+            children: [
+              Expanded(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 720),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Header
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Container(
+                              width: 56,
+                              height: 56,
+                              decoration: BoxDecoration(
+                                color: tp.surface,
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(
+                                  color: tp.accent.withValues(alpha: 0.25),
+                                ),
+                              ),
+                              child: Icon(
+                                _iconFor(widget.plugin.id),
+                                color: tp.accentLight,
+                                size: 30,
                               ),
                             ),
-                            child: Icon(
-                              _iconFor(widget.plugin.id),
-                              color: tp.accentLight,
-                              size: 30,
-                            ),
-                          ),
-                          const SizedBox(width: 16),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  _localizedName(context),
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 22,
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                                ),
-                                const SizedBox(height: 6),
-                                Text(
-                                  _localizedDescription(context),
-                                  style: const TextStyle(
-                                    color: Colors.white60,
-                                    fontSize: 14,
-                                    height: 1.4,
-                                  ),
-                                ),
-                                const SizedBox(height: 10),
-                                Row(
-                                  children: [
-                                    _categoryBadge(widget.plugin.category),
-                                    const SizedBox(width: 10),
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 10,
-                                        vertical: 5,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: statusColor.withValues(
-                                          alpha: 0.14,
-                                        ),
-                                        borderRadius: BorderRadius.circular(8),
-                                      ),
-                                      child: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          Icon(
-                                            statusNeedsSetup
-                                                ? Icons.warning_amber_outlined
-                                                : Icons.check_circle_outline,
-                                            color: statusColor,
-                                            size: 15,
-                                          ),
-                                          const SizedBox(width: 6),
-                                          Text(
-                                            statusText,
-                                            style: TextStyle(
-                                              color: statusColor,
-                                              fontWeight: FontWeight.w600,
-                                              fontSize: 12,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    _localizedName(context),
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 22,
+                                      fontWeight: FontWeight.w800,
                                     ),
-                                  ],
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    _localizedDescription(context),
+                                    style: const TextStyle(
+                                      color: Colors.white60,
+                                      fontSize: 14,
+                                      height: 1.4,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 10),
+                                  Row(
+                                    children: [
+                                      _categoryBadge(widget.plugin.category),
+                                      const SizedBox(width: 10),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 10,
+                                          vertical: 5,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: statusColor.withValues(
+                                            alpha: 0.14,
+                                          ),
+                                          borderRadius: BorderRadius.circular(
+                                            8,
+                                          ),
+                                        ),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Icon(
+                                              statusNeedsSetup
+                                                  ? Icons.warning_amber_outlined
+                                                  : Icons.check_circle_outline,
+                                              color: statusColor,
+                                              size: 15,
+                                            ),
+                                            const SizedBox(width: 6),
+                                            Text(
+                                              statusText,
+                                              style: TextStyle(
+                                                color: statusColor,
+                                                fontWeight: FontWeight.w600,
+                                                fontSize: 12,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+
+                        const SizedBox(height: 28),
+
+                        // Enabled toggle
+                        PluginFocusableToggle(
+                          autofocus: true,
+                          icon: _enabled ? Icons.power : Icons.power_off,
+                          label: l.enabled,
+                          value: _enabled,
+                          onChanged: (v) => setState(() => _enabled = v),
+                        ),
+
+                        const SizedBox(height: 18),
+                        const Divider(color: Colors.white12, height: 1),
+                        const SizedBox(height: 18),
+
+                        // API key fields
+                        if (apiKeyInfo != null) ...[
+                          PluginApiKeyField(
+                            label: apiKeyInfo.label,
+                            hint: apiKeyInfo.hint,
+                            helpText: apiKeyInfo.helpText,
+                            controller: _keyController,
+                            focusNode: _keyFocusNode,
+                            obscure: _obscure,
+                            onToggleObscure: () =>
+                                setState(() => _obscure = !_obscure),
+                            onChanged: (_) => setState(() {}),
+                          ),
+                          const SizedBox(height: 12),
+                          if (widget.plugin.id == 'metadata')
+                            PluginActionButton(
+                              icon: Icons.open_in_new,
+                              label: 'Get Key',
+                              onTap: () => launchUrl(
+                                Uri.parse('https://rawg.io/apidocs'),
+                                mode: LaunchMode.externalApplication,
+                              ),
+                            ),
+                          if (widget.plugin.id == 'steam_connect')
+                            PluginActionButton(
+                              icon: Icons.open_in_new,
+                              label: 'Get Key',
+                              onTap: () => launchUrl(
+                                Uri.parse(
+                                  'https://steamcommunity.com/dev/apikey',
+                                ),
+                                mode: LaunchMode.externalApplication,
+                              ),
+                            ),
+                          const SizedBox(height: 20),
+                        ],
+
+                        // Plugin-specific info blocks
+                        if (widget.plugin.id == 'metadata')
+                          _infoBlock(
+                            Icons.warning_amber_rounded,
+                            Colors.orangeAccent,
+                            Localizations.localeOf(context).languageCode == 'es'
+                                ? 'Es importante que los juegos tengan los nombres correctos en el servidor, o no se podrán obtener los metadatos.'
+                                : 'Games must have their correct names on the server, otherwise metadata cannot be fetched.',
+                          ),
+
+                        if (widget.plugin.id == 'smart_genre_filters')
+                          _infoBlock(
+                            Icons.tips_and_updates_outlined,
+                            Colors.cyanAccent,
+                            Localizations.localeOf(context).languageCode == 'es'
+                                ? 'Este plugin solo funciona cuando Metadata esta activo y la API key de RAWG ya esta configurada.'
+                                : 'This plugin only works after Metadata is enabled and a RAWG API key has been configured.',
+                          ),
+
+                        if (widget.plugin.id == 'steam_library_info')
+                          _infoBlock(
+                            Icons.tips_and_updates_outlined,
+                            Colors.cyanAccent,
+                            Localizations.localeOf(context).languageCode == 'es'
+                                ? 'Muestra datos de Steam en la ficha del juego: tiempo jugado, logros, reseñas, géneros y tráiler. También filtra por 100%, pendiente y nunca iniciado. Requiere Steam Connect activo con API key.'
+                                : 'Shows Steam data in the game detail card: playtime, achievements, reviews, genres and trailer. Also filters by 100%, pending and never started. Requires Steam Connect with valid API key.',
+                          ),
+
+                        if (widget.plugin.id == 'discovery_boost')
+                          _infoBlock(
+                            Icons.tips_and_updates_outlined,
+                            Colors.cyanAccent,
+                            Localizations.localeOf(context).languageCode == 'es'
+                                ? 'Sugerencias "similar a este juego" usando géneros/tags de metadata.'
+                                : '“Similar to this game” recommendations using metadata genres/tags.',
+                          ),
+
+                        // Steam Connect
+                        if (widget.plugin.id == 'steam_connect') ...[
+                          PluginApiKeyField(
+                            label: 'SteamID64',
+                            hint: 'SteamID64 (17 digits)',
+                            helpText: '',
+                            controller: _steamIdController,
+                            focusNode: _steamIdFocusNode,
+                            obscure: false,
+                            onToggleObscure: () {},
+                            onChanged: (_) => setState(() {}),
+                          ),
+                          const SizedBox(height: 16),
+                          ElevatedButton.icon(
+                            style:
+                                ElevatedButton.styleFrom(
+                                  backgroundColor: tp.surfaceVariant,
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 16,
+                                    vertical: 12,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                  elevation: 2,
+                                  shadowColor: Colors.black26,
+                                ).copyWith(
+                                  side: WidgetStateProperty.all(
+                                    BorderSide.none,
+                                  ),
+                                  backgroundColor:
+                                      WidgetStateProperty.resolveWith((states) {
+                                        if (states.contains(
+                                          WidgetState.focused,
+                                        )) {
+                                          return Color.lerp(
+                                            tp.surfaceVariant,
+                                            Colors.white,
+                                            0.10,
+                                          );
+                                        }
+                                        return tp.surfaceVariant;
+                                      }),
+                                ),
+                            icon: _isConnectingSteam
+                                ? const SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.white,
+                                    ),
+                                  )
+                                : const Icon(Icons.open_in_browser, size: 18),
+                            label: Text(
+                              _isConnectingSteam
+                                  ? l.pluginSteamConnecting
+                                  : l.pluginSteamLogin,
+                            ),
+                            onPressed: _isConnectingSteam
+                                ? null
+                                : () async {
+                                    final steamId = await SteamLoginScreen.show(
+                                      context,
+                                    );
+                                    if (steamId != null && mounted) {
+                                      _steamIdController.text = steamId;
+                                      await _connectSteam();
+                                    }
+                                  },
+                          ),
+                          if (_steamPersona != null &&
+                              _steamPersona!.isNotEmpty) ...[
+                            const SizedBox(height: 12),
+                            Row(
+                              children: [
+                                const Icon(
+                                  Icons.check_circle,
+                                  color: Colors.greenAccent,
+                                  size: 14,
+                                ),
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: Text(
+                                    '${l.pluginSteamAccount}: $_steamPersona',
+                                    style: const TextStyle(
+                                      color: Colors.white70,
+                                      fontSize: 12,
+                                    ),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
                                 ),
                               ],
                             ),
-                          ),
+                          ],
+                          const SizedBox(height: 20),
                         ],
-                      ),
 
-                      const SizedBox(height: 28),
-
-                      // Enabled toggle
-                      PluginFocusableToggle(
-                        icon: _enabled ? Icons.power : Icons.power_off,
-                        label: l.enabled,
-                        value: _enabled,
-                        onChanged: (v) => setState(() => _enabled = v),
-                      ),
-
-                      const SizedBox(height: 18),
-                      const Divider(color: Colors.white12, height: 1),
-                      const SizedBox(height: 18),
-
-                      // API key fields
-                      if (apiKeyInfo != null) ...[
-                        PluginApiKeyField(
-                          label: apiKeyInfo.label,
-                          hint: apiKeyInfo.hint,
-                          helpText: apiKeyInfo.helpText,
-                          controller: _keyController,
-                          focusNode: _keyFocusNode,
-                          obscure: _obscure,
-                          onToggleObscure: () =>
-                              setState(() => _obscure = !_obscure),
-                          onChanged: (_) => setState(() {}),
-                        ),
-                        const SizedBox(height: 12),
-                        if (widget.plugin.id == 'metadata')
-                          PluginActionButton(
-                            icon: Icons.open_in_new,
-                            label: 'Get Key',
-                            onTap: () => launchUrl(
-                              Uri.parse('https://rawg.io/apidocs'),
-                              mode: LaunchMode.externalApplication,
+                        // Startup intro video
+                        if (widget.plugin.id == 'startup_intro_video') ...[
+                          Text(
+                            l.pluginVideoHint,
+                            style: const TextStyle(
+                              color: Colors.white70,
+                              fontSize: 12,
+                              height: 1.35,
                             ),
                           ),
-                        if (widget.plugin.id == 'steam_connect')
-                          PluginActionButton(
-                            icon: Icons.open_in_new,
-                            label: 'Get Key',
-                            onTap: () => launchUrl(
-                              Uri.parse(
-                                'https://steamcommunity.com/dev/apikey',
+                          const SizedBox(height: 10),
+                          TextField(
+                            controller: _startupVideoController,
+                            readOnly: true,
+                            style: const TextStyle(
+                              color: Colors.white70,
+                              fontSize: 12,
+                            ),
+                            decoration: InputDecoration(
+                              hintText: 'No video selected',
+                              hintStyle: const TextStyle(color: Colors.white30),
+                              filled: true,
+                              fillColor: Colors.white.withValues(alpha: 0.04),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(10),
+                                borderSide: const BorderSide(
+                                  color: Colors.white12,
+                                ),
                               ),
-                              mode: LaunchMode.externalApplication,
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(10),
+                                borderSide: const BorderSide(
+                                  color: Colors.white12,
+                                ),
+                              ),
                             ),
                           ),
-                        const SizedBox(height: 20),
-                      ],
-
-                      // Plugin-specific info blocks
-                      if (widget.plugin.id == 'metadata')
-                        _infoBlock(
-                          Icons.warning_amber_rounded,
-                          Colors.orangeAccent,
-                          Localizations.localeOf(context).languageCode == 'es'
-                              ? 'Es importante que los juegos tengan los nombres correctos en el servidor, o no se podrán obtener los metadatos.'
-                              : 'Games must have their correct names on the server, otherwise metadata cannot be fetched.',
-                        ),
-
-                      if (widget.plugin.id == 'smart_genre_filters')
-                        _infoBlock(
-                          Icons.tips_and_updates_outlined,
-                          Colors.cyanAccent,
-                          Localizations.localeOf(context).languageCode == 'es'
-                              ? 'Este plugin solo funciona cuando Metadata esta activo y la API key de RAWG ya esta configurada.'
-                              : 'This plugin only works after Metadata is enabled and a RAWG API key has been configured.',
-                        ),
-
-                      if (widget.plugin.id == 'steam_library_info')
-                        _infoBlock(
-                          Icons.tips_and_updates_outlined,
-                          Colors.cyanAccent,
-                          Localizations.localeOf(context).languageCode == 'es'
-                              ? 'Muestra datos de Steam en la ficha del juego: tiempo jugado, logros, reseñas, géneros y tráiler. También filtra por 100%, pendiente y nunca iniciado. Requiere Steam Connect activo con API key.'
-                              : 'Shows Steam data in the game detail card: playtime, achievements, reviews, genres and trailer. Also filters by 100%, pending and never started. Requires Steam Connect with valid API key.',
-                        ),
-
-                      if (widget.plugin.id == 'discovery_boost')
-                        _infoBlock(
-                          Icons.tips_and_updates_outlined,
-                          Colors.cyanAccent,
-                          Localizations.localeOf(context).languageCode == 'es'
-                              ? 'Sugerencias "similar a este juego" usando géneros/tags de metadata.'
-                              : '“Similar to this game” recommendations using metadata genres/tags.',
-                        ),
-
-                      // Steam Connect
-                      if (widget.plugin.id == 'steam_connect') ...[
-                        PluginApiKeyField(
-                          label: 'SteamID64',
-                          hint: 'SteamID64 (17 digits)',
-                          helpText: '',
-                          controller: _steamIdController,
-                          focusNode: _steamIdFocusNode,
-                          obscure: false,
-                          onToggleObscure: () {},
-                          onChanged: (_) => setState(() {}),
-                        ),
-                        const SizedBox(height: 16),
-                        ElevatedButton.icon(
-                          style:
-                              ElevatedButton.styleFrom(
-                                backgroundColor: tp.surfaceVariant,
-                                foregroundColor: Colors.white,
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 16,
-                                  vertical: 12,
-                                ),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                                elevation: 2,
-                                shadowColor: Colors.black26,
-                              ).copyWith(
-                                side: WidgetStateProperty.all(BorderSide.none),
-                                backgroundColor:
-                                    WidgetStateProperty.resolveWith((states) {
-                                      if (states.contains(
-                                        WidgetState.focused,
-                                      )) {
-                                        return Color.lerp(
-                                          tp.surfaceVariant,
-                                          Colors.white,
-                                          0.10,
-                                        );
-                                      }
-                                      return tp.surfaceVariant;
-                                    }),
-                              ),
-                          icon: _isConnectingSteam
-                              ? const SizedBox(
-                                  width: 16,
-                                  height: 16,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: Colors.white,
-                                  ),
-                                )
-                              : const Icon(Icons.open_in_browser, size: 18),
-                          label: Text(
-                            _isConnectingSteam
-                                ? l.pluginSteamConnecting
-                                : l.pluginSteamLogin,
-                          ),
-                          onPressed: _isConnectingSteam
-                              ? null
-                              : () async {
-                                  final steamId = await SteamLoginScreen.show(
-                                    context,
-                                  );
-                                  if (steamId != null && mounted) {
-                                    _steamIdController.text = steamId;
-                                    await _connectSteam();
-                                  }
-                                },
-                        ),
-                        if (_steamPersona != null &&
-                            _steamPersona!.isNotEmpty) ...[
-                          const SizedBox(height: 12),
+                          const SizedBox(height: 10),
                           Row(
                             children: [
-                              const Icon(
-                                Icons.check_circle,
-                                color: Colors.greenAccent,
-                                size: 14,
-                              ),
-                              const SizedBox(width: 6),
-                              Expanded(
-                                child: Text(
-                                  '${l.pluginSteamAccount}: $_steamPersona',
-                                  style: const TextStyle(
-                                    color: Colors.white70,
-                                    fontSize: 12,
-                                  ),
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                        const SizedBox(height: 20),
-                      ],
-
-                      // Startup intro video
-                      if (widget.plugin.id == 'startup_intro_video') ...[
-                        Text(
-                          l.pluginVideoHint,
-                          style: const TextStyle(
-                            color: Colors.white70,
-                            fontSize: 12,
-                            height: 1.35,
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                        TextField(
-                          controller: _startupVideoController,
-                          readOnly: true,
-                          style: const TextStyle(
-                            color: Colors.white70,
-                            fontSize: 12,
-                          ),
-                          decoration: InputDecoration(
-                            hintText: 'No video selected',
-                            hintStyle: const TextStyle(color: Colors.white30),
-                            filled: true,
-                            fillColor: Colors.white.withValues(alpha: 0.04),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(10),
-                              borderSide: const BorderSide(
-                                color: Colors.white12,
-                              ),
-                            ),
-                            enabledBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(10),
-                              borderSide: const BorderSide(
-                                color: Colors.white12,
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: PluginActionButton(
-                                icon: Icons.video_file_outlined,
-                                label: l.pluginSelectVideo,
-                                onTap: _pickStartupVideo,
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            if (_startupVideoController.text.isNotEmpty)
                               Expanded(
                                 child: PluginActionButton(
-                                  icon: Icons.delete_outline,
-                                  label: l.pluginRemove,
-                                  accentColor: Colors.redAccent,
-                                  onTap: _removeStartupVideo,
+                                  icon: Icons.video_file_outlined,
+                                  label: l.pluginSelectVideo,
+                                  onTap: _pickStartupVideo,
                                 ),
                               ),
-                          ],
-                        ),
-                        const SizedBox(height: 18),
-                        Text(
-                          l.pluginVideoWhen,
-                          style: const TextStyle(
-                            color: Colors.white70,
-                            fontSize: 12,
+                              const SizedBox(width: 8),
+                              if (_startupVideoController.text.isNotEmpty)
+                                Expanded(
+                                  child: PluginActionButton(
+                                    icon: Icons.delete_outline,
+                                    label: l.pluginRemove,
+                                    accentColor: Colors.redAccent,
+                                    onTap: _removeStartupVideo,
+                                  ),
+                                ),
+                            ],
                           ),
-                        ),
-                        const SizedBox(height: 8),
-                        PluginFocusableVideoTriggerOption(
-                          label: l.pluginVideoTriggerApp,
-                          selected: _videoTrigger == 'before_app',
-                          onTap: () =>
-                              setState(() => _videoTrigger = 'before_app'),
-                        ),
-                        const SizedBox(height: 8),
-                        PluginFocusableVideoTriggerOption(
-                          label: l.pluginVideoTriggerServer,
-                          selected: _videoTrigger == 'before_server',
-                          onTap: () =>
-                              setState(() => _videoTrigger = 'before_server'),
-                        ),
-                        const SizedBox(height: 20),
-                      ],
+                          const SizedBox(height: 18),
+                          Text(
+                            l.pluginVideoWhen,
+                            style: const TextStyle(
+                              color: Colors.white70,
+                              fontSize: 12,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          PluginFocusableVideoTriggerOption(
+                            label: l.pluginVideoTriggerApp,
+                            selected: _videoTrigger == 'before_app',
+                            onTap: () =>
+                                setState(() => _videoTrigger = 'before_app'),
+                          ),
+                          const SizedBox(height: 8),
+                          PluginFocusableVideoTriggerOption(
+                            label: l.pluginVideoTriggerServer,
+                            selected: _videoTrigger == 'before_server',
+                            onTap: () =>
+                                setState(() => _videoTrigger = 'before_server'),
+                          ),
+                          const SizedBox(height: 20),
+                        ],
 
-                      // Screensaver
-                      if (widget.plugin.id == 'screensaver') ...[
-                        PluginScreensaverTimeoutSlider(
-                          value: _screensaverTimeoutSec,
-                          onChanged: (v) =>
-                              setState(() => _screensaverTimeoutSec = v),
-                        ),
-                        const SizedBox(height: 20),
-                      ],
+                        // Screensaver
+                        if (widget.plugin.id == 'screensaver') ...[
+                          PluginScreensaverTimeoutSlider(
+                            value: _screensaverTimeoutSec,
+                            onChanged: (v) =>
+                                setState(() => _screensaverTimeoutSec = v),
+                          ),
+                          const SizedBox(height: 20),
+                        ],
 
-                      // Game video
-                      if (widget.plugin.id == 'game_video') ...[
-                        PluginFocusableToggle(
-                          icon: _microtrailerMuted
-                              ? Icons.volume_off
-                              : Icons.volume_up,
-                          label: l.pluginStartMuted,
-                          value: _microtrailerMuted,
-                          onChanged: (v) {
-                            setState(() {
-                              _microtrailerMuted = v;
-                              _providerMicrotrailerChanged = true;
-                            });
-                          },
-                        ),
-                        const SizedBox(height: 16),
-                        PluginFocusableSlider(
-                          icon: Icons.timer_outlined,
-                          label: l.pluginVideoDelay,
-                          value: _videoDelaySeconds.toDouble(),
-                          min: 1,
-                          max: 10,
-                          step: 1,
-                          suffix: 's',
-                          onChanged: (v) {
-                            setState(() {
-                              _videoDelaySeconds = v.round();
-                              _providerVideoDelayChanged = true;
-                            });
-                          },
-                        ),
-                        const SizedBox(height: 20),
+                        // Game video
+                        if (widget.plugin.id == 'game_video') ...[
+                          PluginFocusableToggle(
+                            icon: _microtrailerMuted
+                                ? Icons.volume_off
+                                : Icons.volume_up,
+                            label: l.pluginStartMuted,
+                            value: _microtrailerMuted,
+                            onChanged: (v) {
+                              setState(() {
+                                _microtrailerMuted = v;
+                                _providerMicrotrailerChanged = true;
+                              });
+                            },
+                          ),
+                          const SizedBox(height: 16),
+                          PluginFocusableSlider(
+                            icon: Icons.timer_outlined,
+                            label: l.pluginVideoDelay,
+                            value: _videoDelaySeconds.toDouble(),
+                            min: 1,
+                            max: 10,
+                            step: 1,
+                            suffix: 's',
+                            onChanged: (v) {
+                              setState(() {
+                                _videoDelaySeconds = v.round();
+                                _providerVideoDelayChanged = true;
+                              });
+                            },
+                          ),
+                          const SizedBox(height: 20),
+                        ],
                       ],
+                    ),
+                  ),
+                ),
+              ),
+
+              // Bottom action bar
+              Container(
+                padding: EdgeInsets.fromLTRB(
+                  20,
+                  12,
+                  20,
+                  12 + MediaQuery.paddingOf(context).bottom,
+                ),
+                decoration: BoxDecoration(
+                  color: tp.surface,
+                  border: Border(
+                    top: BorderSide(
+                      color: Colors.white.withValues(alpha: 0.08),
+                    ),
+                  ),
+                ),
+                child: SafeArea(
+                  top: false,
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: PluginActionButton(
+                          icon: Icons.close,
+                          label: l.cancel,
+                          accentColor: Colors.white70,
+                          onTap: _cancel,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        flex: 2,
+                        child: PluginActionButton(
+                          icon: Icons.save,
+                          label: l.save,
+                          accentColor: tp.accentLight,
+                          onTap: _save,
+                        ),
+                      ),
                     ],
                   ),
                 ),
               ),
-            ),
-
-            // Bottom action bar
-            Container(
-              padding: EdgeInsets.fromLTRB(
-                20,
-                12,
-                20,
-                12 + MediaQuery.paddingOf(context).bottom,
-              ),
-              decoration: BoxDecoration(
-                color: tp.surface,
-                border: Border(
-                  top: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
-                ),
-              ),
-              child: SafeArea(
-                top: false,
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: PluginActionButton(
-                        icon: Icons.close,
-                        label: l.cancel,
-                        accentColor: Colors.white70,
-                        onTap: _cancel,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      flex: 2,
-                      child: PluginActionButton(
-                        icon: Icons.save,
-                        label: l.save,
-                        accentColor: tp.accentLight,
-                        onTap: _save,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -1195,6 +1209,7 @@ class PluginFocusableToggle extends StatefulWidget {
   final String label;
   final bool value;
   final ValueChanged<bool> onChanged;
+  final bool autofocus;
 
   const PluginFocusableToggle({
     super.key,
@@ -1202,6 +1217,7 @@ class PluginFocusableToggle extends StatefulWidget {
     required this.label,
     required this.value,
     required this.onChanged,
+    this.autofocus = false,
   });
 
   @override
@@ -1215,6 +1231,7 @@ class _PluginFocusableToggleState extends State<PluginFocusableToggle> {
   Widget build(BuildContext context) {
     final tp = context.read<ThemeProvider>();
     return Focus(
+      autofocus: widget.autofocus,
       onFocusChange: (f) {
         setState(() => _focused = f);
         if (f) {

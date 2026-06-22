@@ -21,6 +21,13 @@ class TvFocusable extends StatefulWidget {
   /// so each element is a single focus stop handled by this wrapper.
   final bool excludeChildFocus;
 
+  /// When true, on gaining focus this widget scrolls its nearest [Scrollable]
+  /// ancestor so it becomes visible (centered). Use inside long lists that
+  /// move focus programmatically (e.g. looping traversal) where Flutter's
+  /// default ensure-visible doesn't fire. Off by default so existing usages
+  /// are unaffected.
+  final bool scrollOnFocus;
+
   const TvFocusable({
     super.key,
     required this.child,
@@ -34,6 +41,7 @@ class TvFocusable extends StatefulWidget {
     this.focusScale = 1.06,
     this.borderRadius = 12,
     this.excludeChildFocus = false,
+    this.scrollOnFocus = false,
   });
 
   @override
@@ -64,7 +72,22 @@ class _TvFocusableState extends State<TvFocusable> {
   }
 
   void _onFocusChange(bool focused) {
-    if (focused) UiSoundService.playUiMove();
+    if (focused) {
+      UiSoundService.playUiMove();
+      if (widget.scrollOnFocus) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted || !_focus.hasFocus) return;
+          final ctx = context;
+          if (!ctx.mounted) return;
+          Scrollable.ensureVisible(
+            ctx,
+            alignment: 0.5,
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeOut,
+          );
+        });
+      }
+    }
     setState(() => _hasFocus = focused);
   }
 

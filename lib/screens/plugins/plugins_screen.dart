@@ -47,53 +47,65 @@ class PluginsScreen extends StatelessWidget {
           }
           return KeyEventResult.ignored;
         },
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const SizedBox(height: 8),
+        child: FocusTraversalGroup(
+          // One group spans the QR button + the plugin list so gamepad up/down
+          // loops through both. Without this the QR button (outside the list's
+          // group) was unreachable once focus entered the looping list.
+          policy: _VerticalLoopTraversalPolicy(),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const SizedBox(height: 8),
 
-            if (TvDetector.instance.isTV)
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: TvFocusable(
-                  autofocus: true,
-                  onSelect: () => CompanionQrScreen.show(context),
-                  child: SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton.icon(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: tp.accent,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
+              if (TvDetector.instance.isTV)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: FocusTraversalOrder(
+                    // Order -1 keeps the QR button first; up from the first
+                    // plugin lands here, down from here enters the list.
+                    order: const NumericFocusOrder(-1),
+                    child: TvFocusable(
+                      excludeChildFocus: true,
+                      scrollOnFocus: true,
+                      onSelect: () => CompanionQrScreen.show(context),
+                      child: SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: tp.accent,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                          icon: const Icon(Icons.qr_code_2, size: 22),
+                          label: Text(
+                            l.configureFromPhoneBtn,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 15,
+                            ),
+                          ),
+                          onPressed: () => CompanionQrScreen.show(context),
                         ),
                       ),
-                      icon: const Icon(Icons.qr_code_2, size: 22),
-                      label: Text(
-                        l.configureFromPhoneBtn,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w700,
-                          fontSize: 15,
-                        ),
-                      ),
-                      onPressed: () => CompanionQrScreen.show(context),
                     ),
                   ),
                 ),
+              if (TvDetector.instance.isTV) const SizedBox(height: 12),
+              Expanded(
+                child: Consumer<PluginsProvider>(
+                  builder: (context, provider, _) {
+                    final plugins = provider.plugins
+                        .where((p) => p.id != 'discovery_boost')
+                        .toList();
+                    return _PluginsList(plugins: plugins);
+                  },
+                ),
               ),
-            if (TvDetector.instance.isTV) const SizedBox(height: 12),
-            Expanded(
-              child: Consumer<PluginsProvider>(
-                builder: (context, provider, _) {
-                  final plugins = provider.plugins
-                      .where((p) => p.id != 'discovery_boost')
-                      .toList();
-                  return _PluginsList(plugins: plugins);
-                },
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -163,38 +175,34 @@ class _PluginsListState extends State<_PluginsList> {
   Widget build(BuildContext context) {
     final bottomPadding = MediaQuery.paddingOf(context).bottom;
 
-    return FocusTraversalGroup(
-      policy: _VerticalLoopTraversalPolicy(),
-      child: ListView.separated(
-        padding: EdgeInsets.fromLTRB(
-          16,
-          4,
-          16,
-          200 + bottomPadding,
-        ),
-        itemCount: widget.plugins.length,
-        separatorBuilder: (_, _) => const SizedBox(height: 12),
-        itemBuilder: (context, index) {
-          final plugin = widget.plugins[index];
-          return FocusTraversalOrder(
-            order: NumericFocusOrder(index.toDouble()),
-            child: TvFocusable(
-              focusNode: _focusNodes[index],
-              autofocus: index == 0,
-              borderRadius: 16,
-              focusBorderWidth: 2,
-              focusScale: 1.02,
-              excludeChildFocus: true,
-              onSelect: () => _openEdit(plugin),
-              onLongPress: () => _toggle(plugin),
-              child: _PluginListItem(
-                plugin: plugin,
-                onToggle: () => _toggle(plugin),
-              ),
+    // No FocusTraversalGroup here — the parent (plugins_screen body) wraps the
+    // QR button + this list in a single looping group so focus can cross between
+    // them. Items keep their NumericFocusOrder for that shared policy.
+    return ListView.separated(
+      padding: EdgeInsets.fromLTRB(16, 4, 16, 200 + bottomPadding),
+      itemCount: widget.plugins.length,
+      separatorBuilder: (_, _) => const SizedBox(height: 12),
+      itemBuilder: (context, index) {
+        final plugin = widget.plugins[index];
+        return FocusTraversalOrder(
+          order: NumericFocusOrder(index.toDouble()),
+          child: TvFocusable(
+            focusNode: _focusNodes[index],
+            autofocus: index == 0,
+            borderRadius: 16,
+            focusBorderWidth: 2,
+            focusScale: 1.02,
+            excludeChildFocus: true,
+            scrollOnFocus: true,
+            onSelect: () => _openEdit(plugin),
+            onLongPress: () => _toggle(plugin),
+            child: _PluginListItem(
+              plugin: plugin,
+              onToggle: () => _toggle(plugin),
             ),
-          );
-        },
-      ),
+          ),
+        );
+      },
     );
   }
 }
@@ -203,10 +211,7 @@ class _PluginListItem extends StatelessWidget {
   final PluginConfig plugin;
   final VoidCallback onToggle;
 
-  const _PluginListItem({
-    required this.plugin,
-    required this.onToggle,
-  });
+  const _PluginListItem({required this.plugin, required this.onToggle});
 
   static IconData _iconFor(String pluginId) {
     return switch (pluginId) {
@@ -389,10 +394,7 @@ class _PluginListItem extends StatelessWidget {
                   const SizedBox(width: 3),
                   const Text(
                     'Edit',
-                    style: TextStyle(
-                      color: Colors.white38,
-                      fontSize: 10,
-                    ),
+                    style: TextStyle(color: Colors.white38, fontSize: 10),
                   ),
                 ],
               ),
@@ -404,10 +406,7 @@ class _PluginListItem extends StatelessWidget {
                   const SizedBox(width: 3),
                   Text(
                     enabled ? 'Off' : 'On',
-                    style: const TextStyle(
-                      color: Colors.white38,
-                      fontSize: 10,
-                    ),
+                    style: const TextStyle(color: Colors.white38, fontSize: 10),
                   ),
                 ],
               ),
