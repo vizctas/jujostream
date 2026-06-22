@@ -730,27 +730,17 @@ class CloudSyncService {
     );
   }
 
-  /// Clears the isCloud flag on all persisted computers. Called on sign-out
-  /// so CLOUD chips don't linger for an account that's no longer logged in.
-  Future<void> clearCloudFlags() async {
+  /// Notifies listeners that cloud auth state changed (e.g. sign-out) so the
+  /// computer list re-evaluates visibility. The `isCloud` flag is intentionally
+  /// preserved: cloud-paired servers are HIDDEN while signed out (filtered by
+  /// ComputerProvider) and reappear on the next sign-in — they are never
+  /// silently demoted to local servers, which previously left them enterable
+  /// via cloud pairing after logout.
+  Future<void> refreshCloudVisibility() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final saved = prefs.getStringList(_kSavedComputers) ?? [];
-      if (saved.isEmpty) return;
-      final updated = <String>[];
-      for (final entry in saved) {
-        try {
-          final c = ComputerDetails.fromJson(jsonDecode(entry) as Map<String, dynamic>);
-          c.isCloud = false;
-          updated.add(jsonEncode(c.toJson()));
-        } catch (_) {
-          updated.add(entry);
-        }
-      }
-      await prefs.setStringList(_kSavedComputers, updated);
       _syncCompletedController.add(null);
     } catch (e) {
-      _log.w('clearCloudFlags failed: $e');
+      _log.w('refreshCloudVisibility failed: $e');
     }
   }
 

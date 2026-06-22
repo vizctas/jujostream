@@ -132,7 +132,7 @@ class AuthProvider extends ChangeNotifier {
     try {
       await Supabase.instance.client.auth.signOut();
     } catch (_) {}
-    unawaited(_sync.clearCloudFlags());
+    unawaited(_sync.refreshCloudVisibility());
     _signedIn = false;
     _email = null;
     _displayName = null;
@@ -174,7 +174,7 @@ class AuthProvider extends ChangeNotifier {
     try {
       await Supabase.instance.client.auth.signOut();
     } catch (_) {}
-    unawaited(_sync.clearCloudFlags());
+    unawaited(_sync.refreshCloudVisibility());
     _signedIn = false;
     _email = null;
     _displayName = null;
