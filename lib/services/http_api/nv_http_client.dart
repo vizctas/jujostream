@@ -276,6 +276,12 @@ class NvHttpClient {
           serverUuid.toUpperCase() == remoteInputUuid ||
           serverUuid.toUpperCase() == terminateAppUuid;
       if (appId > 0 && appName.isNotEmpty && !isGhostApp) {
+        final base = _baseUrl(address, httpsPort);
+        // Richer art advertised by the host (absent/0 on older servers -> hero
+        // and gallery stay empty and callers fall back to the poster).
+        final hasHero = extractXmlValue(appXml, 'HasHeroImage') == '1';
+        final extraCount =
+            int.tryParse(extractXmlValue(appXml, 'ExtraImageCount') ?? '0') ?? 0;
         apps.add(
           NvApp(
             appId: appId,
@@ -285,8 +291,15 @@ class NvHttpClient {
             serverUuid: serverUuid.isNotEmpty ? serverUuid : null,
 
             posterUrl:
-                '${_baseUrl(address, httpsPort)}/appasset'
+                '$base/appasset'
                 '?uniqueid=$uniqueId&appid=$appId&AssetType=2&AssetIdx=0',
+            heroImageUrl: hasHero
+                ? '$base/appasset?uniqueid=$uniqueId&appid=$appId&AssetType=3&AssetIdx=0'
+                : null,
+            screenshotUrls: [
+              for (var i = 0; i < extraCount; i++)
+                '$base/appasset?uniqueid=$uniqueId&appid=$appId&AssetType=4&AssetIdx=$i',
+            ],
           ),
         );
       }

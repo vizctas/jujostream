@@ -1997,19 +1997,40 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
               );
             },
             child: PosterImage(
-              url: selected.posterUrl!,
+              url: selected.heroImageUrl ?? selected.posterUrl!,
               fit: BoxFit.cover,
               fadeInDuration: const Duration(milliseconds: 200),
-              memCacheWidth: context.read<ThemeProvider>().performanceMode ? 720 : 1280,
+              // Cache to the real source resolution; the hero is a crisp 16:9
+              // image so there's no upscaling. Falls back to the poster width.
+              memCacheWidth: context.read<ThemeProvider>().performanceMode
+                  ? 720
+                  : (selected.heroImageUrl != null ? 1920 : 1280),
+              // Blur-up: show the already-cached small poster while the hero loads.
+              placeholder: selected.heroImageUrl != null
+                  ? (_, _) => PosterImage(
+                      url: selected.posterUrl!,
+                      fit: BoxFit.cover,
+                      memCacheWidth: 300,
+                    )
+                  : null,
               errorWidget: (_, _, _) => Container(color: _tp.background),
             ),
           )
         else
           PosterImage(
-            url: selected.posterUrl!,
+            url: selected.heroImageUrl ?? selected.posterUrl!,
             fit: BoxFit.cover,
             key: const ValueKey('static-bg'),
-            memCacheWidth: context.read<ThemeProvider>().performanceMode ? 720 : 1280,
+            memCacheWidth: context.read<ThemeProvider>().performanceMode
+                ? 720
+                : (selected.heroImageUrl != null ? 1920 : 1280),
+            placeholder: selected.heroImageUrl != null
+                ? (_, _) => PosterImage(
+                    url: selected.posterUrl!,
+                    fit: BoxFit.cover,
+                    memCacheWidth: 300,
+                  )
+                : null,
             errorWidget: (_, _, _) => Container(color: _tp.background),
           ),
         if (!(showVideo || context.read<ThemeProvider>().performanceMode))

@@ -97,6 +97,7 @@ class AppLocalizations {
 
     'play': {'en': 'Play', 'es': 'Jugar'},
     'resume': {'en': 'Resume', 'es': 'Reanudar'},
+    'screenshots': {'en': 'Screenshots', 'es': 'Capturas'},
     'noAppsFound': {
       'en': 'No apps found on this server',
       'es': 'No se encontraron juegos en este servidor',
@@ -975,6 +976,7 @@ class AppLocalizations {
 
   String get play => _s('play');
   String get resume => _s('resume');
+  String get screenshots => _s('screenshots');
   String get noAppsFound => _s('noAppsFound');
   String get loadingGames => _s('loadingGames');
   String get loadingPosters => _s('loadingPosters');

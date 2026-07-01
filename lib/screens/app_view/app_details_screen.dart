@@ -335,6 +335,10 @@ class _AppDetailsScreenState extends State<AppDetailsScreen> {
                               const SizedBox(height: 10),
                               _buildTrailerButton(),
                             ],
+                            if (widget.app.screenshotUrls.isNotEmpty) ...[
+                              const SizedBox(height: 18),
+                              _buildScreenshotGallery(),
+                            ],
                             const SizedBox(height: 18),
                             _focusableCard(_buildSessionMeta()),
                             if (_anySteamPluginEnabled) ...[
@@ -432,9 +436,9 @@ class _AppDetailsScreenState extends State<AppDetailsScreen> {
       fit: StackFit.expand,
       children: [
         PosterImage(
-          url: widget.app.posterUrl!,
+          url: widget.app.heroImageUrl ?? widget.app.posterUrl!,
           fit: BoxFit.cover,
-          memCacheWidth: perfMode ? 720 : null,
+          memCacheWidth: perfMode ? 720 : 1920,
         ),
         if (!perfMode)
           BackdropFilter(
@@ -472,6 +476,45 @@ class _AppDetailsScreenState extends State<AppDetailsScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  /// Horizontal strip of extra images (screenshots/artwork) the host advertised.
+  Widget _buildScreenshotGallery() {
+    final shots = widget.app.screenshotUrls;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          AppLocalizations.of(context).screenshots,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 16,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        const SizedBox(height: 10),
+        SizedBox(
+          height: 130,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            itemCount: shots.length,
+            separatorBuilder: (_, _) => const SizedBox(width: 10),
+            itemBuilder: (_, i) => ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: PosterImage(
+                url: shots[i],
+                width: 220,
+                height: 130,
+                fit: BoxFit.cover,
+                memCacheWidth: 440,
+                errorWidget: (_, _, _) =>
+                    Container(width: 220, height: 130, color: _tp.secondary),
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 

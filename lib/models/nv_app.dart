@@ -25,6 +25,14 @@ class NvApp {
   final String? steamVideoThumb;
   final String? rawgClipUrl;
 
+  /// Crisp 16:9 background/hero served by the host (/appasset AssetType=3).
+  /// Null when the host advertises no hero — callers fall back to [posterUrl].
+  final String? heroImageUrl;
+
+  /// Extra gallery images (screenshots/artwork) served by the host
+  /// (/appasset AssetType=4&AssetIdx=i).
+  final List<String> screenshotUrls;
+
   NvApp({
     required this.appId,
     required this.appName,
@@ -43,6 +51,8 @@ class NvApp {
     this.steamVideoUrl,
     this.steamVideoThumb,
     this.rawgClipUrl,
+    this.heroImageUrl,
+    this.screenshotUrls = const [],
   });
 
   NvApp copyWith({
@@ -62,6 +72,8 @@ class NvApp {
     String? steamVideoUrl,
     String? steamVideoThumb,
     String? rawgClipUrl,
+    String? heroImageUrl,
+    List<String>? screenshotUrls,
   }) {
     return NvApp(
       appId: appId ?? this.appId,
@@ -80,6 +92,8 @@ class NvApp {
       steamVideoUrl: steamVideoUrl ?? this.steamVideoUrl,
       steamVideoThumb: steamVideoThumb ?? this.steamVideoThumb,
       rawgClipUrl: rawgClipUrl ?? this.rawgClipUrl,
+      heroImageUrl: heroImageUrl ?? this.heroImageUrl,
+      screenshotUrls: screenshotUrls ?? this.screenshotUrls,
     );
   }
 
@@ -121,6 +135,8 @@ class NvApp {
         if (steamVideoUrl != null) 'steamVideoUrl': steamVideoUrl,
         if (steamVideoThumb != null) 'steamVideoThumb': steamVideoThumb,
         if (rawgClipUrl != null) 'rawgClipUrl': rawgClipUrl,
+        if (heroImageUrl != null) 'heroImageUrl': heroImageUrl,
+        if (screenshotUrls.isNotEmpty) 'screenshotUrls': screenshotUrls,
       };
 
   factory NvApp.fromJson(Map<String, dynamic> json) {
@@ -142,6 +158,9 @@ class NvApp {
       steamVideoUrl: json['steamVideoUrl'],
       steamVideoThumb: json['steamVideoThumb'],
       rawgClipUrl: json['rawgClipUrl'],
+      heroImageUrl: json['heroImageUrl'],
+      screenshotUrls:
+          (json['screenshotUrls'] as List?)?.cast<String>() ?? const [],
     );
   }
 
