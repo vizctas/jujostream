@@ -178,6 +178,10 @@ class NvHttpClient {
     // Absent on older server versions — optional, defaults to empty.
     computer.gpuName = extractXmlValue(xmlBody, 'GpuName') ?? '';
     computer.encoderName = extractXmlValue(xmlBody, 'EncoderName') ?? '';
+    // When the host does adaptive bitrate server-side, the client stands down
+    // its own reconnect-based controller. Absent/older servers → false.
+    final abr = extractXmlValue(xmlBody, 'ServerAbrActive')?.toLowerCase();
+    computer.serverAbrActive = abr == 'true' || abr == '1';
     final codecValue =
         extractXmlValue(xmlBody, 'ServerCodecModeSupport') ??
         extractXmlValue(xmlBody, 'serverCodecModeSupport') ??

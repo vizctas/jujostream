@@ -849,7 +849,11 @@ class _GameStreamScreenState extends State<GameStreamScreen>
           _recordSessionMetrics(event);
           _recordStatsTelemetry(event);
           _dynBitrate.evaluate(
-            enabled: _config.dynamicBitrateEnabled,
+            // Stand down when the host adapts bitrate server-side (live, no
+            // reconnect) — otherwise the two controllers fight and the client
+            // would still force its stop+restart hiccup.
+            enabled: _config.dynamicBitrateEnabled &&
+                !widget.computer.serverAbrActive,
             connected: _isConnected,
             baseBitrate: _config.bitrate,
             fps: _config.fps,

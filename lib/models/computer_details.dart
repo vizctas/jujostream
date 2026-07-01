@@ -19,6 +19,7 @@ class ComputerDetails {
   int serverCodecModeSupport;
   String gpuName;
   String encoderName;
+  bool serverAbrActive;
   bool pairStatusFromHttps = false;
   bool isCloud = false;
 
@@ -43,6 +44,7 @@ class ComputerDetails {
     this.serverCodecModeSupport = 15,
     this.gpuName = '',
     this.encoderName = '',
+    this.serverAbrActive = false,
     this.isCloud = false,
   });
 
@@ -66,6 +68,7 @@ class ComputerDetails {
         'serverCodecModeSupport': serverCodecModeSupport,
         'gpuName': gpuName,
         'encoderName': encoderName,
+        'serverAbrActive': serverAbrActive,
         'isCloud': isCloud,
       };
 
@@ -91,6 +94,7 @@ class ComputerDetails {
       serverCodecModeSupport: json['serverCodecModeSupport'] ?? 15,
       gpuName: json['gpuName'] ?? '',
       encoderName: json['encoderName'] ?? '',
+      serverAbrActive: json['serverAbrActive'] ?? false,
       isCloud: json['isCloud'] ?? false,
     );
   }
