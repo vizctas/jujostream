@@ -93,6 +93,9 @@ class ServerInfoCard extends StatelessWidget {
                   computer.remoteAddress),
             _row(Icons.info_outline, 'Versión Sunshine', _sunshineVersion()),
             _row(Icons.videocam_outlined, 'Codecs soportados', _codecsLabel()),
+            if (_hardwareLabel().isNotEmpty)
+              _row(Icons.memory_outlined, 'Hardware de streaming',
+                  _hardwareLabel()),
             _row(
               Icons.vpn_key_outlined,
               'Estado de emparejamiento',
@@ -161,6 +164,17 @@ class ServerInfoCard extends StatelessWidget {
       return 'Sunshine $major.$minor.$patch';
     }
     return computer.serverVersion;
+  }
+
+  // Empty until the host has chosen an encoder (first stream session) and on
+  // server versions that predate this field — hidden rather than shown blank.
+  String _hardwareLabel() {
+    final parts = <String>[];
+    if (computer.encoderName.isNotEmpty) {
+      parts.add(computer.encoderName.toUpperCase());
+    }
+    if (computer.gpuName.isNotEmpty) parts.add(computer.gpuName);
+    return parts.join(' · ');
   }
 
   String _codecsLabel() {

@@ -175,6 +175,9 @@ class NvHttpClient {
         extractXmlValue(xmlBody, 'GfeVersion') ??
         extractXmlValue(xmlBody, 'gfeversion') ??
         '';
+    // Absent on older server versions — optional, defaults to empty.
+    computer.gpuName = extractXmlValue(xmlBody, 'GpuName') ?? '';
+    computer.encoderName = extractXmlValue(xmlBody, 'EncoderName') ?? '';
     final codecValue =
         extractXmlValue(xmlBody, 'ServerCodecModeSupport') ??
         extractXmlValue(xmlBody, 'serverCodecModeSupport') ??

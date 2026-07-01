@@ -17,6 +17,8 @@ class ComputerDetails {
   String serverVersion;
   String gfeVersion;
   int serverCodecModeSupport;
+  String gpuName;
+  String encoderName;
   bool pairStatusFromHttps = false;
   bool isCloud = false;
 
@@ -39,6 +41,8 @@ class ComputerDetails {
     this.serverVersion = '7.1.431.-1',
     this.gfeVersion = '',
     this.serverCodecModeSupport = 15,
+    this.gpuName = '',
+    this.encoderName = '',
     this.isCloud = false,
   });
 
@@ -60,6 +64,8 @@ class ComputerDetails {
         'serverVersion': serverVersion,
         'gfeVersion': gfeVersion,
         'serverCodecModeSupport': serverCodecModeSupport,
+        'gpuName': gpuName,
+        'encoderName': encoderName,
         'isCloud': isCloud,
       };
 
@@ -83,6 +89,8 @@ class ComputerDetails {
       serverVersion: json['serverVersion'] ?? '7.1.431.-1',
       gfeVersion: json['gfeVersion'] ?? '',
       serverCodecModeSupport: json['serverCodecModeSupport'] ?? 15,
+      gpuName: json['gpuName'] ?? '',
+      encoderName: json['encoderName'] ?? '',
       isCloud: json['isCloud'] ?? false,
     );
   }
