@@ -226,28 +226,13 @@ class CompanionServer {
       'smart_genre_filters_enabled': plugins.isEnabled('smart_genre_filters'),
       'steam_library_info_enabled': plugins.isEnabled('steam_library_info'),
       'discovery_boost_enabled': plugins.isEnabled('discovery_boost'),
-      'startup_intro_video_enabled': plugins.isEnabled('startup_intro_video'),
-      'screensaver_enabled': plugins.isEnabled('screensaver'),
       'achievements_overlay_enabled': plugins.isEnabled('steam_connect'),
-      'screensaver_timeout_sec':
-          int.tryParse(
-            prefs.getString(
-                  PluginsProvider.settingPref('screensaver', 'timeout_sec'),
-                ) ??
-                '',
-          ) ??
-          120,
 
       'steam_api_key': steamApiKey,
       'steam_id': steamId,
       'steam_persona': steamPersona,
       'rawg_api_key': rawgApiKey,
 
-      'video_trigger':
-          prefs.getString(
-            PluginsProvider.settingPref('startup_intro_video', 'video_trigger'),
-          ) ??
-          'before_app',
       'microtrailer_muted': prefs.getBool('microtrailer_muted') ?? false,
       'microtrailer_delay_secs': prefs.getInt('microtrailer_delay_secs') ?? 3,
 
@@ -430,8 +415,6 @@ class CompanionServer {
         'smart_genre_filters',
         'steam_library_info',
         'discovery_boost',
-        'startup_intro_video',
-        'screensaver',
       ]) {
         final key = '${id}_enabled';
         if (data.containsKey(key)) {
@@ -462,13 +445,6 @@ class CompanionServer {
           (data['steam_id'] as String).trim(),
         );
       }
-      if (data.containsKey('video_trigger')) {
-        await plugins.setSetting(
-          'startup_intro_video',
-          'video_trigger',
-          data['video_trigger'] as String,
-        );
-      }
       if (data.containsKey('microtrailer_muted')) {
         await plugins.setMicrotrailerMuted(data['microtrailer_muted'] as bool);
       }
@@ -477,14 +453,6 @@ class CompanionServer {
           (data['microtrailer_delay_secs'] as num).toInt(),
         );
       }
-      if (data.containsKey('screensaver_timeout_sec')) {
-        await plugins.setSetting(
-          'screensaver',
-          'timeout_sec',
-          (data['screensaver_timeout_sec'] as num).toInt().toString(),
-        );
-      }
-
       if (data.containsKey('app_locale')) {
         final localeCode = data['app_locale'] as String;
         if (localeProvider != null) {
@@ -1287,11 +1255,6 @@ const _companionHtml = r'''
   <div class="toggle"><input type="checkbox" id="smartGenreEnabled"><span data-i18n="enableSmartGenre"></span></div>
   <div class="toggle"><input type="checkbox" id="steamLibEnabled"><span data-i18n="enableSteamLib"></span></div>
   <div class="toggle"><input type="checkbox" id="discoveryEnabled"><span data-i18n="enableDiscovery"></span></div>
-  <div class="toggle"><input type="checkbox" id="introVideoEnabled"><span data-i18n="enableIntroVideo"></span></div>
-  <div class="toggle"><input type="checkbox" id="screensaverEnabled"><span data-i18n="enableScreensaver"></span></div>
-  <label data-i18n="screensaverTimeout"></label>
-  <input type="range" id="screensaverTimeout" min="30" max="600" step="30" value="120">
-  <span id="screensaverTimeoutLabel">2m</span>
   <div class="toggle"><input type="checkbox" id="achievementsEnabled"><span data-i18n="enableAchievements"></span></div>
   <div class="toggle"><input type="checkbox" id="microtrailerMuted"><span data-i18n="muteMicrotrailer"></span></div>
   <label data-i18n="microtrailerDelay"></label>
@@ -1326,8 +1289,7 @@ const L = {
     metadataTitle: 'Metadata (RAWG)',
     pluginsTitle: 'Plugins', enableGameVideo: 'Game Videos & Trailers',
     enableSmartGenre: 'Smart Genre Filters', enableSteamLib: 'Steam Library Info',
-    enableDiscovery: 'Discovery Boost', enableIntroVideo: 'Startup Intro Video',
-    enableScreensaver: 'Screensaver', screensaverTimeout: 'Screensaver Timeout',
+    enableDiscovery: 'Discovery Boost',
     enableAchievements: 'Achievements Overlay',
     muteMicrotrailer: 'Mute Micro-trailers', microtrailerDelay: 'Micro-trailer Delay (seconds)',
     appSettings: 'App Settings', languageLabel: 'Language', themeLabel: 'Color Theme',
@@ -1419,8 +1381,7 @@ const L = {
     metadataTitle: 'Metadata (RAWG)',
     pluginsTitle: 'Plugins', enableGameVideo: 'Videos y Tráilers de Juegos',
     enableSmartGenre: 'Filtros Inteligentes de Género', enableSteamLib: 'Info de Biblioteca Steam',
-    enableDiscovery: 'Impulso de Descubrimiento', enableIntroVideo: 'Video Intro al Iniciar',
-    enableScreensaver: 'Protector de Pantalla', screensaverTimeout: 'Tiempo de Espera del Protector',
+    enableDiscovery: 'Impulso de Descubrimiento',
     enableAchievements: 'Logros Overlay',
     muteMicrotrailer: 'Silenciar Micro-tráilers', microtrailerDelay: 'Demora de Micro-tráiler (segundos)',
     appSettings: 'Ajustes', languageLabel: 'Idioma', themeLabel: 'Tema de Color',
@@ -1531,21 +1492,7 @@ async function load() {
     document.getElementById('smartGenreEnabled').checked = c.smart_genre_filters_enabled || false;
     document.getElementById('steamLibEnabled').checked = c.steam_library_info_enabled || false;
     document.getElementById('discoveryEnabled').checked = c.discovery_boost_enabled || false;
-    document.getElementById('introVideoEnabled').checked = c.startup_intro_video_enabled || false;
-    document.getElementById('screensaverEnabled').checked = c.screensaver_enabled ?? true;
     document.getElementById('achievementsEnabled').checked = c.achievements_overlay_enabled || false;
-    // Screensaver timeout slider
-    const ssTimeout = c.screensaver_timeout_sec || 120;
-    document.getElementById('screensaverTimeout').value = ssTimeout;
-    const ssMin = Math.floor(ssTimeout / 60);
-    const ssSec = ssTimeout % 60;
-    document.getElementById('screensaverTimeoutLabel').textContent = ssSec === 0 ? ssMin + 'm' : ssMin + 'm ' + ssSec + 's';
-    document.getElementById('screensaverTimeout').oninput = function() {
-      const v = parseInt(this.value);
-      const m = Math.floor(v / 60);
-      const s = v % 60;
-      document.getElementById('screensaverTimeoutLabel').textContent = s === 0 ? m + 'm' : m + 'm ' + s + 's';
-    };
     // Plugin credentials
     document.getElementById('steamKey').value = c.steam_api_key || '';
     document.getElementById('steamId').value = c.steam_id || '';
@@ -1703,9 +1650,6 @@ async function save() {
       smart_genre_filters_enabled: document.getElementById('smartGenreEnabled').checked,
       steam_library_info_enabled: document.getElementById('steamLibEnabled').checked,
       discovery_boost_enabled: document.getElementById('discoveryEnabled').checked,
-      startup_intro_video_enabled: document.getElementById('introVideoEnabled').checked,
-      screensaver_enabled: document.getElementById('screensaverEnabled').checked,
-      screensaver_timeout_sec: parseInt(document.getElementById('screensaverTimeout').value) || 120,
       // Plugin credentials
       steam_api_key: document.getElementById('steamKey').value,
       steam_id: document.getElementById('steamId').value,

@@ -1,8 +1,15 @@
+import 'dart:io' as io;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:file_selector/file_selector.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../l10n/app_localizations.dart';
+import '../../services/audio/ui_sound_service.dart';
 import '../../models/stream_configuration.dart';
 import '../../models/theme_config.dart';
 import '../../providers/auth_provider.dart';
@@ -21,6 +28,7 @@ import 'device_flow_screen.dart';
 import '../../themes/launcher_theme.dart';
 import '../../themes/launcher_theme_registry.dart';
 import '../../widgets/coming_soon_dialog.dart';
+import '../../widgets/wallpaper_picker_dialog.dart';
 import 'vpn_guide_sheet.dart';
 
 // Top-level translation helper — accessible from all widget classes in this file.
@@ -258,9 +266,33 @@ class _SettingsScreenState extends State<SettingsScreen>
                           ),
                           _choiceTile(
                             context,
+                            _tr(context, 'Focus background', 'Fondo de inicio'),
+                            _focusWallpaperLabel(context, themeProvider),
+                            () => _pickFocusWallpaper(context, themeProvider),
+                          ),
+                          _choiceTile(
+                            context,
                             _tr(context, 'Stand-by sound', 'Sonido de espera'),
-                            themeProvider.standbySound,
+                            themeProvider.standbySound == 'custom'
+                                ? (themeProvider.standbyCustomName.isNotEmpty
+                                      ? themeProvider.standbyCustomName
+                                      : _tr(context, 'Custom', 'Personalizado'))
+                                : themeProvider.standbySound,
                             () => _pickStandbySound(context, themeProvider),
+                          ),
+                          _sliderTile(
+                            _tr(
+                              context,
+                              'Stand-by volume',
+                              'Volumen de espera',
+                            ),
+                            '',
+                            (themeProvider.standbyVolume * 100).clamp(0, 100),
+                            0,
+                            100,
+                            20,
+                            (v) => themeProvider.setStandbyVolume(v / 100),
+                            labelBuilder: (v) => '${v.round()}%',
                           ),
 
                           _section('Language / Idioma'),
@@ -2251,13 +2283,121 @@ class _SettingsScreenState extends State<SettingsScreen>
     ]);
   }
 
+  String _focusWallpaperLabel(BuildContext ctx, ThemeProvider tp) {
+    final v = tp.focusWallpaper;
+    if (v.isEmpty) return _tr(ctx, 'Default', 'Predeterminado');
+    if (v.startsWith('file:')) return _tr(ctx, 'Custom', 'Personalizado');
+    final idx = kFocusWallpaperAssets.indexOf(v.replaceFirst('asset:', ''));
+    return idx >= 0
+        ? '${_tr(ctx, 'Wallpaper', 'Fondo')} ${idx + 1}'
+        : _tr(ctx, 'Custom', 'Personalizado');
+  }
+
+  void _pickFocusWallpaper(BuildContext ctx, ThemeProvider tp) {
+    final size = MediaQuery.sizeOf(ctx);
+    showGeneralDialog(
+      context: ctx,
+      barrierDismissible: true,
+      barrierLabel: MaterialLocalizations.of(ctx).modalBarrierDismissLabel,
+      barrierColor: Colors.black.withValues(alpha: 0.55),
+      transitionDuration: const Duration(milliseconds: 230),
+      transitionBuilder: (dCtx, anim, _, child) {
+        final scale = CurvedAnimation(parent: anim, curve: Curves.easeOutBack);
+        final fade = CurvedAnimation(parent: anim, curve: Curves.easeOut);
+        return ScaleTransition(
+          scale: Tween<double>(begin: 0.90, end: 1).animate(scale),
+          child: FadeTransition(opacity: fade, child: child),
+        );
+      },
+      pageBuilder: (dCtx, _, _) => WallpaperPickerDialog(
+        maxWidth: size.width > 900 ? 760.0 : size.width - 48,
+        maxHeight: size.height * 0.8,
+        surface: tp.surface,
+        current: tp.focusWallpaper,
+        onSelect: (value) async {
+          if (value == 'custom') {
+            Navigator.pop(dCtx);
+            final path = await _pickCustomWallpaperFile();
+            if (path != null) await tp.setFocusWallpaper('file:$path');
+            return;
+          }
+          await tp.setFocusWallpaper(value);
+          if (dCtx.mounted) Navigator.pop(dCtx);
+        },
+        onDismiss: () => Navigator.pop(dCtx),
+      ),
+    );
+  }
+
+  /// Picks an image from gallery/file system and copies it into the app's
+  /// persistent backgrounds dir (same pattern as the per-server background
+  /// picker in FocusModeScreen). Returns the saved path, or null on cancel.
+  Future<String?> _pickCustomWallpaperFile() async {
+    try {
+      String? pickedPath;
+      if (io.Platform.isMacOS) {
+        const imageGroup = XTypeGroup(
+          label: 'Images',
+          extensions: ['jpg', 'jpeg', 'png', 'webp'],
+        );
+        final result = await openFile(acceptedTypeGroups: [imageGroup]);
+        pickedPath = result?.path;
+      } else {
+        final picked = await ImagePicker().pickImage(
+          source: ImageSource.gallery,
+        );
+        pickedPath = picked?.path;
+      }
+      if (pickedPath == null || pickedPath.isEmpty) return null;
+
+      final docsDir = await getApplicationDocumentsDirectory();
+      final bgDir = io.Directory(p.join(docsDir.path, 'backgrounds'));
+      if (!bgDir.existsSync()) bgDir.createSync(recursive: true);
+      final ext = p.extension(pickedPath).isNotEmpty
+          ? p.extension(pickedPath)
+          : '.jpg';
+      final destFile = io.File(p.join(bgDir.path, 'focus_wallpaper$ext'));
+      await io.File(pickedPath).copy(destFile.path);
+      // Evict any stale decoded copy of a previous custom wallpaper at the
+      // same path so the new image shows immediately.
+      FileImage(destFile).evict();
+      return destFile.path;
+    } catch (e) {
+      debugPrint('[Settings] custom wallpaper pick failed: $e');
+      return null;
+    }
+  }
+
   void _pickStandbySound(BuildContext ctx, ThemeProvider tp) {
     _showPicker(ctx, _tr(ctx, 'Stand-by sound', 'Sonido de espera'), [
       ('Alone', () => tp.setStandbySound('Alone')),
       ('Lost', () => tp.setStandbySound('Lost')),
       ('Room', () => tp.setStandbySound('Room')),
       ('Stars', () => tp.setStandbySound('Stars')),
+      (
+        _tr(ctx, 'Custom track…', 'Pista personalizada…'),
+        () => _pickCustomStandbyTrack(tp),
+      ),
     ]);
+  }
+
+  /// Opens a file picker for an audio file, copies it into the app audio cache
+  /// and activates it as the custom stand-by track. No-op if the user cancels.
+  Future<void> _pickCustomStandbyTrack(ThemeProvider tp) async {
+    try {
+      const typeGroup = XTypeGroup(
+        label: 'audio',
+        extensions: ['mp3', 'm4a', 'aac', 'wav', 'ogg'],
+        mimeTypes: ['audio/*'],
+      );
+      final file = await openFile(acceptedTypeGroups: [typeGroup]);
+      if (file == null) return; // cancelled
+      final bytes = await file.readAsBytes();
+      final path = await UiSoundService.importStandbyTrack(bytes, file.name);
+      await tp.setStandbyCustomPath(path, file.name);
+    } catch (e) {
+      debugPrint('[Settings] custom standby track pick failed: $e');
+    }
   }
 
   void _pickResolution(

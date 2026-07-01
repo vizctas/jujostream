@@ -33,6 +33,10 @@ class NvApp {
   /// (/appasset AssetType=4&AssetIdx=i).
   final List<String> screenshotUrls;
 
+  /// RAWG landscape background (metadata plugin). Fallback hero when the host
+  /// doesn't advertise one.
+  final String? rawgBackgroundUrl;
+
   NvApp({
     required this.appId,
     required this.appName,
@@ -53,7 +57,27 @@ class NvApp {
     this.rawgClipUrl,
     this.heroImageUrl,
     this.screenshotUrls = const [],
+    this.rawgBackgroundUrl,
   });
+
+  /// Stable, server-independent disk-cache key for this app's art. Host
+  /// /appasset URLs embed address:port, so caching by URL duplicates the same
+  /// game's art per server; the normalized app name is the only cross-server
+  /// identity (same criterion as Playnite matching in AppListProvider).
+  String artCacheKey(String kind, [int idx = 0]) {
+    final norm = appName.trim().toLowerCase();
+    return 'nvart_${norm}_${kind}_$idx';
+  }
+
+  /// Best large background: host hero → RAWG background → poster.
+  String? get backgroundUrl => heroImageUrl ?? rawgBackgroundUrl ?? posterUrl;
+
+  /// Cache key matching whichever source [backgroundUrl] resolved to.
+  String get backgroundCacheKey => heroImageUrl != null
+      ? artCacheKey('hero')
+      : rawgBackgroundUrl != null
+      ? artCacheKey('rawgbg')
+      : artCacheKey('poster');
 
   NvApp copyWith({
     int? appId,
@@ -74,6 +98,7 @@ class NvApp {
     String? rawgClipUrl,
     String? heroImageUrl,
     List<String>? screenshotUrls,
+    String? rawgBackgroundUrl,
   }) {
     return NvApp(
       appId: appId ?? this.appId,
@@ -94,6 +119,7 @@ class NvApp {
       rawgClipUrl: rawgClipUrl ?? this.rawgClipUrl,
       heroImageUrl: heroImageUrl ?? this.heroImageUrl,
       screenshotUrls: screenshotUrls ?? this.screenshotUrls,
+      rawgBackgroundUrl: rawgBackgroundUrl ?? this.rawgBackgroundUrl,
     );
   }
 
@@ -137,6 +163,7 @@ class NvApp {
         if (rawgClipUrl != null) 'rawgClipUrl': rawgClipUrl,
         if (heroImageUrl != null) 'heroImageUrl': heroImageUrl,
         if (screenshotUrls.isNotEmpty) 'screenshotUrls': screenshotUrls,
+        if (rawgBackgroundUrl != null) 'rawgBackgroundUrl': rawgBackgroundUrl,
       };
 
   factory NvApp.fromJson(Map<String, dynamic> json) {
@@ -161,6 +188,7 @@ class NvApp {
       heroImageUrl: json['heroImageUrl'],
       screenshotUrls:
           (json['screenshotUrls'] as List?)?.cast<String>() ?? const [],
+      rawgBackgroundUrl: json['rawgBackgroundUrl'],
     );
   }
 
@@ -179,6 +207,7 @@ class NvApp {
     if (steamVideoUrl != other.steamVideoUrl) return false;
     if (steamVideoThumb != other.steamVideoThumb) return false;
     if (rawgClipUrl != other.rawgClipUrl) return false;
+    if (rawgBackgroundUrl != other.rawgBackgroundUrl) return false;
     if (tags.length != other.tags.length) return false;
     if (metadataGenres.length != other.metadataGenres.length) return false;
     for (var i = 0; i < tags.length; i++) {

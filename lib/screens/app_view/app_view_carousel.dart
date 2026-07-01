@@ -286,6 +286,7 @@ class _CarouselCardState extends State<_CarouselCard>
                       tag: widget.heroTag,
                       child: PosterImage(
                         url: widget.app.posterUrl!,
+                        cacheKey: widget.app.artCacheKey('poster'),
                         fit: BoxFit.cover,
                         memCacheWidth: 300,
                         errorWidget: (_, _, _) => _fallback(),

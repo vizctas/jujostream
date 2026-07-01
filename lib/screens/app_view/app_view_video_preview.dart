@@ -30,10 +30,21 @@ mixin _AppViewVideoPreviewMixin on _AppViewScreenBase {
     for (final offset in const [-1, 1]) {
       final neighbor = idx + offset;
       if (neighbor < 0 || neighbor >= visibleApps.length) continue;
-      final url = visibleApps[neighbor].posterUrl;
+      final nApp = visibleApps[neighbor];
+      final url = nApp.posterUrl;
       if (url == null || url.isEmpty) continue;
 
-      precacheImage(CachedNetworkImageProvider(url, maxWidth: 480), context);
+      // Same cache manager + stable key as PosterImage so the prefetch and
+      // the widgets share one disk entry.
+      precacheImage(
+        CachedNetworkImageProvider(
+          url,
+          maxWidth: 480,
+          cacheKey: nApp.artCacheKey('poster'),
+          cacheManager: PosterImage.artCacheManager,
+        ),
+        context,
+      );
     }
   }
 
@@ -307,99 +318,5 @@ mixin _AppViewVideoPreviewMixin on _AppViewScreenBase {
     } finally {
       stream.removeListener(listener);
     }
-  }
-}
-
-class _BeforeServerVideo extends StatefulWidget {
-  final String videoPath;
-  const _BeforeServerVideo({required this.videoPath});
-
-  @override
-  State<_BeforeServerVideo> createState() => _BeforeServerVideoState();
-}
-
-class _BeforeServerVideoState extends State<_BeforeServerVideo> {
-  VideoPlayerController? _controller;
-
-  @override
-  void initState() {
-    super.initState();
-    _start();
-  }
-
-  Future<void> _start() async {
-    final c = VideoPlayerController.file(io.File(widget.videoPath));
-    try {
-      await c.initialize();
-      if (!mounted) {
-        c.dispose();
-        return;
-      }
-      await c.setLooping(false);
-      await c.play();
-      c.addListener(() {
-        if (!mounted) return;
-        final v = c.value;
-        if (v.isInitialized &&
-            v.duration > Duration.zero &&
-            v.position >= v.duration) {
-          _dismiss();
-        }
-      });
-      setState(() => _controller = c);
-    } catch (_) {
-      c.dispose();
-      _dismiss();
-    }
-  }
-
-  void _dismiss() {
-    if (!mounted) return;
-    Navigator.pop(context);
-  }
-
-  @override
-  void dispose() {
-    _controller?.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final c = _controller;
-    return Scaffold(
-      backgroundColor: Colors.black,
-      body: GestureDetector(
-        onTap: _dismiss,
-        child: c != null && c.value.isInitialized
-            ? Stack(
-                fit: StackFit.expand,
-                children: [
-                  FittedBox(
-                    fit: BoxFit.cover,
-                    child: SizedBox(
-                      width: c.value.size.width,
-                      height: c.value.size.height,
-                      child: VideoPlayer(c),
-                    ),
-                  ),
-                  Positioned(
-                    right: 14,
-                    bottom: 14,
-                    child: TextButton.icon(
-                      style: TextButton.styleFrom(
-                        backgroundColor: Colors.black54,
-                        foregroundColor: Colors.white,
-                      ),
-                      onPressed: _dismiss,
-                      icon: const Icon(Icons.skip_next),
-                      label: Text(AppLocalizations.of(context).skip),
-                    ),
-                  ),
-                ],
-              )
-            : const Center(child: CircularProgressIndicator()),
-      ),
-    );
   }
 }

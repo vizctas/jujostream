@@ -492,8 +492,17 @@ class AppListProvider extends ChangeNotifier {
   static const int _kMaxConcurrent = 2;
 
   Future<void> _enrichWithRawg(String apiKey) async {
+    // Also target apps that have a description (from a previous enrich) but no
+    // landscape background yet — the background is the hero fallback when the
+    // host doesn't serve one.
     final targets = _apps
-        .where((a) => a.description == null || a.description!.isEmpty)
+        .where(
+          (a) =>
+              a.description == null ||
+              a.description!.isEmpty ||
+              a.rawgBackgroundUrl == null ||
+              a.rawgBackgroundUrl!.isEmpty,
+        )
         .toList();
     if (targets.isEmpty) return;
 
@@ -512,6 +521,7 @@ class AppListProvider extends ChangeNotifier {
             description: rawg.description.isNotEmpty ? rawg.description : null,
             metadataGenres: rawg.genres,
             rawgClipUrl: rawg.clipUrl,
+            rawgBackgroundUrl: rawg.backgroundUrl,
           );
         })
         .toList(growable: false);
@@ -526,6 +536,7 @@ class AppListProvider extends ChangeNotifier {
       description: detail.descriptionRaw ?? '',
       genres: detail.genres,
       clipUrl: detail.clipUrl,
+      backgroundUrl: detail.backgroundImage,
     );
   }
 
@@ -816,6 +827,7 @@ class _RawgResult {
   final String description;
   final List<String> genres;
   final String? clipUrl;
+  final String? backgroundUrl;
 
   const _RawgResult({
     required this.appId,
@@ -823,5 +835,6 @@ class _RawgResult {
     required this.description,
     required this.genres,
     this.clipUrl,
+    this.backgroundUrl,
   });
 }

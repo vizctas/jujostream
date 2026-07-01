@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../providers/theme_provider.dart';
 import '../../services/tv/tv_focus_helpers.dart';
+import '../../widgets/wallpaper_picker_dialog.dart';
 
 import '../auth/cloud_auth_screen.dart';
 
@@ -42,7 +43,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   final _scrollOffset = ValueNotifier<double>(0.0);
   int _currentPage = 0;
 
-  static const int _chapterCount = 4;
+  static const int _chapterCount = 5;
 
   @override
   void initState() {
@@ -175,9 +176,17 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     ),
                     FocusScope(
                       canRequestFocus: _currentPage == 3,
-                      child: _CloudChapter(
+                      child: _BackgroundChapter(
                         scrollOffset: _scrollOffset,
                         chapterIndex: 3,
+                        tp: tp,
+                      ),
+                    ),
+                    FocusScope(
+                      canRequestFocus: _currentPage == 4,
+                      child: _CloudChapter(
+                        scrollOffset: _scrollOffset,
+                        chapterIndex: 4,
                         tp: tp,
                         onGetStarted: _finish,
                       ),
@@ -1043,7 +1052,70 @@ class _MappingRow extends StatelessWidget {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// Chapter 4 — Cloud Sync
+// Chapter 4 — Choose your background
+// ═════════════════════════════════════════════════════════════════════════════
+
+class _BackgroundChapter extends _ChapterBase {
+  const _BackgroundChapter({
+    required super.scrollOffset,
+    required super.chapterIndex,
+    required super.tp,
+  });
+
+  @override
+  Widget buildChapter(BuildContext context, double progress, double vis) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: _S.xl),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 680),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              _PillLabel(text: 'MAKE IT YOURS', color: Colors.amberAccent.shade100),
+              const SizedBox(height: _S.md),
+              const Text(
+                'Choose your background',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 26,
+                  fontWeight: FontWeight.w800,
+                  height: 1.2,
+                ),
+              ),
+              const SizedBox(height: _S.sm),
+              Text(
+                'Pick the wallpaper for your home screen. You can change it later in Settings.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.6),
+                  fontSize: 13,
+                  height: 1.5,
+                ),
+              ),
+              const SizedBox(height: _S.md),
+              Flexible(
+                child: SingleChildScrollView(
+                  child: WallpaperGrid(
+                    current: tp.focusWallpaper,
+                    accent: tp.accent,
+                    crossAxisCount: 4,
+                    showCustom: false,
+                    onSelect: (value) => tp.setFocusWallpaper(value),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Chapter 5 — Cloud Sync
 // ═════════════════════════════════════════════════════════════════════════════
 
 class _CloudChapter extends _ChapterBase {

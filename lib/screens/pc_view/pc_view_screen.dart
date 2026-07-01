@@ -7,12 +7,10 @@ import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:video_player/video_player.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../l10n/app_localizations.dart';
 import '../../models/computer_details.dart';
 import '../../providers/computer_provider.dart';
-import '../../providers/plugins_provider.dart';
 import '../../providers/theme_provider.dart';
 import '../../services/tv/tv_detector.dart';
 import '../../services/input/gamepad_button_helper.dart';
@@ -1054,35 +1052,6 @@ class _PcViewScreenState extends State<PcViewScreen>
       }
     }
 
-    final prefs = await SharedPreferences.getInstance();
-    final introEnabled =
-        prefs.getBool('plugin_enabled_startup_intro_video') ?? false;
-    final videoTrigger =
-        prefs.getString(
-          PluginsProvider.settingPref('startup_intro_video', 'video_trigger'),
-        ) ??
-        'before_app';
-    if (introEnabled && videoTrigger == 'before_server') {
-      final videoPath = prefs.getString(
-        PluginsProvider.settingPref('startup_intro_video', 'video_path'),
-      );
-      if (videoPath != null &&
-          videoPath.isNotEmpty &&
-          await io.File(videoPath).exists()) {
-        if (!mounted) return;
-        await Navigator.push<void>(
-          context,
-          PageRouteBuilder(
-            opaque: true,
-            pageBuilder: (ctx, _, _) =>
-                _BeforeServerVideo(videoPath: videoPath),
-            transitionDuration: Duration.zero,
-          ),
-        );
-        if (!mounted) return;
-      }
-    }
-
     if (!mounted) return;
 
     // Play server enter sound + strong haptic feedback
@@ -1538,100 +1507,6 @@ class _ComputerCardState extends State<_ComputerCard> {
             ),
           ),
         ),
-      ),
-    );
-  }
-}
-
-class _BeforeServerVideo extends StatefulWidget {
-  final String videoPath;
-  const _BeforeServerVideo({required this.videoPath});
-
-  @override
-  State<_BeforeServerVideo> createState() => _BeforeServerVideoState();
-}
-
-class _BeforeServerVideoState extends State<_BeforeServerVideo> {
-  VideoPlayerController? _controller;
-
-  @override
-  void initState() {
-    super.initState();
-    _start();
-  }
-
-  Future<void> _start() async {
-    final c = VideoPlayerController.file(io.File(widget.videoPath));
-    try {
-      await c.initialize();
-      if (!mounted) {
-        c.dispose();
-        return;
-      }
-      await c.setLooping(false);
-      await c.play();
-      c.addListener(() {
-        if (!mounted) return;
-        final v = c.value;
-        if (v.isInitialized &&
-            v.duration > Duration.zero &&
-            v.position >= v.duration) {
-          _dismiss();
-        }
-      });
-      setState(() => _controller = c);
-    } catch (_) {
-      c.dispose();
-      _dismiss();
-    }
-  }
-
-  void _dismiss() {
-    if (!mounted) return;
-    Navigator.pop(context);
-  }
-
-  @override
-  void dispose() {
-    _controller?.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final c = _controller;
-    return Scaffold(
-      backgroundColor: Colors.black,
-      body: GestureDetector(
-        onTap: _dismiss,
-        child: c != null && c.value.isInitialized
-            ? Stack(
-                fit: StackFit.expand,
-                children: [
-                  FittedBox(
-                    fit: BoxFit.cover,
-                    child: SizedBox(
-                      width: c.value.size.width,
-                      height: c.value.size.height,
-                      child: VideoPlayer(c),
-                    ),
-                  ),
-                  Positioned(
-                    right: 14,
-                    bottom: 14,
-                    child: TextButton.icon(
-                      style: TextButton.styleFrom(
-                        backgroundColor: Colors.black54,
-                        foregroundColor: Colors.white,
-                      ),
-                      onPressed: _dismiss,
-                      icon: const Icon(Icons.skip_next),
-                      label: const Text('Skip'),
-                    ),
-                  ),
-                ],
-              )
-            : const Center(child: CircularProgressIndicator()),
       ),
     );
   }

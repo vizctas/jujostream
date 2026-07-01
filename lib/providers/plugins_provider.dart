@@ -91,25 +91,6 @@ class PluginsProvider extends ChangeNotifier {
       category: PluginCategory.metadata,
       enabled: false,
     ),
-    PluginConfig(
-      id: 'screensaver',
-      name: 'Screensaver',
-      description:
-          'Shows a game-art slideshow with Ken Burns effect after a period '
-          'of inactivity in the game library. Configurable idle timeout. '
-          'Disclaimer: feature may have bugs.',
-      category: PluginCategory.extraMetadata,
-      enabled: false,
-    ),
-    PluginConfig(
-      id: 'startup_intro_video',
-      name: 'Startup Intro Video',
-      description:
-          'Plays a short intro video when opening the app. Recommended '
-          'length: 2-4 seconds. Playback can be interrupted.',
-      category: PluginCategory.extraMetadata,
-      enabled: false,
-    ),
   ];
 
   static Future<PluginsProvider> load() async {

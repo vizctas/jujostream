@@ -122,6 +122,7 @@ class NewsCarouselCard extends StatelessWidget {
         if (posterUrl != null && posterUrl.isNotEmpty) {
           return PosterImage(
             url: posterUrl,
+            cacheKey: linkedApp.artCacheKey('poster'),
             fit: BoxFit.cover,
             width: double.infinity,
             memCacheWidth: 720,

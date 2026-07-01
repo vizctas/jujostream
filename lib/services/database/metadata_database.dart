@@ -7,7 +7,7 @@ class MetadataDatabase {
   MetadataDatabase._();
 
   static const _kDbName = 'jujo_metadata.db';
-  static const _kVersion = 2;
+  static const _kVersion = 3;
   static const _kTable = 'game_metadata';
 
   static Database? _db;
@@ -26,6 +26,7 @@ class MetadataDatabase {
           steam_video_url  TEXT,
           steam_video_thumb TEXT,
           rawg_clip_url TEXT,
+          rawg_background_url TEXT,
           updated_at    INTEGER NOT NULL
         )
       '''),
@@ -40,6 +41,13 @@ class MetadataDatabase {
             'ALTER TABLE $_kTable ADD COLUMN rawg_clip_url TEXT',
           );
         } catch (_) {}
+        if (oldVersion < 3) {
+          try {
+            await db.execute(
+              'ALTER TABLE $_kTable ADD COLUMN rawg_background_url TEXT',
+            );
+          } catch (_) {}
+        }
       },
     );
     return _db!;
@@ -81,6 +89,7 @@ class MetadataDatabase {
         steamVideoUrl: row['steam_video_url'] as String?,
         steamVideoThumb: row['steam_video_thumb'] as String?,
         rawgClipUrl: row['rawg_clip_url'] as String?,
+        rawgBackgroundUrl: row['rawg_background_url'] as String?,
       );
     }).toList(growable: false);
   }
@@ -89,7 +98,8 @@ class MetadataDatabase {
     final enriched = apps.where((a) =>
         (a.description?.isNotEmpty ?? false) ||
         a.metadataGenres.isNotEmpty ||
-        (a.steamVideoUrl?.isNotEmpty ?? false)).toList();
+        (a.steamVideoUrl?.isNotEmpty ?? false) ||
+        (a.rawgBackgroundUrl?.isNotEmpty ?? false)).toList();
     if (enriched.isEmpty) return;
     try {
       final db = await _open();
@@ -107,6 +117,7 @@ class MetadataDatabase {
             'steam_video_url': app.steamVideoUrl,
             'steam_video_thumb': app.steamVideoThumb,
             'rawg_clip_url': app.rawgClipUrl,
+            'rawg_background_url': app.rawgBackgroundUrl,
             'updated_at': now,
           },
           conflictAlgorithm: ConflictAlgorithm.replace,

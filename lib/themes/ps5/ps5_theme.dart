@@ -509,6 +509,7 @@ class _Ps5BodyState extends State<_Ps5Body> {
                   child: PosterImage(
                     key: ValueKey(bgApp.appId),
                     url: bgApp.posterUrl!,
+                    cacheKey: bgApp.artCacheKey('poster'),
                     fit: BoxFit.cover,
                     width: double.infinity,
                     height: double.infinity,
@@ -809,6 +810,7 @@ class _Ps5BodyState extends State<_Ps5Body> {
                         if (a.posterUrl != null && a.posterUrl!.isNotEmpty)
                           PosterImage(
                             url: a.posterUrl!,
+                            cacheKey: a.artCacheKey('poster'),
                             fit: BoxFit.cover,
                             memCacheWidth: 240,
                             fadeInDuration: const Duration(milliseconds: 100),

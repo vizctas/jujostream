@@ -436,7 +436,8 @@ class _AppDetailsScreenState extends State<AppDetailsScreen> {
       fit: StackFit.expand,
       children: [
         PosterImage(
-          url: widget.app.heroImageUrl ?? widget.app.posterUrl!,
+          url: widget.app.backgroundUrl!,
+          cacheKey: widget.app.backgroundCacheKey,
           fit: BoxFit.cover,
           memCacheWidth: perfMode ? 720 : 1920,
         ),
@@ -504,6 +505,7 @@ class _AppDetailsScreenState extends State<AppDetailsScreen> {
               borderRadius: BorderRadius.circular(10),
               child: PosterImage(
                 url: shots[i],
+                cacheKey: widget.app.artCacheKey('shot', i),
                 width: 220,
                 height: 130,
                 fit: BoxFit.cover,
@@ -541,6 +543,9 @@ class _AppDetailsScreenState extends State<AppDetailsScreen> {
                     )
                   : PosterImage(
                       url: _displayPoster ?? widget.app.posterUrl!,
+                      cacheKey: _displayPoster == null
+                          ? widget.app.artCacheKey('poster')
+                          : null,
                       fit: BoxFit.cover,
                     ),
             ),

@@ -6,6 +6,23 @@ import '../services/database/achievement_service.dart';
 import '../themes/launcher_theme.dart';
 import '../themes/launcher_theme_registry.dart';
 
+/// Bundled Focus Mode wallpapers, selectable in Settings → Personalization and
+/// during onboarding. Stored in the focus_wallpaper pref as `asset:path`.
+const kFocusWallpaperAssets = <String>[
+  'assets/images/focus/wallpaper_00.jpg',
+  'assets/images/focus/wallpaper_01.jpg',
+  'assets/images/focus/wallpaper_02.jpg',
+  'assets/images/focus/wallpaper_03.jpg',
+  'assets/images/focus/wallpaper_04.jpg',
+  'assets/images/focus/wallpaper_05.jpg',
+  'assets/images/focus/wallpaper_06.jpg',
+  'assets/images/focus/wallpaper_07.jpg',
+  'assets/images/focus/wallpaper_08.jpg',
+  'assets/images/focus/wallpaper_09.jpg',
+  'assets/images/focus/wallpaper_10.jpg',
+  'assets/images/focus/wallpaper_11.jpg',
+];
+
 class ThemeProvider extends ChangeNotifier {
   static const _keyTheme = 'app_theme';
   static const _keyReduceEffects = 'reduce_effects';
@@ -15,6 +32,10 @@ class ThemeProvider extends ChangeNotifier {
   static const _keyAmbienceLayout = 'ambience_layout';
   static const _keyStandbySound = 'standby_sound';
   static const _keyAmbienceEffect = 'ambience_effect';
+  static const _keyStandbyCustomPath = 'standby_custom_path';
+  static const _keyStandbyCustomName = 'standby_custom_name';
+  static const _keyStandbyVolume = 'standby_volume';
+  static const _keyFocusWallpaper = 'focus_wallpaper';
 
   AppThemeId _themeId;
   bool _reduceEffects;
@@ -24,6 +45,10 @@ class ThemeProvider extends ChangeNotifier {
   String _ambienceLayout;
   String _standbySound;
   String _ambienceEffect;
+  String _standbyCustomPath;
+  String _standbyCustomName;
+  double _standbyVolume;
+  String _focusWallpaper;
 
   ThemeProvider._({
     required AppThemeId themeId,
@@ -34,6 +59,10 @@ class ThemeProvider extends ChangeNotifier {
     required String ambienceLayout,
     required String standbySound,
     required String ambienceEffect,
+    required String standbyCustomPath,
+    required String standbyCustomName,
+    required double standbyVolume,
+    required String focusWallpaper,
   }) : _themeId = themeId,
        _reduceEffects = reduceEffects,
        _performanceMode = performanceMode,
@@ -41,7 +70,11 @@ class ThemeProvider extends ChangeNotifier {
        _launcherThemeId = launcherThemeId,
        _ambienceLayout = ambienceLayout,
        _standbySound = standbySound,
-       _ambienceEffect = ambienceEffect;
+       _ambienceEffect = ambienceEffect,
+       _standbyCustomPath = standbyCustomPath,
+       _standbyCustomName = standbyCustomName,
+       _standbyVolume = standbyVolume,
+       _focusWallpaper = focusWallpaper;
 
   static Future<ThemeProvider> load() async {
     final prefs = await SharedPreferences.getInstance();
@@ -61,6 +94,10 @@ class ThemeProvider extends ChangeNotifier {
       ambienceEffect:
           prefs.getString(_keyAmbienceEffect) ??
           'waves', // Default to waves for better performance on Android TV
+      standbyCustomPath: prefs.getString(_keyStandbyCustomPath) ?? '',
+      standbyCustomName: prefs.getString(_keyStandbyCustomName) ?? '',
+      standbyVolume: prefs.getDouble(_keyStandbyVolume) ?? 0.25,
+      focusWallpaper: prefs.getString(_keyFocusWallpaper) ?? '',
     );
   }
 
@@ -96,6 +133,17 @@ class ThemeProvider extends ChangeNotifier {
   String get standbySound => _standbySound;
 
   String get ambienceEffect => _ambienceEffect;
+
+  String get standbyCustomPath => _standbyCustomPath;
+
+  String get standbyCustomName => _standbyCustomName;
+
+  double get standbyVolume => _standbyVolume;
+
+  /// Global Focus Mode wallpaper. '' = built-in default; `asset:path` = one of
+  /// the bundled wallpapers; `file:path` = user-imported image. A per-server
+  /// custom background (`computer_bg_(uuid)`) still takes priority over this.
+  String get focusWallpaper => _focusWallpaper;
 
   Color get background => colors.background;
   Color get surface => colors.surface;
@@ -166,6 +214,36 @@ class ThemeProvider extends ChangeNotifier {
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_keyStandbySound, sound);
+  }
+
+  /// Persists the imported custom stand-by track path + display name and
+  /// switches the active stand-by selection to 'custom'.
+  Future<void> setStandbyCustomPath(String path, String name) async {
+    _standbyCustomPath = path;
+    _standbyCustomName = name;
+    _standbySound = 'custom';
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_keyStandbyCustomPath, path);
+    await prefs.setString(_keyStandbyCustomName, name);
+    await prefs.setString(_keyStandbySound, 'custom');
+  }
+
+  Future<void> setFocusWallpaper(String value) async {
+    if (value == _focusWallpaper) return;
+    _focusWallpaper = value;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_keyFocusWallpaper, value);
+  }
+
+  Future<void> setStandbyVolume(double value) async {
+    final clamped = value.clamp(0.0, 1.0);
+    if (clamped == _standbyVolume) return;
+    _standbyVolume = clamped;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble(_keyStandbyVolume, clamped);
   }
 
   Future<void> setPerformanceMode(bool value) async {

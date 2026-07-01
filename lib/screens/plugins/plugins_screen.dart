@@ -1,11 +1,8 @@
-import 'dart:io' as io;
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
-import 'package:file_selector/file_selector.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../l10n/app_localizations.dart';
@@ -466,8 +463,6 @@ class _PluginGridCardState extends State<_PluginGridCard> {
     'smart_genre_filters' => 'assets/icons/plugins/filter.svg',
     'steam_connect' => 'assets/icons/plugins/brand-steam.svg',
     'steam_library_info' => 'assets/icons/plugins/chart-dots.svg',
-    'startup_intro_video' => 'assets/icons/plugins/movie.svg',
-    'screensaver' => 'assets/icons/plugins/photo.svg',
     _ => 'assets/icons/plugins/puzzle.svg',
   };
 
@@ -948,17 +943,14 @@ class _PluginCard extends StatefulWidget {
 class _PluginCardState extends State<_PluginCard> {
   final _keyController = TextEditingController();
   final _steamIdController = TextEditingController();
-  final _startupVideoController = TextEditingController();
 
   late final FocusNode _keyFocusNode;
   late final FocusNode _steamIdFocusNode;
-  late final FocusNode _videPathFocusNode;
   bool _keyLoaded = false;
   bool _obscure = true;
   bool _isConnectingSteam = false;
   bool _showSteamAdvanced = false;
   String? _steamPersona;
-  String _videoTrigger = 'before_app';
   bool _cardFocused = false;
   bool _expanded = false;
 
@@ -968,7 +960,6 @@ class _PluginCardState extends State<_PluginCard> {
 
     _keyFocusNode = FocusNode(skipTraversal: true);
     _steamIdFocusNode = FocusNode(skipTraversal: true);
-    _videPathFocusNode = FocusNode(skipTraversal: true);
     if (widget.detailMode) _expanded = true;
     _loadApiKey();
   }
@@ -977,10 +968,8 @@ class _PluginCardState extends State<_PluginCard> {
   void dispose() {
     _keyController.dispose();
     _steamIdController.dispose();
-    _startupVideoController.dispose();
     _keyFocusNode.dispose();
     _steamIdFocusNode.dispose();
-    _videPathFocusNode.dispose();
     super.dispose();
   }
 
@@ -992,21 +981,11 @@ class _PluginCardState extends State<_PluginCard> {
       widget.plugin.id,
       'steam_persona',
     );
-    final introVideoPath = await provider.getSetting(
-      widget.plugin.id,
-      'video_path',
-    );
-    final videoTrigger = await provider.getSetting(
-      widget.plugin.id,
-      'video_trigger',
-    );
     if (!mounted) return;
     setState(() {
       _keyController.text = key ?? '';
       _steamIdController.text = steamId ?? '';
-      _startupVideoController.text = introVideoPath ?? '';
       _steamPersona = steamPersona;
-      _videoTrigger = videoTrigger ?? 'before_app';
       _keyLoaded = true;
     });
   }
@@ -1022,37 +1001,6 @@ class _PluginCardState extends State<_PluginCard> {
   Future<void> _saveSteamId(String value) async {
     final provider = context.read<PluginsProvider>();
     await provider.setSetting(widget.plugin.id, 'steam_id', value.trim());
-  }
-
-  Future<void> _saveVideoTrigger(String value) async {
-    setState(() => _videoTrigger = value);
-    final provider = context.read<PluginsProvider>();
-    await provider.setSetting(widget.plugin.id, 'video_trigger', value);
-  }
-
-  Future<void> _pickStartupVideo() async {
-    String? path;
-    if (io.Platform.isAndroid || io.Platform.isIOS) {
-      final file = await ImagePicker().pickVideo(source: ImageSource.gallery);
-      path = file?.path;
-    } else {
-      const videoGroup = XTypeGroup(
-        label: 'Videos',
-        extensions: ['mp4', 'mov', 'm4v', 'webm', 'mkv'],
-      );
-      final file = await openFile(acceptedTypeGroups: [videoGroup]);
-      path = file?.path;
-    }
-    if (path == null || path.isEmpty) return;
-    if (!mounted) return;
-
-    _startupVideoController.text = path;
-    final provider = context.read<PluginsProvider>();
-    await provider.setSetting(widget.plugin.id, 'video_path', path);
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(AppLocalizations.of(context).pluginVideoSaved)),
-    );
   }
 
   Future<void> _connectSteam() async {
@@ -1444,9 +1392,126 @@ class _PluginCardState extends State<_PluginCard> {
                       const SizedBox(height: 12),
 
                       if (apiKeyInfo != null && _keyLoaded) ...[
-                        // For steam_connect: hide the key field behind an
-                        // "Advanced" toggle — auto-connect fills it silently.
+                        // For steam_connect the sign-in flow is the primary
+                        // path: the webview login auto-extracts SteamID64 and
+                        // the web API key. Manual entry lives under Advanced.
                         if (widget.plugin.id == 'steam_connect') ...[
+                          ElevatedButton.icon(
+                            style:
+                                ElevatedButton.styleFrom(
+                                  backgroundColor: tc.accent,
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 18,
+                                    vertical: 14,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                  elevation: 2,
+                                  shadowColor: Colors.black26,
+                                ).copyWith(
+                                  side: WidgetStateProperty.all(
+                                    BorderSide.none,
+                                  ),
+                                  backgroundColor:
+                                      WidgetStateProperty.resolveWith((
+                                        states,
+                                      ) {
+                                        if (states.contains(
+                                          WidgetState.focused,
+                                        )) {
+                                          return Color.lerp(
+                                            tc.accent,
+                                            Colors.white,
+                                            0.15,
+                                          );
+                                        }
+                                        return tc.accent;
+                                      }),
+                                ),
+                            icon: _isConnectingSteam
+                                ? const SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.white,
+                                    ),
+                                  )
+                                : const Icon(Icons.login, size: 18),
+                            label: Text(
+                              _isConnectingSteam
+                                  ? AppLocalizations.of(
+                                      context,
+                                    ).pluginSteamConnecting
+                                  : AppLocalizations.of(
+                                      context,
+                                    ).pluginSteamLogin,
+                            ),
+                            onPressed: _isConnectingSteam
+                                ? null
+                                : () async {
+                                    // Capture provider before any async gap
+                                    final provider = context
+                                        .read<PluginsProvider>();
+                                    final result =
+                                        await SteamLoginScreen.show(context);
+                                    if (result == null || !mounted) return;
+                                    _steamIdController.text = result.steamId;
+                                    await _saveSteamId(result.steamId);
+                                    if (result.hasApiKey) {
+                                      _keyController.text = result.apiKey!;
+                                      await _saveApiKey(result.apiKey!);
+                                      await _connectSteam();
+                                    } else {
+                                      if (result.hasFallbackAppIds) {
+                                        await provider.setSetting(
+                                          widget.plugin.id,
+                                          'steam_owned_appids',
+                                          result.ownedAppIds.join(','),
+                                        );
+                                      }
+                                      await _connectSteamBasic(result.steamId);
+                                    }
+                                  },
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            Localizations.localeOf(context).languageCode == 'es'
+                                ? 'Inicia sesión y obtenemos tu SteamID y API key automáticamente.'
+                                : 'Sign in and we grab your SteamID and API key automatically.',
+                            style: const TextStyle(
+                              color: Colors.white54,
+                              fontSize: 12,
+                              height: 1.35,
+                            ),
+                          ),
+                          if (_steamPersona != null &&
+                              _steamPersona!.isNotEmpty) ...[
+                            const SizedBox(height: 8),
+                            Row(
+                              children: [
+                                const Icon(
+                                  Icons.check_circle,
+                                  color: Colors.greenAccent,
+                                  size: 14,
+                                ),
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: Text(
+                                    '${AppLocalizations.of(context).pluginSteamAccount}: $_steamPersona',
+                                    style: const TextStyle(
+                                      color: Colors.white70,
+                                      fontSize: 12,
+                                    ),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                          const SizedBox(height: 12),
                           GestureDetector(
                             onTap: () => setState(
                               () => _showSteamAdvanced = !_showSteamAdvanced,
@@ -1463,7 +1528,7 @@ class _PluginCardState extends State<_PluginCard> {
                                 ),
                                 const SizedBox(width: 4),
                                 const Text(
-                                  'Advanced (manual API key)',
+                                  'Advanced (manual SteamID / API key)',
                                   style: TextStyle(
                                     color: Colors.white38,
                                     fontSize: 12,
@@ -1473,6 +1538,17 @@ class _PluginCardState extends State<_PluginCard> {
                             ),
                           ),
                           if (_showSteamAdvanced) ...[
+                            const SizedBox(height: 8),
+                            _ApiKeyField(
+                              label: 'SteamID64',
+                              hint: 'SteamID64 (17 digits)',
+                              helpText: '',
+                              controller: _steamIdController,
+                              focusNode: _steamIdFocusNode,
+                              obscure: false,
+                              onToggleObscure: () {},
+                              onChanged: _saveSteamId,
+                            ),
                             const SizedBox(height: 8),
                             _ApiKeyField(
                               label: apiKeyInfo.label,
@@ -1612,230 +1688,6 @@ class _PluginCardState extends State<_PluginCard> {
                             ),
                           ),
                         ),
-                      if (widget.plugin.id == 'steam_connect' &&
-                          _keyLoaded) ...[
-                        const SizedBox(height: 12),
-
-                        _ApiKeyField(
-                          label: 'SteamID64',
-                          hint: 'SteamID64 (17 digits)',
-                          helpText: '',
-                          controller: _steamIdController,
-                          focusNode: _steamIdFocusNode,
-                          obscure: false,
-                          onToggleObscure: () {},
-                          onChanged: _saveSteamId,
-                        ),
-                        const SizedBox(height: 12),
-
-                        ElevatedButton.icon(
-                          style:
-                              ElevatedButton.styleFrom(
-                                backgroundColor: tc.surfaceVariant,
-                                foregroundColor: Colors.white,
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 16,
-                                  vertical: 12,
-                                ),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                                elevation: 2,
-                                shadowColor: Colors.black26,
-                              ).copyWith(
-                                side: WidgetStateProperty.all(BorderSide.none),
-                                backgroundColor:
-                                    WidgetStateProperty.resolveWith((states) {
-                                      if (states.contains(
-                                        WidgetState.focused,
-                                      )) {
-                                        return Color.lerp(
-                                          tc.surfaceVariant,
-                                          Colors.white,
-                                          0.10,
-                                        );
-                                      }
-                                      return tc.surfaceVariant;
-                                    }),
-                              ),
-                          icon: _isConnectingSteam
-                              ? const SizedBox(
-                                  width: 16,
-                                  height: 16,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: Colors.white,
-                                  ),
-                                )
-                              : const Icon(Icons.open_in_browser, size: 18),
-                          label: Text(
-                            _isConnectingSteam
-                                ? AppLocalizations.of(
-                                    context,
-                                  ).pluginSteamConnecting
-                                : AppLocalizations.of(context).pluginSteamLogin,
-                          ),
-                          onPressed: _isConnectingSteam
-                              ? null
-                              : () async {
-                                  // Capture provider before any async gap
-                                  final provider = context
-                                      .read<PluginsProvider>();
-                                  final result = await SteamLoginScreen.show(
-                                    context,
-                                  );
-                                  if (result == null || !mounted) return;
-                                  _steamIdController.text = result.steamId;
-                                  await _saveSteamId(result.steamId);
-                                  if (result.hasApiKey) {
-                                    _keyController.text = result.apiKey!;
-                                    await _saveApiKey(result.apiKey!);
-                                    await _connectSteam();
-                                  } else {
-                                    if (result.hasFallbackAppIds) {
-                                      await provider.setSetting(
-                                        widget.plugin.id,
-                                        'steam_owned_appids',
-                                        result.ownedAppIds.join(','),
-                                      );
-                                    }
-                                    await _connectSteamBasic(result.steamId);
-                                  }
-                                },
-                        ),
-                        if (_steamPersona != null &&
-                            _steamPersona!.isNotEmpty) ...[
-                          const SizedBox(height: 8),
-                          Row(
-                            children: [
-                              const Icon(
-                                Icons.check_circle,
-                                color: Colors.greenAccent,
-                                size: 14,
-                              ),
-                              const SizedBox(width: 6),
-                              Expanded(
-                                child: Text(
-                                  '${AppLocalizations.of(context).pluginSteamAccount}: $_steamPersona',
-                                  style: const TextStyle(
-                                    color: Colors.white70,
-                                    fontSize: 12,
-                                  ),
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ],
-                      if (widget.plugin.id == 'startup_intro_video' &&
-                          _keyLoaded) ...[
-                        const SizedBox(height: 12),
-                        Text(
-                          AppLocalizations.of(context).pluginVideoHint,
-                          style: const TextStyle(
-                            color: Colors.white70,
-                            fontSize: 12,
-                            height: 1.35,
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                        TextField(
-                          controller: _startupVideoController,
-                          readOnly: true,
-                          focusNode: FocusNode(skipTraversal: true),
-                          style: const TextStyle(
-                            color: Colors.white70,
-                            fontSize: 12,
-                          ),
-                          decoration: InputDecoration(
-                            hintText: 'No video selected',
-                            hintStyle: const TextStyle(color: Colors.white30),
-                            filled: true,
-                            fillColor: Colors.white.withValues(alpha: 0.04),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(10),
-                              borderSide: const BorderSide(
-                                color: Colors.white12,
-                              ),
-                            ),
-                            enabledBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(10),
-                              borderSide: const BorderSide(
-                                color: Colors.white12,
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: _PluginActionButton(
-                                icon: Icons.video_file_outlined,
-                                label: AppLocalizations.of(
-                                  context,
-                                ).pluginSelectVideo,
-                                onTap: _pickStartupVideo,
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            if (_startupVideoController.text.isNotEmpty)
-                              Expanded(
-                                child: _PluginActionButton(
-                                  icon: Icons.delete_outline,
-                                  label: AppLocalizations.of(
-                                    context,
-                                  ).pluginRemove,
-                                  accentColor: Colors.redAccent,
-                                  onTap: () async {
-                                    _startupVideoController.clear();
-                                    final provider = context
-                                        .read<PluginsProvider>();
-                                    await provider.setSetting(
-                                      widget.plugin.id,
-                                      'video_path',
-                                      '',
-                                    );
-                                    if (!mounted) return;
-                                    setState(() {});
-                                  },
-                                ),
-                              ),
-                          ],
-                        ),
-                        const SizedBox(height: 14),
-                        Text(
-                          AppLocalizations.of(context).pluginVideoWhen,
-                          style: const TextStyle(
-                            color: Colors.white70,
-                            fontSize: 12,
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        _FocusableVideoTriggerOption(
-                          label: AppLocalizations.of(
-                            context,
-                          ).pluginVideoTriggerApp,
-                          selected: _videoTrigger == 'before_app',
-                          onTap: () => _saveVideoTrigger('before_app'),
-                        ),
-                        const SizedBox(height: 8),
-                        _FocusableVideoTriggerOption(
-                          label: AppLocalizations.of(
-                            context,
-                          ).pluginVideoTriggerServer,
-                          selected: _videoTrigger == 'before_server',
-                          onTap: () => _saveVideoTrigger('before_server'),
-                        ),
-                        const SizedBox(height: 18),
-                      ],
-
-                      if (widget.plugin.id == 'screensaver') ...[
-                        const SizedBox(height: 12),
-                        _ScreensaverTimeoutSlider(pluginId: widget.plugin.id),
-                      ],
-
                       if (widget.plugin.id == 'game_video') ...[
                         const SizedBox(height: 12),
                         _FocusableToggle(
@@ -1926,13 +1778,11 @@ class _PluginActionButton extends StatefulWidget {
   final IconData icon;
   final String label;
   final VoidCallback onTap;
-  final Color? accentColor;
 
   const _PluginActionButton({
     required this.icon,
     required this.label,
     required this.onTap,
-    this.accentColor,
   });
 
   @override
@@ -1945,7 +1795,7 @@ class _PluginActionButtonState extends State<_PluginActionButton> {
   @override
   Widget build(BuildContext context) {
     final accent =
-        widget.accentColor ?? context.read<ThemeProvider>().accentLight;
+        context.read<ThemeProvider>().accentLight;
     return Focus(
       onFocusChange: (focused) {
         setState(() => _focused = focused);
@@ -2006,93 +1856,6 @@ class _PluginActionButtonState extends State<_PluginActionButton> {
                     color: _focused ? Colors.white : accent,
                     fontSize: 12,
                     fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _FocusableVideoTriggerOption extends StatefulWidget {
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-
-  const _FocusableVideoTriggerOption({
-    required this.label,
-    required this.selected,
-    required this.onTap,
-  });
-
-  @override
-  State<_FocusableVideoTriggerOption> createState() =>
-      _FocusableVideoTriggerOptionState();
-}
-
-class _FocusableVideoTriggerOptionState
-    extends State<_FocusableVideoTriggerOption> {
-  bool _focused = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final tp = context.watch<ThemeProvider>();
-    return Focus(
-      onFocusChange: (focused) {
-        setState(() => _focused = focused);
-        if (focused) {
-          Scrollable.ensureVisible(
-            context,
-            alignment: 0.92,
-            duration: const Duration(milliseconds: 220),
-          );
-        }
-      },
-      onKeyEvent: (_, event) {
-        if (event is! KeyDownEvent) return KeyEventResult.ignored;
-        if (event.logicalKey == LogicalKeyboardKey.gameButtonA ||
-            event.logicalKey == LogicalKeyboardKey.enter ||
-            event.logicalKey == LogicalKeyboardKey.select) {
-          widget.onTap();
-          return KeyEventResult.handled;
-        }
-        return KeyEventResult.ignored;
-      },
-      child: GestureDetector(
-        onTap: widget.onTap,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 160),
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
-          decoration: BoxDecoration(
-            color: widget.selected
-                ? tp.accent.withValues(alpha: _focused ? 0.28 : 0.18)
-                : Colors.white.withValues(alpha: _focused ? 0.08 : 0.03),
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: Row(
-            children: [
-              Icon(
-                widget.selected
-                    ? Icons.radio_button_checked
-                    : Icons.radio_button_off,
-                color: widget.selected ? tp.accentLight : Colors.white54,
-                size: 18,
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  widget.label,
-                  style: TextStyle(
-                    color: (_focused || widget.selected)
-                        ? Colors.white
-                        : Colors.white70,
-                    fontSize: 13,
-                    fontWeight: widget.selected
-                        ? FontWeight.w700
-                        : FontWeight.w500,
                   ),
                 ),
               ),
@@ -2371,207 +2134,6 @@ class _FocusableSliderState extends State<_FocusableSlider> {
               ),
             ],
           ),
-        ),
-      ),
-    );
-  }
-}
-
-class _ScreensaverTimeoutSlider extends StatefulWidget {
-  const _ScreensaverTimeoutSlider({required this.pluginId});
-  final String pluginId;
-
-  @override
-  State<_ScreensaverTimeoutSlider> createState() =>
-      _ScreensaverTimeoutSliderState();
-}
-
-class _ScreensaverTimeoutSliderState extends State<_ScreensaverTimeoutSlider> {
-  double _timeoutSec = 120;
-  bool _loaded = false;
-  bool _editing = false;
-  bool _focused = false;
-
-  static const double _min = 30;
-  static const double _max = 600;
-  static const double _step = 30;
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  Future<void> _load() async {
-    final provider = context.read<PluginsProvider>();
-    final saved = await provider.getSetting(widget.pluginId, 'timeout_sec');
-    if (!mounted) return;
-    setState(() {
-      _timeoutSec = (double.tryParse(saved ?? '') ?? 120).clamp(_min, _max);
-      _loaded = true;
-    });
-  }
-
-  Future<void> _save(double value) async {
-    final clamped = value.clamp(_min, _max);
-    setState(() => _timeoutSec = clamped);
-    final provider = context.read<PluginsProvider>();
-    await provider.setSetting(
-      widget.pluginId,
-      'timeout_sec',
-      clamped.round().toString(),
-    );
-  }
-
-  String get _label {
-    final sec = _timeoutSec.round();
-    if (sec < 60) return '${sec}s';
-    final min = sec ~/ 60;
-    final rem = sec % 60;
-    return rem == 0 ? '${min}m' : '${min}m ${rem}s';
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (!_loaded) return const SizedBox.shrink();
-    final tp = context.read<ThemeProvider>();
-    final isEs = Localizations.localeOf(context).languageCode == 'es';
-    final borderColor = _editing
-        ? const Color(0xFF7CF7FF)
-        : _focused
-        ? tp.accent.withValues(alpha: 0.6)
-        : Colors.transparent;
-
-    return Focus(
-      onFocusChange: (f) {
-        setState(() {
-          _focused = f;
-          if (!f) _editing = false;
-        });
-      },
-      onKeyEvent: (_, event) {
-        if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
-          return KeyEventResult.ignored;
-        }
-        final key = event.logicalKey;
-        if (_editing) {
-          if (key == LogicalKeyboardKey.arrowLeft) {
-            _save((_timeoutSec - _step).clamp(_min, _max));
-            return KeyEventResult.handled;
-          }
-          if (key == LogicalKeyboardKey.arrowRight) {
-            _save((_timeoutSec + _step).clamp(_min, _max));
-            return KeyEventResult.handled;
-          }
-          if (key == LogicalKeyboardKey.gameButtonA ||
-              key == LogicalKeyboardKey.enter ||
-              key == LogicalKeyboardKey.select ||
-              key == LogicalKeyboardKey.gameButtonB ||
-              key == LogicalKeyboardKey.escape) {
-            setState(() => _editing = false);
-            return KeyEventResult.handled;
-          }
-
-          if (key == LogicalKeyboardKey.arrowUp ||
-              key == LogicalKeyboardKey.arrowDown) {
-            return KeyEventResult.handled;
-          }
-        } else {
-          if (key == LogicalKeyboardKey.gameButtonA ||
-              key == LogicalKeyboardKey.enter ||
-              key == LogicalKeyboardKey.select) {
-            setState(() => _editing = true);
-            return KeyEventResult.handled;
-          }
-        }
-        return KeyEventResult.ignored;
-      },
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        decoration: BoxDecoration(
-          color: _editing
-              ? Colors.white.withValues(alpha: 0.08)
-              : _focused
-              ? Colors.white.withValues(alpha: 0.04)
-              : Colors.transparent,
-          border: (_focused || _editing)
-              ? Border.all(color: borderColor, width: 1.5)
-              : null,
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                const Icon(
-                  Icons.bedtime_outlined,
-                  color: Colors.white54,
-                  size: 18,
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    isEs
-                        ? 'Tiempo de espera: $_label'
-                        : 'Idle timeout: $_label',
-                    style: const TextStyle(color: Colors.white70, fontSize: 13),
-                  ),
-                ),
-                if (_editing)
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 6,
-                      vertical: 2,
-                    ),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF7CF7FF).withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(4),
-                      border: Border.all(
-                        color: const Color(0xFF7CF7FF).withValues(alpha: 0.4),
-                      ),
-                    ),
-                    child: const Text(
-                      '◀ ▶',
-                      style: TextStyle(
-                        color: Color(0xFF7CF7FF),
-                        fontSize: 10,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-            const SizedBox(height: 6),
-            SliderTheme(
-              data: SliderTheme.of(context).copyWith(
-                activeTrackColor: _editing
-                    ? const Color(0xFF7CF7FF)
-                    : tp.accentLight,
-                inactiveTrackColor: Colors.white12,
-                thumbColor: _editing ? const Color(0xFF7CF7FF) : tp.accent,
-                overlayColor: tp.accent.withValues(alpha: 0.2),
-                trackHeight: 3,
-              ),
-              child: ExcludeFocus(
-                child: Slider(
-                  value: _timeoutSec,
-                  min: _min,
-                  max: _max,
-                  divisions: ((_max - _min) / _step).round(),
-                  label: _label,
-                  onChanged: _save,
-                ),
-              ),
-            ),
-            Text(
-              isEs
-                  ? '30s – 10min · Presiona A para editar con ◀▶'
-                  : '30s – 10min · Press A to edit with ◀▶',
-              style: const TextStyle(color: Colors.white30, fontSize: 10),
-            ),
-          ],
         ),
       ),
     );

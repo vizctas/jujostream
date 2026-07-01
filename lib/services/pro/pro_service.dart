@@ -15,7 +15,6 @@ enum ProFeature {
   gameLibrary,
   favorites,
   searchBasicFilters,
-  screensaver,
   profileBasic,
   defaultColorSchemes,
   gyroMotion,
@@ -70,7 +69,6 @@ class ProService extends ChangeNotifier {
       case ProFeature.gameLibrary:
       case ProFeature.favorites:
       case ProFeature.searchBasicFilters:
-      case ProFeature.screensaver:
       case ProFeature.profileBasic:
       case ProFeature.defaultColorSchemes:
       case ProFeature.gyroMotion:
@@ -125,7 +123,6 @@ class ProService extends ChangeNotifier {
   static const Set<String> freeArtQualities = {'medium', 'low'};
 
   static const Set<String> premiumPluginIds = {
-    'startup_intro_video',
     'steam_library_info',
     'smart_genre_filters',
     'game_video',

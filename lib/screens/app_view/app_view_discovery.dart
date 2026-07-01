@@ -135,6 +135,7 @@ mixin _AppViewDiscoveryMixin on _AppViewScreenBase {
           child: app.posterUrl != null
               ? PosterImage(
                   url: app.posterUrl!,
+                  cacheKey: app.artCacheKey('poster'),
                   fit: BoxFit.cover,
                   errorWidget: (_, _, _) => const _DiscoveryPlaceholder(),
                 )

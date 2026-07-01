@@ -1,7 +1,6 @@
 import 'dart:io' as io;
 import 'dart:math' as math;
 import 'dart:async';
-import 'dart:ui';
 
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
@@ -433,18 +432,32 @@ class _FocusModeScreenState extends State<FocusModeScreen>
                 currentComputer != null && currentComputer.isPaired
                 ? _bgPaths[currentComputer.uuid]
                 : null;
-            final currentBgAsset = currentComputer != null
+            // Background resolution order: per-server custom (existing feature,
+            // wins) → global wallpaper chosen in Settings/onboarding → built-in
+            // default asset.
+            final globalWallpaper = tp.focusWallpaper;
+            String? effectiveFilePath = currentBgPath;
+            String effectiveAsset = currentComputer != null
                 ? _focusDefaultAsset(_currentPage)
                 : _focusDefaultAsset(0);
+            if ((effectiveFilePath == null || effectiveFilePath.isEmpty) &&
+                globalWallpaper.isNotEmpty) {
+              if (globalWallpaper.startsWith('asset:')) {
+                effectiveAsset = globalWallpaper.substring(6);
+              } else if (globalWallpaper.startsWith('file:')) {
+                effectiveFilePath = globalWallpaper.substring(5);
+              }
+            }
 
             return Stack(
               fit: StackFit.expand,
               children: [
-                // ── Blurred wallpaper ──
-                _BlurredWallpaper(
-                  imagePath: currentBgPath,
-                  assetPath: currentBgAsset,
+                // ── Wallpaper ──
+                _Wallpaper(
+                  imagePath: effectiveFilePath,
+                  assetPath: effectiveAsset,
                   fallbackColor: tp.background,
+                  cacheWidth: tp.performanceMode ? 720 : 1920,
                 ),
 
                 // ── Particle or Wave overlay (background effect) ──
@@ -942,38 +955,40 @@ class _FocusModeScreenState extends State<FocusModeScreen>
   }
 }
 
-class _BlurredWallpaper extends StatelessWidget {
+// Crisp (no blur) full-screen wallpaper. Decodes bounded via ResizeImage to
+// keep memory in check; a dim scrim keeps foreground text readable.
+class _Wallpaper extends StatelessWidget {
   final String? imagePath;
   final String assetPath;
   final Color fallbackColor;
+  final int cacheWidth;
 
-  const _BlurredWallpaper({
+  const _Wallpaper({
     this.imagePath,
     required this.assetPath,
     required this.fallbackColor,
+    required this.cacheWidth,
   });
 
   @override
   Widget build(BuildContext context) {
-    final ImageProvider imageProvider;
+    final ImageProvider base;
     if (imagePath != null && imagePath!.isNotEmpty) {
-      imageProvider = FileImage(io.File(imagePath!));
+      base = FileImage(io.File(imagePath!));
     } else {
-      imageProvider = AssetImage(assetPath);
+      base = AssetImage(assetPath);
     }
 
     return Stack(
       fit: StackFit.expand,
       children: [
         Image(
-          image: imageProvider,
+          image: ResizeImage(base, width: cacheWidth),
           fit: BoxFit.cover,
           errorBuilder: (_, _, _) => Container(color: fallbackColor),
         ),
-        BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 40, sigmaY: 40),
-          child: const SizedBox.expand(),
-        ),
+        // Readability scrim (replaces the old sigma-40 blur).
+        Container(color: Colors.black.withValues(alpha: 0.35)),
       ],
     );
   }

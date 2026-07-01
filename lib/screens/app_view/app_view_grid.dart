@@ -43,6 +43,7 @@ mixin _AppViewGridMixin on _AppViewScreenBase {
                       borderRadius: BorderRadius.circular(6),
                       child: PosterImage(
                         url: sel.posterUrl!,
+                        cacheKey: sel.artCacheKey('poster'),
                         width: double.infinity,
                         height: isLandscape ? 200 : 160,
                         fit: BoxFit.cover,
@@ -285,6 +286,7 @@ mixin _AppViewGridMixin on _AppViewScreenBase {
                       children: [
                         PosterImage(
                           url: app.posterUrl ?? '',
+                          cacheKey: app.artCacheKey('poster'),
                           fit: BoxFit.cover,
                           memCacheWidth: 400,
                           placeholder: (_, _) => Container(

@@ -659,6 +659,7 @@ class _BigScreenBodyState extends State<_BigScreenBody> {
               if (posterUrl != null && posterUrl.isNotEmpty)
                 PosterImage(
                   url: posterUrl,
+                  cacheKey: app.artCacheKey('poster'),
                   fit: BoxFit.cover,
                   memCacheWidth: 960,
                   errorWidget: (_, _, _) {
@@ -934,6 +935,7 @@ class _BigScreenBodyState extends State<_BigScreenBody> {
         if (posterUrl != null && posterUrl.isNotEmpty) {
           return PosterImage(
             url: posterUrl,
+            cacheKey: linkedApp.artCacheKey('poster'),
             fit: BoxFit.cover,
             width: double.infinity,
             memCacheWidth: 720,

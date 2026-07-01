@@ -3,11 +3,9 @@ import 'dart:io' as io;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:video_player/video_player.dart';
 import 'l10n/app_localizations.dart';
 import 'providers/auth_provider.dart';
 import 'providers/cloud_mfa_provider.dart';
@@ -189,8 +187,6 @@ class _FirstRunGateState extends State<_FirstRunGate>
     with WidgetsBindingObserver {
   bool _checked = false;
   bool _showCinematic = true;
-  bool _showStartupVideo = false;
-  String? _startupVideoPath;
   bool _focusModeEnabled = false;
 
   @override
@@ -219,21 +215,10 @@ class _FirstRunGateState extends State<_FirstRunGate>
 
   Future<void> _check() async {
     final prefs = await SharedPreferences.getInstance();
-    final startupEnabled =
-        prefs.getBool('plugin_enabled_startup_intro_video') ?? false;
-    final startupPath = prefs.getString(
-      PluginsProvider.settingPref('startup_intro_video', 'video_path'),
-    );
-    final startupPathExists =
-        startupPath != null &&
-        startupPath.isNotEmpty &&
-        await io.File(startupPath).exists();
     final focusMode = prefs.getBool('focus_mode_enabled') ?? true;
     if (!mounted) return;
     setState(() {
       _checked = true;
-      _showStartupVideo = startupEnabled && startupPathExists;
-      _startupVideoPath = startupPath;
       _focusModeEnabled = focusMode;
     });
   }
@@ -256,133 +241,8 @@ class _FirstRunGateState extends State<_FirstRunGate>
       return CinematicIntroScreen(onComplete: _onCinematicComplete);
     }
 
-    final Widget base = _focusModeEnabled
+    return _focusModeEnabled
         ? const FocusModeScreen()
         : const PcViewScreen();
-    if (!_showStartupVideo || _startupVideoPath == null) {
-      return base;
-    }
-    return _StartupVideoOverlay(
-      videoPath: _startupVideoPath!,
-      child: base,
-      onDismissed: () {
-        if (!mounted) return;
-        setState(() {
-          _showStartupVideo = false;
-        });
-      },
-    );
-  }
-}
-
-class _StartupVideoOverlay extends StatefulWidget {
-  final String videoPath;
-  final Widget child;
-  final VoidCallback onDismissed;
-
-  const _StartupVideoOverlay({
-    required this.videoPath,
-    required this.child,
-    required this.onDismissed,
-  });
-
-  @override
-  State<_StartupVideoOverlay> createState() => _StartupVideoOverlayState();
-}
-
-class _StartupVideoOverlayState extends State<_StartupVideoOverlay> {
-  VideoPlayerController? _controller;
-  bool _visible = true;
-
-  @override
-  void initState() {
-    super.initState();
-    _start();
-  }
-
-  Future<void> _start() async {
-    final controller = VideoPlayerController.file(io.File(widget.videoPath));
-    try {
-      await controller.initialize();
-      if (!mounted) {
-        controller.dispose();
-        return;
-      }
-      await controller.setLooping(false);
-      await controller.play();
-      controller.addListener(() {
-        if (!mounted) return;
-        final value = controller.value;
-        if (value.isInitialized &&
-            value.duration > Duration.zero &&
-            value.position >= value.duration) {
-          _dismiss();
-        }
-      });
-      setState(() => _controller = controller);
-    } catch (_) {
-      controller.dispose();
-      _dismiss();
-    }
-  }
-
-  void _dismiss() {
-    if (!_visible) return;
-    _visible = false;
-    _controller?.dispose();
-    _controller = null;
-    widget.onDismissed();
-  }
-
-  @override
-  void dispose() {
-    _controller?.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final controller = _controller;
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        widget.child,
-        if (_visible)
-          GestureDetector(
-            onTap: _dismiss,
-            child: Container(
-              color: Colors.black,
-              child: controller != null && controller.value.isInitialized
-                  ? Stack(
-                      fit: StackFit.expand,
-                      children: [
-                        FittedBox(
-                          fit: BoxFit.cover,
-                          child: SizedBox(
-                            width: controller.value.size.width,
-                            height: controller.value.size.height,
-                            child: VideoPlayer(controller),
-                          ),
-                        ),
-                        Positioned(
-                          right: 14,
-                          bottom: 14,
-                          child: TextButton.icon(
-                            style: TextButton.styleFrom(
-                              backgroundColor: Colors.black54,
-                              foregroundColor: Colors.white,
-                            ),
-                            onPressed: _dismiss,
-                            icon: const Icon(Icons.skip_next),
-                            label: const Text('Saltar'),
-                          ),
-                        ),
-                      ],
-                    )
-                  : const Center(child: CircularProgressIndicator()),
-            ),
-          ),
-      ],
-    );
   }
 }

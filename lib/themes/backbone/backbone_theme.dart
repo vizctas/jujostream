@@ -450,6 +450,7 @@ class _BodyState extends State<_Body> {
                   child: PosterImage(
                     key: ValueKey(bgApp.appId),
                     url: bgApp.posterUrl!,
+                    cacheKey: bgApp.artCacheKey('poster'),
                     fit: BoxFit.cover,
                     width: double.infinity,
                     height: double.infinity,
@@ -751,6 +752,7 @@ class _BodyState extends State<_Body> {
                           if (a.posterUrl != null && a.posterUrl!.isNotEmpty)
                             PosterImage(
                               url: a.posterUrl!,
+                              cacheKey: a.artCacheKey('poster'),
                               fit: BoxFit.cover,
                               memCacheWidth: 340,
                               fadeInDuration: const Duration(milliseconds: 120),
@@ -946,6 +948,7 @@ class _BodyState extends State<_Body> {
                       child: s.posterUrl != null && s.posterUrl!.isNotEmpty
                           ? PosterImage(
                               url: s.posterUrl!,
+                              cacheKey: s.artCacheKey('poster'),
                               fit: BoxFit.cover,
                               memCacheWidth: 160,
                               errorWidget: (_, _, _) => Container(

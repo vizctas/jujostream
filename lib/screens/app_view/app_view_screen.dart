@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io' as io;
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
@@ -37,7 +36,6 @@ import '../../services/stream/image_load_throttle.dart';
 import '../../services/tv/tv_detector.dart';
 import '../../themes/launcher_theme.dart';
 import '../../widgets/poster_image.dart';
-import '../../widgets/screensaver_overlay.dart';
 import '../game/game_stream_screen.dart';
 import '../../models/stream_configuration.dart';
 
@@ -432,21 +430,11 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
 
   @override
   Widget build(BuildContext context) {
-    return ScreensaverWrapper(
-      onScreensaverChanged: (active) {
-        if (active) {
-          _videoController?.pause();
-        } else {
-          if (_videoReady && _videoController != null) {
-            _videoController!.play();
-          }
-        }
-      },
-      child: Scaffold(
-        backgroundColor: _tp.background,
-        resizeToAvoidBottomInset: false,
+    return Scaffold(
+      backgroundColor: _tp.background,
+      resizeToAvoidBottomInset: false,
 
-        body: Consumer<AppListProvider>(
+      body: Consumer<AppListProvider>(
           builder: (context, provider, child) {
             final pluginsProvider = context.watch<PluginsProvider>();
             if (_activeFilter == _AppFilter.macroGenre &&
@@ -764,8 +752,7 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
               );
             }
             return _buildCarouselScreen(provider.apps);
-          },
-        ),
+        },
       ),
     );
   }
@@ -963,6 +950,7 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
                 borderRadius: BorderRadius.circular(6),
                 child: PosterImage(
                   url: app.posterUrl!,
+                  cacheKey: app.artCacheKey('poster'),
                   width: 26,
                   height: 34,
                   fit: BoxFit.cover,
@@ -1997,18 +1985,20 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
               );
             },
             child: PosterImage(
-              url: selected.heroImageUrl ?? selected.posterUrl!,
+              url: selected.backgroundUrl!,
+              cacheKey: selected.backgroundCacheKey,
               fit: BoxFit.cover,
               fadeInDuration: const Duration(milliseconds: 200),
-              // Cache to the real source resolution; the hero is a crisp 16:9
-              // image so there's no upscaling. Falls back to the poster width.
+              // Cache to the real source resolution; hero/RAWG backgrounds are
+              // crisp 16:9 images so there's no upscaling.
               memCacheWidth: context.read<ThemeProvider>().performanceMode
                   ? 720
-                  : (selected.heroImageUrl != null ? 1920 : 1280),
-              // Blur-up: show the already-cached small poster while the hero loads.
-              placeholder: selected.heroImageUrl != null
+                  : (selected.backgroundUrl != selected.posterUrl ? 1920 : 1280),
+              // Blur-up: show the already-cached small poster while it loads.
+              placeholder: selected.backgroundUrl != selected.posterUrl
                   ? (_, _) => PosterImage(
                       url: selected.posterUrl!,
+                      cacheKey: selected.artCacheKey('poster'),
                       fit: BoxFit.cover,
                       memCacheWidth: 300,
                     )
@@ -2018,15 +2008,17 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
           )
         else
           PosterImage(
-            url: selected.heroImageUrl ?? selected.posterUrl!,
+            url: selected.backgroundUrl!,
+            cacheKey: selected.backgroundCacheKey,
             fit: BoxFit.cover,
             key: const ValueKey('static-bg'),
             memCacheWidth: context.read<ThemeProvider>().performanceMode
                 ? 720
-                : (selected.heroImageUrl != null ? 1920 : 1280),
-            placeholder: selected.heroImageUrl != null
+                : (selected.backgroundUrl != selected.posterUrl ? 1920 : 1280),
+            placeholder: selected.backgroundUrl != selected.posterUrl
                 ? (_, _) => PosterImage(
                     url: selected.posterUrl!,
+                    cacheKey: selected.artCacheKey('poster'),
                     fit: BoxFit.cover,
                     memCacheWidth: 300,
                   )

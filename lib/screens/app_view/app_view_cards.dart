@@ -69,6 +69,7 @@ class _AppCardState extends State<_AppCard>
                       tag: 'game-poster-${widget.app.appId}',
                       child: PosterImage(
                         url: widget.app.posterUrl!,
+                        cacheKey: widget.app.artCacheKey('poster'),
                         fit: BoxFit.cover,
                         memCacheWidth: 400,
                         placeholder: (_, _) => _placeholder(),
