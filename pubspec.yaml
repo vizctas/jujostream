@@ -60,7 +60,7 @@ dependencies:
   plugin_platform_interface: ^2.1.8
   video_player: ^2.11.1
   audioplayers: ^6.7.0
-  flutter_local_notifications: ^21.0.0
+  flutter_local_notifications: ^22.0.0
   webview_flutter: ^4.10.0
   file_selector: ^1.0.4
   qr_flutter: ^4.1.0
