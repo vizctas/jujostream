@@ -76,6 +76,7 @@ class _PluginEditScreenState extends State<PluginEditScreen> {
   bool _loaded = false;
   bool _obscure = true;
   bool _isConnectingSteam = false;
+  bool _showSteamAdvanced = false;
   String? _steamPersona;
   String _videoTrigger = 'before_app';
 
@@ -607,8 +608,10 @@ class _PluginEditScreenState extends State<PluginEditScreen> {
                         const Divider(color: Colors.white12, height: 1),
                         const SizedBox(height: 18),
 
-                        // API key fields
-                        if (apiKeyInfo != null) ...[
+                        // API key fields (steam_connect handles its own key
+                        // under the Advanced expander below).
+                        if (apiKeyInfo != null &&
+                            widget.plugin.id != 'steam_connect') ...[
                           PluginApiKeyField(
                             label: apiKeyInfo.label,
                             hint: apiKeyInfo.hint,
@@ -627,17 +630,6 @@ class _PluginEditScreenState extends State<PluginEditScreen> {
                               label: 'Get Key',
                               onTap: () => launchUrl(
                                 Uri.parse('https://rawg.io/apidocs'),
-                                mode: LaunchMode.externalApplication,
-                              ),
-                            ),
-                          if (widget.plugin.id == 'steam_connect')
-                            PluginActionButton(
-                              icon: Icons.open_in_new,
-                              label: 'Get Key',
-                              onTap: () => launchUrl(
-                                Uri.parse(
-                                  'https://steamcommunity.com/dev/apikey',
-                                ),
                                 mode: LaunchMode.externalApplication,
                               ),
                             ),
@@ -681,77 +673,86 @@ class _PluginEditScreenState extends State<PluginEditScreen> {
                                 : '“Similar to this game” recommendations using metadata genres/tags.',
                           ),
 
-                        // Steam Connect
+                        // Steam Connect — sign-in is the primary path: the
+                        // webview login auto-extracts SteamID64 (and the web
+                        // API key). Manual entry is demoted to Advanced.
                         if (widget.plugin.id == 'steam_connect') ...[
-                          PluginApiKeyField(
-                            label: 'SteamID64',
-                            hint: 'SteamID64 (17 digits)',
-                            helpText: '',
-                            controller: _steamIdController,
-                            focusNode: _steamIdFocusNode,
-                            obscure: false,
-                            onToggleObscure: () {},
-                            onChanged: (_) => setState(() {}),
-                          ),
-                          const SizedBox(height: 16),
-                          ElevatedButton.icon(
-                            style:
-                                ElevatedButton.styleFrom(
-                                  backgroundColor: tp.surfaceVariant,
-                                  foregroundColor: Colors.white,
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 16,
-                                    vertical: 12,
-                                  ),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(10),
-                                  ),
-                                  elevation: 2,
-                                  shadowColor: Colors.black26,
-                                ).copyWith(
-                                  side: WidgetStateProperty.all(
-                                    BorderSide.none,
-                                  ),
-                                  backgroundColor:
-                                      WidgetStateProperty.resolveWith((states) {
-                                        if (states.contains(
-                                          WidgetState.focused,
-                                        )) {
-                                          return Color.lerp(
-                                            tp.surfaceVariant,
-                                            Colors.white,
-                                            0.10,
-                                          );
-                                        }
-                                        return tp.surfaceVariant;
-                                      }),
-                                ),
-                            icon: _isConnectingSteam
-                                ? const SizedBox(
-                                    width: 16,
-                                    height: 16,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: Colors.white,
+                          SizedBox(
+                            width: double.infinity,
+                            child: ElevatedButton.icon(
+                              style:
+                                  ElevatedButton.styleFrom(
+                                    backgroundColor: tp.accent,
+                                    foregroundColor: Colors.white,
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 14,
                                     ),
-                                  )
-                                : const Icon(Icons.open_in_browser, size: 18),
-                            label: Text(
-                              _isConnectingSteam
-                                  ? l.pluginSteamConnecting
-                                  : l.pluginSteamLogin,
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    elevation: 2,
+                                    shadowColor: Colors.black26,
+                                  ).copyWith(
+                                    side: WidgetStateProperty.all(
+                                      BorderSide.none,
+                                    ),
+                                    backgroundColor:
+                                        WidgetStateProperty.resolveWith((
+                                          states,
+                                        ) {
+                                          if (states.contains(
+                                            WidgetState.focused,
+                                          )) {
+                                            return Color.lerp(
+                                              tp.accent,
+                                              Colors.white,
+                                              0.15,
+                                            );
+                                          }
+                                          return tp.accent;
+                                        }),
+                                  ),
+                              icon: _isConnectingSteam
+                                  ? const SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: Colors.white,
+                                      ),
+                                    )
+                                  : const Icon(Icons.login, size: 20),
+                              label: Text(
+                                _isConnectingSteam
+                                    ? l.pluginSteamConnecting
+                                    : l.pluginSteamLogin,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 15,
+                                ),
+                              ),
+                              onPressed: _isConnectingSteam
+                                  ? null
+                                  : () async {
+                                      final steamId =
+                                          await SteamLoginScreen.show(context);
+                                      if (steamId != null && mounted) {
+                                        _steamIdController.text = steamId;
+                                        await _connectSteam();
+                                      }
+                                    },
                             ),
-                            onPressed: _isConnectingSteam
-                                ? null
-                                : () async {
-                                    final steamId = await SteamLoginScreen.show(
-                                      context,
-                                    );
-                                    if (steamId != null && mounted) {
-                                      _steamIdController.text = steamId;
-                                      await _connectSteam();
-                                    }
-                                  },
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            Localizations.localeOf(context).languageCode == 'es'
+                                ? 'Inicia sesión y obtenemos tu SteamID y API key automáticamente.'
+                                : 'Sign in and we grab your SteamID and API key automatically.',
+                            style: const TextStyle(
+                              color: Colors.white54,
+                              fontSize: 12,
+                              height: 1.35,
+                            ),
                           ),
                           if (_steamPersona != null &&
                               _steamPersona!.isNotEmpty) ...[
@@ -775,6 +776,68 @@ class _PluginEditScreenState extends State<PluginEditScreen> {
                                   ),
                                 ),
                               ],
+                            ),
+                          ],
+                          const SizedBox(height: 12),
+                          InkWell(
+                            onTap: () => setState(
+                              () => _showSteamAdvanced = !_showSteamAdvanced,
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  _showSteamAdvanced
+                                      ? Icons.keyboard_arrow_up
+                                      : Icons.keyboard_arrow_down,
+                                  size: 16,
+                                  color: Colors.white38,
+                                ),
+                                const SizedBox(width: 4),
+                                const Text(
+                                  'Advanced (manual SteamID / API key)',
+                                  style: TextStyle(
+                                    color: Colors.white38,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          if (_showSteamAdvanced) ...[
+                            const SizedBox(height: 12),
+                            PluginApiKeyField(
+                              label: 'SteamID64',
+                              hint: 'SteamID64 (17 digits)',
+                              helpText: '',
+                              controller: _steamIdController,
+                              focusNode: _steamIdFocusNode,
+                              obscure: false,
+                              onToggleObscure: () {},
+                              onChanged: (_) => setState(() {}),
+                            ),
+                            const SizedBox(height: 12),
+                            PluginApiKeyField(
+                              label: apiKeyInfo!.label,
+                              hint: apiKeyInfo.hint,
+                              helpText: apiKeyInfo.helpText,
+                              controller: _keyController,
+                              focusNode: _keyFocusNode,
+                              obscure: _obscure,
+                              onToggleObscure: () =>
+                                  setState(() => _obscure = !_obscure),
+                              onChanged: (_) => setState(() {}),
+                            ),
+                            const SizedBox(height: 12),
+                            PluginActionButton(
+                              icon: Icons.open_in_new,
+                              label: 'Get Key',
+                              onTap: () => launchUrl(
+                                Uri.parse(
+                                  'https://steamcommunity.com/dev/apikey',
+                                ),
+                                mode: LaunchMode.externalApplication,
+                              ),
                             ),
                           ],
                           const SizedBox(height: 20),
