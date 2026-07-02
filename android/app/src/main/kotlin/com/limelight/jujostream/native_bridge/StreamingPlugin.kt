@@ -81,8 +81,11 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
     private var directSubmitActive = false
 
     private var statsTimer: Timer? = null
+    private var lastFramesReceived = 0L
     private var lastFramesRendered = 0L
     private var lastFramesDropped = 0L
+    private var stagnantRenderTicks = 0
+    private var renderStallNotified = false
     private var configuredBitrateKbps = 20000
     private var activeCodecName = "unknown"
 
@@ -279,6 +282,11 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
             VideoDecoderRenderer.FRAME_PACING_LATENCY
         } else framePacingMode
 
+        val effectiveLowLatencyFrameBalance = if (weakDevice && lowLatencyFrameBalance) {
+            Log.w(TAG, "Weak device: disabling LowLatencyFrameBalance to avoid timestamped SurfaceView presentation stalls")
+            false
+        } else lowLatencyFrameBalance
+
         val videoCapabilities = 0
 
         Log.i(TAG, "═══ NATIVE STREAM CONFIG DIAGNOSTIC ═══")
@@ -294,7 +302,7 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
         Log.i(TAG, "Audio Configuration (resolved): 0x${audioConfiguration.toString(16)}")
         Log.i(TAG, "Video Capabilities: $videoCapabilities")
         Log.i(TAG, "App Version: $appVersion")
-        Log.i(TAG, "VRR: $enableVrr, DirectSubmit: $directSubmit, LowLatencyFrameBalance: $lowLatencyFrameBalance")
+        Log.i(TAG, "VRR: $enableVrr, DirectSubmit: $directSubmit, LowLatencyFrameBalance: $effectiveLowLatencyFrameBalance (arg=$lowLatencyFrameBalance)")
         Log.i(TAG, "═══════════════════════════════════════")
 
 
@@ -303,10 +311,19 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
             if (ds != null) {
                 Log.i(TAG, "Direct submit surface acquired — zero-copy path active")
             } else {
-                Log.w(TAG, "Direct submit surface not ready, falling back to SurfaceTexture")
+                Log.w(TAG, "Direct submit surface not ready")
             }
             ds
         } else null
+        if (directSubmit && weakDevice && directSurface == null) {
+            Log.e(TAG, "DirectSubmit surface unavailable on weak TV device; refusing SurfaceTexture fallback")
+            result.error(
+                "DIRECT_SUBMIT_SURFACE_UNAVAILABLE",
+                "DirectSubmit surface was not ready on this TV device",
+                null
+            )
+            return
+        }
         directSubmitActive = directSurface != null
 
         if (directSurface == null) {
@@ -328,7 +345,7 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
             useChoreographerVsync = choreographerVsync,
             enableVrr = enableVrr,
             externalSurface = directSurface,
-            lowLatencyFrameBalance = lowLatencyFrameBalance,
+            lowLatencyFrameBalance = effectiveLowLatencyFrameBalance,
             decodersByMime = decodersByMime,
             isWeakDevice = weakDevice
         )
@@ -676,13 +693,18 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
 
         lastFramesRendered = 0L
         lastFramesDropped = 0L
+        lastFramesReceived = 0L
+        stagnantRenderTicks = 0
+        renderStallNotified = false
         statsTimer?.cancel()
         statsTimer = Timer("StreamStats", true).also { timer ->
             timer.scheduleAtFixedRate(object : TimerTask() {
                 override fun run() {
                     val renderer = videoRenderer ?: return
+                    val currentReceived = renderer.totalFramesReceived
                     val currentFrames = renderer.totalFramesRendered
                     val currentDropped = renderer.totalFramesDropped
+                    val receivedDelta = (currentReceived - lastFramesReceived).coerceAtLeast(0)
                     val renderedDelta = (currentFrames - lastFramesRendered).coerceAtLeast(0)
                     val droppedDelta = (currentDropped - lastFramesDropped).coerceAtLeast(0)
                     val fps = (renderedDelta * 5).toInt()
@@ -690,8 +712,6 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
                     val dropRate = if (totalDelta > 0)
                         ((droppedDelta.toFloat() / totalDelta.toFloat()) * 100).toInt().coerceIn(0, 100)
                     else 0
-                    lastFramesRendered = currentFrames
-                    lastFramesDropped = currentDropped
                     val decodeTime = renderer.avgDecodeLatencyMs.toInt()
                     val bitrateM = (configuredBitrateKbps / 1000.0).toInt().coerceAtLeast(1)
                     val resolution = "${renderer.initialWidth}x${renderer.initialHeight}"
@@ -705,6 +725,46 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
                     val decoderName = statsMap["decoderName"] as? String ?: "unknown"
                     val renderPath = statsMap["renderPath"] as? String
                         ?: if (directSubmitActive) "direct-submit" else "texture"
+
+                    if (receivedDelta > 0L && renderedDelta == 0L && currentFrames > 0L) {
+                        stagnantRenderTicks++
+                    } else {
+                        stagnantRenderTicks = 0
+                    }
+
+                    if (!renderStallNotified && stagnantRenderTicks >= 15) {
+                        if (renderer.requestCodecRecoveryForRenderStall()) {
+                            Log.w(
+                                TAG,
+                                "Render stall recovery requested: recv=$currentReceived rendered=$currentFrames " +
+                                    "decoder=$decoderName path=$renderPath"
+                            )
+                            stagnantRenderTicks = 0
+                            return
+                        }
+
+                        renderStallNotified = true
+                        Log.e(
+                            TAG,
+                            "Render stall detected: recv=$currentReceived rendered=$currentFrames " +
+                                "dropped=$currentDropped queue=$queueDepth path=$renderPath " +
+                                "decoder=$decoderName directSubmit=$directSubmitActive"
+                        )
+                        sendEvent(mapOf(
+                            "type" to "renderStalled",
+                            "framesReceived" to currentReceived,
+                            "framesRendered" to currentFrames,
+                            "framesDropped" to currentDropped,
+                            "queueDepth" to queueDepth,
+                            "decoderName" to decoderName,
+                            "renderPath" to renderPath,
+                            "directSubmit" to directSubmitActive
+                        ))
+                    }
+
+                    lastFramesReceived = currentReceived
+                    lastFramesRendered = currentFrames
+                    lastFramesDropped = currentDropped
 
                     sendEvent(mapOf(
                         "fps"        to fps,
@@ -802,6 +862,11 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
         isStreamingActive = false
         isConnectionEstablished = false
         directSubmitActive = false
+        lastFramesReceived = 0L
+        lastFramesRendered = 0L
+        lastFramesDropped = 0L
+        stagnantRenderTicks = 0
+        renderStallNotified = false
         DisplayModeHelper.restore(activity)
         DirectSubmitViewFactory.reset()
         statsTimer?.cancel()

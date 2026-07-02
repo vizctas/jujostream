@@ -21,6 +21,8 @@ import '../../services/audio/ui_sound_service.dart';
 import '../../services/input/gamepad_button_helper.dart';
 import '../../services/tv/tv_detector.dart';
 import '../../widgets/computer_options_dialog.dart';
+import '../../widgets/focus_music_mini_player.dart';
+import '../../widgets/notification_mirror_overlay.dart';
 import '../../widgets/now_playing_banner.dart';
 import '../../widgets/pairing_dialog.dart';
 import '../app_view/app_view_screen.dart';
@@ -521,6 +523,21 @@ class _FocusModeScreenState extends State<FocusModeScreen>
                     ],
                   ),
                 ),
+                Positioned(
+                  right: 24,
+                  bottom:
+                      MediaQuery.of(context).padding.bottom +
+                      (provider.activeSessionApp == null ? 24 : 76),
+                  child: FocusMusicMiniPlayer(
+                    trackName: _standbyTrackName(tp),
+                    colors: tp.colors,
+                    scale: tp.focusMusicScale,
+                    opacity: tp.focusMusicOpacity,
+                  ),
+                ),
+                NotificationMirrorOverlay(
+                  bottomOffset: provider.activeSessionApp == null ? 104 : 156,
+                ),
               ],
             );
           },
@@ -530,6 +547,13 @@ class _FocusModeScreenState extends State<FocusModeScreen>
   }
 
   // ── App Bar ──
+
+  String _standbyTrackName(ThemeProvider tp) {
+    if (tp.standbySound == 'custom') {
+      return tp.standbyCustomName.isNotEmpty ? tp.standbyCustomName : 'Custom';
+    }
+    return tp.standbySound;
+  }
 
   Widget _buildAppBar(ThemeProvider tp) {
     final isLight = tp.colors.isLight;

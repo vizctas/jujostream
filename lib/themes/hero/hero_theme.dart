@@ -494,14 +494,13 @@ class _HeroBodyState extends State<_HeroBody>
             if (widget.videoWidget != null &&
                 widget.videoForAppId == bgApp?.appId)
               Positioned.fill(child: widget.videoWidget!)
-            else if (bgApp?.posterUrl != null && bgApp!.posterUrl!.isNotEmpty)
+            else if ((bgApp?.rawgBackgroundUrl ?? bgApp?.posterUrl) != null)
               Positioned.fill(
                 child: AnimatedSwitcher(
                   duration: const Duration(milliseconds: 500),
                   child: PosterImage(
-                    key: ValueKey(bgApp.appId),
-                    url: bgApp.posterUrl!,
-                    cacheKey: bgApp.artCacheKey('poster'),
+                    key: ValueKey(bgApp!.appId),
+                    url: bgApp.rawgBackgroundUrl ?? bgApp.posterUrl!,
                     fit: BoxFit.cover,
                     width: double.infinity,
                     height: double.infinity,
@@ -793,7 +792,6 @@ class _HeroBodyState extends State<_HeroBody>
                           if (a.posterUrl != null && a.posterUrl!.isNotEmpty)
                             PosterImage(
                               url: a.posterUrl!,
-                              cacheKey: a.artCacheKey('poster'),
                               fit: BoxFit.cover,
                               memCacheWidth: 200,
                               fadeInDuration: const Duration(milliseconds: 100),
@@ -975,7 +973,6 @@ class _HeroBodyState extends State<_HeroBody>
                   child: a.posterUrl != null && a.posterUrl!.isNotEmpty
                       ? PosterImage(
                           url: a.posterUrl!,
-                          cacheKey: a.artCacheKey('poster'),
                           fit: BoxFit.cover,
                           memCacheWidth: 100,
                           errorWidget: (_, _, _) =>
@@ -1006,7 +1003,6 @@ class _HeroBodyState extends State<_HeroBody>
                       child: s.posterUrl != null && s.posterUrl!.isNotEmpty
                           ? PosterImage(
                               url: s.posterUrl!,
-                              cacheKey: s.artCacheKey('poster'),
                               fit: BoxFit.cover,
                               memCacheWidth: 160,
                               errorWidget: (_, _, _) => Container(

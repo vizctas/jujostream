@@ -55,6 +55,12 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
     _mfaProvider = context.read<CloudMfaProvider>();
     _mfaProvider.addListener(_onMfaStateChange);
 
+    // Keep the inner text fields focusable for typing, but remove them from
+    // directional traversal so the TvFocusable wrapper is the DPAD target.
+    _emailFocusNode.skipTraversal = true;
+    _passwordFocusNode.skipTraversal = true;
+    _mfaCodeFocusNode.skipTraversal = true;
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _onMfaStateChange();
     });
@@ -294,6 +300,7 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
     VoidCallback? onSelect,
     bool autofocus = false,
     bool excludeChildFocus = false,
+    bool interceptArrowKeys = false,
     double borderRadius = 16,
   }) {
     return FocusTraversalOrder(
@@ -307,7 +314,31 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
         focusFillColor: Colors.white.withValues(alpha: 0.08),
         focusBorderWidth: 1.2,
         focusScale: 1.0,
-        child: child,
+        child:
+            interceptArrowKeys
+                ? Focus(
+                  onKeyEvent: (node, event) {
+                    if (event is! KeyDownEvent) {
+                      return KeyEventResult.ignored;
+                    }
+                    final key = event.logicalKey;
+                    if (key == LogicalKeyboardKey.arrowUp) {
+                      node.nearestScope?.focusInDirection(
+                        TraversalDirection.up,
+                      );
+                      return KeyEventResult.handled;
+                    }
+                    if (key == LogicalKeyboardKey.arrowDown) {
+                      node.nearestScope?.focusInDirection(
+                        TraversalDirection.down,
+                      );
+                      return KeyEventResult.handled;
+                    }
+                    return KeyEventResult.ignored;
+                  },
+                  child: child,
+                )
+                : child,
       ),
     );
   }
@@ -416,7 +447,7 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
           child: Form(
             key: _formKey,
             child: FocusTraversalGroup(
-              policy: OrderedTraversalPolicy(),
+              policy: _WrapOrderedTraversalPolicy(),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -444,6 +475,7 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
                   _orderedAuthFocus(
                     order: 0,
                     autofocus: true,
+                    interceptArrowKeys: true,
                     onSelect: () => _focusNativeInput(_emailFocusNode),
                     child: TextFormField(
                       controller: _emailController,
@@ -475,6 +507,7 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
                   // Password field
                   _orderedAuthFocus(
                     order: 1,
+                    interceptArrowKeys: true,
                     onSelect: () => _focusNativeInput(_passwordFocusNode),
                     child: TextFormField(
                       controller: _passwordController,
@@ -745,7 +778,7 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
             ),
           ),
           child: FocusTraversalGroup(
-            policy: OrderedTraversalPolicy(),
+            policy: _WrapOrderedTraversalPolicy(),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -814,6 +847,7 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
                 _orderedAuthFocus(
                   order: 0,
                   autofocus: true,
+                  interceptArrowKeys: true,
                   onSelect: () => _focusNativeInput(_mfaCodeFocusNode),
                   child: TextFormField(
                     controller: _mfaCodeController,
@@ -1002,5 +1036,88 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
           : Colors.white.withValues(alpha: 0.02),
       contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
     );
+  }
+}
+
+/// Focus traversal policy that wraps around — pressing DPad past the last
+/// item loops to the first, and vice-versa. Prevents focus loss on TV/gamepad.
+class _WrapOrderedTraversalPolicy extends OrderedTraversalPolicy {
+  /// Collects every focus node in [scope] that is wrapped by a
+  /// [FocusTraversalOrder], sorted by [NumericFocusOrder].
+  List<FocusNode> _orderedNodes(FocusScopeNode scope) {
+    final nodes = <FocusNode>[];
+    for (final node in scope.traversalDescendants) {
+      final context = node.context;
+      if (context == null) continue;
+      final order = FocusTraversalOrder.maybeOf(context);
+      if (order is NumericFocusOrder) {
+        nodes.add(node);
+      }
+    }
+    nodes.sort((a, b) {
+      final orderA = FocusTraversalOrder.of(a.context!) as NumericFocusOrder;
+      final orderB = FocusTraversalOrder.of(b.context!) as NumericFocusOrder;
+      return orderA.order.compareTo(orderB.order);
+    });
+    return nodes;
+  }
+
+  /// Finds the ordered wrapper node that owns [node] (or [node] itself).
+  int? _indexOfNode(List<FocusNode> nodes, FocusNode node) {
+    for (var i = 0; i < nodes.length; i++) {
+      final candidate = nodes[i];
+      if (candidate == node || candidate.descendants.contains(node)) {
+        return i;
+      }
+    }
+    return null;
+  }
+
+  @override
+  bool next(FocusNode currentNode) {
+    if (!super.next(currentNode)) {
+      final scope = currentNode.nearestScope;
+      if (scope != null) {
+        findFirstFocus(scope, ignoreCurrentFocus: true)?.requestFocus();
+      }
+    }
+    return true;
+  }
+
+  @override
+  bool previous(FocusNode currentNode) {
+    if (!super.previous(currentNode)) {
+      final scope = currentNode.nearestScope;
+      if (scope != null) {
+        findLastFocus(scope, ignoreCurrentFocus: true).requestFocus();
+      }
+    }
+    return true;
+  }
+
+  @override
+  bool inDirection(FocusNode currentNode, TraversalDirection direction) {
+    final scope = currentNode.nearestScope;
+    if (scope == null) return super.inDirection(currentNode, direction);
+
+    final nodes = _orderedNodes(scope);
+    if (nodes.length < 2) {
+      return super.inDirection(currentNode, direction);
+    }
+
+    final currentIndex = _indexOfNode(nodes, currentNode);
+    if (currentIndex == null) {
+      return super.inDirection(currentNode, direction);
+    }
+
+    final nextIndex = switch (direction) {
+      TraversalDirection.up || TraversalDirection.left =>
+        (currentIndex - 1 + nodes.length) % nodes.length,
+      TraversalDirection.down || TraversalDirection.right =>
+        (currentIndex + 1) % nodes.length,
+    };
+
+    nodes[nextIndex].requestFocus();
+    return true;
   }
 }

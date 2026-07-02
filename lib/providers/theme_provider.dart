@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/theme_config.dart';
+import '../services/audio/ui_sound_service.dart';
 import '../services/database/achievement_service.dart';
 import '../themes/launcher_theme.dart';
 import '../themes/launcher_theme_registry.dart';
@@ -36,6 +37,8 @@ class ThemeProvider extends ChangeNotifier {
   static const _keyStandbyCustomName = 'standby_custom_name';
   static const _keyStandbyVolume = 'standby_volume';
   static const _keyFocusWallpaper = 'focus_wallpaper';
+  static const _keyFocusMusicScale = 'focus_music_scale';
+  static const _keyFocusMusicOpacity = 'focus_music_opacity';
 
   AppThemeId _themeId;
   bool _reduceEffects;
@@ -49,6 +52,8 @@ class ThemeProvider extends ChangeNotifier {
   String _standbyCustomName;
   double _standbyVolume;
   String _focusWallpaper;
+  double _focusMusicScale;
+  double _focusMusicOpacity;
 
   ThemeProvider._({
     required AppThemeId themeId,
@@ -63,6 +68,8 @@ class ThemeProvider extends ChangeNotifier {
     required String standbyCustomName,
     required double standbyVolume,
     required String focusWallpaper,
+    required double focusMusicScale,
+    required double focusMusicOpacity,
   }) : _themeId = themeId,
        _reduceEffects = reduceEffects,
        _performanceMode = performanceMode,
@@ -74,7 +81,9 @@ class ThemeProvider extends ChangeNotifier {
        _standbyCustomPath = standbyCustomPath,
        _standbyCustomName = standbyCustomName,
        _standbyVolume = standbyVolume,
-       _focusWallpaper = focusWallpaper;
+       _focusWallpaper = focusWallpaper,
+       _focusMusicScale = focusMusicScale,
+       _focusMusicOpacity = focusMusicOpacity;
 
   static Future<ThemeProvider> load() async {
     final prefs = await SharedPreferences.getInstance();
@@ -98,6 +107,14 @@ class ThemeProvider extends ChangeNotifier {
       standbyCustomName: prefs.getString(_keyStandbyCustomName) ?? '',
       standbyVolume: prefs.getDouble(_keyStandbyVolume) ?? 0.25,
       focusWallpaper: prefs.getString(_keyFocusWallpaper) ?? '',
+      focusMusicScale: (prefs.getDouble(_keyFocusMusicScale) ?? 0.40).clamp(
+        0.40,
+        1.50,
+      ),
+      focusMusicOpacity: (prefs.getDouble(_keyFocusMusicOpacity) ?? 0.82).clamp(
+        0.20,
+        1.00,
+      ),
     );
   }
 
@@ -144,6 +161,9 @@ class ThemeProvider extends ChangeNotifier {
   /// the bundled wallpapers; `file:path` = user-imported image. A per-server
   /// custom background (`computer_bg_(uuid)`) still takes priority over this.
   String get focusWallpaper => _focusWallpaper;
+  double get focusMusicScale => _focusMusicScale;
+
+  double get focusMusicOpacity => _focusMusicOpacity;
 
   Color get background => colors.background;
   Color get surface => colors.surface;
@@ -242,8 +262,27 @@ class ThemeProvider extends ChangeNotifier {
     if (clamped == _standbyVolume) return;
     _standbyVolume = clamped;
     notifyListeners();
+    unawaited(UiSoundService.setAmbienceVolume(clamped));
     final prefs = await SharedPreferences.getInstance();
     await prefs.setDouble(_keyStandbyVolume, clamped);
+  }
+
+  Future<void> setFocusMusicScale(double value) async {
+    final clamped = value.clamp(0.40, 1.50);
+    if (clamped == _focusMusicScale) return;
+    _focusMusicScale = clamped;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble(_keyFocusMusicScale, clamped);
+  }
+
+  Future<void> setFocusMusicOpacity(double value) async {
+    final clamped = value.clamp(0.20, 1.00);
+    if (clamped == _focusMusicOpacity) return;
+    _focusMusicOpacity = clamped;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble(_keyFocusMusicOpacity, clamped);
   }
 
   Future<void> setPerformanceMode(bool value) async {

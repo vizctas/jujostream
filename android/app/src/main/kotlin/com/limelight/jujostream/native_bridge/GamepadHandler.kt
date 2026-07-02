@@ -255,6 +255,14 @@ class GamepadHandler(
                     val active = call.argument<Boolean>("active") ?: false
                     Log.i(TAG, "STREAM_STATE: setStreamingActive($active) — was $isStreaming")
                     isStreaming = active
+                    // A stream-state transition always means the in-stream overlay is
+                    // not showing. Reset the gate here so a (re)started session can never
+                    // inherit a stale overlayVisible=true from a previous session — that
+                    // would silently drop ALL gamepad/mouse input (handleKeyEvent etc.
+                    // early-return on overlayVisible). This is the authoritative reset:
+                    // the Dart side cannot self-heal because _setOverlayVisible(false)
+                    // early-returns when its _showOverlay is already false.
+                    overlayVisible = false
                     if (active) {
                         val count = detectControllers()
                         result.success(count)

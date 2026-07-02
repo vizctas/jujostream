@@ -27,6 +27,7 @@ class MetadataDatabase {
           steam_video_thumb TEXT,
           rawg_clip_url TEXT,
           rawg_background_url TEXT,
+          poster_url TEXT,
           updated_at    INTEGER NOT NULL
         )
       '''),
@@ -46,6 +47,9 @@ class MetadataDatabase {
             await db.execute(
               'ALTER TABLE $_kTable ADD COLUMN rawg_background_url TEXT',
             );
+          } catch (_) {}
+          try {
+            await db.execute('ALTER TABLE $_kTable ADD COLUMN poster_url TEXT');
           } catch (_) {}
         }
       },
@@ -71,62 +75,67 @@ class MetadataDatabase {
       for (final row in payload.rows) row['app_id'] as int: row,
     };
 
-    return payload.apps.map((app) {
-      final row = byId[app.appId];
-      if (row == null) return app;
+    return payload.apps
+        .map((app) {
+          final row = byId[app.appId];
+          if (row == null) return app;
 
-      final genresValue = (row['metadata_genres'] as String?) ??
-          (row['genres'] as String?);
-      final genres = genresValue?.split(',')
-          .where((s) => s.isNotEmpty)
-          .toList();
+          final genresValue =
+              (row['metadata_genres'] as String?) ?? (row['genres'] as String?);
+          final genres = genresValue
+              ?.split(',')
+              .where((s) => s.isNotEmpty)
+              .toList();
 
-      return app.copyWith(
-        description: (row['description'] as String?)?.isEmpty ?? true
-            ? null
-            : row['description'] as String?,
-        metadataGenres: genres ?? const [],
-        steamVideoUrl: row['steam_video_url'] as String?,
-        steamVideoThumb: row['steam_video_thumb'] as String?,
-        rawgClipUrl: row['rawg_clip_url'] as String?,
-        rawgBackgroundUrl: row['rawg_background_url'] as String?,
-      );
-    }).toList(growable: false);
+          return app.copyWith(
+            description: (row['description'] as String?)?.isEmpty ?? true
+                ? null
+                : row['description'] as String?,
+            metadataGenres: genres ?? const [],
+            steamVideoUrl: row['steam_video_url'] as String?,
+            steamVideoThumb: row['steam_video_thumb'] as String?,
+            rawgClipUrl: row['rawg_clip_url'] as String?,
+            rawgBackgroundUrl: row['rawg_background_url'] as String?,
+            posterUrl: row['poster_url'] as String?,
+          );
+        })
+        .toList(growable: false);
   }
 
   static Future<void> saveAll(List<NvApp> apps) async {
-    final enriched = apps.where((a) =>
-        (a.description?.isNotEmpty ?? false) ||
-        a.metadataGenres.isNotEmpty ||
-        (a.steamVideoUrl?.isNotEmpty ?? false) ||
-        (a.rawgBackgroundUrl?.isNotEmpty ?? false)).toList();
+    final enriched = apps
+        .where(
+          (a) =>
+              (a.description?.isNotEmpty ?? false) ||
+              a.metadataGenres.isNotEmpty ||
+              (a.steamVideoUrl?.isNotEmpty ?? false) ||
+              (a.rawgClipUrl?.isNotEmpty ?? false) ||
+              (a.rawgBackgroundUrl?.isNotEmpty ?? false) ||
+              (a.posterUrl?.isNotEmpty ?? false),
+        )
+        .toList();
     if (enriched.isEmpty) return;
     try {
       final db = await _open();
       final batch = db.batch();
       final now = DateTime.now().millisecondsSinceEpoch;
       for (final app in enriched) {
-        batch.insert(
-          _kTable,
-          {
-            'app_id': app.appId,
-            'game_name': app.appName,
-            'description': app.description,
-            'genres': app.metadataGenres.join(','),
-            'metadata_genres': app.metadataGenres.join(','),
-            'steam_video_url': app.steamVideoUrl,
-            'steam_video_thumb': app.steamVideoThumb,
-            'rawg_clip_url': app.rawgClipUrl,
-            'rawg_background_url': app.rawgBackgroundUrl,
-            'updated_at': now,
-          },
-          conflictAlgorithm: ConflictAlgorithm.replace,
-        );
+        batch.insert(_kTable, {
+          'app_id': app.appId,
+          'game_name': app.appName,
+          'description': app.description,
+          'genres': app.metadataGenres.join(','),
+          'metadata_genres': app.metadataGenres.join(','),
+          'steam_video_url': app.steamVideoUrl,
+          'steam_video_thumb': app.steamVideoThumb,
+          'rawg_clip_url': app.rawgClipUrl,
+          'rawg_background_url': app.rawgBackgroundUrl,
+          'poster_url': app.posterUrl,
+          'updated_at': now,
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
       }
       await batch.commit(noResult: true);
-    } catch (_) {
-
-    }
+    } catch (_) {}
   }
 
   static Future<void> pruneStale(List<NvApp> apps) async {
@@ -136,8 +145,7 @@ class MetadataDatabase {
       final activeIds = apps.map((a) => a.appId).toList();
       await db.delete(
         _kTable,
-        where:
-            'app_id NOT IN (${activeIds.map((_) => '?').join(',')})',
+        where: 'app_id NOT IN (${activeIds.map((_) => '?').join(',')})',
         whereArgs: activeIds,
       );
     } catch (_) {}

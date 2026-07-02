@@ -22,6 +22,7 @@ import '../../services/telemetry/beta_telemetry_service.dart';
 import '../../services/tv/tv_detector.dart';
 import '../../services/input/gamepad_button_helper.dart';
 import '../../services/stream/image_load_throttle.dart';
+import '../../widgets/notification_mirror_overlay.dart';
 import '../../widgets/session_metrics_dialog.dart';
 import '../../widgets/virtual_gamepad/virtual_gamepad_overlay.dart';
 import 'direct_touch_handler.dart';
@@ -514,8 +515,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
             'GS_WRONG_STATE detected — cancelling stale server session and retrying…',
           );
           setState(() {
-            _reconnectMessage =
-                isEs
+            _reconnectMessage = isEs
                 ? 'Sesión anterior detectada — cancelando…'
                 : 'Stale session detected — cancelling…';
           });
@@ -525,6 +525,21 @@ class _GameStreamScreenState extends State<GameStreamScreen>
           await Future.delayed(const Duration(seconds: 2));
           if (mounted) {
             _lastDisconnectTime = null; // skip cooldown
+            _startStreaming();
+          }
+          return;
+        }
+
+        if (detail?.contains('DIRECT_SUBMIT_SURFACE_UNAVAILABLE') == true &&
+            _shouldUseDirectSubmit &&
+            _presetReconnectRetries < _maxPresetReconnectRetries) {
+          _presetReconnectRetries++;
+          setState(() {
+            _reconnectMessage = AppLocalizations.of(context).reconnectingLabel;
+          });
+          await Future.delayed(const Duration(milliseconds: 750));
+          if (mounted) {
+            _lastDisconnectTime = null;
             _startStreaming();
           }
           return;
@@ -778,6 +793,17 @@ class _GameStreamScreenState extends State<GameStreamScreen>
             unawaited(_stopStreaming());
             _startStreaming();
           }
+        case 'renderStalled':
+          BetaTelemetryService.event('native_render_stalled', {
+            'framesReceived': event['framesReceived'] ?? 0,
+            'framesRendered': event['framesRendered'] ?? 0,
+            'framesDropped': event['framesDropped'] ?? 0,
+            'queueDepth': event['queueDepth'] ?? 0,
+            'decoderName': event['decoderName'] ?? '',
+            'renderPath': event['renderPath'] ?? '',
+            'directSubmit': event['directSubmit'] ?? false,
+          });
+          unawaited(_onConnectionTerminated(-9001));
         default:
           // Wrap stat parsing in try-catch to handle unexpected types or
           // missing keys from different server versions (Vibepollo, Sunshine,
@@ -1015,7 +1041,10 @@ class _GameStreamScreenState extends State<GameStreamScreen>
       if (direction == 'down') {
         setState(() => _quickFavFocusIdx = (_quickFavFocusIdx + 1) % favCount);
       } else if (direction == 'up') {
-        setState(() => _quickFavFocusIdx = (_quickFavFocusIdx - 1 + favCount) % favCount);
+        setState(
+          () =>
+              _quickFavFocusIdx = (_quickFavFocusIdx - 1 + favCount) % favCount,
+        );
       }
       return;
     }
@@ -1039,7 +1068,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
     setState(() {
       switch (direction) {
         case 'down':
-          _overlayRow = (_overlayRow + 1).clamp(0, 7);
+          _overlayRow = (_overlayRow + 1).clamp(0, 6);
           if (_overlayRow == 0) {
             _overlayCol = _overlayCol.clamp(0, 3);
           } else if (_overlayRow == 1) {
@@ -1048,7 +1077,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
             _overlayCol = 0;
           }
         case 'up':
-          _overlayRow = (_overlayRow - 1).clamp(0, 7);
+          _overlayRow = (_overlayRow - 1).clamp(0, 6);
           if (_overlayRow == 0) {
             _overlayCol = _overlayCol.clamp(0, 3);
           } else if (_overlayRow == 1) {
@@ -1132,13 +1161,8 @@ class _GameStreamScreenState extends State<GameStreamScreen>
       case 3:
         _pasteClipboardToPC();
       case 4:
-        setState(() {
-          _config = _config.copyWith(clientMic: !_config.clientMic);
-        });
-        _reconnectWithNewConfig();
-      case 5:
         _closeSessionAndExit();
-      case 6:
+      case 5:
         setState(() {
           _showQuitConfirm = true;
           _quitConfirmSelection = 0;
@@ -1147,7 +1171,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) _overlayFocusNode.requestFocus();
         });
-      case 7:
+      case 6:
         _setOverlayVisible(false);
     }
   }
@@ -1297,6 +1321,10 @@ class _GameStreamScreenState extends State<GameStreamScreen>
               if (_showQuickFavPanel && _isConnected && !_showOverlay)
                 _buildQuickFavPanel(),
               if (_keyboardVisible) _buildHiddenKeyboardField(),
+              const NotificationMirrorOverlay(
+                bottomOffset: 24,
+                streamOverlay: true,
+              ),
             ],
           ),
         ),
@@ -1540,7 +1568,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
       if (_showOverlay && !_showSpecialKeys) {
         if (key == LogicalKeyboardKey.arrowDown) {
           setState(() {
-            _overlayRow = (_overlayRow + 1).clamp(0, 7);
+            _overlayRow = (_overlayRow + 1).clamp(0, 6);
 
             if (_overlayRow == 0) {
               _overlayCol = _overlayCol.clamp(0, 3);
@@ -1555,7 +1583,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
         }
         if (key == LogicalKeyboardKey.arrowUp) {
           setState(() {
-            _overlayRow = (_overlayRow - 1).clamp(0, 7);
+            _overlayRow = (_overlayRow - 1).clamp(0, 6);
             if (_overlayRow == 0) {
               _overlayCol = _overlayCol.clamp(0, 3);
             } else if (_overlayRow == 1) {
@@ -2052,7 +2080,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
       if (_showQuitConfirm) {
         setState(() {
           _showQuitConfirm = false;
-          _overlayRow = 5;
+          _overlayRow = 4;
         });
       } else if (_showSpecialKeys) {
         setState(() {
@@ -2070,7 +2098,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
       if (key == LogicalKeyboardKey.gameButtonX) {
         setState(() {
           _showQuitConfirm = false;
-          _overlayRow = 5;
+          _overlayRow = 4;
         });
         return KeyEventResult.handled;
       }
@@ -2079,7 +2107,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
         if (_quitConfirmSelection == 0) {
           setState(() {
             _showQuitConfirm = false;
-            _overlayRow = 5;
+            _overlayRow = 4;
           });
         } else {
           _executeQuit();
@@ -2102,7 +2130,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
         if (_quitConfirmSelection == 0) {
           setState(() {
             _showQuitConfirm = false;
-            _overlayRow = 5;
+            _overlayRow = 4;
           });
         } else {
           _executeQuit();
@@ -2115,7 +2143,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
     if (!_showSpecialKeys) {
       if (key == LogicalKeyboardKey.arrowDown) {
         setState(() {
-          _overlayRow = (_overlayRow + 1).clamp(0, 7);
+          _overlayRow = (_overlayRow + 1).clamp(0, 6);
           if (_overlayRow == 0) {
             _overlayCol = _overlayCol.clamp(0, 3);
           } else if (_overlayRow == 1) {
@@ -2129,7 +2157,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
       }
       if (key == LogicalKeyboardKey.arrowUp) {
         setState(() {
-          _overlayRow = (_overlayRow - 1).clamp(0, 7);
+          _overlayRow = (_overlayRow - 1).clamp(0, 6);
           if (_overlayRow == 0) {
             _overlayCol = _overlayCol.clamp(0, 3);
           } else if (_overlayRow == 1) {
@@ -2274,7 +2302,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
         if (_showQuitConfirm) {
           setState(() {
             _showQuitConfirm = false;
-            _overlayRow = 5;
+            _overlayRow = 4;
           });
           return;
         }
@@ -2361,7 +2389,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
                 onTap: () {
                   setState(() {
                     _showQuitConfirm = false;
-                    _overlayRow = 5;
+                    _overlayRow = 4;
                   });
                 },
               ),
@@ -2611,25 +2639,18 @@ class _GameStreamScreenState extends State<GameStreamScreen>
           focused: _overlayRow == 3,
         ),
         buildMenuTile(
-          _config.clientMic ? Icons.mic : Icons.mic_off,
-          _config.clientMic ? 'Mic Passthrough: ON' : 'Mic Passthrough: OFF',
-          () {
-            setState(() {
-              _config = _config.copyWith(clientMic: !_config.clientMic);
-            });
-            _reconnectWithNewConfig();
-          },
-          focused: _overlayRow == 4,
-        ),
-        buildMenuTile(
           Icons.logout_rounded,
           AppLocalizations.of(context).disconnect,
           () {
+            // Close the overlay first so native overlayVisible is reset to false.
+            // Otherwise it stays true through teardown and the NEXT session starts
+            // input-gated (dead gamepads) until the user toggles the overlay again.
+            _setOverlayVisible(false);
             _stopStreaming(clearActiveSession: false);
             Navigator.pop(context);
           },
           color: Colors.orangeAccent,
-          focused: _overlayRow == 5,
+          focused: _overlayRow == 4,
         ),
         buildMenuTile(
           Icons.power_settings_new,
@@ -2638,7 +2659,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
             _confirmQuit();
           },
           color: Colors.redAccent,
-          focused: _overlayRow == 6,
+          focused: _overlayRow == 5,
         ),
         const SizedBox(height: 4),
         buildMenuTile(
@@ -2647,7 +2668,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
           () {
             _setOverlayVisible(false);
           },
-          focused: _overlayRow == 7,
+          focused: _overlayRow == 6,
         ),
         Padding(
           padding: const EdgeInsets.only(top: 8),
@@ -2942,8 +2963,10 @@ class _GameStreamScreenState extends State<GameStreamScreen>
     }
     if (key == LogicalKeyboardKey.arrowUp) {
       if (favCount > 0) {
-        setState(() =>
-            _quickFavFocusIdx = (_quickFavFocusIdx - 1 + favCount) % favCount);
+        setState(
+          () =>
+              _quickFavFocusIdx = (_quickFavFocusIdx - 1 + favCount) % favCount,
+        );
       }
       return KeyEventResult.handled;
     }

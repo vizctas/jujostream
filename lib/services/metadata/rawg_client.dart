@@ -45,6 +45,31 @@ class RawgClient {
     if (brief == null) return null;
     return getGameDetail(brief.id, apiKey);
   }
+
+  /// Returns screenshot image URLs sorted by resolution (largest first).
+  Future<List<String>> getScreenshots(int id, String apiKey) async {
+    if (apiKey.isEmpty) return const [];
+    try {
+      final uri = Uri.parse('$_base/games/$id/screenshots')
+          .replace(queryParameters: {'key': apiKey, 'page_size': '10'});
+      final response = await http.get(uri).timeout(const Duration(seconds: 8));
+      if (response.statusCode != 200) return const [];
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      final results = data['results'] as List?;
+      if (results == null || results.isEmpty) return const [];
+      final screenshots = results.map((json) {
+        final j = json as Map<String, dynamic>;
+        final image = j['image'] as String?;
+        final width = (j['width'] as num?)?.toInt() ?? 0;
+        final height = (j['height'] as num?)?.toInt() ?? 0;
+        return (url: image, area: width * height);
+      }).where((s) => s.url != null && s.url!.isNotEmpty).toList();
+      screenshots.sort((a, b) => b.area.compareTo(a.area));
+      return screenshots.map((s) => s.url!).toList();
+    } catch (_) {
+      return const [];
+    }
+  }
 }
 
 class RawgGameBrief {

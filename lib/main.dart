@@ -33,6 +33,9 @@ import 'screens/pc_view/focus_mode_screen.dart';
 import 'screens/pc_view/pc_view_screen.dart';
 import 'widgets/tour_overlay.dart';
 import 'services/notifications/notification_service.dart';
+import 'services/notifications/notification_mirror_controller.dart';
+import 'services/notifications/notification_mirror_discovery_service.dart';
+import 'services/notifications/notification_mirror_platform.dart';
 import 'services/pro/pro_service.dart';
 import 'services/crash/crash_service.dart';
 import 'services/telemetry/beta_telemetry_service.dart';
@@ -93,7 +96,7 @@ void main() async {
   await TvDetector.instance.init();
   GamepadButtonHelper.instance.init();
   if (io.Platform.isWindows) {
-    GamepadChannel.init();           // wire MethodCallHandler before first frame
+    GamepadChannel.init(); // wire MethodCallHandler before first frame
     GamepadNavigationService.init(); // map onNavInput → Flutter focus traversal
   }
 
@@ -118,7 +121,16 @@ void main() async {
   final authProvider = AuthProvider();
   unawaited(authProvider.trySilentSignIn());
 
-  if (TvDetector.instance.isTV) {
+  final notificationMirrorController = NotificationMirrorController.instance;
+  await notificationMirrorController.load();
+  notificationMirrorController.attachPlatform(
+    NotificationMirrorPlatform.instance,
+  );
+
+  final computerProvider = ComputerProvider();
+
+  if (TvDetector.instance.isTV ||
+      notificationMirrorController.mode != NotificationMirrorMode.off) {
     unawaited(
       CompanionServer.instance.start(
         pluginsProvider,
@@ -126,14 +138,21 @@ void main() async {
         localeProvider: localeProvider,
         themeProvider: themeProvider,
         launcherPreferences: launcherPreferences,
+        computerProvider: computerProvider,
+        notificationMirror: notificationMirrorController,
       ),
     );
   }
+  unawaited(
+    NotificationMirrorDiscoveryService.instance.updateAdvertising(
+      notificationMirrorController,
+    ),
+  );
 
   runApp(
     MultiProvider(
       providers: [
-        ChangeNotifierProvider(create: (_) => ComputerProvider()),
+        ChangeNotifierProvider.value(value: computerProvider),
         ChangeNotifierProvider(create: (_) => AppListProvider(pluginsProvider)),
         ChangeNotifierProvider(create: (_) => CloudMfaProvider()),
         ChangeNotifierProvider.value(value: settingsProvider),
@@ -142,6 +161,7 @@ void main() async {
         ChangeNotifierProvider.value(value: pluginsProvider),
         ChangeNotifierProvider.value(value: themeProvider),
         ChangeNotifierProvider.value(value: authProvider),
+        ChangeNotifierProvider.value(value: notificationMirrorController),
         ChangeNotifierProvider(create: (_) => ProService()),
       ],
       child: const JujostreamApp(),
@@ -170,9 +190,7 @@ class JujostreamApp extends StatelessWidget {
       ],
       theme: themeProvider.buildThemeData(),
       home: const TourOverlay(child: _FirstRunGate()),
-      routes: {
-        '/auth': (context) => const CloudAuthScreen(),
-      },
+      routes: {'/auth': (context) => const CloudAuthScreen()},
     );
   }
 }

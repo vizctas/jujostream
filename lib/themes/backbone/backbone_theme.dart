@@ -443,14 +443,13 @@ class _BodyState extends State<_Body> {
                 widget.videoForAppId == bgApp?.appId &&
                 _view == _View.detail)
               Positioned.fill(child: widget.videoWidget!)
-            else if (bgApp?.posterUrl != null && bgApp!.posterUrl!.isNotEmpty)
+            else if ((bgApp?.rawgBackgroundUrl ?? bgApp?.posterUrl) != null)
               Positioned.fill(
                 child: AnimatedSwitcher(
                   duration: const Duration(milliseconds: 500),
                   child: PosterImage(
-                    key: ValueKey(bgApp.appId),
-                    url: bgApp.posterUrl!,
-                    cacheKey: bgApp.artCacheKey('poster'),
+                    key: ValueKey(bgApp!.appId),
+                    url: bgApp.rawgBackgroundUrl ?? bgApp.posterUrl!,
                     fit: BoxFit.cover,
                     width: double.infinity,
                     height: double.infinity,
@@ -752,7 +751,6 @@ class _BodyState extends State<_Body> {
                           if (a.posterUrl != null && a.posterUrl!.isNotEmpty)
                             PosterImage(
                               url: a.posterUrl!,
-                              cacheKey: a.artCacheKey('poster'),
                               fit: BoxFit.cover,
                               memCacheWidth: 340,
                               fadeInDuration: const Duration(milliseconds: 120),
@@ -948,7 +946,6 @@ class _BodyState extends State<_Body> {
                       child: s.posterUrl != null && s.posterUrl!.isNotEmpty
                           ? PosterImage(
                               url: s.posterUrl!,
-                              cacheKey: s.artCacheKey('poster'),
                               fit: BoxFit.cover,
                               memCacheWidth: 160,
                               errorWidget: (_, _, _) => Container(

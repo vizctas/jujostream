@@ -2,7 +2,7 @@ name: jujostream
 description: "JujoStream - GameStream client for Flutter (FORK from Moonlight/Artemis Android)"
 publish_to: 'none'
 
-version: 1.0.10+11
+version: 1.0.13+14
 
 environment:
   sdk: ^3.8.1
@@ -74,6 +74,9 @@ dependencies:
   googleapis: ^16.0.0
   googleapis_auth: ^2.3.1
 
+  # Bento / staggered grid layout for plugins screen
+  flutter_staggered_grid_view: ^0.7.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -110,6 +113,9 @@ flutter:
     - assets/images/UI/directional/
     - assets/sound/ambience/
     - assets/sound/ui/
+
+
+
 
 
 

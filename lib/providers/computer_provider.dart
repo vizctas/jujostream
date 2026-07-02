@@ -89,13 +89,22 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
   static const Duration _pollTimeout = Duration(seconds: 2);
   bool _appInForeground = true;
 
+  /// Whether a JUJO cloud account is currently signed in. Cloud-paired servers
+  /// must only be visible/enterable while signed in — on sign-out they are
+  /// hidden (not deleted) and restored on the next sign-in.
+  bool get _cloudSignedIn =>
+      Supabase.instance.client.auth.currentSession != null;
+
   List<ComputerDetails> get computers {
-    if (_customOrder.isEmpty) return List.unmodifiable(_computers);
+    final visible = _cloudSignedIn
+        ? _computers
+        : _computers.where((c) => !c.isCloud).toList();
+    if (_customOrder.isEmpty) return List.unmodifiable(visible);
     final orderMap = <String, int>{};
     for (var i = 0; i < _customOrder.length; i++) {
       orderMap[_customOrder[i]] = i;
     }
-    final sorted = List<ComputerDetails>.from(_computers);
+    final sorted = List<ComputerDetails>.from(visible);
     sorted.sort((a, b) {
       final keyA = _orderKey(a);
       final keyB = _orderKey(b);
@@ -119,7 +128,11 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
   ComputerDetails? get primaryServer {
     if (_primaryServerUuid == null) return null;
     try {
-      return _computers.firstWhere((c) => c.uuid == _primaryServerUuid);
+      final c = _computers.firstWhere((c) => c.uuid == _primaryServerUuid);
+      // Don't surface a cloud-paired primary while signed out — it must not be
+      // auto-connectable until the account signs back in.
+      if (c.isCloud && !_cloudSignedIn) return null;
+      return c;
     } catch (_) {
       return null;
     }
