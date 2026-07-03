@@ -358,7 +358,9 @@ class NvHttpClient {
       'gcmap': '0',
     };
     if (enableHdr) params['enableHdr'] = '1';
-    if (aspectRatio != null && aspectRatio.isNotEmpty) params['aspectRatio'] = aspectRatio;
+    // Only forward a concrete "W:H"; sentinels ("auto"/"off") are resolved or
+    // dropped client-side and must never reach the server (it validates W:H).
+    if (aspectRatio != null && aspectRatio.contains(':')) params['aspectRatio'] = aspectRatio;
     if (clientMic) params['clientMic'] = '1';
     if (videoPacingMode != null && videoPacingMode.isNotEmpty) params['videoPacingMode'] = videoPacingMode;
     if (videoPacingSlackMs != null) params['videoPacingSlackMs'] = videoPacingSlackMs.toString();
@@ -478,7 +480,9 @@ class NvHttpClient {
       'gcmap': '0',
     };
     if (enableHdr) params['enableHdr'] = '1';
-    if (aspectRatio != null && aspectRatio.isNotEmpty) params['aspectRatio'] = aspectRatio;
+    // Only forward a concrete "W:H"; sentinels ("auto"/"off") are resolved or
+    // dropped client-side and must never reach the server (it validates W:H).
+    if (aspectRatio != null && aspectRatio.contains(':')) params['aspectRatio'] = aspectRatio;
     if (clientMic) params['clientMic'] = '1';
     if (videoPacingMode != null && videoPacingMode.isNotEmpty) params['videoPacingMode'] = videoPacingMode;
     if (videoPacingSlackMs != null) params['videoPacingSlackMs'] = videoPacingSlackMs.toString();

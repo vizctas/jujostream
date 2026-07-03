@@ -137,6 +137,43 @@ class StreamConfiguration {
     return copyWith(width: displayWidth, height: displayHeight);
   }
 
+  /// Aspect-ratio sentinels stored in [aspectRatio]:
+  /// - [aspectRatioAuto]: adapt to the viewing device's display aspect at launch.
+  /// - [aspectRatioOff]: don't request an aspect (square pixels / server default).
+  /// - "W:H" (e.g. "16:9"): a fixed manual override.
+  static const String aspectRatioAuto = 'auto';
+  static const String aspectRatioOff = 'off';
+
+  bool get isAutoAspect => aspectRatio == aspectRatioAuto;
+
+  /// Resolves the "auto" sentinel to a concrete "W:H" from the device display
+  /// size. No-op for fixed ratios / "off". Always yields a ratio the server
+  /// accepts (positive ints, ratio clamped to [1/4, 4]).
+  StreamConfiguration resolveAspectRatio(int displayWidth, int displayHeight) {
+    if (!isAutoAspect || displayWidth <= 0 || displayHeight <= 0) return this;
+    return copyWith(aspectRatio: _reduceAspect(displayWidth, displayHeight));
+  }
+
+  static String _reduceAspect(int w, int h) {
+    int a = w, b = h;
+    while (b != 0) {
+      final t = b;
+      b = a % b;
+      a = t;
+    }
+    final g = a == 0 ? 1 : a;
+    var an = w ~/ g, ad = h ~/ g;
+    final r = an / ad;
+    if (r > 4) {
+      an = 4;
+      ad = 1;
+    } else if (r < 0.25) {
+      an = 1;
+      ad = 4;
+    }
+    return '$an:$ad';
+  }
+
   const StreamConfiguration({
     this.width = 0,
     this.height = 0,
@@ -218,7 +255,7 @@ class StreamConfiguration {
     this.forceSkiaRenderer = false,
     this.hostPresetOverrideEnabled = false,
     this.hostPresetOverrideId = '',
-    this.aspectRatio,
+    this.aspectRatio = 'auto',
     this.clientMic = true,
     this.videoPacingMode,
     this.videoPacingSlackMs,
@@ -606,7 +643,7 @@ class StreamConfiguration {
       forceSkiaRenderer: json['forceSkiaRenderer'] ?? false,
       hostPresetOverrideEnabled: json['hostPresetOverrideEnabled'] ?? false,
       hostPresetOverrideId: json['hostPresetOverrideId'] ?? '',
-      aspectRatio: json['aspectRatio'] as String?,
+      aspectRatio: json['aspectRatio'] as String? ?? 'auto',
       clientMic: json['clientMic'] ?? true,
       videoPacingMode: json['videoPacingMode'] as String?,
       videoPacingSlackMs: json['videoPacingSlackMs'] as int?,

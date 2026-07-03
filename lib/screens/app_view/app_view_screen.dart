@@ -2482,8 +2482,9 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
     if (!mounted) return;
     var effectiveConfig = profile.resolve(baseConfig);
 
-    // Resolve "Match display" sentinel (0×0) to actual physical pixels.
-    if (effectiveConfig.isMatchDisplay) {
+    // Device physical pixels — resolve "Match display" resolution and the "auto"
+    // aspect ratio; both adapt to the device we're actually viewing on.
+    if (effectiveConfig.isMatchDisplay || effectiveConfig.isAutoAspect) {
       final mq = MediaQuery.of(context);
       final dpr = mq.devicePixelRatio;
       var displayWidth = (mq.size.width * dpr).round();
@@ -2499,10 +2500,9 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
         }
       }
 
-      effectiveConfig = effectiveConfig.resolveMatchDisplay(
-        displayWidth,
-        displayHeight,
-      );
+      effectiveConfig = effectiveConfig
+          .resolveMatchDisplay(displayWidth, displayHeight)
+          .resolveAspectRatio(displayWidth, displayHeight);
     }
 
     var startingOverlayVisible = false;

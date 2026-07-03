@@ -491,6 +491,12 @@ class _SettingsScreenState extends State<SettingsScreen>
                           ),
                           _choiceTile(
                             context,
+                            _tr(context, 'Aspect Ratio', 'Relación de aspecto'),
+                            _aspectLabel(context, c.aspectRatio),
+                            () => _pickAspectRatio(context, settings, c),
+                          ),
+                          _choiceTile(
+                            context,
                             _tr(
                               context,
                               'Frame Pacing',
@@ -2878,6 +2884,40 @@ class _SettingsScreenState extends State<SettingsScreen>
         _tr(ctx, 'Stretch', 'Estirar'),
         () => s.setScaleMode(VideoScaleMode.stretch),
       ),
+    ]);
+  }
+
+  String _aspectLabel(BuildContext ctx, String? ratio) {
+    if (ratio == null || ratio == StreamConfiguration.aspectRatioAuto) {
+      return _tr(ctx, 'Auto (device)', 'Auto (dispositivo)');
+    }
+    if (ratio == StreamConfiguration.aspectRatioOff) {
+      return _tr(ctx, 'Off (square)', 'Desactivado (cuadrado)');
+    }
+    return ratio;
+  }
+
+  void _pickAspectRatio(
+    BuildContext ctx,
+    SettingsProvider s,
+    StreamConfiguration c,
+  ) {
+    void set(String v) => s.updateConfig(c.copyWith(aspectRatio: v));
+    _showPicker(ctx, _tr(ctx, 'Aspect Ratio', 'Relación de aspecto'), [
+      (
+        _tr(ctx, 'Auto (device)', 'Auto (dispositivo)'),
+        () => set(StreamConfiguration.aspectRatioAuto),
+      ),
+      (
+        _tr(ctx, 'Off (square)', 'Desactivado (cuadrado)'),
+        () => set(StreamConfiguration.aspectRatioOff),
+      ),
+      ('16:9', () => set('16:9')),
+      ('21:9', () => set('21:9')),
+      ('16:10', () => set('16:10')),
+      ('4:3', () => set('4:3')),
+      ('3:2', () => set('3:2')),
+      ('32:9', () => set('32:9')),
     ]);
   }
 
