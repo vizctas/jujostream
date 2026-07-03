@@ -240,6 +240,9 @@ class GamepadHandler(
     private var sensorManager: SensorManager? = null
     private var motionReportRateHz: Int = 0
     private var motionControllerNumber: Int = 0
+    // The SensorManager we actually registered on (controller's per-device one, or
+    // the phone's global one as fallback). Tracked so we unregister from the right one.
+    private var activeMotionSensorManager: SensorManager? = null
 
     init {
         instance = this
@@ -1554,22 +1557,46 @@ class GamepadHandler(
     }
 
     private fun startMotionSensors(motionType: Int, rateHz: Int) {
-        val sm = sensorManager ?: return
+        stopMotionSensors()  // drop any previous registration first
         val delayUs = if (rateHz > 0) 1_000_000 / rateHz else SensorManager.SENSOR_DELAY_GAME
 
+        // Prefer the CONTROLLER's own motion sensors (DualSense/DS4 gyro/accel via
+        // InputDevice.getSensorManager, API 31+) so gyro aiming follows the controller,
+        // not the phone. Falls back to the phone IMU only when the user allows it.
+        var sm: SensorManager? = null
+        var source = "none"
+        if (motionSensorsEnabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val deviceId = deviceSlots.entries.firstOrNull { it.value == motionControllerNumber }?.key
+            val devSm = deviceId?.let { InputDevice.getDevice(it)?.sensorManager }
+            if (devSm != null &&
+                (devSm.getDefaultSensor(Sensor.TYPE_GYROSCOPE) != null ||
+                    devSm.getDefaultSensor(Sensor.TYPE_ACCELEROMETER) != null)) {
+                sm = devSm
+                source = "controller"
+            }
+        }
+        if (sm == null && motionFallbackEnabled) {
+            sm = sensorManager
+            source = "phone"
+        }
+        if (sm == null) {
+            Log.i(TAG, "Motion sensors: no source (controller has none, phone fallback off)")
+            return
+        }
+
         if (motionType == 0x01 || motionType == 0x03) {
-            val accel = sm.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
-            if (accel != null) sm.registerListener(this, accel, delayUs)
+            sm.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)?.let { sm.registerListener(this, it, delayUs) }
         }
         if (motionType == 0x02 || motionType == 0x03) {
-            val gyro = sm.getDefaultSensor(Sensor.TYPE_GYROSCOPE)
-            if (gyro != null) sm.registerListener(this, gyro, delayUs)
+            sm.getDefaultSensor(Sensor.TYPE_GYROSCOPE)?.let { sm.registerListener(this, it, delayUs) }
         }
-        Log.i(TAG, "Motion sensors started: type=$motionType, rate=${rateHz}Hz")
+        activeMotionSensorManager = sm
+        Log.i(TAG, "Motion sensors started: type=$motionType, rate=${rateHz}Hz, source=$source")
     }
 
     private fun stopMotionSensors() {
-        sensorManager?.unregisterListener(this)
+        activeMotionSensorManager?.unregisterListener(this)
+        activeMotionSensorManager = null
         Log.i(TAG, "Motion sensors stopped")
     }
 
