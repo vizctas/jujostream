@@ -379,11 +379,30 @@ Java_com_limelight_jujostream_native_1bridge_StreamingBridge_nativeSendControlle
     LiSendControllerMotionEvent((uint8_t)controllerNumber, (uint8_t)motionType, x, y, z);
 }
 
+// Client microphone passthrough (Oboe capture -> Opus -> LiSendMicPacket).
+extern int MicCapturer_Start(void);
+extern void MicCapturer_Stop(void);
+
 JNIEXPORT void JNICALL
 Java_com_limelight_jujostream_native_1bridge_StreamingBridge_nativeStopConnection(
         JNIEnv* env, jclass clazz) {
     LOGI("Stopping connection");
+    MicCapturer_Stop();  // safety net in case the app didn't stop it explicitly
     LiStopConnection();
+}
+
+JNIEXPORT jint JNICALL
+Java_com_limelight_jujostream_native_1bridge_StreamingBridge_nativeStartMicCapture(
+        JNIEnv* env, jclass clazz) {
+    LOGI("Starting mic capture");
+    return MicCapturer_Start();
+}
+
+JNIEXPORT void JNICALL
+Java_com_limelight_jujostream_native_1bridge_StreamingBridge_nativeStopMicCapture(
+        JNIEnv* env, jclass clazz) {
+    LOGI("Stopping mic capture");
+    MicCapturer_Stop();
 }
 
 JNIEXPORT void JNICALL

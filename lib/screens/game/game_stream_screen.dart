@@ -485,6 +485,13 @@ class _GameStreamScreenState extends State<GameStreamScreen>
 
         _isReconnecting = false;
 
+        // Client mic passthrough: start best-effort if enabled. Native handles the
+        // RECORD_AUDIO permission prompt and no-ops on hosts without the extension.
+        // Stopped in _stopStream() and stopStream() on teardown.
+        if (cfg.clientMic) {
+          StreamingPlatformChannel.startMicCapture();
+        }
+
         // always redetect so the controller is picked up on initial entry AND reconnects
         GamepadChannel.redetectControllers();
         WidgetsBinding.instance.addPostFrameCallback((_) {

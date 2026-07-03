@@ -110,8 +110,9 @@ class StreamConfiguration {
   final String? aspectRatio;
 
   /// Enable client microphone passthrough to the host.
-  /// This is sent to the server but is only effective in WebRTC mode;
-  /// RTSP sessions do not support microphone passthrough.
+  /// Sent to the server on launch; on Android the mic is captured natively,
+  /// Opus-encoded and tunnelled over the control channel to a host virtual
+  /// mic (classic protocol). Requires a Jujo/Sunshine host with the extension.
   final bool clientMic;
 
   /// Video pacing mode requested by the client.

@@ -64,6 +64,10 @@ object StreamingBridge {
     )
     @JvmStatic external fun nativeStopConnection()
     @JvmStatic external fun nativeInterruptConnection()
+
+    // Client microphone passthrough (Oboe capture -> Opus -> control channel).
+    @JvmStatic external fun nativeStartMicCapture(): Int
+    @JvmStatic external fun nativeStopMicCapture()
     @JvmStatic external fun nativeGetPendingVideoFrames(): Int
     @JvmStatic external fun nativeGetPendingAudioDuration(): Int
     @JvmStatic external fun nativeGetStageName(stage: Int): String

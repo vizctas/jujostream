@@ -128,6 +128,31 @@ class StreamingPlatformChannel {
     }
   }
 
+  /// Start capturing the local microphone and tunnelling it to the host.
+  /// Caller must ensure RECORD_AUDIO permission is granted first. No-op on
+  /// hosts that don't support the extension (native side returns < 0).
+  static Future<bool> startMicCapture() async {
+    try {
+      final result = await _channel.invokeMethod<int>('startMicCapture');
+      return (result ?? -1) >= 0;
+    } on PlatformException catch (e) {
+      _log.e('Failed to start mic capture: ${e.message}');
+      return false;
+    } on MissingPluginException {
+      return false; // not implemented on this platform yet
+    }
+  }
+
+  static Future<void> stopMicCapture() async {
+    try {
+      await _channel.invokeMethod('stopMicCapture');
+    } on PlatformException catch (e) {
+      _log.e('Failed to stop mic capture: ${e.message}');
+    } on MissingPluginException {
+      // not implemented on this platform yet
+    }
+  }
+
   static Future<bool> enterPiP() async {
     try {
       final result = await _channel.invokeMethod<bool>('enterPiP');

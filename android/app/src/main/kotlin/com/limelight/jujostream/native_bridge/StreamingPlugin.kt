@@ -1,10 +1,13 @@
 package com.limelight.jujostream.native_bridge
 
+import android.Manifest
 import android.app.Activity
 import android.app.ActivityManager
 import android.app.PictureInPictureParams
 import android.content.Context
 import android.content.pm.PackageManager
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -30,6 +33,7 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
         private const val TAG = "StreamingPlugin"
         private const val METHOD_CHANNEL = "com.limelight.jujostream/streaming"
         private const val EVENT_CHANNEL = "com.limelight.jujostream/streaming_stats"
+        private const val REQ_RECORD_AUDIO = 4201
 
         @Volatile var isStreamingActive = false
 
@@ -161,6 +165,11 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
             "getStats" -> handleGetStats(result)
             "probeCodec" -> handleProbeCodec(call, result)
             "isDirectSubmitActive" -> result.success(directSubmitActive)
+            "startMicCapture" -> handleStartMicCapture(result)
+            "stopMicCapture" -> {
+                StreamingBridge.nativeStopMicCapture()
+                result.success(null)
+            }
             else -> result.notImplemented()
         }
     }
@@ -483,6 +492,32 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
 
         cleanup()
         result.success(null)
+    }
+
+    // Starts native mic capture if RECORD_AUDIO is granted. If not, requests it
+    // (fire-and-forget) and returns -1; capture will succeed on the next attempt
+    // once the user grants it. Keeps mic best-effort without blocking the stream.
+    private fun handleStartMicCapture(result: MethodChannel.Result) {
+        val act = activity
+        if (act == null) {
+            result.success(-1)
+            return
+        }
+
+        val granted = ContextCompat.checkSelfPermission(
+            act, Manifest.permission.RECORD_AUDIO
+        ) == PackageManager.PERMISSION_GRANTED
+
+        if (!granted) {
+            ActivityCompat.requestPermissions(
+                act, arrayOf(Manifest.permission.RECORD_AUDIO), REQ_RECORD_AUDIO
+            )
+            Log.i(TAG, "Mic capture deferred: RECORD_AUDIO not yet granted")
+            result.success(-1)
+            return
+        }
+
+        result.success(StreamingBridge.nativeStartMicCapture())
     }
 
     private fun handleEnterPiP(result: MethodChannel.Result) {

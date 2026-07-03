@@ -60,6 +60,7 @@ set(BRIDGE_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/bridge/moonlight_bridge.c
     ${CMAKE_CURRENT_SOURCE_DIR}/bridge/callbacks.c
     ${CMAKE_CURRENT_SOURCE_DIR}/bridge/OboeAudioRenderer.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/bridge/OboeMicCapturer.cpp
 )
 
 # ============================================================================
