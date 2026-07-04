@@ -739,22 +739,6 @@ class _SettingsScreenState extends State<SettingsScreen>
                           _toggle(
                             _tr(
                               context,
-                              'Absolute Mouse Mode',
-                              'Modo de ratón absoluto',
-                            ),
-                            _tr(
-                              context,
-                              'Direct cursor positioning (pen/stylus) rather than relative drag',
-                              'Posicionamiento directo del cursor (lápiz/stylus) en lugar de arrastre relativo',
-                            ),
-                            c.absoluteMouseMode,
-                            (v) => settings.updateConfig(
-                              c.copyWith(absoluteMouseMode: v),
-                            ),
-                          ),
-                          _toggle(
-                            _tr(
-                              context,
                               'Multi-Touch Gestures',
                               'Gestos multitáctiles',
                             ),

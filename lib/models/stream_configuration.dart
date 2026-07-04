@@ -23,7 +23,6 @@ class StreamConfiguration {
   final bool gamepadMouseEmulation;
   final bool mouseLocalCursor;
   final bool multiTouchGestures;
-  final bool absoluteMouseMode;
   final int trackpadSensitivityX;
   final int trackpadSensitivityY;
 
@@ -194,7 +193,6 @@ class StreamConfiguration {
     this.gamepadMouseEmulation = true,
     this.mouseLocalCursor = false,
     this.multiTouchGestures = false,
-    this.absoluteMouseMode = false,
     this.trackpadSensitivityX = 100,
     this.trackpadSensitivityY = 100,
     this.forceQwertyLayout = true,
@@ -282,7 +280,6 @@ class StreamConfiguration {
     bool? gamepadMouseEmulation,
     bool? mouseLocalCursor,
     bool? multiTouchGestures,
-    bool? absoluteMouseMode,
     int? trackpadSensitivityX,
     int? trackpadSensitivityY,
     bool? forceQwertyLayout,
@@ -370,7 +367,6 @@ class StreamConfiguration {
           gamepadMouseEmulation ?? this.gamepadMouseEmulation,
       mouseLocalCursor: mouseLocalCursor ?? this.mouseLocalCursor,
       multiTouchGestures: multiTouchGestures ?? this.multiTouchGestures,
-      absoluteMouseMode: absoluteMouseMode ?? this.absoluteMouseMode,
       trackpadSensitivityX: trackpadSensitivityX ?? this.trackpadSensitivityX,
       trackpadSensitivityY: trackpadSensitivityY ?? this.trackpadSensitivityY,
       forceQwertyLayout: forceQwertyLayout ?? this.forceQwertyLayout,
@@ -467,7 +463,6 @@ class StreamConfiguration {
     'gamepadMouseEmulation': gamepadMouseEmulation,
     'mouseLocalCursor': mouseLocalCursor,
     'multiTouchGestures': multiTouchGestures,
-    'absoluteMouseMode': absoluteMouseMode,
     'trackpadSensitivityX': trackpadSensitivityX,
     'trackpadSensitivityY': trackpadSensitivityY,
     'forceQwertyLayout': forceQwertyLayout,
@@ -573,7 +568,6 @@ class StreamConfiguration {
       gamepadMouseEmulation: json['gamepadMouseEmulation'] ?? true,
       mouseLocalCursor: json['mouseLocalCursor'] ?? false,
       multiTouchGestures: json['multiTouchGestures'] ?? false,
-      absoluteMouseMode: json['absoluteMouseMode'] ?? false,
       trackpadSensitivityX: json['trackpadSensitivityX'] ?? 100,
       trackpadSensitivityY: json['trackpadSensitivityY'] ?? 100,
       forceQwertyLayout: json['forceQwertyLayout'] ?? true,
