@@ -62,6 +62,9 @@ object StreamingBridge {
         controllerNumber: Short, motionType: Byte,
         x: Float, y: Float, z: Float
     )
+    @JvmStatic external fun nativeSendControllerBattery(
+        controllerNumber: Short, batteryState: Byte, batteryPercentage: Byte
+    )
     @JvmStatic external fun nativeStopConnection()
     @JvmStatic external fun nativeInterruptConnection()
 

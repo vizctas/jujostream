@@ -5,6 +5,7 @@ import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
+import android.os.BatteryManager
 import android.hardware.input.InputManager
 import android.os.Build
 import android.os.Handler
@@ -83,6 +84,14 @@ class GamepadHandler(
         private const val LI_CCAP_ACCEL: Int = 0x10
         private const val LI_CCAP_GYRO: Int = 0x20
         private const val LI_CCAP_RGB_LED: Int = 0x80
+        private const val LI_CCAP_BATTERY_STATE: Int = 0x40
+        // moonlight battery state codes (Limelight.h)
+        private const val LI_BATTERY_STATE_UNKNOWN: Int = 0x00
+        private const val LI_BATTERY_STATE_DISCHARGING: Int = 0x02
+        private const val LI_BATTERY_STATE_CHARGING: Int = 0x03
+        private const val LI_BATTERY_STATE_NOT_CHARGING: Int = 0x04
+        private const val LI_BATTERY_STATE_FULL: Int = 0x05
+        private const val LI_BATTERY_PERCENTAGE_UNKNOWN: Int = 0xFF
 
         private const val DRIVER_AUTO = 0
         private const val DRIVER_XBOX360 = 1
@@ -1726,7 +1735,34 @@ class GamepadHandler(
                 caps = caps or LI_CCAP_ACCEL or LI_CCAP_GYRO or LI_CCAP_RGB_LED
             }
         }
+        if (readBatteryState(dev) != null) caps = caps or LI_CCAP_BATTERY_STATE
         return caps.toShort()
+    }
+
+    /**
+     * Reads the controller's OWN battery (InputDevice.getBatteryState, API 34+),
+     * mapped to moonlight's (state, percentage). Null if absent/unsupported —
+     * e.g. wired pads or Android < 14 (older TV boxes report no controller battery).
+     */
+    private fun readBatteryState(dev: InputDevice): Pair<Int, Int>? {
+        if (android.os.Build.VERSION.SDK_INT < 34) return null
+        return try {
+            val bs = dev.batteryState
+            if (bs == null || !bs.isPresent) return null
+            val cap = bs.capacity
+            val pct = if (cap.isNaN()) LI_BATTERY_PERCENTAGE_UNKNOWN
+                else (cap * 100f).toInt().coerceIn(0, 100)
+            val liState = when (bs.status) {
+                BatteryManager.BATTERY_STATUS_CHARGING -> LI_BATTERY_STATE_CHARGING
+                BatteryManager.BATTERY_STATUS_DISCHARGING -> LI_BATTERY_STATE_DISCHARGING
+                BatteryManager.BATTERY_STATUS_NOT_CHARGING -> LI_BATTERY_STATE_NOT_CHARGING
+                BatteryManager.BATTERY_STATUS_FULL -> LI_BATTERY_STATE_FULL
+                else -> LI_BATTERY_STATE_UNKNOWN
+            }
+            Pair(liState, pct)
+        } catch (_: Exception) {
+            null
+        }
     }
 
     private fun sendNativeControllerArrival(deviceId: Int, slot: Int, state: ControllerState) {
@@ -1741,6 +1777,10 @@ class GamepadHandler(
         Log.i(TAG, "ARRIVAL: slot=$slot mask=0x${mask.toInt().toString(16)} " +
             "type=$type caps=0x${capabilities.toInt().toString(16)} " +
             "btnFlags=0x${state.supportedButtonFlags.toString(16)} rc=$rc")
+        // Report the controller's battery so the host's emulated pad shows real charge.
+        readBatteryState(dev)?.let { (st, pct) ->
+            StreamingBridge.nativeSendControllerBattery(slot.toShort(), st.toByte(), pct.toByte())
+        }
     }
 
     private fun toHostButtonFlags(state: ControllerState): Int {
