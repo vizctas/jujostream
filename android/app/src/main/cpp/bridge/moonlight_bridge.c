@@ -379,6 +379,13 @@ Java_com_limelight_jujostream_native_1bridge_StreamingBridge_nativeSendControlle
     LiSendControllerMotionEvent((uint8_t)controllerNumber, (uint8_t)motionType, x, y, z);
 }
 
+JNIEXPORT void JNICALL
+Java_com_limelight_jujostream_native_1bridge_StreamingBridge_nativeSendControllerBattery(
+        JNIEnv* env, jclass clazz,
+        jshort controllerNumber, jbyte batteryState, jbyte batteryPercentage) {
+    LiSendControllerBatteryEvent((uint8_t)controllerNumber, (uint8_t)batteryState, (uint8_t)batteryPercentage);
+}
+
 // Client microphone passthrough (Oboe capture -> Opus -> LiSendMicPacket).
 extern int MicCapturer_Start(void);
 extern void MicCapturer_Stop(void);
