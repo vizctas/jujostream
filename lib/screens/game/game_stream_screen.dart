@@ -689,6 +689,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
     final remapTable = _resolveButtonRemap(
       cfg.buttonRemapProfile,
       cfg.customRemapTable,
+      cfg.flipFaceButtons,
     );
     await GamepadChannel.setButtonRemap(remapTable);
     await GamepadChannel.setMouseEmulationSpeed(cfg.gamepadMouseSpeed);
@@ -706,7 +707,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
       cfg.quickFavHoldMs,
     );
 
-    if (!cfg.mouseEmulation || !_gamepadMouseActive) {
+    if (!cfg.mouseEmulation || !cfg.gamepadMouseEmulation || !_gamepadMouseActive) {
       await GamepadChannel.setMouseEmulation(false);
     } else {
       await GamepadChannel.setMouseEmulation(true);
@@ -733,8 +734,9 @@ class _GameStreamScreenState extends State<GameStreamScreen>
   static Map<int, int>? _resolveButtonRemap(
     ButtonRemapProfile profile, [
     Map<int, int>? customTable,
+    bool flipFaceButtons = false,
   ]) {
-    return switch (profile) {
+    final base = switch (profile) {
       ButtonRemapProfile.none => null,
       ButtonRemapProfile.nintendo => {
         _btnA: _btnB,
@@ -751,6 +753,17 @@ class _GameStreamScreenState extends State<GameStreamScreen>
       ButtonRemapProfile.custom =>
         customTable?.isNotEmpty == true ? customTable : null,
     };
+    if (!flipFaceButtons) return base;
+
+    // Compose an A↔B / X↔Y face swap with the profile: flip each mapping's
+    // output that lands on a face button, then add face entries the profile
+    // doesn't already remap. (nintendo + flip cancels out to identity, as
+    // expected — two swaps.)
+    const faceSwap = {_btnA: _btnB, _btnB: _btnA, _btnX: _btnY, _btnY: _btnX};
+    final merged = <int, int>{};
+    base?.forEach((k, v) => merged[k] = faceSwap[v] ?? v);
+    faceSwap.forEach((k, v) => merged.putIfAbsent(k, () => v));
+    return merged;
   }
 
   void _listenToStats() {
