@@ -10,6 +10,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../l10n/app_localizations.dart';
+import '../../platform_channels/streaming_channel.dart';
 import '../../services/audio/ui_sound_service.dart';
 import '../../services/companion/companion_server.dart';
 import '../../models/notification_mirror_pairing.dart';
@@ -628,8 +629,14 @@ class _SettingsScreenState extends State<SettingsScreen>
                               'Pasa el audio del micrófono del cliente al dispositivo virtual en el servidor',
                             ),
                             c.clientMic,
-                            (v) =>
-                                settings.updateConfig(c.copyWith(clientMic: v)),
+                            (v) {
+                              settings.updateConfig(c.copyWith(clientMic: v));
+                              // Request RECORD_AUDIO here (not at stream start,
+                              // where the prompt breaks the stream).
+                              if (v) {
+                                StreamingPlatformChannel.requestMicPermission();
+                              }
+                            },
                           ),
                           _buildKofiSection(context),
                         ],
