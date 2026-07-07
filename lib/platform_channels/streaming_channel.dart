@@ -143,6 +143,19 @@ class StreamingPlatformChannel {
     }
   }
 
+  /// Requests RECORD_AUDIO (shows the system prompt). Call when the user enables
+  /// the Microphone Passthrough setting — never during streaming, where a prompt
+  /// interrupts and breaks the stream.
+  static Future<void> requestMicPermission() async {
+    try {
+      await _channel.invokeMethod('requestMicPermission');
+    } on PlatformException catch (e) {
+      _log.e('Failed to request mic permission: ${e.message}');
+    } on MissingPluginException {
+      // not implemented on this platform yet
+    }
+  }
+
   static Future<void> stopMicCapture() async {
     try {
       await _channel.invokeMethod('stopMicCapture');

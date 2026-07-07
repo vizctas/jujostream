@@ -166,6 +166,7 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
             "probeCodec" -> handleProbeCodec(call, result)
             "isDirectSubmitActive" -> result.success(directSubmitActive)
             "startMicCapture" -> handleStartMicCapture(result)
+            "requestMicPermission" -> handleRequestMicPermission(result)
             "stopMicCapture" -> {
                 StreamingBridge.nativeStopMicCapture()
                 result.success(null)
@@ -509,15 +510,35 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
         ) == PackageManager.PERMISSION_GRANTED
 
         if (!granted) {
-            ActivityCompat.requestPermissions(
-                act, arrayOf(Manifest.permission.RECORD_AUDIO), REQ_RECORD_AUDIO
-            )
-            Log.i(TAG, "Mic capture deferred: RECORD_AUDIO not yet granted")
+            // Do NOT prompt here — a permission dialog mid-stream-start interrupts
+            // and breaks the stream (notably on Android TV). RECORD_AUDIO is requested
+            // when the user enables the Microphone Passthrough setting instead.
+            Log.i(TAG, "Mic capture skipped: RECORD_AUDIO not granted (enable in Settings)")
             result.success(-1)
             return
         }
 
         result.success(StreamingBridge.nativeStartMicCapture())
+    }
+
+    // Requests RECORD_AUDIO (shows the system prompt). Called from the Settings
+    // mic toggle when the user enables it — never during streaming. Returns whether
+    // it was already granted.
+    private fun handleRequestMicPermission(result: MethodChannel.Result) {
+        val act = activity
+        if (act == null) {
+            result.success(false)
+            return
+        }
+        val granted = ContextCompat.checkSelfPermission(
+            act, Manifest.permission.RECORD_AUDIO
+        ) == PackageManager.PERMISSION_GRANTED
+        if (!granted) {
+            ActivityCompat.requestPermissions(
+                act, arrayOf(Manifest.permission.RECORD_AUDIO), REQ_RECORD_AUDIO
+            )
+        }
+        result.success(granted)
     }
 
     private fun handleEnterPiP(result: MethodChannel.Result) {
