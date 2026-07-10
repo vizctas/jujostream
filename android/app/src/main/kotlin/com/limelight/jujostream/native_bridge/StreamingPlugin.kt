@@ -19,15 +19,21 @@ import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
+import io.flutter.plugin.common.PluginRegistry
 import java.util.concurrent.atomic.AtomicBoolean
 import io.flutter.view.TextureRegistry
 import java.util.Timer
 import java.util.TimerTask
 
 class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
-    EventChannel.StreamHandler, StreamingListener, ActivityAware {
+    EventChannel.StreamHandler, StreamingListener, ActivityAware,
+    PluginRegistry.RequestPermissionsResultListener {
 
     private var activity: Activity? = null
+    private var activityBinding: ActivityPluginBinding? = null
+    // Held while a mic-permission prompt is pending, so onRequestPermissionsResult
+    // can complete the Dart Future with the REAL grant/deny outcome.
+    private var pendingMicPermResult: MethodChannel.Result? = null
 
     companion object {
         private const val TAG = "StreamingPlugin"
@@ -132,18 +138,39 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
 
     override fun onAttachedToActivity(binding: ActivityPluginBinding) {
         activity = binding.activity
+        activityBinding = binding
+        binding.addRequestPermissionsResultListener(this)
     }
 
     override fun onDetachedFromActivityForConfigChanges() {
+        activityBinding?.removeRequestPermissionsResultListener(this)
+        activityBinding = null
         activity = null
     }
 
     override fun onReattachedToActivityForConfigChanges(binding: ActivityPluginBinding) {
         activity = binding.activity
+        activityBinding = binding
+        binding.addRequestPermissionsResultListener(this)
     }
 
     override fun onDetachedFromActivity() {
+        activityBinding?.removeRequestPermissionsResultListener(this)
+        activityBinding = null
         activity = null
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ): Boolean {
+        if (requestCode != REQ_RECORD_AUDIO) return false
+        val granted = grantResults.isNotEmpty() &&
+            grantResults[0] == PackageManager.PERMISSION_GRANTED
+        pendingMicPermResult?.success(granted)
+        pendingMicPermResult = null
+        return true
     }
 
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
@@ -533,12 +560,16 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
         val granted = ContextCompat.checkSelfPermission(
             act, Manifest.permission.RECORD_AUDIO
         ) == PackageManager.PERMISSION_GRANTED
-        if (!granted) {
-            ActivityCompat.requestPermissions(
-                act, arrayOf(Manifest.permission.RECORD_AUDIO), REQ_RECORD_AUDIO
-            )
+        if (granted) {
+            result.success(true)
+            return
         }
-        result.success(granted)
+        // Complete the Dart Future with the REAL grant/deny in onRequestPermissionsResult.
+        pendingMicPermResult?.success(false)  // release any stale pending prompt
+        pendingMicPermResult = result
+        ActivityCompat.requestPermissions(
+            act, arrayOf(Manifest.permission.RECORD_AUDIO), REQ_RECORD_AUDIO
+        )
     }
 
     private fun handleEnterPiP(result: MethodChannel.Result) {

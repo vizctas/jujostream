@@ -629,12 +629,32 @@ class _SettingsScreenState extends State<SettingsScreen>
                               'Pasa el audio del micrófono del cliente al dispositivo virtual en el servidor',
                             ),
                             c.clientMic,
-                            (v) {
+                            (v) async {
                               settings.updateConfig(c.copyWith(clientMic: v));
                               // Request RECORD_AUDIO here (not at stream start,
-                              // where the prompt breaks the stream).
+                              // where the prompt breaks the stream). If the user
+                              // denies, revert the toggle so it doesn't lie.
                               if (v) {
-                                StreamingPlatformChannel.requestMicPermission();
+                                final granted = await StreamingPlatformChannel
+                                    .requestMicPermission();
+                                if (!granted && context.mounted) {
+                                  settings.updateConfig(
+                                    c.copyWith(clientMic: false),
+                                  );
+                                  ScaffoldMessenger.maybeOf(
+                                    context,
+                                  )?.showSnackBar(
+                                    SnackBar(
+                                      content: Text(
+                                        _tr(
+                                          context,
+                                          'Microphone permission denied — passthrough stays off',
+                                          'Permiso de micrófono denegado — el passthrough queda apagado',
+                                        ),
+                                      ),
+                                    ),
+                                  );
+                                }
                               }
                             },
                           ),
