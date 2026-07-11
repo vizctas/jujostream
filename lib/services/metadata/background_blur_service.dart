@@ -11,7 +11,7 @@ class BackgroundBlurService {
 
   final Map<String, ui.Image> _cache = {};
 
-  final Set<String> _pending = {};
+  final Map<String, Future<ui.Image?>> _inFlight = {};
 
   static const int _maxCacheSize = 30;
 
@@ -22,19 +22,14 @@ class BackgroundBlurService {
   ui.Image? getCached(String url) => _cache[url];
 
   bool isAvailable(String url) => _cache.containsKey(url);
-  bool isPending(String url) => _pending.contains(url);
+  bool isPending(String url) => _inFlight.containsKey(url);
 
-  Future<ui.Image?> preBlur(String url) async {
-    if (_cache.containsKey(url)) return _cache[url];
-    if (_pending.contains(url)) {
+  Future<ui.Image?> preBlur(String url) {
+    if (_cache.containsKey(url)) return Future.value(_cache[url]);
+    return _inFlight.putIfAbsent(url, () => _processAndCache(url));
+  }
 
-      while (_pending.contains(url)) {
-        await Future.delayed(const Duration(milliseconds: 50));
-      }
-      return _cache[url];
-    }
-
-    _pending.add(url);
+  Future<ui.Image?> _processAndCache(String url) async {
     try {
       final image = await _processBlur(url);
       if (image != null) {
@@ -43,18 +38,17 @@ class BackgroundBlurService {
       }
       return image;
     } finally {
-      _pending.remove(url);
+      _inFlight.remove(url);
     }
   }
 
   void preBlurAsync(String url) {
-    if (_cache.containsKey(url) || _pending.contains(url)) return;
+    if (_cache.containsKey(url) || _inFlight.containsKey(url)) return;
     unawaited(preBlur(url));
   }
 
   Future<ui.Image?> _processBlur(String url) async {
     try {
-
       final provider = CachedNetworkImageProvider(url, maxWidth: _targetWidth);
       final completer = Completer<ImageInfo>();
       final stream = provider.resolve(ImageConfiguration.empty);
@@ -96,7 +90,12 @@ class BackgroundBlurService {
       canvas.drawImageRect(
         srcImage,
         ui.Rect.fromLTWH(0, 0, srcWidth.toDouble(), srcHeight.toDouble()),
-        ui.Rect.fromLTWH(0, 0, _targetWidth.toDouble(), targetHeight.toDouble()),
+        ui.Rect.fromLTWH(
+          0,
+          0,
+          _targetWidth.toDouble(),
+          targetHeight.toDouble(),
+        ),
         paint,
       );
 
@@ -105,7 +104,7 @@ class BackgroundBlurService {
 
       return blurredImage;
     } catch (e) {
-      debugPrint('[JUJO][blur] pre-blur failed for $url: $e');
+      debugPrint('[JUJO][blur] pre-blur failed: $e');
       return null;
     }
   }

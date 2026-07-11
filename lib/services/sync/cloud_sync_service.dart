@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io' show Platform, HttpClient;
+import 'dart:io' show Platform;
 
 import 'package:googleapis/drive/v3.dart' as drive;
+import 'package:flutter/foundation.dart' show visibleForTesting;
+import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
 import 'package:logger/logger.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -15,6 +17,15 @@ import '../crypto/client_identity.dart';
 class CloudSyncService {
   CloudSyncService._();
   static final instance = CloudSyncService._();
+
+  http.Client Function(ComputerDetails computer)? _pairingClientFactoryForTest;
+
+  @visibleForTesting
+  set pairingClientFactoryForTest(
+    http.Client Function(ComputerDetails computer)? factory,
+  ) {
+    _pairingClientFactoryForTest = factory;
+  }
 
   String? lastError;
 
@@ -89,14 +100,12 @@ class CloudSyncService {
       );
 
       if (existingId != null) {
-
         await driveApi.files.update(
           drive.File()..name = _fileName,
           existingId,
           uploadMedia: media,
         );
       } else {
-
         await driveApi.files.create(
           drive.File()
             ..name = _fileName
@@ -133,10 +142,12 @@ class CloudSyncService {
         return false;
       }
 
-      final media = await driveApi.files.get(
-        fileId,
-        downloadOptions: drive.DownloadOptions.fullMedia,
-      ) as drive.Media;
+      final media =
+          await driveApi.files.get(
+                fileId,
+                downloadOptions: drive.DownloadOptions.fullMedia,
+              )
+              as drive.Media;
 
       final bytes = <int>[];
       await for (final chunk in media.stream) {
@@ -272,7 +283,9 @@ class CloudSyncService {
 
     if (data.containsKey(_kMicrotrailerMuted)) {
       await prefs.setBool(
-          _kMicrotrailerMuted, data[_kMicrotrailerMuted] as bool);
+        _kMicrotrailerMuted,
+        data[_kMicrotrailerMuted] as bool,
+      );
     }
     if (data.containsKey(_kVideoDelaySecs)) {
       await prefs.setInt(_kVideoDelaySecs, data[_kVideoDelaySecs] as int);
@@ -283,7 +296,10 @@ class CloudSyncService {
       await prefs.setStringList(_kSavedComputers, list);
     }
     if (data.containsKey(_kPrimaryServerKey)) {
-      await prefs.setString(_kPrimaryServerKey, data[_kPrimaryServerKey] as String);
+      await prefs.setString(
+        _kPrimaryServerKey,
+        data[_kPrimaryServerKey] as String,
+      );
     }
     if (data.containsKey(_kCustomOrderKey)) {
       final list = (data[_kCustomOrderKey] as List).cast<String>();
@@ -312,7 +328,9 @@ class CloudSyncService {
       // on rows that already exist — never inserts, never touches server_url.
       final cloudProfilesResponse = await client
           .from('user_server_profiles')
-          .select('id, server_url, cert_fingerprint, local_addresses, server_uuid')
+          .select(
+            'id, server_url, cert_fingerprint, local_addresses, server_uuid',
+          )
           .eq('user_id', userId);
       final cloudProfiles = cloudProfilesResponse as List<dynamic>;
 
@@ -334,15 +352,18 @@ class CloudSyncService {
           final rowId = matchedRow['id']?.toString();
           if (rowId == null || rowId.isEmpty) continue;
 
-          final key = computer.uuid.isNotEmpty ? computer.uuid : computer.localAddress;
+          final key = computer.uuid.isNotEmpty
+              ? computer.uuid
+              : computer.localAddress;
           final orderIndex = customOrder.indexOf(key);
           final displayOrder = orderIndex >= 0 ? orderIndex : 0;
-          final isDefault = computer.uuid.isNotEmpty && computer.uuid == primaryServerUuid;
+          final isDefault =
+              computer.uuid.isNotEmpty && computer.uuid == primaryServerUuid;
 
-          await client.from('user_server_profiles').update({
-            'is_default': isDefault,
-            'display_order': displayOrder,
-          }).eq('id', rowId);
+          await client
+              .from('user_server_profiles')
+              .update({'is_default': isDefault, 'display_order': displayOrder})
+              .eq('id', rowId);
           updated++;
         } catch (e) {
           _log.w('pushConfigToSupabase: failed to process computer entry: $e');
@@ -378,7 +399,7 @@ class CloudSyncService {
 
       final prefs = await SharedPreferences.getInstance();
       final savedComputers = prefs.getStringList(_kSavedComputers) ?? const [];
-      
+
       final List<ComputerDetails> localComputers = [];
       for (final entry in savedComputers) {
         try {
@@ -406,9 +427,12 @@ class CloudSyncService {
         // cloud agent (stale rows from older client versions, or localhost
         // registrations). They can never be cloud-paired — skip them so they
         // don't poison configHttpsPort, isCloud, or spawn ghost computers.
-        final hasCert = certFingerprint != null && certFingerprint.trim().isNotEmpty;
+        final hasCert =
+            certFingerprint != null && certFingerprint.trim().isNotEmpty;
         if (!hasCert) {
-          _log.w('pullConfigFromSupabase: skipping profile without cert: $serverUrl');
+          _log.w(
+            'pullConfigFromSupabase: skipping profile without cert: $serverUrl',
+          );
           continue;
         }
 
@@ -426,11 +450,9 @@ class CloudSyncService {
           if (cloudName != null && cloudName.isNotEmpty) {
             local.name = cloudName;
           }
-          if (certFingerprint != null && certFingerprint.isNotEmpty) {
-            local.serverCert = certFingerprint;
-            local.pairState = PairState.paired;
-            local.pairStatusFromHttps = true;
-          }
+          local.serverCert = certFingerprint;
+          local.pairState = PairState.paired;
+          local.pairStatusFromHttps = true;
           if (externalAddress != null && externalAddress.isNotEmpty) {
             local.remoteAddress = externalAddress;
           }
@@ -442,16 +464,21 @@ class CloudSyncService {
           if (cloudPort > 0) {
             local.configHttpsPort = cloudPort;
           }
-          
+
           if (isDefault) {
             primaryServerUuid = local.uuid;
           }
         } else {
           final host = cloudHost;
-          final isIp = RegExp(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$').hasMatch(host) || host.contains(':');
-          
-          final localAddresses = cloudMap['local_addresses'] as List<dynamic>? ?? [];
-          final String localIp = localAddresses.isNotEmpty ? localAddresses.first.toString() : host;
+          final isIp =
+              RegExp(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$').hasMatch(host) ||
+              host.contains(':');
+
+          final localAddresses =
+              cloudMap['local_addresses'] as List<dynamic>? ?? [];
+          final String localIp = localAddresses.isNotEmpty
+              ? localAddresses.first.toString()
+              : host;
 
           // Prefer server_uuid (real Sunshine uniqueid) over Supabase row id.
           // Using the row id caused UUID mismatches during polling because
@@ -465,19 +492,15 @@ class CloudSyncService {
             httpsPort: cloudPort,
             configHttpsPort: cloudPort,
             remoteAddress: externalAddress ?? '',
-            serverCert: certFingerprint ?? '',
+            serverCert: certFingerprint,
             state: ComputerState.unknown,
-            pairState: (certFingerprint != null && certFingerprint.isNotEmpty)
-                ? PairState.paired
-                : PairState.notPaired,
+            pairState: PairState.paired,
             isCloud: true,
           );
-          if (certFingerprint != null && certFingerprint.isNotEmpty) {
-            computer.pairStatusFromHttps = true;
-          }
+          computer.pairStatusFromHttps = true;
 
           localComputers.add(computer);
-          
+
           if (isDefault) {
             primaryServerUuid = computer.uuid;
           }
@@ -506,7 +529,9 @@ class CloudSyncService {
         }
       }
 
-      final jsonList = localComputers.map((c) => jsonEncode(c.toJson())).toList();
+      final jsonList = localComputers
+          .map((c) => jsonEncode(c.toJson()))
+          .toList();
       await prefs.setStringList(_kSavedComputers, jsonList);
 
       if (primaryServerUuid != null && primaryServerUuid.isNotEmpty) {
@@ -514,7 +539,9 @@ class CloudSyncService {
       }
 
       _syncCompletedController.add(null);
-      _log.i('pullConfigFromSupabase OK: merged ${cloudProfiles.length} servers');
+      _log.i(
+        'pullConfigFromSupabase OK: merged ${cloudProfiles.length} servers',
+      );
 
       // Asynchronously trigger cloud pairing with all synced servers.
       // IMPORTANT: stamp grace period immediately before firing the unawaited
@@ -524,11 +551,17 @@ class CloudSyncService {
       if (token != null) {
         final now = DateTime.now();
         for (final computer in localComputers) {
-          final host = computer.manualAddress.isNotEmpty ? computer.manualAddress : computer.localAddress;
+          if (!computer.isCloud) continue;
+          final host = computer.manualAddress.isNotEmpty
+              ? computer.manualAddress
+              : computer.localAddress;
           if (host.isNotEmpty) {
             // Stamp grace period so polls don't overwrite paired state while
             // the async cloud-pairing POST is in flight.
-            _cloudPairingGraceTimestamps[computer.uuid.isNotEmpty ? computer.uuid : host] = now;
+            _cloudPairingGraceTimestamps[computer.uuid.isNotEmpty
+                    ? computer.uuid
+                    : host] =
+                now;
             final port = _configPort(computer);
             final serverUrl = 'https://$host:$port';
             unawaited(_attemptCloudPairing(serverUrl, token, computer));
@@ -546,7 +579,9 @@ class CloudSyncService {
 
   bool _doesMatch(ComputerDetails local, Map<String, dynamic> cloud) {
     final String? cloudCert = cloud['cert_fingerprint'];
-    if (cloudCert != null && cloudCert.isNotEmpty && local.serverCert.isNotEmpty) {
+    if (cloudCert != null &&
+        cloudCert.isNotEmpty &&
+        local.serverCert.isNotEmpty) {
       if (local.serverCert.toLowerCase() == cloudCert.toLowerCase()) {
         return true;
       }
@@ -564,7 +599,8 @@ class CloudSyncService {
       }
     }
 
-    final List<dynamic>? localAddrs = cloud['local_addresses'] as List<dynamic>?;
+    final List<dynamic>? localAddrs =
+        cloud['local_addresses'] as List<dynamic>?;
     if (localAddrs != null) {
       for (final addr in localAddrs) {
         final cloudHost = addr.toString().toLowerCase();
@@ -586,7 +622,9 @@ class CloudSyncService {
       final uri = Uri.parse(url);
       return uri.host;
     } catch (_) {
-      final clean = url.replaceFirst('https://', '').replaceFirst('http://', '');
+      final clean = url
+          .replaceFirst('https://', '')
+          .replaceFirst('http://', '');
       final colonIdx = clean.indexOf(':');
       if (colonIdx >= 0) {
         return clean.substring(0, colonIdx);
@@ -600,7 +638,9 @@ class CloudSyncService {
       final uri = Uri.parse(url);
       return uri.hasPort ? uri.port : 47984;
     } catch (_) {
-      final clean = url.replaceFirst('https://', '').replaceFirst('http://', '');
+      final clean = url
+          .replaceFirst('https://', '')
+          .replaceFirst('http://', '');
       final colonIdx = clean.indexOf(':');
       if (colonIdx >= 0) {
         return int.tryParse(clean.substring(colonIdx + 1)) ?? 47984;
@@ -620,6 +660,12 @@ class CloudSyncService {
         _log.w('Cloud pairing: certPem empty, skipping $serverUrl');
         return;
       }
+      if (computer.serverCert.isEmpty) {
+        _log.w(
+          'Cloud pairing: server certificate missing, skipping $serverUrl',
+        );
+        return;
+      }
 
       final deviceName = Platform.localHostname;
       final body = jsonEncode({
@@ -629,25 +675,32 @@ class CloudSyncService {
       });
 
       final uri = Uri.parse('$serverUrl/api/pair/cloud');
-      
+
       // Use a clean HttpClient without presenting an untrusted client certificate during the TLS handshake.
       // The server companion will register the certificate passed in the JSON request body.
-      final ioClient = HttpClient()
-        ..badCertificateCallback = (cert, host, port) => true;
-      final client = IOClient(ioClient);
+      final client =
+          _pairingClientFactoryForTest?.call(computer) ??
+          IOClient(
+            ClientIdentity.createHttpClient(
+              expectedServerCert: computer.serverCert,
+              includeClientIdentity: false,
+            ),
+          );
 
       try {
         const maxAttempts = 3;
         for (int attempt = 1; attempt <= maxAttempts; attempt++) {
           try {
-            final response = await client.post(
-              uri,
-              headers: {
-                'Content-Type': 'application/json',
-                'Accept': 'application/json',
-              },
-              body: body,
-            ).timeout(const Duration(seconds: 10));
+            final response = await client
+                .post(
+                  uri,
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                  },
+                  body: body,
+                )
+                .timeout(const Duration(seconds: 10));
 
             if (response.statusCode == 200) {
               final resBody = jsonDecode(response.body) as Map<String, dynamic>;
@@ -657,9 +710,10 @@ class CloudSyncService {
                 // immediately reflects paired state without waiting for the next poll.
                 computer.pairState = PairState.paired;
                 computer.pairStatusFromHttps = true;
-                _cloudPairingGraceTimestamps[
-                  computer.uuid.isNotEmpty ? computer.uuid : computer.localAddress
-                ] = DateTime.now();
+                _cloudPairingGraceTimestamps[computer.uuid.isNotEmpty
+                        ? computer.uuid
+                        : computer.localAddress] =
+                    DateTime.now();
                 // Re-persist all computers with updated state.
                 final prefs = await SharedPreferences.getInstance();
                 final saved = prefs.getStringList(_kSavedComputers) ?? [];
@@ -685,16 +739,22 @@ class CloudSyncService {
                 _syncCompletedController.add(null);
                 return;
               } else {
-                _log.w('Cloud pairing rejected by $serverUrl: ${resBody["error"]}');
+                _log.w(
+                  'Cloud pairing rejected by $serverUrl: ${resBody["error"]}',
+                );
                 return; // business rejection — don't retry
               }
             } else {
-              _log.w('Cloud pairing HTTP ${response.statusCode} from $serverUrl '
-                  '(attempt $attempt/$maxAttempts)');
+              _log.w(
+                'Cloud pairing HTTP ${response.statusCode} from $serverUrl '
+                '(attempt $attempt/$maxAttempts)',
+              );
               // server error — retry after backoff
             }
           } catch (e) {
-            _log.w('Cloud pairing attempt $attempt/$maxAttempts failed for $serverUrl: $e');
+            _log.w(
+              'Cloud pairing attempt $attempt/$maxAttempts failed for $serverUrl: $e',
+            );
           }
           if (attempt < maxAttempts) {
             await Future.delayed(Duration(seconds: attempt * 3));
@@ -718,8 +778,8 @@ class CloudSyncService {
     final host = computer.activeAddress.isNotEmpty
         ? computer.activeAddress
         : computer.manualAddress.isNotEmpty
-            ? computer.manualAddress
-            : computer.localAddress;
+        ? computer.manualAddress
+        : computer.localAddress;
     if (host.isEmpty) return;
     final graceKey = computer.uuid.isNotEmpty ? computer.uuid : host;
     _cloudPairingGraceTimestamps[graceKey] = DateTime.now();
@@ -753,8 +813,9 @@ class CloudSyncService {
       final now = DateTime.now();
       for (final entry in saved) {
         try {
-          final computer =
-              ComputerDetails.fromJson(jsonDecode(entry) as Map<String, dynamic>);
+          final computer = ComputerDetails.fromJson(
+            jsonDecode(entry) as Map<String, dynamic>,
+          );
           if (!computer.isCloud) continue;
           if (computer.pairState == PairState.paired) continue;
           final host = computer.manualAddress.isNotEmpty
@@ -763,7 +824,13 @@ class CloudSyncService {
           if (host.isEmpty) continue;
           final graceKey = computer.uuid.isNotEmpty ? computer.uuid : host;
           _cloudPairingGraceTimestamps[graceKey] = now;
-          unawaited(_attemptCloudPairing('https://$host:${_configPort(computer)}', token, computer));
+          unawaited(
+            _attemptCloudPairing(
+              'https://$host:${_configPort(computer)}',
+              token,
+              computer,
+            ),
+          );
         } catch (_) {}
       }
     } catch (e) {

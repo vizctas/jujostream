@@ -35,6 +35,7 @@ dependencies:
   # Crypto (equivalent to BouncyCastle in original)
   pointycastle: ^4.0.0
   cryptography: ^2.7.0
+  crypto: ^3.0.7
 
   # JSON serialization (equivalent to Gson in original)
   json_annotation: ^4.12.0
@@ -113,7 +114,6 @@ flutter:
     - assets/images/UI/directional/
     - assets/sound/ambience/
     - assets/sound/ui/
-
 
 
 

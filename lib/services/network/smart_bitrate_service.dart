@@ -4,6 +4,8 @@ import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 
+import '../crypto/client_identity.dart';
+
 class SmartBitrateService {
   SmartBitrateService._();
   static final instance = SmartBitrateService._();
@@ -11,9 +13,9 @@ class SmartBitrateService {
   // visual quality at significantly lower bitrates than H.264.
   // H.264: 0.115 (baseline), H.265: ~30% less, AV1: ~43% less.
   static double _bitsPerPixelForCodec(String codec) => switch (codec) {
-    'AV1'  => 0.065,
+    'AV1' => 0.065,
     'H265' => 0.080,
-    _      => 0.115, // H.264 or unknown
+    _ => 0.115, // H.264 or unknown
   };
 
   double? _lastThroughputMbps;
@@ -54,6 +56,7 @@ class SmartBitrateService {
     int fps = 60,
     bool enableHdr = false,
     String videoCodec = 'H264',
+    String? expectedServerCert,
   }) async {
     final cacheKey = '$host:$httpsPort';
     final cached = _hostCache[cacheKey];
@@ -88,9 +91,9 @@ class SmartBitrateService {
     }
 
     try {
-      final client = HttpClient()
-        ..connectionTimeout = const Duration(seconds: 4)
-        ..badCertificateCallback = (_, _, _) => true;
+      final client = ClientIdentity.createHttpClient(
+        expectedServerCert: expectedServerCert,
+      )..connectionTimeout = const Duration(seconds: 4);
 
       try {
         final rttProfile = await _measureRtt(client, host, httpsPort);

@@ -33,6 +33,7 @@ import '../../widgets/mfa_bypassed_confirmation_dialog.dart';
 import '../../widgets/tour_overlay.dart';
 import 'focus_mode_screen.dart';
 import '../auth/cloud_auth_screen.dart';
+import '../../ui/motion_policy.dart';
 
 class PcViewScreen extends StatefulWidget {
   const PcViewScreen({super.key});
@@ -40,6 +41,10 @@ class PcViewScreen extends StatefulWidget {
   static final pendingTour = ValueNotifier<bool>(false);
 
   static void showCloudAuth(BuildContext context) {
+    final motion = MotionPolicy.fromContext(
+      context,
+      context.read<ThemeProvider>(),
+    );
     Navigator.push(
       context,
       PageRouteBuilder(
@@ -48,7 +53,7 @@ class PcViewScreen extends StatefulWidget {
           final slide = Tween<Offset>(
             begin: const Offset(0, 1),
             end: Offset.zero,
-          ).animate(CurvedAnimation(parent: anim, curve: Curves.easeOutCubic));
+          ).animate(CurvedAnimation(parent: anim, curve: motion.standardCurve));
           final fade = Tween<double>(begin: 0, end: 1).animate(
             CurvedAnimation(parent: anim, curve: const Interval(0, 0.5)),
           );
@@ -57,7 +62,7 @@ class PcViewScreen extends StatefulWidget {
             child: SlideTransition(position: slide, child: child),
           );
         },
-        transitionDuration: const Duration(milliseconds: 500),
+        transitionDuration: motion.routeDuration,
       ),
     );
   }
@@ -604,20 +609,27 @@ class _PcViewScreenState extends State<PcViewScreen>
   }
 
   void _showMoreMenu(BuildContext context) {
+    final motion = MotionPolicy.fromContext(
+      context,
+      context.read<ThemeProvider>(),
+    );
     showGeneralDialog(
       context: context,
       barrierDismissible: true,
       barrierLabel: MaterialLocalizations.of(context).modalBarrierDismissLabel,
       barrierColor: Colors.black.withValues(alpha: 0.55),
-      transitionDuration: const Duration(milliseconds: 420),
+      transitionDuration: motion.dialogDuration,
       transitionBuilder: (ctx, anim, _, child) {
-        final bounce = CurvedAnimation(parent: anim, curve: Curves.elasticOut);
+        final scale = CurvedAnimation(
+          parent: anim,
+          curve: motion.standardCurve,
+        );
         final fade = CurvedAnimation(
           parent: anim,
           curve: const Interval(0.0, 0.45, curve: Curves.easeIn),
         );
         return ScaleTransition(
-          scale: Tween<double>(begin: 0.72, end: 1.0).animate(bounce),
+          scale: Tween<double>(begin: 0.94, end: 1.0).animate(scale),
           child: FadeTransition(opacity: fade, child: child),
         );
       },

@@ -39,18 +39,7 @@ import 'services/notifications/notification_mirror_platform.dart';
 import 'services/pro/pro_service.dart';
 import 'services/crash/crash_service.dart';
 import 'services/telemetry/beta_telemetry_service.dart';
-
-class _AppHttpOverrides extends io.HttpOverrides {
-  @override
-  io.HttpClient createHttpClient(io.SecurityContext? context) {
-    final client = super.createHttpClient(
-      ClientIdentity.buildSecurityContext(),
-    );
-    client.badCertificateCallback = (cert, host, port) => true;
-    client.maxConnectionsPerHost = 4;
-    return client;
-  }
-}
+import 'ui/motion_policy.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -59,7 +48,7 @@ void main() async {
     try {
       await Supabase.initialize(
         url: SupabaseConfig.current.url,
-        anonKey: SupabaseConfig.current.publishableKey,
+        publishableKey: SupabaseConfig.current.publishableKey,
       );
     } catch (e) {
       debugPrint('Error initializing Supabase: $e');
@@ -75,9 +64,10 @@ void main() async {
     debugPaintLayerBordersEnabled = false;
     debugPaintPointersEnabled = false;
   }
-  io.HttpOverrides.global = _AppHttpOverrides();
   await BetaTelemetryService.initialize();
-  BetaTelemetryService.installDebugPrintCapture();
+  if (!kReleaseMode) {
+    BetaTelemetryService.installDebugPrintCapture();
+  }
   BetaTelemetryService.event('app_boot', {
     'platform': io.Platform.operatingSystem,
     'debug': kDebugMode,
@@ -203,8 +193,9 @@ class _FirstRunGate extends StatefulWidget {
 
 class _FirstRunGateState extends State<_FirstRunGate>
     with WidgetsBindingObserver {
+  static const _cinematicSeenKey = 'cinematic_intro_seen_v1';
   bool _checked = false;
-  bool _showCinematic = true;
+  bool _showCinematic = false;
   bool _focusModeEnabled = false;
 
   @override
@@ -234,14 +225,18 @@ class _FirstRunGateState extends State<_FirstRunGate>
   Future<void> _check() async {
     final prefs = await SharedPreferences.getInstance();
     final focusMode = prefs.getBool('focus_mode_enabled') ?? true;
+    final cinematicSeen = prefs.getBool(_cinematicSeenKey) ?? false;
     if (!mounted) return;
     setState(() {
       _checked = true;
       _focusModeEnabled = focusMode;
+      _showCinematic = !cinematicSeen;
     });
   }
 
-  void _onCinematicComplete() {
+  Future<void> _onCinematicComplete() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_cinematicSeenKey, true);
     if (!mounted) return;
     setState(() => _showCinematic = false);
   }
@@ -256,11 +251,16 @@ class _FirstRunGateState extends State<_FirstRunGate>
     }
 
     if (_showCinematic) {
-      return CinematicIntroScreen(onComplete: _onCinematicComplete);
+      final motion = MotionPolicy.fromContext(
+        context,
+        context.watch<ThemeProvider>(),
+      );
+      return CinematicIntroScreen(
+        onComplete: _onCinematicComplete,
+        reducedMotion: motion.reduceMotion,
+      );
     }
 
-    return _focusModeEnabled
-        ? const FocusModeScreen()
-        : const PcViewScreen();
+    return _focusModeEnabled ? const FocusModeScreen() : const PcViewScreen();
   }
 }

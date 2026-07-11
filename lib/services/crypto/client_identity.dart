@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io' as io;
 
+import 'package:crypto/crypto.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'identity_generator.dart';
@@ -58,19 +59,120 @@ class ClientIdentity {
   }
 
   static io.SecurityContext buildSecurityContext({
-    bool withTrustedRoots = false,
+    bool withTrustedRoots = true,
+    bool includeClientIdentity = true,
   }) {
     final ctx = io.SecurityContext(withTrustedRoots: withTrustedRoots);
-    try {
-      ctx.useCertificateChainBytes(certBytes);
-      ctx.usePrivateKeyBytes(keyBytes);
-    } catch (_) {}
+    if (includeClientIdentity) {
+      try {
+        ctx.useCertificateChainBytes(certBytes);
+        ctx.usePrivateKeyBytes(keyBytes);
+      } catch (_) {}
+    }
     return ctx;
   }
 
-  static io.HttpClient createHttpClient() {
-    final ctx = buildSecurityContext();
-    return io.HttpClient(context: ctx)
-      ..badCertificateCallback = (cert, host, port) => true;
+  static io.HttpClient createHttpClient({
+    String? expectedServerCert,
+    bool allowUntrustedForPairing = false,
+    bool includeClientIdentity = true,
+  }) {
+    final hasPinnedCertificate = expectedServerCert?.trim().isNotEmpty ?? false;
+    final ctx = buildSecurityContext(
+      withTrustedRoots: !hasPinnedCertificate && !allowUntrustedForPairing,
+      includeClientIdentity: includeClientIdentity,
+    );
+    final client = io.HttpClient(context: ctx);
+    if (hasPinnedCertificate) {
+      client.badCertificateCallback = (cert, host, port) {
+        return certificateMatches(cert, expectedServerCert!);
+      };
+    } else if (allowUntrustedForPairing) {
+      // Pairing authenticates the exchanged certificate through its PIN-based
+      // challenge. Trust-all is deliberately scoped to that short-lived flow.
+      client.badCertificateCallback = (cert, host, port) => true;
+    }
+    return client;
+  }
+
+  static bool certificateMatches(
+    io.X509Certificate certificate,
+    String expected,
+  ) {
+    return certificateMaterialMatches(
+      actualPem: certificate.pem,
+      actualSha1: certificate.sha1,
+      expected: expected,
+    );
+  }
+
+  static bool certificateMaterialMatches({
+    required String actualPem,
+    required Object actualSha1,
+    required String expected,
+  }) {
+    final normalizedExpected = _normalizeCertificate(expected);
+    if (normalizedExpected.isEmpty) return false;
+
+    final normalizedPem = _normalizeCertificate(actualPem);
+    if (normalizedExpected == normalizedPem) return true;
+
+    final expectedFingerprint = _normalizeFingerprint(expected);
+    final actualFingerprint = _normalizeFingerprint(actualSha1);
+    if (expectedFingerprint.length == 40 &&
+        expectedFingerprint == actualFingerprint) {
+      return true;
+    }
+
+    if (expectedFingerprint.length == 64) {
+      for (final pemVariant in _pemHashVariants(actualPem)) {
+        final digest = sha256.convert(utf8.encode(pemVariant)).toString();
+        if (digest == expectedFingerprint) return true;
+      }
+    }
+    return false;
+  }
+
+  static String _normalizeCertificate(String value) {
+    var decoded = value.trim();
+    final compact = decoded.replaceAll(RegExp(r'\s+'), '');
+    if (compact.length.isEven &&
+        compact.isNotEmpty &&
+        RegExp(r'^[0-9a-fA-F]+$').hasMatch(compact)) {
+      try {
+        decoded = utf8.decode([
+          for (var i = 0; i < compact.length; i += 2)
+            int.parse(compact.substring(i, i + 2), radix: 16),
+        ]);
+      } catch (_) {
+        decoded = value;
+      }
+    }
+    return decoded
+        .replaceAll('-----BEGIN CERTIFICATE-----', '')
+        .replaceAll('-----END CERTIFICATE-----', '')
+        .replaceAll(RegExp(r'\s+'), '')
+        .toLowerCase();
+  }
+
+  static Iterable<String> _pemHashVariants(String value) sync* {
+    final lf = value.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
+    final withoutTrailing = lf.replaceFirst(RegExp(r'\n+$'), '');
+    yield value;
+    yield lf;
+    yield withoutTrailing;
+    yield '$withoutTrailing\n';
+    yield withoutTrailing.replaceAll('\n', '\r\n');
+    yield '${withoutTrailing.replaceAll('\n', '\r\n')}\r\n';
+  }
+
+  static String _normalizeFingerprint(Object value) {
+    if (value is List<int>) {
+      return value.map((byte) => byte.toRadixString(16).padLeft(2, '0')).join();
+    }
+    return value
+        .toString()
+        .replaceAll(RegExp(r'[^0-9a-fA-F]'), '')
+        .toLowerCase();
   }
 }

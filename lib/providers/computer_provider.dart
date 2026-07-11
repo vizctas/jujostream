@@ -323,6 +323,7 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
           httpPort: computer.externalPort > 0
               ? computer.externalPort
               : NvHttpClient.defaultHttpPort,
+          expectedServerCert: computer.serverCert,
         );
         if (info != null) {
           onStatus('PC is online!');
@@ -399,6 +400,7 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
       httpsPort: httpsPort,
       httpPort: httpPort,
       timeout: _pollTimeout,
+      expectedServerCert: computer.serverCert,
     );
 
     if (serverInfo != null) {
@@ -539,6 +541,7 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
         httpsPort: httpsPort,
         httpPort: httpPort,
         timeout: const Duration(seconds: 3),
+        expectedServerCert: computer.serverCert,
       );
       if (info == null) {
         // Server unreachable — can't verify. Allow entry optimistically
@@ -569,8 +572,9 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
       final inManualGrace =
           pairedAt != null &&
           DateTime.now().difference(pairedAt) < _pairingGracePeriod;
-      final inCloudGrace =
-          CloudSyncService.instance.isInCloudPairingGrace(graceKey);
+      final inCloudGrace = CloudSyncService.instance.isInCloudPairingGrace(
+        graceKey,
+      );
       if (inManualGrace || inCloudGrace) {
         return true;
       }
@@ -621,6 +625,7 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
       computer.localAddress,
       httpsPort: httpsPort,
       httpPort: httpPort,
+      expectedServerCert: computer.serverCert,
     );
     if (serverInfo != null) {
       serverInfo.manualAddress = computer.manualAddress;
@@ -653,8 +658,7 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
           // is discovered via polling. Prevents duplicate "Not Paired" ghost cards.
           (c.serverCert.isNotEmpty &&
               computer.serverCert.isNotEmpty &&
-              c.serverCert.toLowerCase() ==
-                  computer.serverCert.toLowerCase()),
+              c.serverCert.toLowerCase() == computer.serverCert.toLowerCase()),
     );
 
     if (existingIndex >= 0) {
@@ -709,8 +713,9 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
               DateTime.now().difference(pairedAt) < _pairingGracePeriod;
           // Also check cloud-sync grace window (covers cloud-paired servers
           // where _attemptCloudPairing fires asynchronously after pullConfigFromSupabase).
-          final inCloudGrace =
-              CloudSyncService.instance.isInCloudPairingGrace(graceKey);
+          final inCloudGrace = CloudSyncService.instance.isInCloudPairingGrace(
+            graceKey,
+          );
           final inGracePeriod = inManualGrace || inCloudGrace;
 
           if (inGracePeriod) {
@@ -773,7 +778,9 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
   void _retryCloudPairingOnResume() {
     final session = Supabase.instance.client.auth.currentSession;
     if (session == null) return;
-    unawaited(CloudSyncService.instance.retryUnpairedCloudServers(session.accessToken));
+    unawaited(
+      CloudSyncService.instance.retryUnpairedCloudServers(session.accessToken),
+    );
   }
 
   Future<bool> _attemptCloudPairingOnTheFly(ComputerDetails computer) async {
@@ -789,7 +796,7 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
       final serverUrl = 'https://$address:${_configPort(computer)}';
 
       final clientPem = ClientIdentity.certPem;
-      if (clientPem.isEmpty) return false;
+      if (clientPem.isEmpty || computer.serverCert.isEmpty) return false;
 
       final deviceName = io.Platform.localHostname;
       final body = jsonEncode({
@@ -799,34 +806,38 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
       });
 
       final uri = Uri.parse('$serverUrl/api/pair/cloud');
-      
+
       // Use a clean HttpClient without presenting an untrusted client certificate during the TLS handshake.
       // The server companion will register the certificate passed in the JSON request body.
-      final ioClient = io.HttpClient()
-        ..badCertificateCallback = (cert, host, port) => true;
+      final ioClient = ClientIdentity.createHttpClient(
+        expectedServerCert: computer.serverCert,
+        includeClientIdentity: false,
+      );
       final client = IOClient(ioClient);
-      
+
       try {
-        final response = await client.post(
-          uri,
-          headers: {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
-          },
-          body: body,
-        ).timeout(const Duration(seconds: 5));
+        final response = await client
+            .post(
+              uri,
+              headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+              },
+              body: body,
+            )
+            .timeout(const Duration(seconds: 5));
 
         if (response.statusCode == 200) {
           final resBody = jsonDecode(response.body) as Map<String, dynamic>;
           if (resBody['status'] == true) {
             computer.pairState = PairState.paired;
             computer.pairStatusFromHttps = true;
-            
+
             final graceKey = computer.uuid.isNotEmpty
                 ? computer.uuid
                 : computer.localAddress;
             _pairingCompletedAt[graceKey] = DateTime.now();
-            
+
             _persistComputers();
             notifyListeners();
             return true;

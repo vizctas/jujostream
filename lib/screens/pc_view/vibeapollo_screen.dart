@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
@@ -11,6 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../models/computer_details.dart';
 import '../../providers/theme_provider.dart';
+import '../../services/crypto/client_identity.dart';
 
 String _t(BuildContext ctx, String en, String es) {
   final loc = Localizations.localeOf(ctx);
@@ -216,9 +216,9 @@ class _VibeApolloScreenState extends State<VibeApolloScreen> {
   }
 
   http.Client _buildClient() {
-    final inner = HttpClient()
-      ..connectionTimeout = const Duration(seconds: 10)
-      ..badCertificateCallback = (_, _, _) => true;
+    final inner = ClientIdentity.createHttpClient(
+      expectedServerCert: widget.computer.serverCert,
+    )..connectionTimeout = const Duration(seconds: 10);
     return IOClient(inner);
   }
 

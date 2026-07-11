@@ -313,9 +313,9 @@ class ThemeProvider extends ChangeNotifier {
       primaryColor: c.accent,
       scaffoldBackgroundColor: c.background,
 
-      focusColor: Colors.transparent,
-      hoverColor: Colors.transparent,
-      highlightColor: Colors.transparent,
+      focusColor: c.accent.withValues(alpha: 0.18),
+      hoverColor: c.accent.withValues(alpha: 0.08),
+      highlightColor: c.accent.withValues(alpha: 0.12),
       splashColor: c.accent.withValues(alpha: 0.10),
       colorScheme: light
           ? ColorScheme.light(

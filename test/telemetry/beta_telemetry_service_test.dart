@@ -29,6 +29,7 @@ void main() {
         'riKey': '00112233445566778899',
         'serverCert': 'abcdef',
       });
+      await BetaTelemetryService.flushForTest();
 
       final log = await BetaTelemetryService.activeLogFile!.readAsString();
       expect(log, contains('[event] stream_start'));
@@ -37,6 +38,24 @@ void main() {
       expect(log, contains('serverCert=<redacted>'));
       expect(log, isNot(contains('00112233445566778899')));
       expect(log, isNot(contains('abcdef')));
+    });
+
+    test('redacts headers, query credentials, and email addresses', () async {
+      await BetaTelemetryService.initialize(logDirectory: tempDir);
+
+      BetaTelemetryService.logLine(
+        'debug',
+        'Authorization: Bearer secret\nCookie=session=abc\n'
+            'https://example.test/media?token=secret&quality=high user@example.com',
+      );
+      await BetaTelemetryService.flushForTest();
+
+      final log = await BetaTelemetryService.activeLogFile!.readAsString();
+      expect(log, isNot(contains('Bearer secret')));
+      expect(log, isNot(contains('session=abc')));
+      expect(log, isNot(contains('token=secret')));
+      expect(log, isNot(contains('user@example.com')));
+      expect(log, contains('<redacted-email>'));
     });
 
     test('rotates old session logs and keeps the newest files', () async {

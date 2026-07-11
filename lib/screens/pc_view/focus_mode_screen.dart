@@ -28,6 +28,7 @@ import '../../widgets/pairing_dialog.dart';
 import '../app_view/app_view_screen.dart';
 import '../settings/settings_screen.dart';
 import '../settings/profile_screen.dart';
+import '../../ui/motion_policy.dart';
 import '../about/about_screen.dart';
 import 'pc_view_screen.dart';
 import '../../providers/auth_provider.dart';
@@ -644,20 +645,27 @@ class _FocusModeScreenState extends State<FocusModeScreen>
   // ── More menu (reuses PcViewScreen's dialog pattern) ──
 
   void _showMoreMenu(BuildContext context) {
+    final motion = MotionPolicy.fromContext(
+      context,
+      context.read<ThemeProvider>(),
+    );
     showGeneralDialog(
       context: context,
       barrierDismissible: true,
       barrierLabel: MaterialLocalizations.of(context).modalBarrierDismissLabel,
       barrierColor: Colors.black.withValues(alpha: 0.55),
-      transitionDuration: const Duration(milliseconds: 420),
+      transitionDuration: motion.dialogDuration,
       transitionBuilder: (ctx, anim, _, child) {
-        final bounce = CurvedAnimation(parent: anim, curve: Curves.elasticOut);
+        final scale = CurvedAnimation(
+          parent: anim,
+          curve: motion.standardCurve,
+        );
         final fade = CurvedAnimation(
           parent: anim,
           curve: const Interval(0.0, 0.45, curve: Curves.easeIn),
         );
         return ScaleTransition(
-          scale: Tween<double>(begin: 0.72, end: 1.0).animate(bounce),
+          scale: Tween<double>(begin: 0.94, end: 1.0).animate(scale),
           child: FadeTransition(opacity: fade, child: child),
         );
       },

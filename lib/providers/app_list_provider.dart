@@ -142,6 +142,7 @@ class AppListProvider extends ChangeNotifier {
     if (silent && _silentRefreshInProgress) return;
     final isNewServer = _currentComputer?.uuid != computer.uuid;
     _currentComputer = computer;
+    _cfgClient.expectedServerCert = computer.serverCert;
     if (!silent) {
       _isLoading = true;
       _isEnriching = false;
@@ -169,7 +170,11 @@ class AppListProvider extends ChangeNotifier {
           : NvHttpClient.defaultHttpsPort;
 
       final result = await _httpClient
-          .getAppList(address, httpsPort: httpsPort)
+          .getAppList(
+            address,
+            httpsPort: httpsPort,
+            expectedServerCert: computer.serverCert,
+          )
           .timeout(const Duration(seconds: 12), onTimeout: () => const []);
 
       _httpClient
@@ -179,6 +184,7 @@ class AppListProvider extends ChangeNotifier {
             httpPort: computer.externalPort > 0
                 ? computer.externalPort
                 : NvHttpClient.defaultHttpPort,
+            expectedServerCert: computer.serverCert,
           )
           .timeout(const Duration(seconds: 5), onTimeout: () => null)
           .then((serverInfo) {
@@ -869,6 +875,7 @@ class AppListProvider extends ChangeNotifier {
           videoMaxFrameAgeMs: streamConfig.videoMaxFrameAgeMs,
           surroundAudioInfo: audioStr,
           extraLaunchParams: hostPresetParams,
+          expectedServerCert: _currentComputer!.serverCert,
         );
       } else {
         return LaunchResult.fail(
@@ -895,6 +902,7 @@ class AppListProvider extends ChangeNotifier {
       videoMaxFrameAgeMs: streamConfig.videoMaxFrameAgeMs,
       surroundAudioInfo: audioStr,
       extraLaunchParams: hostPresetParams,
+      expectedServerCert: _currentComputer!.serverCert,
     );
   }
 
@@ -910,7 +918,11 @@ class AppListProvider extends ChangeNotifier {
         : NvHttpClient.defaultHttpsPort;
 
     debugPrint('[JUJO][quit] Sending /cancel to $address:$httpsPort');
-    final result = await _httpClient.quitApp(address, port: httpsPort);
+    final result = await _httpClient.quitApp(
+      address,
+      port: httpsPort,
+      expectedServerCert: _currentComputer!.serverCert,
+    );
     debugPrint('[JUJO][quit] /cancel result=$result');
 
     _apps = _apps

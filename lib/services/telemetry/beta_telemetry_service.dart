@@ -28,6 +28,11 @@ class BetaTelemetryService {
   static bool _initialized = false;
   static bool _debugPrintInstalled = false;
   static bool _globalHandlersInstalled = false;
+  static final List<String> _pendingLines = <String>[];
+  static Timer? _flushTimer;
+  static bool _flushInProgress = false;
+  static const int _maxPendingLines = 1000;
+  static const Duration _flushDelay = Duration(milliseconds: 120);
 
   static File? get activeLogFile => _activeLogFile;
 
@@ -102,16 +107,57 @@ class BetaTelemetryService {
     if (!_initialized || _activeLogFile == null) return;
     final ts = _now().toIso8601String();
     final clean = _sanitizeMessage(message);
+    if (_pendingLines.length >= _maxPendingLines) {
+      final debugIndex = _pendingLines.indexWhere(
+        (line) => line.contains('][debug] '),
+      );
+      _pendingLines.removeAt(debugIndex >= 0 ? debugIndex : 0);
+    }
+    _pendingLines.add('[$ts][$level] $clean\n');
+    _scheduleFlush();
+  }
+
+  static void _scheduleFlush() {
+    if (_flushTimer != null || _flushInProgress) return;
+    _flushTimer = Timer(_flushDelay, () {
+      _flushTimer = null;
+      unawaited(_flushPendingLines());
+    });
+  }
+
+  static Future<void> _flushPendingLines() async {
+    if (_flushInProgress || _activeLogFile == null || _pendingLines.isEmpty) {
+      return;
+    }
+    _flushInProgress = true;
+    final batch = _pendingLines.join();
+    _pendingLines.clear();
     try {
-      _activeLogFile!.writeAsStringSync(
-        '[$ts][$level] $clean\n',
+      await _activeLogFile!.writeAsString(
+        batch,
         mode: FileMode.append,
         flush: false,
       );
-    } catch (_) {}
+    } catch (_) {
+      // Telemetry must never affect product behavior.
+    } finally {
+      _flushInProgress = false;
+      if (_pendingLines.isNotEmpty) _scheduleFlush();
+    }
+  }
+
+  @visibleForTesting
+  static Future<void> flushForTest() async {
+    _flushTimer?.cancel();
+    _flushTimer = null;
+    await _flushPendingLines();
   }
 
   static Future<void> resetForTest() async {
+    _flushTimer?.cancel();
+    _flushTimer = null;
+    await _flushPendingLines();
+    _pendingLines.clear();
     if (_debugPrintInstalled && _previousDebugPrint != null) {
       debugPrint = _previousDebugPrint!;
     }
@@ -126,6 +172,7 @@ class BetaTelemetryService {
     _initialized = false;
     _debugPrintInstalled = false;
     _globalHandlersInstalled = false;
+    _flushInProgress = false;
     _now = DateTime.now;
   }
 
@@ -175,6 +222,27 @@ class BetaTelemetryService {
         caseSensitive: false,
       ),
       (match) => '${match.group(1)}=<redacted>',
+    );
+    out = out.replaceAllMapped(
+      RegExp(
+        r'\b(authorization|cookie|set-cookie)\s*[:=]\s*[^\r\n]+',
+        caseSensitive: false,
+      ),
+      (match) => '${match.group(1)}=<redacted>',
+    );
+    out = out.replaceAllMapped(
+      RegExp(
+        r'([?&](?:access_token|auth|apikey|api_key|key|signature|token)=)[^&\s]+',
+        caseSensitive: false,
+      ),
+      (match) => '${match.group(1)}<redacted>',
+    );
+    out = out.replaceAll(
+      RegExp(
+        r'\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b',
+        caseSensitive: false,
+      ),
+      '<redacted-email>',
     );
     return out;
   }

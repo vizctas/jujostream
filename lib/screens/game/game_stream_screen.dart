@@ -27,6 +27,7 @@ import '../../widgets/session_metrics_dialog.dart';
 import '../../widgets/virtual_gamepad/virtual_gamepad_overlay.dart';
 import 'direct_touch_handler.dart';
 import 'dynamic_bitrate_controller.dart';
+import 'stream_hud_stats.dart';
 import 'perf_stats_overlay.dart';
 import 'quick_fav_keys_panel.dart';
 import 'special_keys.dart';
@@ -96,6 +97,10 @@ class _GameStreamScreenState extends State<GameStreamScreen>
   bool _stopInFlight = false;
   bool _streamStopped = false;
   DateTime? _ignoreTerminationUntil;
+  int _streamStartGeneration = 0;
+  Timer? _reconnectTimer;
+  Timer? _overlayTransitionTimer;
+  Timer? _presetSafetyTimer;
 
   late MouseMode _touchMode;
 
@@ -143,9 +148,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
     getStreamHeight: () => _config.height,
   );
 
-  String _fps = '--';
-  String _latency = '--';
-  String _bitrate = '--';
+  final StreamHudStatsNotifier _hudStats = StreamHudStatsNotifier();
 
   late final DynamicBitrateController _dynBitrate = DynamicBitrateController(
     onReconnectNeeded: _onDynBitrateReconnect,
@@ -225,6 +228,10 @@ class _GameStreamScreenState extends State<GameStreamScreen>
 
   @override
   void dispose() {
+    _streamStartGeneration++;
+    _reconnectTimer?.cancel();
+    _overlayTransitionTimer?.cancel();
+    _presetSafetyTimer?.cancel();
     // Cancel stats subscription FIRST to prevent connectionTerminated events
     // from firing during teardown (which can cause double-pop crashes).
     _statsSubscription?.cancel();
@@ -258,6 +265,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
     _desktopComboHoldTimer?.cancel();
     _desktopComboHoldTimer = null;
     _panZoomCtrl.dispose();
+    _hudStats.dispose();
     ImageLoadThrottle.resumeAfterStream();
     // Restore ambience eligibility now that stream has ended
     UiSoundService.exitStreamSession();
@@ -298,6 +306,9 @@ class _GameStreamScreenState extends State<GameStreamScreen>
   }
 
   Future<void> _startStreaming() async {
+    final generation = ++_streamStartGeneration;
+    bool isCurrent() => mounted && generation == _streamStartGeneration;
+
     // wait for any in-flight stop to finish so native doesn't overlap
     if (_pendingStop != null) {
       debugPrint('_startStreaming: waiting for pending stopStream…');
@@ -309,6 +320,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
       );
       _pendingStop = null;
     }
+    if (!isCurrent()) return;
     _streamStopped = false;
     _stopInFlight = false;
     setState(() {
@@ -327,10 +339,12 @@ class _GameStreamScreenState extends State<GameStreamScreen>
             'Reconnect cooldown: waiting ${waitMs}ms before starting stream',
           );
           await Future.delayed(Duration(milliseconds: waitMs));
+          if (!isCurrent()) return;
         }
       }
 
       await GamepadChannel.setStreamingActive(false);
+      if (!isCurrent()) return;
 
       // Resolve "Match display" sentinel (0×0) to actual physical pixels.
       if (_config.isMatchDisplay && mounted) {
@@ -443,17 +457,24 @@ class _GameStreamScreenState extends State<GameStreamScreen>
               return false;
             },
           );
+      if (!isCurrent()) {
+        if (success) unawaited(StreamingPlatformChannel.stopStream());
+        return;
+      }
 
       if (success) {
         final directSubmitActive =
             await StreamingPlatformChannel.isDirectSubmitActive();
+        if (!isCurrent()) return;
         // Skip textureId only when Dart requested direct-submit and native
         // confirms the SurfaceView path is active.
         final textureId = (useDirectSubmit && directSubmitActive)
             ? null
             : await StreamingPlatformChannel.getTextureId();
+        if (!isCurrent()) return;
 
         final physicalCount = await GamepadChannel.setStreamingActive(true);
+        if (!isCurrent()) return;
         if (physicalCount > 0) {
           _config = _config.copyWith(
             controllerCount: physicalCount.clamp(1, 4),
@@ -463,6 +484,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
         try {
           await _applyGamepadConfig();
         } catch (_) {}
+        if (!isCurrent()) return;
 
         if (mounted) {
           context.read<ComputerProvider>().setActiveSession(
@@ -470,6 +492,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
             widget.app,
           );
         }
+        if (!isCurrent()) return;
         setState(() {
           _usingDirectSubmit = useDirectSubmit && directSubmitActive;
           _textureId = textureId;
@@ -502,7 +525,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
             _presetReconnectRetries < _maxPresetReconnectRetries) {
           _presetReconnectRetries++;
           await Future.delayed(const Duration(milliseconds: 3000));
-          if (mounted) _startStreaming();
+          if (isCurrent()) _startStreaming();
           return;
         }
         _isReconnecting = false;
@@ -530,7 +553,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
             await context.read<AppListProvider>().quitApp();
           } catch (_) {}
           await Future.delayed(const Duration(seconds: 2));
-          if (mounted) {
+          if (isCurrent()) {
             _lastDisconnectTime = null; // skip cooldown
             _startStreaming();
           }
@@ -545,7 +568,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
             _reconnectMessage = AppLocalizations.of(context).reconnectingLabel;
           });
           await Future.delayed(const Duration(milliseconds: 750));
-          if (mounted) {
+          if (isCurrent()) {
             _lastDisconnectTime = null;
             _startStreaming();
           }
@@ -566,6 +589,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
         });
       }
     } catch (e) {
+      if (!isCurrent()) return;
       BetaTelemetryService.error(
         'stream_start_exception',
         e,
@@ -575,7 +599,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
           _presetReconnectRetries < _maxPresetReconnectRetries) {
         _presetReconnectRetries++;
         await Future.delayed(const Duration(milliseconds: 3000));
-        if (mounted) _startStreaming();
+        if (isCurrent()) _startStreaming();
         return;
       }
       _isReconnecting = false;
@@ -707,20 +731,14 @@ class _GameStreamScreenState extends State<GameStreamScreen>
       cfg.quickFavHoldMs,
     );
 
-    if (!cfg.mouseEmulation || !cfg.gamepadMouseEmulation || !_gamepadMouseActive) {
+    if (!cfg.mouseEmulation ||
+        !cfg.gamepadMouseEmulation ||
+        !_gamepadMouseActive) {
       await GamepadChannel.setMouseEmulation(false);
     } else {
       await GamepadChannel.setMouseEmulation(true);
     }
   }
-
-  String _dropRate = '--';
-  String _resolution = '--';
-  String _codec = '--';
-  String _queueDepth = '--';
-  String _pendingAudioMs = '--';
-  String _rttVariance = '--';
-  String _renderPath = '--';
 
   static const int _btnA = 0x1000;
   static const int _btnB = 0x2000;
@@ -829,40 +847,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
           // missing keys from different server versions (Vibepollo, Sunshine,
           // Apollo).  A malformed stats event must never crash the stream.
           try {
-            setState(() {
-              _fps = '${event['fps'] ?? '--'} FPS';
-              final dt = (event['decodeTime'] is num)
-                  ? event['decodeTime'] as num
-                  : null;
-              _latency = dt != null ? '${dt.toStringAsFixed(2)} ms' : '--';
-              _bitrate = '${event['bitrate'] ?? '--'} Mbps';
-              final dr = event['dropRate'];
-              _dropRate = dr != null ? '$dr%' : '--';
-              final res = event['resolution']?.toString();
-              _resolution = (res != null && res != '0x0' && res.isNotEmpty)
-                  ? res
-                  : '--';
-              final c = event['codec']?.toString();
-              _codec = (c != null && c != 'unknown' && c.isNotEmpty) ? c : '--';
-              final qd = (event['queueDepth'] is num)
-                  ? (event['queueDepth'] as num).toInt()
-                  : null;
-              _queueDepth = qd != null ? '$qd' : '--';
-              final pendingAudio = (event['pendingAudioMs'] is num)
-                  ? (event['pendingAudioMs'] as num).toInt()
-                  : null;
-              _pendingAudioMs = pendingAudio != null
-                  ? '$pendingAudio ms'
-                  : '--';
-              final rttVar = (event['rttVarianceMs'] is num)
-                  ? (event['rttVarianceMs'] as num).toInt()
-                  : null;
-              _rttVariance = (rttVar != null && rttVar >= 0)
-                  ? '$rttVar ms'
-                  : '--';
-              final rp = event['renderPath']?.toString();
-              _renderPath = (rp != null && rp.isNotEmpty) ? rp : '--';
-            });
+            _hudStats.ingest(event, visible: _showPerfStats);
           } catch (_) {
             // Silently ignore malformed stats — the HUD keeps its last values.
           }
@@ -992,7 +977,9 @@ class _GameStreamScreenState extends State<GameStreamScreen>
       _stopInFlight = false;
       _streamStopped = false;
       unawaited(_stopStreaming());
-      Future.delayed(Duration(seconds: delaySec), () {
+      _reconnectTimer?.cancel();
+      _reconnectTimer = Timer(Duration(seconds: delaySec), () {
+        _reconnectTimer = null;
         if (mounted) _startStreaming();
       });
     } else {
@@ -1126,8 +1113,10 @@ class _GameStreamScreenState extends State<GameStreamScreen>
     if (_overlayTransitioning) return;
     if (visible == _showOverlay) return;
     _overlayTransitioning = true;
-    Timer(const Duration(milliseconds: 500), () {
+    _overlayTransitionTimer?.cancel();
+    _overlayTransitionTimer = Timer(const Duration(milliseconds: 500), () {
       _overlayTransitioning = false;
+      _overlayTransitionTimer = null;
     });
 
     setState(() {
@@ -1319,9 +1308,9 @@ class _GameStreamScreenState extends State<GameStreamScreen>
                       maxScale: 5.0,
                       panEnabled: true,
                       scaleEnabled: true,
-                      child: _buildVideoLayer(),
+                      child: RepaintBoundary(child: _buildVideoLayer()),
                     )
-                  : _buildVideoLayer(),
+                  : RepaintBoundary(child: _buildVideoLayer()),
               _buildInputLayer(),
               if (_config.mouseLocalCursor &&
                   _cursorVisible &&
@@ -2047,6 +2036,8 @@ class _GameStreamScreenState extends State<GameStreamScreen>
   int _errorSelectedButton = 0;
 
   Widget _buildErrorOverlay() {
+    final localizations = AppLocalizations.of(context);
+    final isSpanish = Localizations.localeOf(context).languageCode == 'es';
     return Container(
       color: Colors.black87,
       child: Center(
@@ -2056,9 +2047,50 @@ class _GameStreamScreenState extends State<GameStreamScreen>
             const Icon(Icons.error_outline, size: 64, color: Colors.redAccent),
             const SizedBox(height: 16),
             Text(
-              _error!,
-              style: const TextStyle(color: Colors.white, fontSize: 16),
+              localizations.connectionError,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 22,
+                fontWeight: FontWeight.w700,
+              ),
               textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              localizations.streamError,
+              style: const TextStyle(color: Colors.white70, fontSize: 15),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 560),
+              child: Theme(
+                data: Theme.of(
+                  context,
+                ).copyWith(dividerColor: Colors.transparent),
+                child: ExpansionTile(
+                  collapsedIconColor: Colors.white54,
+                  iconColor: Colors.white70,
+                  title: Text(
+                    isSpanish ? 'Detalles técnicos' : 'Technical details',
+                    style: const TextStyle(color: Colors.white54, fontSize: 13),
+                  ),
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                      child: SelectableText(
+                        _error!,
+                        style: const TextStyle(
+                          color: Colors.white60,
+                          fontSize: 12,
+                          fontFamily: 'monospace',
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
             const SizedBox(height: 24),
             Row(
@@ -2550,7 +2582,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
         appName: widget.app.appName,
         points: List<SessionMetricPoint>.unmodifiable(_sessionMetrics),
         config: _config,
-        decoder: _codec != '--' ? _codec : null,
+        decoder: _hudStats.latest.codec != '--' ? _hudStats.latest.codec : null,
       ),
     );
   }
@@ -2745,7 +2777,9 @@ class _GameStreamScreenState extends State<GameStreamScreen>
     );
     _startStreaming();
 
-    Future.delayed(const Duration(seconds: 25), () {
+    _presetSafetyTimer?.cancel();
+    _presetSafetyTimer = Timer(const Duration(seconds: 25), () {
+      _presetSafetyTimer = null;
       if (mounted && _isReconnecting) {
         debugPrint(
           'Preset reconnect: safety timeout — clearing _isReconnecting',
@@ -3015,28 +3049,35 @@ class _GameStreamScreenState extends State<GameStreamScreen>
   }
 
   Widget _buildPerfOverlay() {
-    final isPro = ProService.kDevMode || context.read<ProService>().isPro;
-    if (isPro) {
-      return StreamHud(
-        fps: _fps,
-        latency: _latency,
-        bitrate: _bitrate,
-        dropRate: _dropRate,
-        resolution: _resolution,
-        codec: _codec,
-        queueDepth: _queueDepth,
-        pendingAudioMs: _pendingAudioMs,
-        rttVariance: _rttVariance,
-        renderPath: _renderPath,
-      );
-    }
-    return buildBasicPerfOverlay(
-      fps: _fps,
-      latency: _latency,
-      bitrate: _bitrate,
-      dropRate: _dropRate,
-      resolution: _resolution,
-      pendingAudioMs: _pendingAudioMs,
+    return RepaintBoundary(
+      child: ValueListenableBuilder<StreamHudStats>(
+        valueListenable: _hudStats,
+        builder: (context, stats, _) {
+          final isPro = ProService.kDevMode || context.read<ProService>().isPro;
+          if (isPro) {
+            return StreamHud(
+              fps: stats.fps,
+              latency: stats.latency,
+              bitrate: stats.bitrate,
+              dropRate: stats.dropRate,
+              resolution: stats.resolution,
+              codec: stats.codec,
+              queueDepth: stats.queueDepth,
+              pendingAudioMs: stats.pendingAudioMs,
+              rttVariance: stats.rttVariance,
+              renderPath: stats.renderPath,
+            );
+          }
+          return buildBasicPerfOverlay(
+            fps: stats.fps,
+            latency: stats.latency,
+            bitrate: stats.bitrate,
+            dropRate: stats.dropRate,
+            resolution: stats.resolution,
+            pendingAudioMs: stats.pendingAudioMs,
+          );
+        },
+      ),
     );
   }
 

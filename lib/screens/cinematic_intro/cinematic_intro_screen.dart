@@ -6,7 +6,12 @@ import 'cinematic_audio.dart';
 
 class CinematicIntroScreen extends StatefulWidget {
   final VoidCallback onComplete;
-  const CinematicIntroScreen({required this.onComplete, super.key});
+  final bool reducedMotion;
+  const CinematicIntroScreen({
+    required this.onComplete,
+    this.reducedMotion = false,
+    super.key,
+  });
 
   @override
   State<CinematicIntroScreen> createState() => _CinematicIntroScreenState();
@@ -74,59 +79,77 @@ class _CinematicIntroScreenState extends State<CinematicIntroScreen>
     _continueController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1500),
-    )..repeat(reverse: true);
+    );
 
     // Ambient particle drift: very slow, continuous
     _particleController = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 20),
-    )..repeat();
+    );
 
     // Cube bounce+wobble: matches JujoBrandTitle animation
     _bounceController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 2250),
     );
-    _bounceTranslateY = _bounceSequence(const [0, -20, 2, -9, 1, 0])
-        .animate(_bounceController);
-    _bounceRotation = _bounceSequence(const [0, 21, -11, 7, -3, 0])
-        .animate(_bounceController);
+    _bounceTranslateY = _bounceSequence(const [
+      0,
+      -20,
+      2,
+      -9,
+      1,
+      0,
+    ]).animate(_bounceController);
+    _bounceRotation = _bounceSequence(const [
+      0,
+      21,
+      -11,
+      7,
+      -3,
+      0,
+    ]).animate(_bounceController);
 
     // Generate 60 explosion particles
     final rng = math.Random(42);
     for (int i = 0; i < 60; i++) {
       final angle = rng.nextDouble() * 2 * math.pi;
       final speed = 80.0 + rng.nextDouble() * 250.0;
-      _particles.add(_Particle(
-        angle: angle,
-        speed: speed,
-        size: 2.0 + rng.nextDouble() * 5.0,
-        color: rng.nextBool() ? _cyan : Colors.white,
-      ));
+      _particles.add(
+        _Particle(
+          angle: angle,
+          speed: speed,
+          size: 2.0 + rng.nextDouble() * 5.0,
+          color: rng.nextBool() ? _cyan : Colors.white,
+        ),
+      );
     }
 
     // Generate 40 ambient background particles
     for (int i = 0; i < 40; i++) {
-      _ambientParticles.add(_AmbientParticle(
-        baseX: rng.nextDouble(),
-        baseY: rng.nextDouble(),
-        driftSpeed: 0.3 + rng.nextDouble() * 0.7,
-        driftPhase: rng.nextDouble() * 2 * math.pi,
-        size: 0.8 + rng.nextDouble() * 1.8,
-        baseOpacity: 0.03 + rng.nextDouble() * 0.08,
-        color: rng.nextBool() ? _cyan : Colors.white,
-      ));
+      _ambientParticles.add(
+        _AmbientParticle(
+          baseX: rng.nextDouble(),
+          baseY: rng.nextDouble(),
+          driftSpeed: 0.3 + rng.nextDouble() * 0.7,
+          driftPhase: rng.nextDouble() * 2 * math.pi,
+          size: 0.8 + rng.nextDouble() * 1.8,
+          baseOpacity: 0.03 + rng.nextDouble() * 0.08,
+          color: rng.nextBool() ? _cyan : Colors.white,
+        ),
+      );
     }
 
     // Generate 40 wind lines (varied speeds, positions, lengths)
     for (int i = 0; i < 40; i++) {
-      _windLines.add(_WindLine(
-        x: rng.nextDouble(),
-        speedMultiplier: 0.5 + rng.nextDouble() * 1.0,
-        length: 30.0 + rng.nextDouble() * 170.0,
-        opacity: 0.05 + rng.nextDouble() * 0.15,
-        width: 0.5 + rng.nextDouble() * 1.2,
-      ));
+      _windLines.add(
+        _WindLine(
+          x: rng.nextDouble(),
+          speedMultiplier: 0.5 + rng.nextDouble() * 1.0,
+          length: 30.0 + rng.nextDouble() * 170.0,
+          opacity: 0.05 + rng.nextDouble() * 0.15,
+          width: 0.5 + rng.nextDouble() * 1.2,
+        ),
+      );
     }
 
     // Listen for impact
@@ -136,8 +159,18 @@ class _CinematicIntroScreenState extends State<CinematicIntroScreen>
       }
     });
 
-    _initAudio();
-    _fallController.forward();
+    if (widget.reducedMotion) {
+      _impactTriggered = true;
+      _showContinue = true;
+      _fallController.value = 1;
+      _explosionController.value = 1;
+      _logoRevealController.value = 1;
+    } else {
+      _continueController.repeat(reverse: true);
+      _particleController.repeat();
+      _initAudio();
+      _fallController.forward();
+    }
 
     // autofocus is skipped when the scope already has focus — force it so
     // gamepad/keyboard can dismiss (see gamepad focus-trap notes).
@@ -215,8 +248,10 @@ class _CinematicIntroScreenState extends State<CinematicIntroScreen>
     return TweenSequence<double>([
       for (var i = 0; i < keyframes.length - 1; i++)
         TweenSequenceItem(
-          tween: Tween(begin: keyframes[i], end: keyframes[i + 1])
-              .chain(CurveTween(curve: _bounceCurve)),
+          tween: Tween(
+            begin: keyframes[i],
+            end: keyframes[i + 1],
+          ).chain(CurveTween(curve: _bounceCurve)),
           weight: 1,
         ),
     ]);
@@ -320,17 +355,13 @@ class _CinematicIntroScreenState extends State<CinematicIntroScreen>
                   children: [
                     _buildBackground(p, impactY),
                     _buildAmbientParticles(),
-                    if (!_impactTriggered)
-                      _buildWindLines(p, windIntensity),
+                    if (!_impactTriggered) _buildWindLines(p, windIntensity),
                     _buildLaserLine(p, impactY),
                     if (!_impactTriggered || _explosionProgress.value < 0.2)
                       _buildFallingIcon(iconY, deformFactor),
-                    if (_impactTriggered)
-                      _buildExplosion(iconCenterX, impactY),
-                    if (_impactTriggered)
-                      _buildLogo(size, impactY),
-                    if (_showContinue)
-                      _buildContinuePrompt(),
+                    if (_impactTriggered) _buildExplosion(iconCenterX, impactY),
+                    if (_impactTriggered) _buildLogo(size, impactY),
+                    if (_showContinue) _buildContinuePrompt(),
                   ],
                 ),
               );
@@ -354,9 +385,9 @@ class _CinematicIntroScreenState extends State<CinematicIntroScreen>
           center: Alignment.center,
           radius: 0.9,
           colors: [
-            Color(0xFF040208),   // deep center
-            Color(0xFF080818),   // subtle purple
-            Color(0xFF0A0A20),   // outer edge
+            Color(0xFF040208), // deep center
+            Color(0xFF080818), // subtle purple
+            Color(0xFF0A0A20), // outer edge
           ],
         ),
       ),
@@ -372,10 +403,7 @@ class _CinematicIntroScreenState extends State<CinematicIntroScreen>
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 gradient: RadialGradient(
-                  colors: [
-                    _cyan.withValues(alpha: 0.04),
-                    Colors.transparent,
-                  ],
+                  colors: [_cyan.withValues(alpha: 0.04), Colors.transparent],
                 ),
               ),
             ),
@@ -434,8 +462,9 @@ class _CinematicIntroScreenState extends State<CinematicIntroScreen>
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
                     colors: [
-                      const Color(0xFF06121A)
-                          .withValues(alpha: 0.0 + approach * 0.5),
+                      const Color(
+                        0xFF06121A,
+                      ).withValues(alpha: 0.0 + approach * 0.5),
                       Colors.black.withValues(alpha: 0.25 + approach * 0.45),
                     ],
                   ),
@@ -597,11 +626,13 @@ class _CinematicIntroScreenState extends State<CinematicIntroScreen>
           final t = _logoRevealController.value;
           // Phase 1: the cube pops out of the blast with overshoot —
           // it was "inside" the falling box and the crash frees it.
-          final iconT =
-              Curves.easeOutBack.transform((t / 0.45).clamp(0.0, 1.0));
+          final iconT = Curves.easeOutBack.transform(
+            (t / 0.45).clamp(0.0, 1.0),
+          );
           // Phase 2: the wordmark slides out from behind the cube.
-          final textT =
-              Curves.easeOutCubic.transform(((t - 0.30) / 0.70).clamp(0.0, 1.0));
+          final textT = Curves.easeOutCubic.transform(
+            ((t - 0.30) / 0.70).clamp(0.0, 1.0),
+          );
 
           final textStyle = TextStyle(
             color: Colors.white,
@@ -614,7 +645,10 @@ class _CinematicIntroScreenState extends State<CinematicIntroScreen>
               text: 'JUJO',
               style: textStyle,
               children: const [
-                TextSpan(text: '.Stream', style: TextStyle(color: _cyan)),
+                TextSpan(
+                  text: '.Stream',
+                  style: TextStyle(color: _cyan),
+                ),
               ],
             ),
             textDirection: TextDirection.ltr,
@@ -825,16 +859,19 @@ class _LaserLinePainter extends CustomPainter {
 
     // Glow effect
     final glowPaint = Paint()
-      ..shader = RadialGradient(
-        colors: [
-          const Color(0xFFFFFFFF).withValues(alpha: opacity * 0.25),
-          const Color(0xFFFFFFFF).withValues(alpha: 0),
-        ],
-      ).createShader(Rect.fromCenter(
-        center: Offset(cx, cy + bendY * 0.5),
-        width: 60,
-        height: 60,
-      ));
+      ..shader =
+          RadialGradient(
+            colors: [
+              const Color(0xFFFFFFFF).withValues(alpha: opacity * 0.25),
+              const Color(0xFFFFFFFF).withValues(alpha: 0),
+            ],
+          ).createShader(
+            Rect.fromCenter(
+              center: Offset(cx, cy + bendY * 0.5),
+              width: 60,
+              height: 60,
+            ),
+          );
     canvas.drawCircle(Offset(cx, cy + bendY * 0.5), 30, glowPaint);
   }
 
@@ -921,19 +958,19 @@ class _AmbientParticlesPainter extends CustomPainter {
   final List<_AmbientParticle> particles;
   final double time;
 
-  _AmbientParticlesPainter({
-    required this.particles,
-    required this.time,
-  });
+  _AmbientParticlesPainter({required this.particles, required this.time});
 
   @override
   void paint(Canvas canvas, Size size) {
     for (final particle in particles) {
-      final x = (particle.baseX * size.width) +
+      final x =
+          (particle.baseX * size.width) +
           math.sin(time * particle.driftSpeed + particle.driftPhase) * 6;
-      final y = (particle.baseY * size.height) +
+      final y =
+          (particle.baseY * size.height) +
           math.cos(time * particle.driftSpeed * 0.6 + particle.driftPhase) * 4;
-      final alpha = particle.baseOpacity *
+      final alpha =
+          particle.baseOpacity *
           (0.6 + 0.4 * math.sin(time * 0.3 + particle.driftPhase));
 
       if (alpha < 0.01) continue;
@@ -978,9 +1015,10 @@ class _WindLinePainter extends CustomPainter {
       // it — scroll subtracts so lines travel bottom -> top.
       final scrollOffset = progress * size.height * 3.0 * speed;
       final baseY =
-          (line.x * size.height * 7 + line.speedMultiplier * size.height -
-                  scrollOffset) %
-              cycle;
+          (line.x * size.height * 7 +
+              line.speedMultiplier * size.height -
+              scrollOffset) %
+          cycle;
       final y = baseY - length;
 
       final alpha = line.opacity * intensity;
@@ -1001,18 +1039,13 @@ class _WindLinePainter extends CustomPainter {
         ..strokeWidth = line.width
         ..strokeCap = StrokeCap.round;
 
-      canvas.drawLine(
-        Offset(x, y),
-        Offset(x, y + length),
-        paint,
-      );
+      canvas.drawLine(Offset(x, y), Offset(x, y + length), paint);
     }
   }
 
   @override
   bool shouldRepaint(_WindLinePainter oldDelegate) =>
-      oldDelegate.progress != progress ||
-      oldDelegate.intensity != intensity;
+      oldDelegate.progress != progress || oldDelegate.intensity != intensity;
 }
 
 class _JujoBoxPainter extends CustomPainter {
@@ -1061,6 +1094,5 @@ class _JujoBoxPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_JujoBoxPainter oldDelegate) =>
-      oldDelegate.color != color;
+  bool shouldRepaint(_JujoBoxPainter oldDelegate) => oldDelegate.color != color;
 }

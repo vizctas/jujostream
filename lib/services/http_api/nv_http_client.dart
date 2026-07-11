@@ -23,8 +23,10 @@ class NvHttpClient {
 
   static String get uniqueId => ClientIdentity.uniqueId;
 
-  http.Client _newHttpsClient() {
-    return IOClient(ClientIdentity.createHttpClient());
+  http.Client _newHttpsClient(String? expectedServerCert) {
+    return IOClient(
+      ClientIdentity.createHttpClient(expectedServerCert: expectedServerCert),
+    );
   }
 
   String _baseUrl(String address, int port, {bool https = true}) {
@@ -84,6 +86,7 @@ class NvHttpClient {
     int httpsPort = defaultHttpsPort,
     int httpPort = defaultHttpPort,
     Duration timeout = const Duration(seconds: 5),
+    String? expectedServerCert,
   }) async {
     final resolvedAddress = await _resolveAddress(address);
     try {
@@ -92,7 +95,7 @@ class NvHttpClient {
           '?uniqueid=$uniqueId';
       _log.d('Fetching server info (HTTPS) from: $url');
 
-      final client = _newHttpsClient();
+      final client = _newHttpsClient(expectedServerCert);
       try {
         final response = await client.get(Uri.parse(url)).timeout(timeout);
 
@@ -101,11 +104,15 @@ class NvHttpClient {
           // attribute when the client cert is unrecognized. extractXmlValue uses an element
           // regex and misses attributes — without this check we'd return pairStatusFromHttps=true
           // + pairState=notPaired, falsely treating the server as "HTTPS confirmed not paired".
-          final attrMatch = RegExp(r'status_code="(\d+)"').firstMatch(response.body);
+          final attrMatch = RegExp(
+            r'status_code="(\d+)"',
+          ).firstMatch(response.body);
           final xmlAttrStatus = attrMatch?.group(1);
           if (xmlAttrStatus != null && xmlAttrStatus != '200') {
-            _log.w('serverinfo HTTPS XML status_code=$xmlAttrStatus (cert unrecognized), '
-                'falling back to HTTP');
+            _log.w(
+              'serverinfo HTTPS XML status_code=$xmlAttrStatus (cert unrecognized), '
+              'falling back to HTTP',
+            );
             // fall through to HTTP fallback below
           } else {
             final info = parseServerInfo(
@@ -193,6 +200,7 @@ class NvHttpClient {
   Future<List<NvApp>> getAppList(
     String address, {
     int httpsPort = defaultHttpsPort,
+    String? expectedServerCert,
   }) async {
     lastAppListCertRejected = false;
     final resolvedAddress = await _resolveAddress(address);
@@ -202,7 +210,7 @@ class NvHttpClient {
           '?uniqueid=$uniqueId';
       _log.d('Fetching app list (HTTPS) from: $url');
 
-      final client = _newHttpsClient();
+      final client = _newHttpsClient(expectedServerCert);
       late http.Response response;
       try {
         response = await client
@@ -225,12 +233,15 @@ class NvHttpClient {
         }
         // on_verify_failed sends the status_code as an XML attribute
         // (<root status_code="401" .../>), which extractXmlValue misses.
-        final attrMatch =
-            RegExp(r'status_code="(\d+)"').firstMatch(response.body);
+        final attrMatch = RegExp(
+          r'status_code="(\d+)"',
+        ).firstMatch(response.body);
         final attrStatus = attrMatch?.group(1);
         if (attrStatus != null && attrStatus != '200') {
-          _log.w('applist XML attr status_code=$attrStatus '
-              '(client cert not recognized by server)');
+          _log.w(
+            'applist XML attr status_code=$attrStatus '
+            '(client cert not recognized by server)',
+          );
           lastAppListCertRejected = true;
           return [];
         }
@@ -284,7 +295,8 @@ class NvHttpClient {
         // and gallery stay empty and callers fall back to the poster).
         final hasHero = extractXmlValue(appXml, 'HasHeroImage') == '1';
         final extraCount =
-            int.tryParse(extractXmlValue(appXml, 'ExtraImageCount') ?? '0') ?? 0;
+            int.tryParse(extractXmlValue(appXml, 'ExtraImageCount') ?? '0') ??
+            0;
         apps.add(
           NvApp(
             appId: appId,
@@ -337,6 +349,7 @@ class NvHttpClient {
     int? videoMaxFrameAgeMs,
     String surroundAudioInfo = '1',
     Map<String, String> extraLaunchParams = const <String, String>{},
+    String? expectedServerCert,
   }) async {
     final riKeyBytes = _randomBytes(16);
     final riKeyHex = riKeyBytes
@@ -360,11 +373,19 @@ class NvHttpClient {
     if (enableHdr) params['enableHdr'] = '1';
     // Only forward a concrete "W:H"; sentinels ("auto"/"off") are resolved or
     // dropped client-side and must never reach the server (it validates W:H).
-    if (aspectRatio != null && aspectRatio.contains(':')) params['aspectRatio'] = aspectRatio;
+    if (aspectRatio != null && aspectRatio.contains(':')) {
+      params['aspectRatio'] = aspectRatio;
+    }
     if (clientMic) params['clientMic'] = '1';
-    if (videoPacingMode != null && videoPacingMode.isNotEmpty) params['videoPacingMode'] = videoPacingMode;
-    if (videoPacingSlackMs != null) params['videoPacingSlackMs'] = videoPacingSlackMs.toString();
-    if (videoMaxFrameAgeMs != null) params['videoMaxFrameAgeMs'] = videoMaxFrameAgeMs.toString();
+    if (videoPacingMode != null && videoPacingMode.isNotEmpty) {
+      params['videoPacingMode'] = videoPacingMode;
+    }
+    if (videoPacingSlackMs != null) {
+      params['videoPacingSlackMs'] = videoPacingSlackMs.toString();
+    }
+    if (videoMaxFrameAgeMs != null) {
+      params['videoMaxFrameAgeMs'] = videoMaxFrameAgeMs.toString();
+    }
     if (extraLaunchParams.isNotEmpty) params.addAll(extraLaunchParams);
 
     final queryString = Uri(queryParameters: params).query;
@@ -385,7 +406,7 @@ class NvHttpClient {
         _log.i(
           'Launching app $appId on $address:$port (attempt ${attempt + 1})',
         );
-        final client = _newHttpsClient();
+        final client = _newHttpsClient(expectedServerCert);
         try {
           final response = await client
               .get(Uri.parse(url))
@@ -459,6 +480,7 @@ class NvHttpClient {
     int? videoMaxFrameAgeMs,
     String surroundAudioInfo = '1',
     Map<String, String> extraLaunchParams = const <String, String>{},
+    String? expectedServerCert,
   }) async {
     final riKeyBytes = _randomBytes(16);
     final riKeyHex = riKeyBytes
@@ -482,11 +504,19 @@ class NvHttpClient {
     if (enableHdr) params['enableHdr'] = '1';
     // Only forward a concrete "W:H"; sentinels ("auto"/"off") are resolved or
     // dropped client-side and must never reach the server (it validates W:H).
-    if (aspectRatio != null && aspectRatio.contains(':')) params['aspectRatio'] = aspectRatio;
+    if (aspectRatio != null && aspectRatio.contains(':')) {
+      params['aspectRatio'] = aspectRatio;
+    }
     if (clientMic) params['clientMic'] = '1';
-    if (videoPacingMode != null && videoPacingMode.isNotEmpty) params['videoPacingMode'] = videoPacingMode;
-    if (videoPacingSlackMs != null) params['videoPacingSlackMs'] = videoPacingSlackMs.toString();
-    if (videoMaxFrameAgeMs != null) params['videoMaxFrameAgeMs'] = videoMaxFrameAgeMs.toString();
+    if (videoPacingMode != null && videoPacingMode.isNotEmpty) {
+      params['videoPacingMode'] = videoPacingMode;
+    }
+    if (videoPacingSlackMs != null) {
+      params['videoPacingSlackMs'] = videoPacingSlackMs.toString();
+    }
+    if (videoMaxFrameAgeMs != null) {
+      params['videoMaxFrameAgeMs'] = videoMaxFrameAgeMs.toString();
+    }
     if (extraLaunchParams.isNotEmpty) params.addAll(extraLaunchParams);
     final queryString = Uri(queryParameters: params).query;
     final url = '${_baseUrl(address, port)}/resume?$queryString';
@@ -506,7 +536,7 @@ class NvHttpClient {
         _log.i(
           'Resuming app $appId on $address:$port (attempt ${attempt + 1})',
         );
-        final client = _newHttpsClient();
+        final client = _newHttpsClient(expectedServerCert);
         try {
           final response = await client
               .get(Uri.parse(url))
@@ -591,12 +621,16 @@ class NvHttpClient {
     return List<int>.generate(n, (_) => rng.nextInt(256));
   }
 
-  Future<bool> quitApp(String address, {int port = defaultHttpsPort}) async {
+  Future<bool> quitApp(
+    String address, {
+    int port = defaultHttpsPort,
+    String? expectedServerCert,
+  }) async {
     try {
       final url = '${_baseUrl(address, port)}/cancel?uniqueid=$uniqueId';
       _log.i('Quitting app on $address (HTTPS)');
 
-      final client = _newHttpsClient();
+      final client = _newHttpsClient(expectedServerCert);
       try {
         final response = await client
             .get(Uri.parse(url))

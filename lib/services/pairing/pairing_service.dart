@@ -704,7 +704,9 @@ class PairingService {
 
       final httpsBaseUrl = _buildPairingHttpsBaseUrl(computer, baseUrl);
 
-      final httpsClient = IOClient(ClientIdentity.createHttpClient());
+      final httpsClient = IOClient(
+        ClientIdentity.createHttpClient(allowUntrustedForPairing: true),
+      );
 
       try {
         final httpsPairChallengeUrl =

@@ -31,7 +31,7 @@ class ComputerOptionsDialog {
       barrierColor: Colors.black.withValues(alpha: 0.55),
       transitionDuration: const Duration(milliseconds: 280),
       transitionBuilder: (ctx, anim, _, child) {
-        final sc = CurvedAnimation(parent: anim, curve: Curves.easeOutBack);
+        final sc = CurvedAnimation(parent: anim, curve: Curves.easeOutCubic);
         final fc = CurvedAnimation(parent: anim, curve: Curves.easeOut);
         return ScaleTransition(
           scale: Tween<double>(begin: 0.92, end: 1).animate(sc),

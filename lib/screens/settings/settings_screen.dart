@@ -2678,7 +2678,7 @@ class _SettingsScreenState extends State<SettingsScreen>
       barrierColor: Colors.black.withValues(alpha: 0.55),
       transitionDuration: const Duration(milliseconds: 230),
       transitionBuilder: (dCtx, anim, _, child) {
-        final scale = CurvedAnimation(parent: anim, curve: Curves.easeOutBack);
+        final scale = CurvedAnimation(parent: anim, curve: Curves.easeOutCubic);
         final fade = CurvedAnimation(parent: anim, curve: Curves.easeOut);
         return ScaleTransition(
           scale: Tween<double>(begin: 0.90, end: 1).animate(scale),
@@ -2826,7 +2826,7 @@ class _SettingsScreenState extends State<SettingsScreen>
       barrierColor: Colors.black.withValues(alpha: 0.55),
       transitionDuration: const Duration(milliseconds: 230),
       transitionBuilder: (dCtx, anim, _, child) {
-        final scale = CurvedAnimation(parent: anim, curve: Curves.easeOutBack);
+        final scale = CurvedAnimation(parent: anim, curve: Curves.easeOutCubic);
         final fade = CurvedAnimation(parent: anim, curve: Curves.easeOut);
         return ScaleTransition(
           scale: Tween<double>(begin: 0.90, end: 1).animate(scale),
@@ -3086,7 +3086,7 @@ class _SettingsScreenState extends State<SettingsScreen>
       barrierColor: Colors.black.withValues(alpha: 0.55),
       transitionDuration: const Duration(milliseconds: 230),
       transitionBuilder: (dCtx, anim, _, child) {
-        final scale = CurvedAnimation(parent: anim, curve: Curves.easeOutBack);
+        final scale = CurvedAnimation(parent: anim, curve: Curves.easeOutCubic);
         final fade = CurvedAnimation(parent: anim, curve: Curves.easeOut);
         return ScaleTransition(
           scale: Tween<double>(begin: 0.90, end: 1).animate(scale),
@@ -3839,7 +3839,7 @@ class _SettingsScreenState extends State<SettingsScreen>
       barrierColor: Colors.black.withValues(alpha: 0.55),
       transitionDuration: const Duration(milliseconds: 230),
       transitionBuilder: (dCtx, anim, _, child) {
-        final scale = CurvedAnimation(parent: anim, curve: Curves.easeOutBack);
+        final scale = CurvedAnimation(parent: anim, curve: Curves.easeOutCubic);
         final fade = CurvedAnimation(parent: anim, curve: Curves.easeOut);
         return ScaleTransition(
           scale: Tween<double>(begin: 0.92, end: 1).animate(scale),

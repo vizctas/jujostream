@@ -4,6 +4,12 @@ mixin _AppViewVideoPreviewMixin on _AppViewScreenBase {
   @override
   void _queueAccentColorExtraction(NvApp app) {
     _accentDebounce?.cancel();
+    _bgDebounce?.cancel();
+    _bgDebounce = Timer(const Duration(milliseconds: 200), () {
+      if (mounted && _selectedAppId == app.appId) {
+        setState(() => _debouncedBgAppId = app.appId);
+      }
+    });
 
     _precacheAdjacentBackgrounds(app);
 
@@ -50,7 +56,10 @@ mixin _AppViewVideoPreviewMixin on _AppViewScreenBase {
 
   @override
   void _scheduleVideoPreview(NvApp app) {
+    _lastLibraryInteraction = DateTime.now();
     _videoDelayTimer?.cancel();
+    _videoDelayTimer = null;
+    final requestId = ++_videoRequestId;
 
     if (_isLaunching) {
       debugPrint('[JUJO][video] schedule BLOCKED: game launch in progress');
@@ -98,14 +107,19 @@ mixin _AppViewVideoPreviewMixin on _AppViewScreenBase {
       );
       return;
     }
-    debugPrint('[JUJO][video] scheduling for ${app.appName} url=$previewUrl');
+    debugPrint('[JUJO][video] scheduling for ${app.appName}');
     _videoDelayTimer = Timer(
       Duration(seconds: pluginsProvider.videoDelaySeconds),
       () {
+        _videoDelayTimer = null;
         if (!mounted) return;
 
-        if (_selectedAppId != app.appId) return;
-        _initVideoController(app, preferredUrl: previewUrl);
+        if (_selectedAppId != app.appId || requestId != _videoRequestId) return;
+        _initVideoController(
+          app,
+          preferredUrl: previewUrl,
+          requestId: requestId,
+        );
       },
     );
   }
@@ -136,17 +150,23 @@ mixin _AppViewVideoPreviewMixin on _AppViewScreenBase {
   }
 
   Future<VideoPlayerController?> _tryVideoUrl(String url) async {
+    VideoPlayerController? controller;
     try {
-      final c = VideoPlayerController.networkUrl(Uri.parse(url));
-      await c.initialize();
-      return c;
+      controller = VideoPlayerController.networkUrl(Uri.parse(url));
+      await controller.initialize();
+      return controller;
     } catch (e) {
-      debugPrint('[JUJO][video] _tryVideoUrl FAILED url=$url error=$e');
+      await controller?.dispose();
+      debugPrint('[JUJO][video] preview initialization failed: $e');
       return null;
     }
   }
 
-  Future<void> _initVideoController(NvApp app, {String? preferredUrl}) async {
+  Future<void> _initVideoController(
+    NvApp app, {
+    String? preferredUrl,
+    required int requestId,
+  }) async {
     final url = preferredUrl ?? _previewUrlFor(app);
     if (url == null || url.isEmpty) return;
 
@@ -155,11 +175,11 @@ mixin _AppViewVideoPreviewMixin on _AppViewScreenBase {
     controller = await _tryVideoUrl(url);
 
     if (controller == null) {
-      debugPrint('[JUJO][video] primary failed for ${app.appName} url=$url');
+      debugPrint('[JUJO][video] primary failed for ${app.appName}');
 
       final alt = _deriveCodecFallback(url);
       if (alt != null) {
-        debugPrint('[JUJO][video] Option C trying $alt');
+        debugPrint('[JUJO][video] trying codec fallback');
         controller = await _tryVideoUrl(alt);
         if (controller == null) {
           debugPrint('[JUJO][video] Option C also failed');
@@ -175,7 +195,7 @@ mixin _AppViewVideoPreviewMixin on _AppViewScreenBase {
           rawgUrl != null &&
           rawgUrl.isNotEmpty &&
           url == steamUrl) {
-        debugPrint('[JUJO][video] trying RAWG fallback $rawgUrl');
+        debugPrint('[JUJO][video] trying metadata fallback');
         controller = await _tryVideoUrl(rawgUrl);
         if (controller == null) {
           final rawgAlt = _deriveCodecFallback(rawgUrl);
@@ -189,17 +209,38 @@ mixin _AppViewVideoPreviewMixin on _AppViewScreenBase {
       return;
     }
 
-    if (!mounted || _selectedAppId != app.appId) {
-      controller.dispose();
+    bool requestIsCurrent() =>
+        mounted &&
+        requestId == _videoRequestId &&
+        _selectedAppId == app.appId &&
+        !_isLaunching;
+
+    if (!mounted || !requestIsCurrent()) {
+      await controller.dispose();
       return;
     }
 
-    final muted = context.read<PluginsProvider>().microtrailerMuted;
-    await controller.setVolume(muted ? 0.0 : 1.0);
-    await controller.setLooping(true);
-    await controller.play();
+    try {
+      final muted = context.read<PluginsProvider>().microtrailerMuted;
+      await controller.setVolume(muted ? 0.0 : 1.0);
+      if (!requestIsCurrent()) {
+        await controller.dispose();
+        return;
+      }
+      await controller.setLooping(true);
+      await controller.play();
+    } catch (e) {
+      await controller.dispose();
+      debugPrint('[JUJO][video] preview configuration failed: $e');
+      return;
+    }
 
-    _videoController?.dispose();
+    if (!requestIsCurrent()) {
+      await controller.dispose();
+      return;
+    }
+
+    await _videoController?.dispose();
     setState(() {
       _videoController = controller;
       _videoForAppId = app.appId;
@@ -209,8 +250,10 @@ mixin _AppViewVideoPreviewMixin on _AppViewScreenBase {
 
   @override
   void _disposeVideoController() {
+    _videoRequestId++;
     _videoDelayTimer?.cancel();
-    _videoController?.dispose();
+    _videoDelayTimer = null;
+    unawaited(_videoController?.dispose());
     _videoController = null;
     _videoForAppId = null;
     if (_videoReady) {

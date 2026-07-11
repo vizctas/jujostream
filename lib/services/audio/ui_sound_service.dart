@@ -461,17 +461,28 @@ class UiSoundService {
   }
 
   static String? _uiMovePath;
+  static int _uiMoveGeneration = 0;
+  static DateTime? _lastUiMoveRequest;
+  static const _uiMoveCoalesceWindow = Duration(milliseconds: 40);
 
   static void playUiMove() {
-    _playUiMoveAsync();
+    final now = DateTime.now();
+    final previous = _lastUiMoveRequest;
+    if (previous != null && now.difference(previous) < _uiMoveCoalesceWindow) {
+      return;
+    }
+    _lastUiMoveRequest = now;
+    final generation = ++_uiMoveGeneration;
+    _playUiMoveAsync(generation);
   }
 
-  static Future<void> _playUiMoveAsync() async {
+  static Future<void> _playUiMoveAsync(int generation) async {
     try {
       _uiMovePath ??= await _loadAssetToFile('sound/ui/ui_move.mp3');
-      if (_uiMovePath == null) return;
+      if (_uiMovePath == null || generation != _uiMoveGeneration) return;
       final player = _getPlayer();
-      player.stop();
+      await player.stop();
+      if (generation != _uiMoveGeneration) return;
       await player.play(DeviceFileSource(_uiMovePath!));
     } catch (e) {
       debugPrint('[UiSound] playUiMove error: $e');

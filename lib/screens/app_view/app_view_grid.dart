@@ -8,6 +8,10 @@ mixin _AppViewGridMixin on _AppViewScreenBase {
     NvApp selected,
   ) {
     final lp = context.read<LauncherPreferences>();
+    final motion = MotionPolicy.fromContext(
+      context,
+      context.read<ThemeProvider>(),
+    );
     final accent = _accentColor ?? _tp.accent;
     final screenWidth = MediaQuery.sizeOf(context).width;
     final isLandscape =
@@ -121,7 +125,10 @@ mixin _AppViewGridMixin on _AppViewScreenBase {
                           ),
                           child: Text(
                             AppLocalizations.of(context).hdrLabel,
-                            style: TextStyle(color: Colors.cyanAccent, fontSize: 9),
+                            style: TextStyle(
+                              color: Colors.cyanAccent,
+                              fontSize: 9,
+                            ),
                           ),
                         ),
                     ],
@@ -129,8 +136,7 @@ mixin _AppViewGridMixin on _AppViewScreenBase {
                   const SizedBox(height: 8),
 
                   Text(
-                    sel.pluginName ??
-                        AppLocalizations.of(context).localLibrary,
+                    sel.pluginName ?? AppLocalizations.of(context).localLibrary,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(color: Colors.white38, fontSize: 10),
@@ -268,14 +274,13 @@ mixin _AppViewGridMixin on _AppViewScreenBase {
               child: TweenAnimationBuilder<double>(
                 key: ValueKey('scale_${app.appId}'),
                 tween: Tween<double>(begin: 1.0, end: isSelected ? 1.05 : 1.0),
-                duration: isSelected
-                    ? const Duration(milliseconds: 450)
-                    : const Duration(milliseconds: 220),
-                curve: isSelected ? Curves.elasticOut : Curves.easeOutCubic,
+                duration: motion.focusDuration,
+                curve: motion.standardCurve,
                 builder: (_, scale, child) =>
                     Transform.scale(scale: scale, child: child),
                 child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 200),
+                  duration: motion.focusDuration,
+                  curve: motion.standardCurve,
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(lp.cardBorderRadius),
                   ),
@@ -365,6 +370,14 @@ mixin _AppViewGridMixin on _AppViewScreenBase {
                   ),
                 ),
               ),
+            );
+
+            card = Semantics(
+              button: true,
+              label: app.appName,
+              selected: isSelected,
+              onTap: () => _handleAppTap(app),
+              child: card,
             );
 
             // instead of calling setState, so the grid doesn't fully rebuild.

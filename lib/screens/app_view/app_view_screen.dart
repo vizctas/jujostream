@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'dart:ui';
+import 'dart:ui' show ImageByteFormat, PlatformDispatcher;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -21,6 +21,7 @@ import '../../models/theme_config.dart';
 import '../../services/metadata/macro_genre_classifier.dart';
 import '../../services/database/achievement_service.dart';
 import '../../services/metadata/steam_achievement_service.dart';
+import '../../services/metadata/background_blur_service.dart';
 import '../../services/preferences/game_preferences_store.dart';
 import '../../services/preferences/launcher_preferences.dart';
 import 'app_details_screen.dart';
@@ -38,6 +39,7 @@ import '../../themes/launcher_theme.dart';
 import '../../widgets/poster_image.dart';
 import '../game/game_stream_screen.dart';
 import '../../models/stream_configuration.dart';
+import '../../ui/motion_policy.dart';
 
 part 'app_view_cards.dart';
 part 'app_view_carousel.dart';
@@ -112,6 +114,10 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
   KeyEventResult _onKeyEvent(KeyEvent event, List<NvApp> apps, NvApp selected);
   void _moveSelection(List<NvApp> apps, int delta);
   Timer? _refreshTimer;
+  DateTime _lastLibraryRefresh = DateTime.fromMillisecondsSinceEpoch(0);
+  DateTime _lastLibraryInteraction = DateTime.fromMillisecondsSinceEpoch(0);
+  static const _libraryRefreshInterval = Duration(seconds: 30);
+  static const _libraryInteractionQuietPeriod = Duration(seconds: 3);
   // Only widgets wrapped in ValueListenableBuilder rebuild when selection moves.
   final ValueNotifier<int?> _selectedAppIdNotifier = ValueNotifier<int?>(null);
   int? get _selectedAppId => _selectedAppIdNotifier.value;
@@ -151,6 +157,7 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
 
   VideoPlayerController? _videoController;
   Timer? _videoDelayTimer;
+  int _videoRequestId = 0;
   int? _videoForAppId;
   bool _videoReady = false;
   bool? _videoPluginWasEnabled;
@@ -234,13 +241,24 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
 
   void _startAutoRefreshTimer() {
     _refreshTimer?.cancel();
-    _refreshTimer = Timer.periodic(const Duration(seconds: 30), (_) {
-      if (!mounted) return;
-      final provider = context.read<AppListProvider>();
-      if (!provider.isLoading && !provider.isEnriching) {
-        provider.refresh();
-      }
+    _refreshTimer = Timer.periodic(_libraryRefreshInterval, (_) {
+      unawaited(_refreshLibraryIfStale());
     });
+  }
+
+  Future<void> _refreshLibraryIfStale() async {
+    if (!mounted || _isLaunching) return;
+    final now = DateTime.now();
+    if (now.difference(_lastLibraryRefresh) < _libraryRefreshInterval ||
+        now.difference(_lastLibraryInteraction) <
+            _libraryInteractionQuietPeriod ||
+        context.read<ComputerProvider>().isPairing) {
+      return;
+    }
+    final provider = context.read<AppListProvider>();
+    if (provider.isLoading || provider.isEnriching) return;
+    _lastLibraryRefresh = now;
+    await provider.refresh();
   }
 
   void _stopAutoRefreshTimer() {
@@ -258,10 +276,10 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
       _videoController?.pause();
     } else if (state == AppLifecycleState.resumed) {
       _startAutoRefreshTimer();
-      _videoController?.play();
-      if (!context.read<ComputerProvider>().isPairing) {
-        context.read<AppListProvider>().refresh();
+      if (_videoForAppId == _selectedAppId && !_isLaunching) {
+        _videoController?.play();
       }
+      unawaited(_refreshLibraryIfStale());
     }
   }
 
@@ -302,16 +320,18 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
     for (var i = 0; i < targets.length; i += 4) {
       if (!mounted) break;
       final batch = targets.sublist(i, (i + 4).clamp(0, targets.length));
-      await Future.wait(
+      final updates = await Future.wait(
         batch.map((app) async {
           final progress = await _achievementService.fetchGameProgress(
             apiKey: apiKey,
             steamId: steamId,
             steamAppId: app.steamAppId!,
           );
-          if (mounted) setState(() => _achievementCache[app.appId] = progress);
+          return MapEntry(app.appId, progress);
         }),
       );
+      if (!mounted) break;
+      setState(() => _achievementCache.addEntries(updates));
     }
 
     if (mounted) setState(() => _achievementsLoading = false);
@@ -322,6 +342,9 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
     WidgetsBinding.instance.removeObserver(this);
     _stopAutoRefreshTimer();
     _accentDebounce?.cancel();
+    _bgDebounce?.cancel();
+    _accentRequestId++;
+    _videoRequestId++;
     _videoDelayTimer?.cancel();
     _videoController?.dispose();
     _backgroundMotionController.dispose();
@@ -435,323 +458,315 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
       resizeToAvoidBottomInset: false,
 
       body: Consumer<AppListProvider>(
-          builder: (context, provider, child) {
-            final pluginsProvider = context.watch<PluginsProvider>();
-            if (_activeFilter == _AppFilter.macroGenre &&
-                !pluginsProvider.canUseSmartGenreFilters) {
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                if (mounted &&
-                    _activeFilter == _AppFilter.macroGenre &&
-                    !context.read<PluginsProvider>().canUseSmartGenreFilters) {
-                  _applyFilter(_AppFilter.all);
-                }
-              });
-            }
+        builder: (context, provider, child) {
+          final pluginsProvider = context.watch<PluginsProvider>();
+          if (_activeFilter == _AppFilter.macroGenre &&
+              !pluginsProvider.canUseSmartGenreFilters) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted &&
+                  _activeFilter == _AppFilter.macroGenre &&
+                  !context.read<PluginsProvider>().canUseSmartGenreFilters) {
+                _applyFilter(_AppFilter.all);
+              }
+            });
+          }
 
-            if ((_activeFilter == _AppFilter.achievements100 ||
-                    _activeFilter == _AppFilter.achievementsPending ||
-                    _activeFilter == _AppFilter.achievementsNever) &&
-                !pluginsProvider.canUseAchievementsOverlay) {
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                if (mounted) _applyFilter(_AppFilter.all);
-              });
-            }
+          if ((_activeFilter == _AppFilter.achievements100 ||
+                  _activeFilter == _AppFilter.achievementsPending ||
+                  _activeFilter == _AppFilter.achievementsNever) &&
+              !pluginsProvider.canUseAchievementsOverlay) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted) _applyFilter(_AppFilter.all);
+            });
+          }
 
-            if (pluginsProvider.canUseAchievementsOverlay &&
-                !_achievementsInitiated &&
-                provider.apps.isNotEmpty) {
-              _achievementsInitiated = true;
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                if (mounted) _loadAllAchievements(provider.apps.toList());
-              });
-            }
+          if (pluginsProvider.canUseAchievementsOverlay &&
+              !_achievementsInitiated &&
+              provider.apps.isNotEmpty) {
+            _achievementsInitiated = true;
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted) _loadAllAchievements(provider.apps.toList());
+            });
+          }
 
-            if (_videoPluginWasEnabled != true && provider.apps.isNotEmpty) {
-              _videoPluginWasEnabled = true;
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                if (!mounted) return;
-                final visibleApps = _visibleApps(provider.apps.toList());
-                if (visibleApps.isNotEmpty) {
-                  _scheduleVideoPreview(_selectedApp(visibleApps));
-                }
-              });
-            }
+          if (_videoPluginWasEnabled != true && provider.apps.isNotEmpty) {
+            _videoPluginWasEnabled = true;
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (!mounted) return;
+              final visibleApps = _visibleApps(provider.apps.toList());
+              if (visibleApps.isNotEmpty) {
+                _scheduleVideoPreview(_selectedApp(visibleApps));
+              }
+            });
+          }
 
-            if (provider.apps.isNotEmpty && !_profilesPrimed) {
-              _profilesPrimed = true;
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                if (mounted) _primeProfilesForCurrentApps();
-              });
-            }
+          if (provider.apps.isNotEmpty && !_profilesPrimed) {
+            _profilesPrimed = true;
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted) _primeProfilesForCurrentApps();
+            });
+          }
 
-            if (provider.apps.isNotEmpty && !_focusRequested) {
-              _focusRequested = true;
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                if (mounted) _screenFocusNode.requestFocus();
-              });
-            }
+          if (provider.apps.isNotEmpty && !_focusRequested) {
+            _focusRequested = true;
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted) _screenFocusNode.requestFocus();
+            });
+          }
 
-            // Show skeleton when:
-            //  1. Actively loading with no apps yet, OR
-            //  2. Pre-load state: loadApps() hasn't been called yet for this
-            //     screen (isLoading=false, apps empty, no error). This happens
-            //     on the very first build frame before addPostFrameCallback
-            //     fires loadApps(). Without this, the user briefly sees the
-            //     "No apps found" empty state before the skeleton appears.
-            final isPreLoadState =
-                !provider.isLoading &&
-                provider.apps.isEmpty &&
-                provider.error == null;
-            if ((provider.isLoading && provider.apps.isEmpty) ||
-                isPreLoadState) {
-              return Scaffold(
-                backgroundColor: _tp.background,
-                body: SafeArea(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      IconButton(
-                        icon: Icon(
-                          Icons.arrow_back,
-                          color: _tp.isLight ? Colors.black87 : Colors.white,
+          // Show skeleton when:
+          //  1. Actively loading with no apps yet, OR
+          //  2. Pre-load state: loadApps() hasn't been called yet for this
+          //     screen (isLoading=false, apps empty, no error). This happens
+          //     on the very first build frame before addPostFrameCallback
+          //     fires loadApps(). Without this, the user briefly sees the
+          //     "No apps found" empty state before the skeleton appears.
+          final isPreLoadState =
+              !provider.isLoading &&
+              provider.apps.isEmpty &&
+              provider.error == null;
+          if ((provider.isLoading && provider.apps.isEmpty) || isPreLoadState) {
+            return Scaffold(
+              backgroundColor: _tp.background,
+              body: SafeArea(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    IconButton(
+                      icon: Icon(
+                        Icons.arrow_back,
+                        color: _tp.isLight ? Colors.black87 : Colors.white,
+                      ),
+                      onPressed: () => Navigator.of(context).pop(),
+                    ),
+                    const SizedBox(height: 16),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: Row(
+                        children: List.generate(
+                          4,
+                          (_) => Padding(
+                            padding: const EdgeInsets.only(right: 8),
+                            child: Container(
+                              width: 64,
+                              height: 28,
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.06),
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                            ),
+                          ),
                         ),
-                        onPressed: () => Navigator.of(context).pop(),
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    Expanded(
+                      child: Center(
+                        child: SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          padding: const EdgeInsets.symmetric(horizontal: 24),
+                          child: Row(
+                            children: List.generate(
+                              5,
+                              (i) => Padding(
+                                padding: const EdgeInsets.only(right: 12),
+                                child: _SkeletonCard(
+                                  delay: Duration(milliseconds: i * 120),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }
+          if (provider.error != null && provider.apps.isEmpty) {
+            return Focus(
+              autofocus: true,
+              onKeyEvent: (_, ev) {
+                if (ev is! KeyDownEvent) return KeyEventResult.ignored;
+                final k = ev.logicalKey;
+                if (k == LogicalKeyboardKey.gameButtonB ||
+                    k == LogicalKeyboardKey.goBack ||
+                    k == LogicalKeyboardKey.escape) {
+                  Navigator.maybePop(context);
+                  return KeyEventResult.handled;
+                }
+                if (k == LogicalKeyboardKey.gameButtonA ||
+                    k == LogicalKeyboardKey.select ||
+                    k == LogicalKeyboardKey.enter) {
+                  provider.loadApps(widget.computer);
+                  return KeyEventResult.handled;
+                }
+                return KeyEventResult.ignored;
+              },
+              child: Scaffold(
+                backgroundColor: _tp.background,
+                appBar: AppBar(
+                  title: Text(widget.computer.name),
+                  backgroundColor: _tp.surface,
+                  foregroundColor: _tp.isLight ? Colors.black87 : Colors.white,
+                  elevation: 0,
+                  leading: IconButton(
+                    autofocus: false,
+                    icon: Icon(
+                      Icons.arrow_back,
+                      color: _tp.isLight ? Colors.black87 : Colors.white,
+                    ),
+                    onPressed: () => Navigator.maybePop(context),
+                  ),
+                ),
+                body: Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(
+                        Icons.error_outline,
+                        size: 64,
+                        color: Colors.redAccent,
                       ),
                       const SizedBox(height: 16),
                       Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        child: Row(
-                          children: List.generate(
-                            4,
-                            (_) => Padding(
-                              padding: const EdgeInsets.only(right: 8),
-                              child: Container(
-                                width: 64,
-                                height: 28,
-                                decoration: BoxDecoration(
-                                  color: Colors.white.withValues(alpha: 0.06),
-                                  borderRadius: BorderRadius.circular(14),
-                                ),
-                              ),
-                            ),
-                          ),
+                        padding: const EdgeInsets.symmetric(horizontal: 32),
+                        child: Text(
+                          provider.error!,
+                          style: const TextStyle(color: Colors.white70),
+                          textAlign: TextAlign.center,
                         ),
                       ),
-                      const SizedBox(height: 24),
-                      Expanded(
-                        child: Center(
-                          child: SingleChildScrollView(
-                            scrollDirection: Axis.horizontal,
-                            padding: const EdgeInsets.symmetric(horizontal: 24),
-                            child: Row(
-                              children: List.generate(
-                                5,
-                                (i) => Padding(
-                                  padding: const EdgeInsets.only(right: 12),
-                                  child: _SkeletonCard(
-                                    delay: Duration(milliseconds: i * 120),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
+                      const SizedBox(height: 20),
+                      ElevatedButton.icon(
+                        autofocus: true,
+                        icon: const Icon(Icons.refresh_rounded, size: 18),
+                        label: Text(AppLocalizations.of(context).retry),
+                        onPressed: () => provider.loadApps(widget.computer),
                       ),
                     ],
                   ),
                 ),
-              );
-            }
-            if (provider.error != null && provider.apps.isEmpty) {
-              return Focus(
-                autofocus: true,
-                onKeyEvent: (_, ev) {
-                  if (ev is! KeyDownEvent) return KeyEventResult.ignored;
-                  final k = ev.logicalKey;
-                  if (k == LogicalKeyboardKey.gameButtonB ||
-                      k == LogicalKeyboardKey.goBack ||
-                      k == LogicalKeyboardKey.escape) {
-                    Navigator.maybePop(context);
-                    return KeyEventResult.handled;
-                  }
-                  if (k == LogicalKeyboardKey.gameButtonA ||
-                      k == LogicalKeyboardKey.select ||
-                      k == LogicalKeyboardKey.enter) {
-                    provider.loadApps(widget.computer);
-                    return KeyEventResult.handled;
-                  }
-                  return KeyEventResult.ignored;
-                },
-                child: Scaffold(
-                  backgroundColor: _tp.background,
-                  appBar: AppBar(
-                    title: Text(widget.computer.name),
-                    backgroundColor: _tp.surface,
-                    foregroundColor: _tp.isLight
-                        ? Colors.black87
-                        : Colors.white,
-                    elevation: 0,
-                    leading: IconButton(
-                      autofocus: false,
-                      icon: Icon(
-                        Icons.arrow_back,
-                        color: _tp.isLight ? Colors.black87 : Colors.white,
-                      ),
-                      onPressed: () => Navigator.maybePop(context),
+              ),
+            );
+          }
+          if (provider.apps.isEmpty) {
+            return Focus(
+              autofocus: true,
+              onKeyEvent: (_, ev) {
+                if (ev is! KeyDownEvent) return KeyEventResult.ignored;
+                final k = ev.logicalKey;
+                if (k == LogicalKeyboardKey.gameButtonB ||
+                    k == LogicalKeyboardKey.goBack ||
+                    k == LogicalKeyboardKey.escape) {
+                  Navigator.maybePop(context);
+                  return KeyEventResult.handled;
+                }
+                return KeyEventResult.ignored;
+              },
+              child: Scaffold(
+                backgroundColor: _tp.background,
+                appBar: AppBar(
+                  title: Text(widget.computer.name),
+                  backgroundColor: _tp.surface,
+                  foregroundColor: _tp.isLight ? Colors.black87 : Colors.white,
+                  elevation: 0,
+                  leading: IconButton(
+                    autofocus: false,
+                    icon: Icon(
+                      Icons.arrow_back,
+                      color: _tp.isLight ? Colors.black87 : Colors.white,
                     ),
+                    onPressed: () => Navigator.maybePop(context),
                   ),
-                  body: Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Icon(
-                          Icons.error_outline,
-                          size: 64,
-                          color: Colors.redAccent,
-                        ),
-                        const SizedBox(height: 16),
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 32),
-                          child: Text(
-                            provider.error!,
-                            style: const TextStyle(color: Colors.white70),
-                            textAlign: TextAlign.center,
-                          ),
-                        ),
-                        const SizedBox(height: 20),
-                        ElevatedButton.icon(
-                          autofocus: true,
-                          icon: const Icon(Icons.refresh_rounded, size: 18),
-                          label: Text(AppLocalizations.of(context).retry),
-                          onPressed: () => provider.loadApps(widget.computer),
-                        ),
-                      ],
-                    ),
+                ),
+                body: Center(
+                  child: Text(
+                    AppLocalizations.of(context).noAppsFound,
+                    style: const TextStyle(color: Colors.white70, fontSize: 16),
                   ),
+                ),
+              ),
+            );
+          }
+
+          final launcherTheme = context.read<ThemeProvider>().launcherTheme;
+          if (launcherTheme.id != LauncherThemeId.classic &&
+              _viewMode != _ViewMode.grid) {
+            final visibleApps = _visibleApps(provider.apps.toList());
+            _ensureValidSelection(visibleApps);
+            final selected = _selectedApp(visibleApps);
+
+            Widget? videoWidget;
+            int? videoAppId;
+            if (_videoReady &&
+                _videoController != null &&
+                _videoController!.value.isInitialized &&
+                _videoForAppId != null) {
+              videoAppId = _videoForAppId;
+              videoWidget = FittedBox(
+                fit: BoxFit.cover,
+                child: SizedBox(
+                  width: _videoController!.value.size.width,
+                  height: _videoController!.value.size.height,
+                  child: VideoPlayer(_videoController!),
                 ),
               );
             }
-            if (provider.apps.isEmpty) {
-              return Focus(
-                autofocus: true,
-                onKeyEvent: (_, ev) {
-                  if (ev is! KeyDownEvent) return KeyEventResult.ignored;
-                  final k = ev.logicalKey;
-                  if (k == LogicalKeyboardKey.gameButtonB ||
-                      k == LogicalKeyboardKey.goBack ||
-                      k == LogicalKeyboardKey.escape) {
-                    Navigator.maybePop(context);
-                    return KeyEventResult.handled;
-                  }
-                  return KeyEventResult.ignored;
-                },
-                child: Scaffold(
-                  backgroundColor: _tp.background,
-                  appBar: AppBar(
-                    title: Text(widget.computer.name),
-                    backgroundColor: _tp.surface,
-                    foregroundColor: _tp.isLight
-                        ? Colors.black87
-                        : Colors.white,
-                    elevation: 0,
-                    leading: IconButton(
-                      autofocus: false,
-                      icon: Icon(
-                        Icons.arrow_back,
-                        color: _tp.isLight ? Colors.black87 : Colors.white,
-                      ),
-                      onPressed: () => Navigator.maybePop(context),
-                    ),
-                  ),
-                  body: Center(
-                    child: Text(
-                      AppLocalizations.of(context).noAppsFound,
-                      style: const TextStyle(
-                        color: Colors.white70,
-                        fontSize: 16,
-                      ),
-                    ),
-                  ),
-                ),
-              );
-            }
-
-            final launcherTheme = context.read<ThemeProvider>().launcherTheme;
-            if (launcherTheme.id != LauncherThemeId.classic &&
-                _viewMode != _ViewMode.grid) {
-              final visibleApps = _visibleApps(provider.apps.toList());
-              _ensureValidSelection(visibleApps);
-              final selected = _selectedApp(visibleApps);
-
-              Widget? videoWidget;
-              int? videoAppId;
-              if (_videoReady &&
-                  _videoController != null &&
-                  _videoController!.value.isInitialized &&
-                  _videoForAppId != null) {
-                videoAppId = _videoForAppId;
-                videoWidget = FittedBox(
-                  fit: BoxFit.cover,
-                  child: SizedBox(
-                    width: _videoController!.value.size.width,
-                    height: _videoController!.value.size.height,
-                    child: VideoPlayer(_videoController!),
-                  ),
+            return launcherTheme.buildBody(
+              context: context,
+              apps: visibleApps,
+              allApps: provider.apps.toList(),
+              selectedIndex: visibleApps
+                  .indexOf(selected)
+                  .clamp(0, visibleApps.length - 1),
+              onAppSelected: _handleAppTap,
+              onAppDetails: _openDetailsScreen,
+              onIndexChanged: (i) {
+                if (i >= 0 && i < visibleApps.length) {
+                  setState(() {
+                    _selectedAppId = visibleApps[i].appId;
+                    _focusedAppId = visibleApps[i].appId;
+                  });
+                  _queueAccentColorExtraction(visibleApps[i]);
+                  _scheduleVideoPreview(visibleApps[i]);
+                }
+              },
+              activeSessionAppId: provider.apps
+                  .cast<NvApp?>()
+                  .firstWhere((a) => a?.isRunning == true, orElse: () => null)
+                  ?.appId
+                  .toString(),
+              isGridView: _viewMode == _ViewMode.grid,
+              favoriteIds: _favoriteAppIds.map((id) => id.toString()).toSet(),
+              onToggleFavorite: _toggleFavorite,
+              onToggleView: () => _toggleViewMode(provider.apps.toList()),
+              videoWidget: videoWidget,
+              videoForAppId: videoAppId,
+              onSearch: _openSearch,
+              onFilter: _openFilterPicker,
+              onSmartFilters: _openSmartGenreFilters,
+              onResumeRunning: () {
+                final running = provider.apps.cast<NvApp?>().firstWhere(
+                  (a) => a?.isRunning == true,
+                  orElse: () => null,
                 );
-              }
-              return launcherTheme.buildBody(
-                context: context,
-                apps: visibleApps,
-                allApps: provider.apps.toList(),
-                selectedIndex: visibleApps
-                    .indexOf(selected)
-                    .clamp(0, visibleApps.length - 1),
-                onAppSelected: _handleAppTap,
-                onAppDetails: _openDetailsScreen,
-                onIndexChanged: (i) {
-                  if (i >= 0 && i < visibleApps.length) {
-                    setState(() {
-                      _selectedAppId = visibleApps[i].appId;
-                      _focusedAppId = visibleApps[i].appId;
-                    });
-                    _queueAccentColorExtraction(visibleApps[i]);
-                    _scheduleVideoPreview(visibleApps[i]);
-                  }
-                },
-                activeSessionAppId: provider.apps
-                    .cast<NvApp?>()
-                    .firstWhere((a) => a?.isRunning == true, orElse: () => null)
-                    ?.appId
-                    .toString(),
-                isGridView: _viewMode == _ViewMode.grid,
-                favoriteIds: _favoriteAppIds.map((id) => id.toString()).toSet(),
-                onToggleFavorite: _toggleFavorite,
-                onToggleView: () => _toggleViewMode(provider.apps.toList()),
-                videoWidget: videoWidget,
-                videoForAppId: videoAppId,
-                onSearch: _openSearch,
-                onFilter: _openFilterPicker,
-                onSmartFilters: _openSmartGenreFilters,
-                onResumeRunning: () {
-                  final running = provider.apps.cast<NvApp?>().firstWhere(
-                    (a) => a?.isRunning == true,
-                    orElse: () => null,
-                  );
-                  if (running != null) _showRunningSheet(running);
-                },
-                onDetailViewChanged: (inDetail) {
-                  _isDetailView = inDetail;
-                  if (inDetail) {
-                    final sel = _selectedApp(visibleApps);
-                    _scheduleVideoPreview(sel);
-                  } else {
-                    _disposeVideoController();
-                  }
-                },
-                activeFilterLabel: _filterLabel(_activeFilter),
-              );
-            }
-            return _buildCarouselScreen(provider.apps);
+                if (running != null) _showRunningSheet(running);
+              },
+              onDetailViewChanged: (inDetail) {
+                _isDetailView = inDetail;
+                if (inDetail) {
+                  final sel = _selectedApp(visibleApps);
+                  _scheduleVideoPreview(sel);
+                } else {
+                  _disposeVideoController();
+                }
+              },
+              activeFilterLabel: _filterLabel(_activeFilter),
+            );
+          }
+          return _buildCarouselScreen(provider.apps);
         },
       ),
     );
@@ -790,8 +805,10 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
       });
     }
 
-    final reduce = context.watch<ThemeProvider>().reduceEffects;
-    final shouldAnimate = !TvDetector.instance.isTV && !reduce;
+    final themeProvider = context.watch<ThemeProvider>();
+    final motion = MotionPolicy.fromContext(context, themeProvider);
+    final shouldAnimate =
+        !TvDetector.instance.isTV && motion.allowContinuousEffects;
 
     if (shouldAnimate && !_backgroundMotionController.isAnimating) {
       _backgroundMotionController.repeat(reverse: true);
@@ -839,7 +856,7 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
         child: Stack(
           fit: StackFit.expand,
           children: [
-            _buildDynamicBackground(selected),
+            RepaintBoundary(child: _buildDynamicBackground(selected)),
 
             Container(
               decoration: const BoxDecoration(
@@ -1182,6 +1199,7 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
     );
   }
 
+  // ignore: unused_element
   Widget _badgedIconButton(IconData icon, String badge, VoidCallback onTap) {
     return GestureDetector(
       onTap: onTap,
@@ -1910,23 +1928,18 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
   Timer? _bgDebounce;
 
   Widget _buildDynamicBackground(NvApp selected) {
-    if (_debouncedBgAppId != selected.appId) {
-      _bgDebounce?.cancel();
-      _bgDebounce = Timer(const Duration(milliseconds: 200), () {
-        if (mounted && _selectedAppId == selected.appId) {
-          setState(() => _debouncedBgAppId = selected.appId);
-        }
-      });
-    }
-
     final bgAppId = _debouncedBgAppId ?? selected.appId;
     final bgApp = bgAppId == selected.appId
         ? selected
         : _findAppById(bgAppId) ?? selected;
     final key = ValueKey<int>(bgApp.appId);
 
+    final motion = MotionPolicy.fromContext(
+      context,
+      context.read<ThemeProvider>(),
+    );
     return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 350),
+      duration: motion.backgroundDuration,
       switchInCurve: Curves.easeOut,
       switchOutCurve: Curves.easeIn,
       child: _buildBackgroundChild(bgApp, key),
@@ -1993,7 +2006,9 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
               // crisp 16:9 images so there's no upscaling.
               memCacheWidth: context.read<ThemeProvider>().performanceMode
                   ? 720
-                  : (selected.backgroundUrl != selected.posterUrl ? 1920 : 1280),
+                  : (selected.backgroundUrl != selected.posterUrl
+                        ? 1920
+                        : 1280),
               // Blur-up: show the already-cached small poster while it loads.
               placeholder: selected.backgroundUrl != selected.posterUrl
                   ? (_, _) => PosterImage(
@@ -2025,24 +2040,28 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
                 : null,
             errorWidget: (_, _, _) => Container(color: _tp.background),
           ),
-        if (!(showVideo || context.read<ThemeProvider>().performanceMode))
-          BackdropFilter(
-            filter: ImageFilter.blur(
-              sigmaX: lp.backgroundBlur,
-              sigmaY: lp.backgroundBlur,
+        if (!showVideo &&
+            !context.read<ThemeProvider>().performanceMode &&
+            lp.backgroundBlur > 0)
+          FutureBuilder(
+            future: BackgroundBlurService.instance.preBlur(
+              selected.backgroundUrl!,
             ),
-            child: Container(
-              color: Colors.black.withValues(
-                alpha: showVideo ? 0.0 : lp.backgroundDim,
-              ),
-            ),
-          )
-        else
-          Container(
-            color: Colors.black.withValues(
-              alpha: showVideo ? 0.0 : lp.backgroundDim,
-            ),
+            builder: (context, snapshot) {
+              final image = snapshot.data;
+              if (image == null) return const SizedBox.shrink();
+              return RawImage(
+                image: image,
+                fit: BoxFit.cover,
+                filterQuality: FilterQuality.low,
+              );
+            },
           ),
+        Container(
+          color: Colors.black.withValues(
+            alpha: showVideo ? 0.0 : lp.backgroundDim,
+          ),
+        ),
         Container(
           decoration: const BoxDecoration(
             gradient: RadialGradient(
@@ -2457,6 +2476,12 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
 
   String _heroTag(NvApp app) => 'app-poster-$_hostId-${app.appId}';
 
+  void _abortPendingLaunch() {
+    _isLaunching = false;
+    ImageLoadThrottle.resumeAfterStream();
+    if (mounted) _startAutoRefreshTimer();
+  }
+
   void _launchApp(NvApp app) async {
     // before navigation to stream screen. This prevents poster downloads
     // from saturating the network during the RTSP handshake.
@@ -2479,7 +2504,10 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
     final profile =
         _profilesByAppId[app.appId] ??
         await _gamePreferencesStore.loadProfile(_hostId, app.appId);
-    if (!mounted) return;
+    if (!mounted) {
+      _abortPendingLaunch();
+      return;
+    }
     var effectiveConfig = profile.resolve(baseConfig);
 
     // Device physical pixels — resolve "Match display" resolution and the "auto"
@@ -2559,9 +2587,13 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
             fps: effectiveConfig.fps,
             enableHdr: effectiveConfig.enableHdr,
             videoCodec: codecName,
+            expectedServerCert: widget.computer.serverCert,
           );
 
-      if (!mounted) return;
+      if (!mounted) {
+        _abortPendingLaunch();
+        return;
+      }
       Navigator.pop(context);
 
       effectiveConfig = effectiveConfig.copyWith(bitrate: smartBitrate);
@@ -2598,9 +2630,30 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
       ),
     );
 
-    final launch = await provider.launchApp(app, streamConfig: effectiveConfig);
+    LaunchResult launch;
+    try {
+      launch = await provider.launchApp(app, streamConfig: effectiveConfig);
+    } catch (error) {
+      if (mounted && startingOverlayVisible) {
+        Navigator.of(context, rootNavigator: true).pop();
+      }
+      _abortPendingLaunch();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              '${AppLocalizations.of(context).launchFailed}: $error',
+            ),
+          ),
+        );
+      }
+      return;
+    }
 
-    if (!mounted) return;
+    if (!mounted) {
+      _abortPendingLaunch();
+      return;
+    }
     if (startingOverlayVisible) {
       Navigator.of(context, rootNavigator: true).pop();
     }
@@ -2613,6 +2666,7 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
           ),
         ),
       );
+      _abortPendingLaunch();
       return;
     }
 
@@ -2620,6 +2674,10 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
       _hostId,
       app.appId,
     );
+    if (!mounted) {
+      _abortPendingLaunch();
+      return;
+    }
     _profilesByAppId[app.appId] = recordedProfile;
 
     // NOTE: provider.refresh() intentionally moved to AFTER the stream session ends.
@@ -2628,12 +2686,16 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
     _disposeVideoController();
     _stopAutoRefreshTimer();
 
+    final motion = MotionPolicy.fromContext(
+      context,
+      context.read<ThemeProvider>(),
+    );
     await Navigator.push(
       context,
 
       PageRouteBuilder(
-        transitionDuration: const Duration(milliseconds: 1000),
-        reverseTransitionDuration: const Duration(milliseconds: 600),
+        transitionDuration: motion.routeDuration,
+        reverseTransitionDuration: motion.routeDuration,
         pageBuilder: (_, _, _) => GameStreamScreen(
           computer: widget.computer,
           app: app,
@@ -2646,11 +2708,11 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
           return FadeTransition(
             opacity: CurvedAnimation(
               parent: animation,
-              curve: Curves.easeInOut,
+              curve: motion.routeCurve,
             ),
             child: ScaleTransition(
               scale: Tween<double>(begin: 0.96, end: 1.0).animate(
-                CurvedAnimation(parent: animation, curve: Curves.easeOutCubic),
+                CurvedAnimation(parent: animation, curve: motion.standardCurve),
               ),
               child: child,
             ),
@@ -2672,6 +2734,7 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
     }
   }
 
+  // ignore: unused_element
   void _showVibepolloCfgDialog() {
     final userCtrl = TextEditingController();
     final passCtrl = TextEditingController();
@@ -2799,6 +2862,10 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
                 decoration: BoxDecoration(
                   color: selected ? bgColor : Colors.transparent,
                   borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: selected ? borderColor : Colors.transparent,
+                    width: 1.5,
+                  ),
                 ),
                 alignment: Alignment.center,
                 child: Text(

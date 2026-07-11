@@ -1,9 +1,10 @@
 import 'dart:convert';
-import 'dart:io' as io;
 
 import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
 import 'package:logger/logger.dart';
+
+import '../crypto/client_identity.dart';
 
 class PlayniteGame {
   final String id;
@@ -23,16 +24,17 @@ class PlayniteGame {
   });
 
   factory PlayniteGame.fromJson(Map<String, dynamic> j) => PlayniteGame(
-        id: (j['id'] ?? '') as String,
-        name: (j['name'] ?? '') as String,
-        categories: (j['categories'] as List?)
-                ?.map((c) => c.toString())
-                .toList(growable: false) ??
-            const [],
-        installed: j['installed'] as bool? ?? true,
-        pluginId: j['pluginId'] as String?,
-        pluginName: j['pluginName'] as String?,
-      );
+    id: (j['id'] ?? '') as String,
+    name: (j['name'] ?? '') as String,
+    categories:
+        (j['categories'] as List?)
+            ?.map((c) => c.toString())
+            .toList(growable: false) ??
+        const [],
+    installed: j['installed'] as bool? ?? true,
+    pluginId: j['pluginId'] as String?,
+    pluginName: j['pluginName'] as String?,
+  );
 }
 
 class PlayniteCategory {
@@ -42,9 +44,9 @@ class PlayniteCategory {
   const PlayniteCategory({required this.id, required this.name});
 
   factory PlayniteCategory.fromJson(Map<String, dynamic> j) => PlayniteCategory(
-        id: (j['id'] ?? '') as String,
-        name: (j['name'] ?? '') as String,
-      );
+    id: (j['id'] ?? '') as String,
+    name: (j['name'] ?? '') as String,
+  );
 }
 
 class PlayniteStatus {
@@ -59,10 +61,10 @@ class PlayniteStatus {
   });
 
   factory PlayniteStatus.fromJson(Map<String, dynamic> j) => PlayniteStatus(
-        active: j['active'] as bool? ?? false,
-        installed: j['installed'] as bool? ?? false,
-        version: j['installed_version'] as String?,
-      );
+    active: j['active'] as bool? ?? false,
+    installed: j['installed'] as bool? ?? false,
+    version: j['installed_version'] as String?,
+  );
 }
 
 class VibepolloCfgClient {
@@ -71,12 +73,12 @@ class VibepolloCfgClient {
   final Logger _log = Logger();
 
   String? _sessionCookie;
+  String? expectedServerCert;
 
   http.Client _makeClient() {
-    final ctx = io.SecurityContext(withTrustedRoots: false);
-    final ioClient = io.HttpClient(context: ctx)
-      ..badCertificateCallback = (cert, host, port) => true;
-    return IOClient(ioClient);
+    return IOClient(
+      ClientIdentity.createHttpClient(expectedServerCert: expectedServerCert),
+    );
   }
 
   String _base(String address, int port) => 'https://$address:$port';
@@ -91,11 +93,9 @@ class VibepolloCfgClient {
     try {
       final url = Uri.parse('${_base(address, port)}/api/auth/login');
       final body = jsonEncode({'username': username, 'password': password});
-      final response = await client.post(
-        url,
-        headers: {'Content-Type': 'application/json'},
-        body: body,
-      ).timeout(const Duration(seconds: 10));
+      final response = await client
+          .post(url, headers: {'Content-Type': 'application/json'}, body: body)
+          .timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
         _sessionCookie = _extractSessionCookie(response);
@@ -116,8 +116,9 @@ class VibepolloCfgClient {
     final setCookie = response.headers['set-cookie'];
     if (setCookie == null) return null;
 
-    final match =
-        RegExp(r'__Host-apollo_session=([^;]+)').firstMatch(setCookie);
+    final match = RegExp(
+      r'__Host-apollo_session=([^;]+)',
+    ).firstMatch(setCookie);
     return match?.group(1);
   }
 
@@ -170,7 +171,13 @@ class VibepolloCfgClient {
     String password, {
     int port = defaultConfigPort,
   }) async {
-    final resp = await _get(address, port, '/api/playnite/games', username, password);
+    final resp = await _get(
+      address,
+      port,
+      '/api/playnite/games',
+      username,
+      password,
+    );
     if (resp == null) return const [];
     try {
       final list = jsonDecode(resp.body) as List;
@@ -190,8 +197,13 @@ class VibepolloCfgClient {
     String password, {
     int port = defaultConfigPort,
   }) async {
-    final resp =
-        await _get(address, port, '/api/playnite/categories', username, password);
+    final resp = await _get(
+      address,
+      port,
+      '/api/playnite/categories',
+      username,
+      password,
+    );
     if (resp == null) return const [];
     try {
       final list = jsonDecode(resp.body) as List;
@@ -211,8 +223,13 @@ class VibepolloCfgClient {
     String password, {
     int port = defaultConfigPort,
   }) async {
-    final resp =
-        await _get(address, port, '/api/playnite/status', username, password);
+    final resp = await _get(
+      address,
+      port,
+      '/api/playnite/status',
+      username,
+      password,
+    );
     if (resp == null) return null;
     try {
       final j = jsonDecode(resp.body) as Map<String, dynamic>;

@@ -68,3 +68,16 @@
 - `fix(a11y)`: semantics and focus feedback
 - `fix(security)`: scope TLS trust and telemetry
 - `test`: regression and release verification repairs
+
+## Completion record
+
+- [x] Shared motion policy, reduced-motion behavior, focus semantics, and tests.
+- [x] Async/media ownership guards for streaming, trailers, timers, and launch failure.
+- [x] Throttled stream HUD with isolated repaint boundaries.
+- [x] Stale-aware Library refresh, batched achievements, and cached background blur.
+- [x] Bounded navigation motion, coalesced focus audio, first-run intro, and friendly errors.
+- [x] Scoped TLS trust, pinned cloud pairing, platform trust for public services, and queued telemetry.
+- [x] Cloud pairing regressions: correct fingerprint succeeds, wrong fingerprint fails, automatic POST remains active, local-only computers are excluded.
+- [x] Full test suite and focused analyzer pass; global analyzer has no errors (existing warnings remain).
+- [x] Windows debug and Android debug builds succeed.
+- [ ] Physical Android TV/mobile smoke test (no physical device available in this workspace).
