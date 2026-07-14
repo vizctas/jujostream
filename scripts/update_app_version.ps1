@@ -38,7 +38,7 @@ Write-Host "Updating version to: $NewVersion+$NewBuildNumber (was: $CurrentVersi
 
 # Update pubspec.yaml
 $UpdatedPubspecContent = $PubspecContent -replace 'version:\s*[0-9\.]+\+\d+', "version: $NewVersion+$NewBuildNumber"
-Set-Content -Path $PubspecPath -Value $UpdatedPubspecContent -Encoding ascii
+Set-Content -Path $PubspecPath -Value $UpdatedPubspecContent -Encoding ascii -NoNewline
 
 # 2. Update android/local.properties
 $LocalPropertiesPath = "android/local.properties"

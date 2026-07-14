@@ -2,7 +2,7 @@ name: jujostream
 description: "JujoStream - GameStream client for Flutter (FORK from Moonlight/Artemis Android)"
 publish_to: 'none'
 
-version: 1.0.18+15
+version: 1.0.19+16
 
 environment:
   sdk: ^3.8.1
