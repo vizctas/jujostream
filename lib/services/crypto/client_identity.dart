@@ -125,12 +125,33 @@ class ClientIdentity {
     }
 
     if (expectedFingerprint.length == 64) {
+      final actualDer = _certificateDerBytes(actualPem);
+      if (actualDer != null) {
+        final derDigest = sha256.convert(actualDer).toString();
+        if (derDigest == expectedFingerprint) return true;
+      }
+
+      // Compatibility for cloud profiles published by older servers, which
+      // hashed the certificate file's PEM bytes instead of canonical DER.
       for (final pemVariant in _pemHashVariants(actualPem)) {
         final digest = sha256.convert(utf8.encode(pemVariant)).toString();
         if (digest == expectedFingerprint) return true;
       }
     }
     return false;
+  }
+
+  static List<int>? _certificateDerBytes(String value) {
+    final body = value
+        .replaceAll('-----BEGIN CERTIFICATE-----', '')
+        .replaceAll('-----END CERTIFICATE-----', '')
+        .replaceAll(RegExp(r'\s+'), '');
+    if (body.isEmpty) return null;
+    try {
+      return base64.decode(body);
+    } on FormatException {
+      return null;
+    }
   }
 
   static String _normalizeCertificate(String value) {

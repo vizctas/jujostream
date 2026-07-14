@@ -28,6 +28,30 @@ class MockCloudPairingHttpClient extends http.BaseClient {
   }
 }
 
+class ControlledCloudPairingHttpClient extends http.BaseClient {
+  final Completer<Map<String, dynamic>> requestBody = Completer();
+  final Completer<http.StreamedResponse> response = Completer();
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    final body = jsonDecode((request as http.Request).body) as Map;
+    if (!requestBody.isCompleted) {
+      requestBody.complete(body.cast<String, dynamic>());
+    }
+    return response.future;
+  }
+
+  void succeed() {
+    response.complete(
+      http.StreamedResponse(
+        Stream.value(utf8.encode('{"status":true,"clientUuid":"cloud-test"}')),
+        200,
+        headers: {'content-type': 'application/json'},
+      ),
+    );
+  }
+}
+
 class CountingCloudPairingClient extends http.BaseClient {
   int requestCount = 0;
 
@@ -189,6 +213,10 @@ void main() {
           password: 'password123',
         );
 
+        final pairingClient = ControlledCloudPairingHttpClient();
+        CloudSyncService.instance.pairingClientFactoryForTest = (_) =>
+            pairingClient;
+
         // 2. Set up cloud server profiles in mock client db
         mockHttpClient.dbRows = [
           {
@@ -222,8 +250,23 @@ void main() {
         expect(computer.manualAddress, 'my-gaming-host.local');
         expect(computer.serverCert, 'FINGERPRINT999');
         expect(computer.remoteAddress, '73.42.15.300');
-        expect(computer.pairState, PairState.paired);
+        expect(computer.pairState, PairState.notPaired);
         expect(prefs.getString('primary_server_uuid'), computer.uuid);
+
+        await pairingClient.requestBody.future.timeout(
+          const Duration(seconds: 5),
+        );
+        pairingClient.succeed();
+
+        ComputerDetails? pairedComputer;
+        for (var attempt = 0; attempt < 20; attempt++) {
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+          final updated = prefs.getStringList('saved_computers') ?? const [];
+          if (updated.isEmpty) continue;
+          pairedComputer = ComputerDetails.fromJson(jsonDecode(updated.first));
+          if (pairedComputer.pairState == PairState.paired) break;
+        }
+        expect(pairedComputer?.pairState, PairState.paired);
       },
     );
 

@@ -69,6 +69,34 @@ YWJjMTIz
     );
   });
 
+  test('accepts the canonical SHA-256 DER fingerprint', () {
+    final identity = generateDeviceIdentity();
+    final der = base64.decode(
+      identity.certPem
+          .replaceAll('-----BEGIN CERTIFICATE-----', '')
+          .replaceAll('-----END CERTIFICATE-----', '')
+          .replaceAll(RegExp(r'\s+'), ''),
+    );
+    final fingerprint = sha256.convert(der).toString();
+
+    expect(
+      ClientIdentity.certificateMaterialMatches(
+        actualPem: identity.certPem,
+        actualSha1: const <int>[],
+        expected: fingerprint,
+      ),
+      isTrue,
+    );
+    expect(
+      ClientIdentity.certificateMaterialMatches(
+        actualPem: identity.certPem,
+        actualSha1: const <int>[],
+        expected: List.filled(64, '0').join(),
+      ),
+      isFalse,
+    );
+  });
+
   test('pins a self-signed HTTPS server using the cloud fingerprint', () async {
     final identity = generateDeviceIdentity();
     final serverContext = SecurityContext(withTrustedRoots: false)
@@ -87,9 +115,13 @@ YWJjMTIz
     });
 
     try {
-      final fingerprint = sha256
-          .convert(utf8.encode(identity.certPem))
-          .toString();
+      final der = base64.decode(
+        identity.certPem
+            .replaceAll('-----BEGIN CERTIFICATE-----', '')
+            .replaceAll('-----END CERTIFICATE-----', '')
+            .replaceAll(RegExp(r'\s+'), ''),
+      );
+      final fingerprint = sha256.convert(der).toString();
       String? observedPem;
       final probeClient = HttpClient()
         ..badCertificateCallback = (certificate, host, port) {

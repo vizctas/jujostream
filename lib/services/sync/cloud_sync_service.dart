@@ -451,8 +451,10 @@ class CloudSyncService {
             local.name = cloudName;
           }
           local.serverCert = certFingerprint;
-          local.pairState = PairState.paired;
-          local.pairStatusFromHttps = true;
+          // Cloud ownership does not prove that this device certificate is
+          // registered on the server. Preserve locally confirmed state and let
+          // HTTPS polling or the cloud-pairing POST establish pairing.
+          local.pairStatusFromHttps = false;
           if (externalAddress != null && externalAddress.isNotEmpty) {
             local.remoteAddress = externalAddress;
           }
@@ -494,10 +496,9 @@ class CloudSyncService {
             remoteAddress: externalAddress ?? '',
             serverCert: certFingerprint,
             state: ComputerState.unknown,
-            pairState: PairState.paired,
+            pairState: PairState.notPaired,
             isCloud: true,
           );
-          computer.pairStatusFromHttps = true;
 
           localComputers.add(computer);
 
