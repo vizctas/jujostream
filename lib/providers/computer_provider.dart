@@ -14,14 +14,64 @@ import '../services/pairing/pairing_service.dart';
 import '../services/database/achievement_service.dart';
 import '../services/database/session_history_service.dart';
 import '../services/sync/cloud_sync_service.dart';
+import '../services/auth/supabase_config.dart';
 import '../services/crypto/client_identity.dart';
 
+bool isComputerVisible({
+  required ComputerDetails computer,
+  required bool cloudSignedIn,
+  required bool lanDiscovered,
+}) {
+  return cloudSignedIn ||
+      !computer.isCloud ||
+      lanDiscovered ||
+      hasLocalPairingCredentials(computer);
+}
+
+/// A Cloud record may still be a trusted LAN server for this device after the
+/// Cloud session ends. Keep it visible only when the device holds its pinned
+/// pairing certificate and the saved endpoint is an RFC1918 LAN address.
+/// This deliberately excludes remote-only Cloud records.
+bool hasLocalPairingCredentials(ComputerDetails computer) {
+  return computer.isPaired &&
+      computer.serverCert.isNotEmpty &&
+      _isPrivateIpv4Address(computer.localAddress);
+}
+
+bool _isPrivateIpv4Address(String address) {
+  final octets = address.trim().split('.');
+  if (octets.length != 4) return false;
+  final values = octets.map(int.tryParse).toList(growable: false);
+  if (values.any((value) => value == null || value < 0 || value > 255)) {
+    return false;
+  }
+
+  final first = values[0]!;
+  final second = values[1]!;
+  return first == 10 ||
+      (first == 172 && second >= 16 && second <= 31) ||
+      (first == 192 && second == 168);
+}
+
+/// Cloud is optional for LAN-only installations. Avoid reading Supabase's
+/// late-initialized client when the release was built without cloud defines.
+bool isCloudSessionActive({
+  required bool cloudConfigured,
+  required bool Function() readSession,
+}) => cloudConfigured && readSession();
+
+/// Test seam for the server-side unpair request. The default keeps using the
+/// established nVHTTP endpoint implemented by [PairingService].
+typedef UnpairRequest = Future<bool> Function(ComputerDetails computer);
+
 class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
-  final DiscoveryService _discoveryService = DiscoveryService();
+  final DiscoveryService _discoveryService;
   final NvHttpClient _httpClient = NvHttpClient();
   final PairingService _pairingService = PairingService();
+  final UnpairRequest? _unpairRequest;
 
   final List<ComputerDetails> _computers = [];
+  final Set<String> _lanDiscoveryKeys = {};
   StreamSubscription<void>? _syncSubscription;
   final List<String> _customOrder = [];
   static const String _computersStorageKey = 'saved_computers';
@@ -92,13 +142,21 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
   /// Whether a JUJO cloud account is currently signed in. Cloud-paired servers
   /// must only be visible/enterable while signed in — on sign-out they are
   /// hidden (not deleted) and restored on the next sign-in.
-  bool get _cloudSignedIn =>
-      Supabase.instance.client.auth.currentSession != null;
+  bool get _cloudSignedIn => isCloudSessionActive(
+    cloudConfigured: SupabaseConfig.current.isConfigured,
+    readSession: () => Supabase.instance.client.auth.currentSession != null,
+  );
 
   List<ComputerDetails> get computers {
-    final visible = _cloudSignedIn
-        ? _computers
-        : _computers.where((c) => !c.isCloud).toList();
+    final visible = _computers
+        .where(
+          (computer) => isComputerVisible(
+            computer: computer,
+            cloudSignedIn: _cloudSignedIn,
+            lanDiscovered: _isLanDiscovered(computer),
+          ),
+        )
+        .toList();
     if (_customOrder.isEmpty) return List.unmodifiable(visible);
     final orderMap = <String, int>{};
     for (var i = 0; i < _customOrder.length; i++) {
@@ -152,7 +210,11 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
     await prefs.remove(_primaryServerKey);
   }
 
-  ComputerProvider() {
+  ComputerProvider({
+    DiscoveryService? discoveryService,
+    UnpairRequest? unpairRequest,
+  }) : _discoveryService = discoveryService ?? DiscoveryService(),
+       _unpairRequest = unpairRequest {
     WidgetsBinding.instance.addObserver(this);
     _loadPersistedComputers();
     _discoveryService.onComputerFound.listen(_onComputerDiscovered);
@@ -160,6 +222,7 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
     _syncSubscription = CloudSyncService.onSyncCompleted.listen((_) {
       _loadPersistedComputers();
     });
+    unawaited(startDiscovery());
   }
 
   @override
@@ -167,6 +230,7 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
     _appInForeground = state == AppLifecycleState.resumed;
 
     if (_appInForeground) {
+      unawaited(startDiscovery());
       // Always restart the timer on resume — even if it was already running.
       // This prevents the "poll never checks back" bug where the timer was
       // cancelled but the state flag didn't change.
@@ -179,6 +243,15 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
     } else {
       _pollTimer?.cancel();
       _pollTimer = null;
+      if (state == AppLifecycleState.paused ||
+          state == AppLifecycleState.hidden ||
+          state == AppLifecycleState.detached) {
+        if (_lanDiscoveryKeys.isNotEmpty) {
+          _lanDiscoveryKeys.clear();
+          notifyListeners();
+        }
+        unawaited(stopDiscovery());
+      }
     }
   }
 
@@ -275,16 +348,24 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
 
     try {
       await _discoveryService.startDiscovery();
+      _isDiscovering = _discoveryService.isActive;
+      notifyListeners();
     } catch (e) {
+      _isDiscovering = false;
       _error = 'Discovery failed: $e';
       notifyListeners();
     }
   }
 
   Future<void> stopDiscovery() async {
-    await _discoveryService.stopDiscovery();
-    _isDiscovering = false;
-    notifyListeners();
+    try {
+      await _discoveryService.stopDiscovery();
+    } catch (e) {
+      _error = 'Discovery stop failed: $e';
+    } finally {
+      _isDiscovering = false;
+      notifyListeners();
+    }
   }
 
   Future<void> sendWakeOnLan(ComputerDetails computer) async {
@@ -593,7 +674,9 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<bool> unpairComputer(ComputerDetails computer) async {
-    final success = await _pairingService.unpair(computer);
+    final success =
+        await (_unpairRequest?.call(computer) ??
+            _pairingService.unpair(computer));
     if (success) {
       computer.pairState = PairState.notPaired;
       computer.serverCert = '';
@@ -610,6 +693,17 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
       notifyListeners();
     }
     return success;
+  }
+
+  /// Revokes this client's pairing at the server before forgetting the local
+  /// record. A failure intentionally leaves the record intact so the user can
+  /// retry and never loses the route to revoke the device remotely.
+  Future<bool> revokeAndForgetComputer(ComputerDetails computer) async {
+    final revoked = await unpairComputer(computer);
+    if (!revoked) return false;
+
+    removeComputer(computer);
+    return true;
   }
 
   void _onComputerDiscovered(ComputerDetails computer) async {
@@ -633,9 +727,29 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
           serverInfo.name.toLowerCase() == 'unknown') {
         serverInfo.name = computer.name;
       }
+      _markLanDiscovered(serverInfo);
       _addOrUpdateComputer(serverInfo);
     } else {
+      _markLanDiscovered(computer);
       _addOrUpdateComputer(computer);
+    }
+  }
+
+  bool _isLanDiscovered(ComputerDetails computer) {
+    return _computerKeys(computer).any(_lanDiscoveryKeys.contains);
+  }
+
+  void _markLanDiscovered(ComputerDetails computer) {
+    _lanDiscoveryKeys.addAll(_computerKeys(computer));
+  }
+
+  Iterable<String> _computerKeys(ComputerDetails computer) sync* {
+    if (computer.uuid.isNotEmpty) yield 'uuid:${computer.uuid}';
+    if (computer.localAddress.isNotEmpty) {
+      yield 'address:${computer.localAddress.toLowerCase()}';
+    }
+    if (computer.activeAddress.isNotEmpty) {
+      yield 'address:${computer.activeAddress.toLowerCase()}';
     }
   }
 
@@ -776,6 +890,7 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
       c.configHttpsPort > 0 ? c.configHttpsPort : c.httpsPort + 6;
 
   void _retryCloudPairingOnResume() {
+    if (!SupabaseConfig.current.isConfigured) return;
     final session = Supabase.instance.client.auth.currentSession;
     if (session == null) return;
     unawaited(
@@ -785,6 +900,7 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
 
   Future<bool> _attemptCloudPairingOnTheFly(ComputerDetails computer) async {
     try {
+      if (!SupabaseConfig.current.isConfigured) return false;
       final supabaseClient = Supabase.instance.client;
       final session = supabaseClient.auth.currentSession;
       if (session == null) return false;

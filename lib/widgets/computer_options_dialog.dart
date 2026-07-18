@@ -5,8 +5,10 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../l10n/app_localizations.dart';
 import '../models/computer_details.dart';
+import '../providers/auth_provider.dart';
 import '../providers/computer_provider.dart';
 import '../providers/theme_provider.dart';
+import '../ui/computer_connection_status.dart';
 import '../widgets/server_info_card.dart';
 import '../screens/pc_view/vibeapollo_screen.dart';
 
@@ -41,16 +43,19 @@ class ComputerOptionsDialog {
       pageBuilder: (ctx, _, _) {
         final tp = context.read<ThemeProvider>();
         final provider = context.read<ComputerProvider>();
+        final cloudSignedIn = context.read<AuthProvider>().isSignedIn;
         final size = MediaQuery.sizeOf(ctx);
         final dialogWidth = size.width > 900
             ? 490.0
             : size.width > 600
             ? 500.0
             : size.width - 24;
-        final dialogMaxHeight =
-            ((size.height - 40) * 0.88).clamp(300.0, size.height - 20).toDouble();
-        final dialogMinHeight =
-            (dialogMaxHeight * 0.54).clamp(280.0, dialogMaxHeight).toDouble();
+        final dialogMaxHeight = ((size.height - 40) * 0.88)
+            .clamp(300.0, size.height - 20)
+            .toDouble();
+        final dialogMinHeight = (dialogMaxHeight * 0.54)
+            .clamp(280.0, dialogMaxHeight)
+            .toDouble();
         final hasBg = bgPaths.containsKey(computer.uuid);
 
         return Focus(
@@ -72,7 +77,10 @@ class ComputerOptionsDialog {
                 color: Colors.transparent,
                 child: Container(
                   width: dialogWidth,
-                  margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 20),
+                  margin: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 20,
+                  ),
                   constraints: BoxConstraints(
                     minHeight: dialogMinHeight,
                     maxHeight: dialogMaxHeight,
@@ -109,11 +117,24 @@ class ComputerOptionsDialog {
                                 provider.pollComputer(computer);
                               },
                             ),
+                            if (computer.isPaired)
+                              _statusTile(
+                                status: computerConnectionStatusLabel(
+                                  computerConnectionStatus(
+                                    computer,
+                                    cloudSignedIn: cloudSignedIn,
+                                  ),
+                                  isSpanish: l.locale.languageCode == 'es',
+                                ),
+                                cloudDisconnected:
+                                    computer.isCloud && !cloudSignedIn,
+                              ),
                             _tile(
                               icon: provider.primaryServerUuid == computer.uuid
                                   ? Icons.star_rounded
                                   : Icons.star_outline_rounded,
-                              iconColor: provider.primaryServerUuid == computer.uuid
+                              iconColor:
+                                  provider.primaryServerUuid == computer.uuid
                                   ? Colors.amber
                                   : Colors.white70,
                               title: provider.primaryServerUuid == computer.uuid
@@ -123,7 +144,8 @@ class ComputerOptionsDialog {
                                   : (l.locale.languageCode == 'es'
                                         ? 'Servidor principal'
                                         : 'Set as Primary'),
-                              subtitle: provider.primaryServerUuid == computer.uuid
+                              subtitle:
+                                  provider.primaryServerUuid == computer.uuid
                                   ? (l.locale.languageCode == 'es'
                                         ? 'Este servidor se conecta automáticamente al iniciar'
                                         : 'This server auto-connects on launch')
@@ -132,7 +154,8 @@ class ComputerOptionsDialog {
                                         : 'Auto-connect when the app starts'),
                               onTap: () {
                                 Navigator.pop(ctx);
-                                if (provider.primaryServerUuid == computer.uuid) {
+                                if (provider.primaryServerUuid ==
+                                    computer.uuid) {
                                   provider.clearPrimaryServer();
                                 } else {
                                   provider.setPrimaryServer(computer.uuid);
@@ -168,7 +191,9 @@ class ComputerOptionsDialog {
                                   ? 'Información del servidor'
                                   : 'Server details',
                               subtitle: computer.serverVersion.isNotEmpty
-                                  ? _parseSunshineVersion(computer.serverVersion)
+                                  ? _parseSunshineVersion(
+                                      computer.serverVersion,
+                                    )
                                   : null,
                               onTap: () {
                                 Navigator.pop(ctx);
@@ -232,7 +257,10 @@ class ComputerOptionsDialog {
                                   : () {
                                       Navigator.pop(ctx);
                                       _showWolFeedback(
-                                          context, provider, computer);
+                                        context,
+                                        provider,
+                                        computer,
+                                      );
                                     },
                             ),
                             if (computer.isPaired)
@@ -245,8 +273,9 @@ class ComputerOptionsDialog {
                                     'Remove pairing but keep server visible',
                                 onTap: () async {
                                   Navigator.pop(ctx);
-                                  final success =
-                                      await provider.unpairComputer(computer);
+                                  final success = await provider.unpairComputer(
+                                    computer,
+                                  );
                                   if (context.mounted) {
                                     ScaffoldMessenger.of(context).showSnackBar(
                                       SnackBar(
@@ -258,6 +287,51 @@ class ComputerOptionsDialog {
                                       ),
                                     );
                                   }
+                                },
+                              ),
+                            if (computer.isPaired)
+                              _tile(
+                                icon: Icons.delete_forever_outlined,
+                                iconColor: Colors.redAccent,
+                                title: l.locale.languageCode == 'es'
+                                    ? 'Olvidar y revocar este dispositivo'
+                                    : 'Forget and revoke this device',
+                                titleColor: Colors.redAccent,
+                                subtitle: l.locale.languageCode == 'es'
+                                    ? 'Revoca el acceso en el servidor y elimina este registro local'
+                                    : 'Revoke server access and remove this local record',
+                                onTap: () async {
+                                  Navigator.pop(ctx);
+                                  final confirmed = await _confirmRevocation(
+                                    context,
+                                    computer,
+                                    isSpanish: l.locale.languageCode == 'es',
+                                  );
+                                  if (!confirmed) return;
+
+                                  final success = await provider
+                                      .revokeAndForgetComputer(computer);
+                                  if (!context.mounted) return;
+                                  if (success) {
+                                    await onRemoveBackground(computer);
+                                  }
+                                  if (!context.mounted) return;
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(
+                                        success
+                                            ? (l.locale.languageCode == 'es'
+                                                  ? 'Acceso revocado para ${computer.name}'
+                                                  : 'Access revoked for ${computer.name}')
+                                            : (l.locale.languageCode == 'es'
+                                                  ? 'No se pudo revocar el acceso. El servidor permanece para reintentar.'
+                                                  : 'Could not revoke access. The server remains so you can retry.'),
+                                      ),
+                                      backgroundColor: success
+                                          ? const Color(0xFF1A3D2F)
+                                          : const Color(0xFF3D1A1A),
+                                    ),
+                                  );
                                 },
                               ),
                             _tile(
@@ -290,6 +364,77 @@ class ComputerOptionsDialog {
     return p.length >= 3 ? 'Sunshine ${p[0]}.${p[1]}.${p[2]}' : 'Sunshine $v';
   }
 
+  static Widget _statusTile({
+    required String status,
+    required bool cloudDisconnected,
+  }) {
+    final color = cloudDisconnected ? Colors.orangeAccent : Colors.greenAccent;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 6),
+      child: Row(
+        children: [
+          Icon(
+            cloudDisconnected
+                ? Icons.cloud_off_outlined
+                : Icons.verified_user_outlined,
+            color: color,
+            size: 20,
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Text(
+              status,
+              style: TextStyle(
+                color: color,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  static Future<bool> _confirmRevocation(
+    BuildContext context,
+    ComputerDetails computer, {
+    required bool isSpanish,
+  }) async {
+    final tp = context.read<ThemeProvider>();
+    return (await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            backgroundColor: tp.surface,
+            title: Text(
+              isSpanish
+                  ? '¿Olvidar y revocar dispositivo?'
+                  : 'Forget and revoke device?',
+            ),
+            content: Text(
+              isSpanish
+                  ? 'Se revocará el acceso de este dispositivo a ${computer.name}. Para volver a conectarte tendrás que emparejarlo otra vez.'
+                  : 'This device will lose access to ${computer.name}. You will need to pair it again to reconnect.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: Text(isSpanish ? 'Cancelar' : 'Cancel'),
+              ),
+              FilledButton(
+                style: FilledButton.styleFrom(
+                  backgroundColor: Colors.redAccent,
+                  foregroundColor: Colors.white,
+                ),
+                onPressed: () => Navigator.pop(dialogContext, true),
+                child: Text(isSpanish ? 'Revocar acceso' : 'Revoke access'),
+              ),
+            ],
+          ),
+        )) ??
+        false;
+  }
+
   static void _showWolFeedback(
     BuildContext context,
     ComputerProvider provider,
@@ -311,12 +456,14 @@ class ComputerOptionsDialog {
                   width: 16,
                   height: 16,
                   child: CircularProgressIndicator(
-                      strokeWidth: 2, color: Colors.cyanAccent),
+                    strokeWidth: 2,
+                    color: Colors.cyanAccent,
+                  ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
-                    child:
-                        Text(s, style: const TextStyle(color: Colors.white))),
+                  child: Text(s, style: const TextStyle(color: Colors.white)),
+                ),
               ],
             ),
           ),
@@ -343,11 +490,8 @@ class ComputerOptionsDialog {
               content: Row(
                 children: [
                   Icon(
-                    online
-                        ? Icons.check_circle_outline
-                        : Icons.error_outline,
-                    color:
-                        online ? Colors.greenAccent : Colors.redAccent,
+                    online ? Icons.check_circle_outline : Icons.error_outline,
+                    color: online ? Colors.greenAccent : Colors.redAccent,
                     size: 18,
                   ),
                   const SizedBox(width: 10),
@@ -417,12 +561,16 @@ class ComputerOptionsDialog {
                       ? Colors.white.withValues(alpha: 0.09)
                       : Colors.transparent,
                   padding: const EdgeInsets.symmetric(
-                      horizontal: 20, vertical: 14),
+                    horizontal: 20,
+                    vertical: 14,
+                  ),
                   child: Row(
                     children: [
-                      Icon(icon,
-                          color: focused ? Colors.white : iconColor,
-                          size: 22),
+                      Icon(
+                        icon,
+                        color: focused ? Colors.white : iconColor,
+                        size: 22,
+                      ),
                       const SizedBox(width: 14),
                       Expanded(
                         child: Column(

@@ -34,6 +34,7 @@ import 'pc_view_screen.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/cloud_mfa_provider.dart';
 import '../../services/auth/supabase_config.dart';
+import '../../ui/computer_connection_status.dart';
 import '../../widgets/mfa_bypassed_confirmation_dialog.dart';
 import '../auth/cloud_auth_screen.dart';
 import '../../widgets/jujo_brand_title.dart';
@@ -119,7 +120,6 @@ class _FocusModeScreenState extends State<FocusModeScreen>
         });
       }
       final provider = context.read<ComputerProvider>();
-      provider.startDiscovery();
       // Immediately poll existing computers to update their status
       for (final computer in provider.computers) {
         provider.pollComputer(computer);
@@ -1127,6 +1127,11 @@ class _FocusServerCardState extends State<_FocusServerCard>
     final isOnline = widget.computer.isReachable;
     final isPaired = widget.computer.isPaired;
     final l = AppLocalizations.of(context);
+    final cloudSignedIn = context.watch<AuthProvider>().isSignedIn;
+    final connectionStatus = computerConnectionStatusLabel(
+      computerConnectionStatus(widget.computer, cloudSignedIn: cloudSignedIn),
+      isSpanish: l.locale.languageCode == 'es',
+    );
 
     final reduceEffects = tp.reduceEffects;
 
@@ -1137,12 +1142,6 @@ class _FocusServerCardState extends State<_FocusServerCard>
         ? (isPaired ? l.connected : l.notPaired)
         : l.disconnected;
     final actionText = isOnline ? (isPaired ? l.enter : l.pairAction) : '';
-    final ipAddress = isOnline
-        ? (widget.computer.activeAddress.isNotEmpty
-              ? widget.computer.activeAddress
-              : widget.computer.localAddress)
-        : '';
-
     final isMacOS = io.Platform.isMacOS;
     final isAndroid = io.Platform.isAndroid;
     final maxWidth = isMacOS ? 420.0 : (isAndroid ? 340.0 : 370.0);
@@ -1358,6 +1357,21 @@ class _FocusServerCardState extends State<_FocusServerCard>
                                 ),
                                 maxLines: 1,
                               ),
+                              if (isPaired)
+                                Text(
+                                  connectionStatus,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: widget.computer.isCloud
+                                        ? Colors.cyanAccent.withValues(
+                                            alpha: 0.82,
+                                          )
+                                        : Colors.white54,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
                             ],
                           ),
                         ),
@@ -1478,6 +1492,11 @@ class _FocusServerCircleState extends State<_FocusServerCircle>
     final isOnline = widget.computer.isReachable;
     final isPaired = widget.computer.isPaired;
     final l = AppLocalizations.of(context);
+    final cloudSignedIn = context.watch<AuthProvider>().isSignedIn;
+    final connectionStatus = computerConnectionStatusLabel(
+      computerConnectionStatus(widget.computer, cloudSignedIn: cloudSignedIn),
+      isSpanish: l.locale.languageCode == 'es',
+    );
     final reduceEffects = tp.reduceEffects;
 
     // Border color encodes status: green=online, orange=unpaired, red=offline
@@ -1656,6 +1675,21 @@ class _FocusServerCircleState extends State<_FocusServerCircle>
                     color: isLight ? Colors.black38 : Colors.white38,
                     fontSize: 12,
                     fontWeight: FontWeight.w400,
+                  ),
+                ),
+              ],
+              if (isPaired) ...[
+                const SizedBox(height: 3),
+                Text(
+                  connectionStatus,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: widget.computer.isCloud
+                        ? Colors.cyanAccent.withValues(alpha: 0.82)
+                        : (isLight ? Colors.black45 : Colors.white54),
+                    fontSize: 10,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
               ],
@@ -2296,7 +2330,6 @@ class _FocusableIconBtn extends StatefulWidget {
   final Color? color;
 
   const _FocusableIconBtn({
-    super.key,
     this.focusNode,
     required this.icon,
     required this.tooltip,

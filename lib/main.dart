@@ -11,7 +11,6 @@ import 'providers/auth_provider.dart';
 import 'providers/cloud_mfa_provider.dart';
 import 'services/auth/supabase_config.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'screens/cinematic_intro/cinematic_intro_screen.dart';
 import 'screens/auth/cloud_auth_screen.dart';
 import 'providers/computer_provider.dart';
 import 'providers/app_list_provider.dart';
@@ -23,6 +22,8 @@ import 'services/audio/ui_sound_service.dart';
 import 'services/companion/companion_server.dart';
 import 'services/crypto/client_identity.dart';
 import 'services/preferences/launcher_preferences.dart';
+import 'services/startup/startup_animation_preferences.dart';
+import 'services/startup/startup_animation_registry.dart';
 import 'services/database/app_override_service.dart';
 import 'services/input/gamepad_button_helper.dart';
 import 'services/input/gamepad_navigation_service.dart';
@@ -100,6 +101,7 @@ void main() async {
 
   final launcherPreferences = LauncherPreferences();
   await launcherPreferences.load(themeProvider.launcherThemeId.name);
+  final startupAnimationPreferences = await StartupAnimationPreferences.load();
 
   if (io.Platform.isWindows) {
     FullscreenService.init(initialState: launcherPreferences.desktopFullscreen);
@@ -147,6 +149,7 @@ void main() async {
         ChangeNotifierProvider(create: (_) => CloudMfaProvider()),
         ChangeNotifierProvider.value(value: settingsProvider),
         ChangeNotifierProvider.value(value: launcherPreferences),
+        ChangeNotifierProvider.value(value: startupAnimationPreferences),
         ChangeNotifierProvider.value(value: localeProvider),
         ChangeNotifierProvider.value(value: pluginsProvider),
         ChangeNotifierProvider.value(value: themeProvider),
@@ -179,24 +182,27 @@ class JujostreamApp extends StatelessWidget {
         GlobalCupertinoLocalizations.delegate,
       ],
       theme: themeProvider.buildThemeData(),
-      home: const TourOverlay(child: _FirstRunGate()),
+      home: const TourOverlay(child: StartupGate()),
       routes: {'/auth': (context) => const CloudAuthScreen()},
     );
   }
 }
 
-class _FirstRunGate extends StatefulWidget {
-  const _FirstRunGate();
+class StartupGate extends StatefulWidget {
+  const StartupGate({super.key, this.launcherBuilder});
+
+  final Widget Function(bool focusModeEnabled)? launcherBuilder;
+
   @override
-  State<_FirstRunGate> createState() => _FirstRunGateState();
+  State<StartupGate> createState() => _StartupGateState();
 }
 
-class _FirstRunGateState extends State<_FirstRunGate>
+class _StartupGateState extends State<StartupGate>
     with WidgetsBindingObserver {
-  static const _cinematicSeenKey = 'cinematic_intro_seen_v1';
   bool _checked = false;
-  bool _showCinematic = false;
+  bool _showStartupAnimation = false;
   bool _focusModeEnabled = false;
+  String _startupAnimationId = StartupAnimationRegistry.cinematicV1Id;
 
   @override
   void initState() {
@@ -219,26 +225,34 @@ class _FirstRunGateState extends State<_FirstRunGate>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) _check();
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_refreshFocusMode());
+    }
   }
 
   Future<void> _check() async {
+    final selected = context.read<StartupAnimationPreferences>().selected;
     final prefs = await SharedPreferences.getInstance();
     final focusMode = prefs.getBool('focus_mode_enabled') ?? true;
-    final cinematicSeen = prefs.getBool(_cinematicSeenKey) ?? false;
     if (!mounted) return;
     setState(() {
       _checked = true;
       _focusModeEnabled = focusMode;
-      _showCinematic = !cinematicSeen;
+      _startupAnimationId = selected.id;
+      _showStartupAnimation = selected.buildsScreen;
     });
   }
 
-  Future<void> _onCinematicComplete() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_cinematicSeenKey, true);
+  void _onStartupAnimationComplete() {
     if (!mounted) return;
-    setState(() => _showCinematic = false);
+    setState(() => _showStartupAnimation = false);
+  }
+
+  Future<void> _refreshFocusMode() async {
+    final prefs = await SharedPreferences.getInstance();
+    final focusMode = prefs.getBool('focus_mode_enabled') ?? true;
+    if (!mounted || focusMode == _focusModeEnabled) return;
+    setState(() => _focusModeEnabled = focusMode);
   }
 
   @override
@@ -250,15 +264,24 @@ class _FirstRunGateState extends State<_FirstRunGate>
       );
     }
 
-    if (_showCinematic) {
+    if (_showStartupAnimation) {
       final motion = MotionPolicy.fromContext(
         context,
         context.watch<ThemeProvider>(),
       );
-      return CinematicIntroScreen(
-        onComplete: _onCinematicComplete,
-        reducedMotion: motion.reduceMotion,
-      );
+      final definition = StartupAnimationRegistry.resolve(_startupAnimationId);
+      final builder = definition.builder;
+      if (builder != null) {
+        return builder(
+          onComplete: _onStartupAnimationComplete,
+          reducedMotion: motion.reduceMotion,
+        );
+      }
+    }
+
+    final launcherBuilder = widget.launcherBuilder;
+    if (launcherBuilder != null) {
+      return launcherBuilder(_focusModeEnabled);
     }
 
     return _focusModeEnabled ? const FocusModeScreen() : const PcViewScreen();

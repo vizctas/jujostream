@@ -182,6 +182,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
 
     _settingsProvider = context.read<SettingsProvider>();
+    _computerProvider = context.read<ComputerProvider>();
     _settingsProvider.addListener(_handleSettingsConfigChanged);
     _config = widget.overrideConfig ?? _settingsProvider.config;
     _touchMode = _config.mouseMode;

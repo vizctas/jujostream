@@ -30,6 +30,7 @@ android/key.properties
 *.jar
 *.keystore
 captures/
+diagnostics/
 gradle/
 gradlew
 gradlew.bat

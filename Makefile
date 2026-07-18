@@ -17,7 +17,7 @@ endif
 ifeq (Grelease,$(firstword $(MAKECMDGOALS)))
   VERSION_ARG := $(word 2,$(MAKECMDGOALS))
   ifeq ($(VERSION_ARG),)
-    LATEST_CLIENT_TAG := $(shell git describe --tags --match "client-[0-9]*" --abbrev=0 2>nul)
+    LATEST_CLIENT_TAG := $(shell git tag --list "client-[0-9]*" --sort=-v:refname | powershell -NoProfile -Command "$$input | Select-Object -First 1")
     ifeq ($(LATEST_CLIENT_TAG),)
       VERSION := 1.0.0
     else

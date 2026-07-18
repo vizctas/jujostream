@@ -28,6 +28,7 @@ import '../settings/settings_screen.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/cloud_mfa_provider.dart';
 import '../../services/auth/supabase_config.dart';
+import '../../ui/computer_connection_status.dart';
 import '../../services/audio/ui_sound_service.dart';
 import '../../widgets/mfa_bypassed_confirmation_dialog.dart';
 import '../../widgets/tour_overlay.dart';
@@ -147,7 +148,6 @@ class _PcViewScreenState extends State<PcViewScreen>
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     }
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<ComputerProvider>().startDiscovery();
       _loadAllBgPaths();
       PcViewScreen.pendingTour.addListener(_onPendingTour);
       _scheduleAutoConnect();
@@ -1285,12 +1285,17 @@ class _ComputerCardState extends State<_ComputerCard> {
   @override
   Widget build(BuildContext context) {
     final tp = context.watch<ThemeProvider>();
+    final cloudSignedIn = context.watch<AuthProvider>().isSignedIn;
     final isOnline = widget.computer.isReachable;
     final isPaired = widget.computer.isPaired;
     return _buildCard(
       tp: tp,
       isOnline: isOnline,
       isPaired: isPaired,
+      connectionStatus: computerConnectionStatusLabel(
+        computerConnectionStatus(widget.computer, cloudSignedIn: cloudSignedIn),
+        isSpanish: AppLocalizations.of(context).locale.languageCode == 'es',
+      ),
       glowOpacity: isOnline ? 0.45 : 0.0,
       scale: 1.0,
     );
@@ -1300,6 +1305,7 @@ class _ComputerCardState extends State<_ComputerCard> {
     required ThemeProvider tp,
     required bool isOnline,
     required bool isPaired,
+    required String connectionStatus,
     required double glowOpacity,
     required double scale,
   }) {
@@ -1465,27 +1471,52 @@ class _ComputerCardState extends State<_ComputerCard> {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Row(
-                            children: [
-                              Container(
-                                width: 8,
-                                height: 8,
-                                decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  color: statusColor,
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Row(
+                                  children: [
+                                    Container(
+                                      width: 8,
+                                      height: 8,
+                                      decoration: BoxDecoration(
+                                        shape: BoxShape.circle,
+                                        color: statusColor,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      statusText,
+                                      style: TextStyle(
+                                        color: isOnline
+                                            ? Colors.white70
+                                            : Colors.white38,
+                                        fontSize: 13,
+                                      ),
+                                    ),
+                                  ],
                                 ),
-                              ),
-                              const SizedBox(width: 6),
-                              Text(
-                                statusText,
-                                style: TextStyle(
-                                  color: isOnline
-                                      ? Colors.white70
-                                      : Colors.white38,
-                                  fontSize: 13,
-                                ),
-                              ),
-                            ],
+                                if (isPaired) ...[
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    connectionStatus,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      color: widget.computer.isCloud
+                                          ? Colors.cyanAccent.withValues(
+                                              alpha: 0.82,
+                                            )
+                                          : Colors.white54,
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
                           ),
                           Row(
                             mainAxisSize: MainAxisSize.min,

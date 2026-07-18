@@ -29,6 +29,8 @@ import '../../services/notifications/notification_mirror_platform.dart';
 import '../../services/tv/tv_detector.dart';
 import '../../services/window/fullscreen_service.dart';
 import '../../services/preferences/launcher_preferences.dart';
+import '../../services/startup/startup_animation_preferences.dart';
+import '../../services/startup/startup_animation_registry.dart';
 import '../about/about_screen.dart';
 import '../collections/collections_screen.dart';
 import '../plugins/plugins_screen.dart';
@@ -230,6 +232,8 @@ class _SettingsScreenState extends State<SettingsScreen>
               final c = settings.config;
               final themeProvider = context.watch<ThemeProvider>();
               final preferences = context.watch<LauncherPreferences>();
+              final startupAnimation = context
+                  .watch<StartupAnimationPreferences>();
 
               return TabBarView(
                 controller: _tabController,
@@ -263,6 +267,29 @@ class _SettingsScreenState extends State<SettingsScreen>
                             ),
                             icon: Icons.palette_outlined,
                             child: _buildThemeSelector(context, themeProvider),
+                          ),
+
+                          _section(
+                            _tr(
+                              context,
+                              'Launcher Appearance',
+                              'Apariencia de inicio',
+                            ),
+                          ),
+                          _choiceTile(
+                            context,
+                            _tr(
+                              context,
+                              'Startup animation',
+                              'Animación de inicio',
+                            ),
+                            startupAnimation.selected.labelFor(
+                              Localizations.localeOf(context),
+                            ),
+                            () => _pickStartupAnimation(
+                              context,
+                              startupAnimation,
+                            ),
                           ),
 
                           _section(_tr(context, 'Ambience', 'Ambiente')),
@@ -2656,6 +2683,17 @@ class _SettingsScreenState extends State<SettingsScreen>
         () => tp.setAmbienceEffect('particles'),
       ),
       (_tr(ctx, 'None', 'Ninguno'), () => tp.setAmbienceEffect('none')),
+    ]);
+  }
+
+  void _pickStartupAnimation(
+    BuildContext ctx,
+    StartupAnimationPreferences preferences,
+  ) {
+    final locale = Localizations.localeOf(ctx);
+    _showPicker(ctx, _tr(ctx, 'Startup animation', 'Animación de inicio'), [
+      for (final entry in StartupAnimationRegistry.entries)
+        (entry.labelFor(locale), () => preferences.setSelectedId(entry.id)),
     ]);
   }
 
