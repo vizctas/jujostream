@@ -9,6 +9,7 @@ import '../../providers/theme_provider.dart';
 import '../../services/audio/ui_sound_service.dart';
 import '../../services/input/gamepad_button_helper.dart';
 import '../../widgets/news_carousel/news_carousel_widget.dart';
+import '../../widgets/game_backdrop_art.dart';
 import '../../widgets/poster_image.dart';
 import '../../widgets/trailer_modal.dart';
 import '../../services/metadata/steam_video_client.dart';
@@ -502,18 +503,17 @@ class _Ps5BodyState extends State<_Ps5Body> {
             if (widget.videoWidget != null &&
                 widget.videoForAppId == bgApp?.appId)
               Positioned.fill(child: widget.videoWidget!)
-            else if ((bgApp?.rawgBackgroundUrl ?? bgApp?.posterUrl) != null)
+            else if (bgApp != null)
               Positioned.fill(
                 child: AnimatedSwitcher(
                   duration: const Duration(milliseconds: 500),
-                  child: PosterImage(
-                    key: ValueKey(bgApp!.appId),
-                    url: bgApp.rawgBackgroundUrl ?? bgApp.posterUrl!,
-                    fit: BoxFit.cover,
-                    width: double.infinity,
-                    height: double.infinity,
-                    memCacheWidth: 1280,
-                    errorWidget: (_, _, _) => Container(color: tp.background),
+                  child: GameBackdropArt(
+                    key: ValueKey(bgApp.appId),
+                    app: bgApp,
+                    heroCacheWidth: context
+                        .read<ThemeProvider>()
+                        .backgroundArtCacheWidth,
+                    fallbackColor: tp.background,
                   ),
                 ),
               )

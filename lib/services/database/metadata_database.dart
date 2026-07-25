@@ -1,13 +1,16 @@
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
 import '../../models/nv_app.dart';
+import '../metadata/game_art_policy.dart';
 
 class MetadataDatabase {
   MetadataDatabase._();
 
   static const _kDbName = 'jujo_metadata.db';
-  static const _kVersion = 3;
+  static const _kVersion = 4;
   static const _kTable = 'game_metadata';
 
   static Database? _db;
@@ -28,6 +31,7 @@ class MetadataDatabase {
           rawg_clip_url TEXT,
           rawg_background_url TEXT,
           poster_url TEXT,
+          screenshot_urls TEXT,
           updated_at    INTEGER NOT NULL
         )
       '''),
@@ -51,6 +55,19 @@ class MetadataDatabase {
           try {
             await db.execute('ALTER TABLE $_kTable ADD COLUMN poster_url TEXT');
           } catch (_) {}
+        }
+        if (oldVersion < 4) {
+          try {
+            await db.execute(
+              'ALTER TABLE $_kTable ADD COLUMN screenshot_urls TEXT',
+            );
+          } catch (_) {}
+          await db.execute('''
+            UPDATE $_kTable
+            SET poster_url = NULL
+            WHERE poster_url = rawg_background_url
+               OR poster_url LIKE '%/media/screenshots/%'
+          ''');
         }
       },
     );
@@ -86,6 +103,9 @@ class MetadataDatabase {
               ?.split(',')
               .where((s) => s.isNotEmpty)
               .toList();
+          final storedScreenshots = _decodeStringList(
+            row['screenshot_urls'] as String?,
+          );
 
           return app.copyWith(
             description: (row['description'] as String?)?.isEmpty ?? true
@@ -96,10 +116,26 @@ class MetadataDatabase {
             steamVideoThumb: row['steam_video_thumb'] as String?,
             rawgClipUrl: row['rawg_clip_url'] as String?,
             rawgBackgroundUrl: row['rawg_background_url'] as String?,
-            posterUrl: row['poster_url'] as String?,
+            posterUrl: (app.posterUrl?.isNotEmpty ?? false)
+                ? null
+                : row['poster_url'] as String?,
+            screenshotUrls: storedScreenshots.isEmpty
+                ? null
+                : GameArtPolicy.mergeGallery([
+                    ...app.screenshotUrls,
+                    ...storedScreenshots,
+                  ]),
           );
         })
         .toList(growable: false);
+  }
+
+  @visibleForTesting
+  static List<NvApp> mergeRowsForTest(
+    List<NvApp> apps,
+    List<Map<String, Object?>> rows,
+  ) {
+    return _mergeRows(_MergePayload(apps, rows));
   }
 
   static Future<void> saveAll(List<NvApp> apps) async {
@@ -111,7 +147,8 @@ class MetadataDatabase {
               (a.steamVideoUrl?.isNotEmpty ?? false) ||
               (a.rawgClipUrl?.isNotEmpty ?? false) ||
               (a.rawgBackgroundUrl?.isNotEmpty ?? false) ||
-              (a.posterUrl?.isNotEmpty ?? false),
+              (a.posterUrl?.isNotEmpty ?? false) ||
+              a.screenshotUrls.isNotEmpty,
         )
         .toList();
     if (enriched.isEmpty) return;
@@ -131,6 +168,9 @@ class MetadataDatabase {
           'rawg_clip_url': app.rawgClipUrl,
           'rawg_background_url': app.rawgBackgroundUrl,
           'poster_url': app.posterUrl,
+          'screenshot_urls': app.screenshotUrls.isEmpty
+              ? null
+              : jsonEncode(app.screenshotUrls),
           'updated_at': now,
         }, conflictAlgorithm: ConflictAlgorithm.replace);
       }
@@ -149,6 +189,15 @@ class MetadataDatabase {
         whereArgs: activeIds,
       );
     } catch (_) {}
+  }
+
+  static List<String> _decodeStringList(String? value) {
+    if (value == null || value.isEmpty) return const [];
+    try {
+      return (jsonDecode(value) as List).whereType<String>().toList();
+    } catch (_) {
+      return const [];
+    }
   }
 }
 

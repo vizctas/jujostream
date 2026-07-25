@@ -60,24 +60,40 @@ class NvApp {
     this.rawgBackgroundUrl,
   });
 
-  /// Stable, server-independent disk-cache key for this app's art. Host
-  /// /appasset URLs embed address:port, so caching by URL duplicates the same
-  /// game's art per server; the normalized app name is the only cross-server
-  /// identity (same criterion as Playnite matching in AppListProvider).
+  /// Versioned disk-cache key. Role + app identity + source fingerprint prevent
+  /// stale or misclassified art from surviving an artwork update.
   String artCacheKey(String kind, [int idx = 0]) {
     final norm = appName.trim().toLowerCase();
-    return 'nvart_${norm}_${kind}_$idx';
+    final identity = '${serverUuid ?? norm}:$appId';
+    final source = switch (kind) {
+      'hero' => heroImageUrl,
+      'rawgbg' => rawgBackgroundUrl,
+      'poster' => posterUrl,
+      'shot' when idx >= 0 && idx < screenshotUrls.length =>
+        screenshotUrls[idx],
+      _ => null,
+    };
+    return 'nvart_v2_${_stableHash(identity)}_${kind}_${idx}_${_stableHash(source ?? '')}';
   }
 
-  /// Best large background: host hero → RAWG background → poster.
-  String? get backgroundUrl => heroImageUrl ?? rawgBackgroundUrl ?? posterUrl;
+  static String _stableHash(String value) {
+    var hash = 0x811C9DC5;
+    for (final unit in value.codeUnits) {
+      hash ^= unit;
+      hash = (hash * 0x01000193) & 0xFFFFFFFF;
+    }
+    return hash.toRadixString(16).padLeft(8, '0');
+  }
+
+  /// Best landscape background. Portrait posters are composed separately.
+  String? get backgroundUrl => heroImageUrl ?? rawgBackgroundUrl;
 
   /// Cache key matching whichever source [backgroundUrl] resolved to.
   String get backgroundCacheKey => heroImageUrl != null
       ? artCacheKey('hero')
       : rawgBackgroundUrl != null
       ? artCacheKey('rawgbg')
-      : artCacheKey('poster');
+      : artCacheKey('empty');
 
   NvApp copyWith({
     int? appId,
@@ -145,26 +161,26 @@ class NvApp {
   }
 
   Map<String, dynamic> toJson() => {
-        'appId': appId,
-        'appName': appName,
-        'isRunning': isRunning,
-        'isHdrSupported': isHdrSupported,
-        'posterUrl': posterUrl,
-        if (playniteId != null) 'playniteId': playniteId,
-        if (playtimeMinutes > 0) 'playtimeMinutes': playtimeMinutes,
-        if (lastPlayed != null) 'lastPlayed': lastPlayed,
-        if (description != null) 'description': description,
-        if (tags.isNotEmpty) 'tags': tags,
-        if (metadataGenres.isNotEmpty) 'metadataGenres': metadataGenres,
-        if (pluginName != null) 'pluginName': pluginName,
-        if (serverUuid != null) 'serverUuid': serverUuid,
-        if (steamVideoUrl != null) 'steamVideoUrl': steamVideoUrl,
-        if (steamVideoThumb != null) 'steamVideoThumb': steamVideoThumb,
-        if (rawgClipUrl != null) 'rawgClipUrl': rawgClipUrl,
-        if (heroImageUrl != null) 'heroImageUrl': heroImageUrl,
-        if (screenshotUrls.isNotEmpty) 'screenshotUrls': screenshotUrls,
-        if (rawgBackgroundUrl != null) 'rawgBackgroundUrl': rawgBackgroundUrl,
-      };
+    'appId': appId,
+    'appName': appName,
+    'isRunning': isRunning,
+    'isHdrSupported': isHdrSupported,
+    'posterUrl': posterUrl,
+    if (playniteId != null) 'playniteId': playniteId,
+    if (playtimeMinutes > 0) 'playtimeMinutes': playtimeMinutes,
+    if (lastPlayed != null) 'lastPlayed': lastPlayed,
+    if (description != null) 'description': description,
+    if (tags.isNotEmpty) 'tags': tags,
+    if (metadataGenres.isNotEmpty) 'metadataGenres': metadataGenres,
+    if (pluginName != null) 'pluginName': pluginName,
+    if (serverUuid != null) 'serverUuid': serverUuid,
+    if (steamVideoUrl != null) 'steamVideoUrl': steamVideoUrl,
+    if (steamVideoThumb != null) 'steamVideoThumb': steamVideoThumb,
+    if (rawgClipUrl != null) 'rawgClipUrl': rawgClipUrl,
+    if (heroImageUrl != null) 'heroImageUrl': heroImageUrl,
+    if (screenshotUrls.isNotEmpty) 'screenshotUrls': screenshotUrls,
+    if (rawgBackgroundUrl != null) 'rawgBackgroundUrl': rawgBackgroundUrl,
+  };
 
   factory NvApp.fromJson(Map<String, dynamic> json) {
     return NvApp(
@@ -178,7 +194,7 @@ class NvApp {
       lastPlayed: json['lastPlayed'],
       description: json['description'],
       tags: (json['tags'] as List?)?.cast<String>() ?? const [],
-        metadataGenres:
+      metadataGenres:
           (json['metadataGenres'] as List?)?.cast<String>() ?? const [],
       pluginName: json['pluginName'],
       serverUuid: json['serverUuid'],
@@ -207,14 +223,19 @@ class NvApp {
     if (steamVideoUrl != other.steamVideoUrl) return false;
     if (steamVideoThumb != other.steamVideoThumb) return false;
     if (rawgClipUrl != other.rawgClipUrl) return false;
+    if (heroImageUrl != other.heroImageUrl) return false;
     if (rawgBackgroundUrl != other.rawgBackgroundUrl) return false;
     if (tags.length != other.tags.length) return false;
     if (metadataGenres.length != other.metadataGenres.length) return false;
+    if (screenshotUrls.length != other.screenshotUrls.length) return false;
     for (var i = 0; i < tags.length; i++) {
       if (tags[i] != other.tags[i]) return false;
     }
     for (var i = 0; i < metadataGenres.length; i++) {
       if (metadataGenres[i] != other.metadataGenres[i]) return false;
+    }
+    for (var i = 0; i < screenshotUrls.length; i++) {
+      if (screenshotUrls[i] != other.screenshotUrls[i]) return false;
     }
     return true;
   }

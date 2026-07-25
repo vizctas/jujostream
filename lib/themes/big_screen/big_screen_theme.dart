@@ -1,6 +1,4 @@
 import 'dart:async';
-import 'dart:ui';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -9,10 +7,12 @@ import '../../l10n/app_localizations.dart';
 import '../../models/gaming_news_item.dart';
 import '../../models/nv_app.dart';
 import '../../providers/plugins_provider.dart';
+import '../../providers/theme_provider.dart';
 import '../../services/audio/ui_sound_service.dart';
 import '../../services/input/gamepad_button_helper.dart';
 import '../../services/metadata/steam_video_client.dart';
 import '../../services/news/gaming_news_service.dart';
+import '../../widgets/game_backdrop_art.dart';
 import '../../widgets/poster_image.dart';
 import '../launcher_theme.dart';
 
@@ -313,9 +313,6 @@ class _BigScreenBodyState extends State<_BigScreenBody> {
   String? _posterUrlForApp(NvApp app) {
     final override = _posterOverrides[app.appId];
     if (_failedPosterIds.contains(app.appId)) return override;
-    // Prefer RAWG high-res screenshot for full-bleed backgrounds.
-    final bg = app.rawgBackgroundUrl;
-    if (bg != null && bg.isNotEmpty) return bg;
     final posterUrl = app.posterUrl;
     if (posterUrl != null && posterUrl.isNotEmpty) return posterUrl;
     return override;
@@ -490,7 +487,6 @@ class _BigScreenBodyState extends State<_BigScreenBody> {
   Widget build(BuildContext context) {
     _screenWidth = MediaQuery.of(context).size.width;
     final selected = _selected;
-    final selectedPoster = selected == null ? null : _posterUrlForApp(selected);
     return Focus(
       focusNode: _focusNode,
       autofocus: true,
@@ -498,7 +494,7 @@ class _BigScreenBodyState extends State<_BigScreenBody> {
       child: Stack(
         fit: StackFit.expand,
         children: [
-          _Background(app: selected, posterUrl: selectedPoster),
+          _Background(app: selected),
           Positioned.fill(
             bottom: _footerHeight,
             child: SingleChildScrollView(
@@ -1084,33 +1080,21 @@ class _BigScreenBodyState extends State<_BigScreenBody> {
 
 class _Background extends StatelessWidget {
   final NvApp? app;
-  final String? posterUrl;
 
-  const _Background({required this.app, required this.posterUrl});
+  const _Background({required this.app});
 
   @override
   Widget build(BuildContext context) {
-    final url = posterUrl ??
-        app?.rawgBackgroundUrl ??
-        app?.posterUrl;
     return Stack(
       fit: StackFit.expand,
       children: [
-        if (url != null && url.isNotEmpty)
-          ImageFiltered(
-            imageFilter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-            child: Transform.scale(
-              scale: 1.08,
-              child: PosterImage(
-                url: url,
-                fit: BoxFit.cover,
-                width: double.infinity,
-                height: double.infinity,
-                memCacheWidth: 1280,
-                errorWidget: (_, _, _) =>
-                    const ColoredBox(color: Color(0xFF07111C)),
-              ),
-            ),
+        if (app != null)
+          GameBackdropArt(
+            app: app!,
+            heroCacheWidth: context
+                .read<ThemeProvider>()
+                .backgroundArtCacheWidth,
+            fallbackColor: const Color(0xFF07111C),
           )
         else
           const ColoredBox(color: Color(0xFF07111C)),

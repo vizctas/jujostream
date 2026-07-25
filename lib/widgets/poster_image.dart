@@ -39,7 +39,7 @@ class PosterImage extends StatelessWidget {
   /// game) loads from disk instead of the network.
   static final CacheManager artCacheManager = CacheManager(
     Config(
-      'gameArtCache',
+      'gameArtCacheV2',
       stalePeriod: const Duration(days: 90),
       maxNrOfCacheObjects: 800,
     ),

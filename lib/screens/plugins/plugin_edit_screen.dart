@@ -216,7 +216,7 @@ class _PluginEditScreenState extends State<PluginEditScreen> {
 
     // Kick off metadata enrichment when a metadata plugin is enabled with a key.
     if (metadataKeyIsReady && (metadataKeyChanged || enabledChanged)) {
-      unawaited(appList.triggerRawgPosterRefresh());
+      unawaited(appList.triggerRawgArtworkRefresh());
     } else if (_enabled && mounted) {
       final apiKey = _keyController.text.trim();
       if (apiKey.isNotEmpty || widget.plugin.id == 'smart_genre_filters') {

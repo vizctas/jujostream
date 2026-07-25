@@ -22,6 +22,7 @@ import '../../services/metadata/macro_genre_classifier.dart';
 import '../../services/database/achievement_service.dart';
 import '../../services/metadata/steam_achievement_service.dart';
 import '../../services/metadata/background_blur_service.dart';
+import '../../services/metadata/game_art_policy.dart';
 import '../../services/preferences/game_preferences_store.dart';
 import '../../services/preferences/launcher_preferences.dart';
 import 'app_details_screen.dart';
@@ -37,6 +38,7 @@ import '../../services/stream/image_load_throttle.dart';
 import '../../services/tv/tv_detector.dart';
 import '../../themes/launcher_theme.dart';
 import '../../widgets/poster_image.dart';
+import '../../widgets/game_backdrop_art.dart';
 import '../game/game_stream_screen.dart';
 import '../../models/stream_configuration.dart';
 import '../../ui/motion_policy.dart';
@@ -1956,7 +1958,8 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
 
   Widget _buildBackgroundChild(NvApp selected, Key key) {
     final lp = context.read<LauncherPreferences>();
-    if (selected.posterUrl == null || selected.posterUrl!.isEmpty) {
+    final selection = GameArtPolicy.selectBackdrop(selected);
+    if (!selection.hasArt) {
       return Container(
         key: key,
         decoration: BoxDecoration(
@@ -1997,65 +2000,26 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
                 child: Transform.scale(scale: _burnScale.value, child: child),
               );
             },
-            child: PosterImage(
-              url: selected.backgroundUrl!,
-              cacheKey: selected.backgroundCacheKey,
-              fit: BoxFit.cover,
-              fadeInDuration: const Duration(milliseconds: 200),
-              // Cache to the real source resolution; hero/RAWG backgrounds are
-              // crisp 16:9 images so there's no upscaling.
-              memCacheWidth: context.read<ThemeProvider>().performanceMode
-                  ? 720
-                  : (selected.backgroundUrl != selected.posterUrl
-                        ? 1920
-                        : 1280),
-              // Blur-up: show the already-cached small poster while it loads.
-              placeholder: selected.backgroundUrl != selected.posterUrl
-                  ? (_, _) => PosterImage(
-                      url: selected.posterUrl!,
-                      cacheKey: selected.artCacheKey('poster'),
-                      fit: BoxFit.cover,
-                      memCacheWidth: 300,
-                    )
-                  : null,
-              errorWidget: (_, _, _) => Container(color: _tp.background),
+            child: GameBackdropArt(
+              app: selected,
+              heroCacheWidth: context
+                  .read<ThemeProvider>()
+                  .backgroundArtCacheWidth,
+              fallbackColor: _tp.background,
+              heroBuilder: (context, hero) =>
+                  _buildValidatedHeroBackground(hero, selection.url!, lp),
             ),
           )
         else
-          PosterImage(
-            url: selected.backgroundUrl!,
-            cacheKey: selected.backgroundCacheKey,
-            fit: BoxFit.cover,
+          GameBackdropArt(
             key: const ValueKey('static-bg'),
-            memCacheWidth: context.read<ThemeProvider>().performanceMode
-                ? 720
-                : (selected.backgroundUrl != selected.posterUrl ? 1920 : 1280),
-            placeholder: selected.backgroundUrl != selected.posterUrl
-                ? (_, _) => PosterImage(
-                    url: selected.posterUrl!,
-                    cacheKey: selected.artCacheKey('poster'),
-                    fit: BoxFit.cover,
-                    memCacheWidth: 300,
-                  )
-                : null,
-            errorWidget: (_, _, _) => Container(color: _tp.background),
-          ),
-        if (!showVideo &&
-            !context.read<ThemeProvider>().performanceMode &&
-            lp.backgroundBlur > 0)
-          FutureBuilder(
-            future: BackgroundBlurService.instance.preBlur(
-              selected.backgroundUrl!,
-            ),
-            builder: (context, snapshot) {
-              final image = snapshot.data;
-              if (image == null) return const SizedBox.shrink();
-              return RawImage(
-                image: image,
-                fit: BoxFit.cover,
-                filterQuality: FilterQuality.low,
-              );
-            },
+            app: selected,
+            heroCacheWidth: context
+                .read<ThemeProvider>()
+                .backgroundArtCacheWidth,
+            fallbackColor: _tp.background,
+            heroBuilder: (context, hero) =>
+                _buildValidatedHeroBackground(hero, selection.url!, lp),
           ),
         Container(
           color: Colors.black.withValues(
@@ -2070,6 +2034,35 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
               colors: [Color(0x2200E5FF), Colors.transparent],
             ),
           ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildValidatedHeroBackground(
+    Widget hero,
+    String url,
+    LauncherPreferences preferences,
+  ) {
+    if (context.read<ThemeProvider>().performanceMode ||
+        preferences.backgroundBlur <= 0) {
+      return hero;
+    }
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        hero,
+        FutureBuilder(
+          future: BackgroundBlurService.instance.preBlur(url),
+          builder: (context, snapshot) {
+            final image = snapshot.data;
+            if (image == null) return const SizedBox.shrink();
+            return RawImage(
+              image: image,
+              fit: BoxFit.cover,
+              filterQuality: FilterQuality.low,
+            );
+          },
         ),
       ],
     );

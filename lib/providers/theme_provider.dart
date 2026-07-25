@@ -129,6 +129,10 @@ class ThemeProvider extends ChangeNotifier {
 
   String get artQuality => _artQuality;
 
+  /// Selected-game backgrounds: 1080p target, 720p floor.
+  int get backgroundArtCacheWidth =>
+      _performanceMode || _artQuality != 'high' ? 1280 : 1920;
+
   int? get artQualityCacheWidth {
     switch (_artQuality) {
       case 'medium':

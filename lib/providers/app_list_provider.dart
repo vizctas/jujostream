@@ -9,6 +9,7 @@ import '../models/stream_configuration.dart';
 import '../services/http_api/nv_http_client.dart';
 import '../services/http_api/vibepollo_cfg_client.dart';
 import '../services/stream/host_preset_profiles.dart';
+import '../services/metadata/game_art_policy.dart';
 import '../services/metadata/rawg_client.dart';
 import '../services/metadata/steam_video_client.dart';
 import '../services/database/app_override_service.dart';
@@ -21,6 +22,17 @@ import 'plugins_provider.dart';
 export '../services/http_api/nv_http_client.dart' show LaunchResult;
 export '../services/http_api/vibepollo_cfg_client.dart'
     show PlayniteCategory, PlayniteStatus;
+
+@visibleForTesting
+NvApp normalizeHostApp(NvApp app, {required int runningId}) {
+  final cleanName = app.appName
+      .replaceAll('\u200B', '')
+      .replaceAll('\u200C', '');
+  return app.copyWith(
+    appName: cleanName,
+    isRunning: app.isRunning || (runningId > 0 && app.appId == runningId),
+  );
+}
 
 class AppListProvider extends ChangeNotifier {
   final NvHttpClient _httpClient = NvHttpClient();
@@ -216,20 +228,7 @@ class AppListProvider extends ChangeNotifier {
           ? <int, NvApp>{for (final a in _apps) a.appId: a}
           : const <int, NvApp>{};
       final freshApps = result
-          .map((app) {
-            final cleanName = app.appName
-                .replaceAll('\u200B', '')
-                .replaceAll('\u200C', '');
-            return NvApp(
-              appId: app.appId,
-              appName: cleanName,
-              isRunning:
-                  app.isRunning || (runningId > 0 && app.appId == runningId),
-              isHdrSupported: app.isHdrSupported,
-              posterUrl: app.posterUrl,
-              serverUuid: app.serverUuid,
-            );
-          })
+          .map((app) => normalizeHostApp(app, runningId: runningId))
           .toList(growable: false);
 
       // always merge — never discard previously discovered apps
@@ -416,7 +415,7 @@ class AppListProvider extends ChangeNotifier {
           final preRawg = _apps;
           if (_forceRawgRefreshPending) {
             _forceRawgRefreshPending = false;
-            await _refreshAllRawgPosters(apiKey, generation);
+            await _refreshAllRawgArtwork(apiKey, generation);
           } else {
             await _enrichWithRawg(apiKey);
           }
@@ -528,13 +527,8 @@ class AppListProvider extends ChangeNotifier {
       final needsDesc = a.description == null || a.description!.isEmpty;
       final needsBg =
           a.rawgBackgroundUrl == null || a.rawgBackgroundUrl!.isEmpty;
-      // Re-fetch older background_image URLs so they are replaced by
-      // higher-resolution screenshots on the next enrichment run.
-      final hasOldBg =
-          a.rawgBackgroundUrl != null &&
-          a.rawgBackgroundUrl!.isNotEmpty &&
-          !a.rawgBackgroundUrl!.contains('/media/screenshots/');
-      return needsDesc || needsBg || hasOldBg;
+      final needsGallery = a.screenshotUrls.isEmpty;
+      return needsDesc || needsBg || needsGallery;
     }).toList();
     if (targets.isEmpty) return;
 
@@ -549,11 +543,15 @@ class AppListProvider extends ChangeNotifier {
           if (idx < 0) return app;
           final rawg = results[idx];
           if (rawg == null) return app;
-          return app.copyWith(
+          final withArtwork = GameArtPolicy.applyProviderArtwork(
+            app,
+            primaryBackgroundUrl: rawg.backgroundUrl,
+            screenshots: rawg.screenshotUrls,
+          );
+          return withArtwork.copyWith(
             description: rawg.description.isNotEmpty ? rawg.description : null,
             metadataGenres: rawg.genres,
             rawgClipUrl: rawg.clipUrl,
-            rawgBackgroundUrl: rawg.backgroundUrl,
           );
         })
         .toList(growable: false);
@@ -562,18 +560,17 @@ class AppListProvider extends ChangeNotifier {
   Future<_RawgResult?> _fetchRawg(NvApp app, String apiKey) async {
     final detail = await _rawgClient.lookupGame(app.appName, apiKey);
     if (detail == null) return null;
-    // Prefer a high-resolution screenshot over the compressed hero image.
+    // Screenshots remain gallery-only. The provider-designated primary
+    // background is the only RAWG candidate for a hero.
     final screenshots = await _rawgClient.getScreenshots(detail.id, apiKey);
-    final backgroundUrl = screenshots.isNotEmpty
-        ? screenshots.first
-        : detail.backgroundImage;
     return _RawgResult(
       appId: app.appId,
       rawgId: detail.id,
       description: detail.descriptionRaw ?? '',
       genres: detail.genres,
       clipUrl: detail.clipUrl,
-      backgroundUrl: backgroundUrl,
+      backgroundUrl: detail.backgroundImage,
+      screenshotUrls: screenshots,
     );
   }
 
@@ -712,7 +709,7 @@ class AppListProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> triggerRawgPosterRefresh() async {
+  Future<void> triggerRawgArtworkRefresh() async {
     _forceRawgRefreshPending = true;
     if (_apps.isEmpty || _currentComputer == null) return;
 
@@ -725,18 +722,16 @@ class AppListProvider extends ChangeNotifier {
     _isEnriching = true;
     if (!_disposed) notifyListeners();
 
-    unawaited(
-      NotificationService.showEnrichment('Actualizando posters RAWG...'),
-    );
-    unawaited(_runRawgPosterRefreshBackground(apiKey, myGeneration));
+    unawaited(NotificationService.showEnrichment('Actualizando arte RAWG...'));
+    unawaited(_runRawgArtworkRefreshBackground(apiKey, myGeneration));
   }
 
-  Future<void> _runRawgPosterRefreshBackground(
+  Future<void> _runRawgArtworkRefreshBackground(
     String apiKey,
     int generation,
   ) async {
     try {
-      await _refreshAllRawgPosters(apiKey, generation);
+      await _refreshAllRawgArtwork(apiKey, generation);
       if (!_disposed && _enrichGeneration == generation) {
         await MetadataDatabase.saveAll(_apps);
         final computer = _currentComputer;
@@ -752,7 +747,7 @@ class AppListProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> _refreshAllRawgPosters(String apiKey, int generation) async {
+  Future<void> _refreshAllRawgArtwork(String apiKey, int generation) async {
     final targets = List<NvApp>.from(_apps);
     if (targets.isEmpty) return;
 
@@ -762,8 +757,7 @@ class AppListProvider extends ChangeNotifier {
       final rawg = await _fetchRawg(targets[i], apiKey);
       if (rawg == null) continue;
 
-      final updated = _applyRawgResult(targets[i], rawg, replacePoster: true);
-      if (updated == null) continue;
+      final updated = _applyRawgResult(targets[i], rawg);
 
       _replaceApp(updated);
       changedSinceSave = true;
@@ -785,20 +779,16 @@ class AppListProvider extends ChangeNotifier {
     }
   }
 
-  NvApp? _applyRawgResult(
-    NvApp app,
-    _RawgResult rawg, {
-    required bool replacePoster,
-  }) {
-    final posterUrl = replacePoster && rawg.backgroundUrl != null
-        ? rawg.backgroundUrl
-        : null;
-    return app.copyWith(
-      posterUrl: posterUrl,
+  NvApp _applyRawgResult(NvApp app, _RawgResult rawg) {
+    final withArtwork = GameArtPolicy.applyProviderArtwork(
+      app,
+      primaryBackgroundUrl: rawg.backgroundUrl,
+      screenshots: rawg.screenshotUrls,
+    );
+    return withArtwork.copyWith(
       description: rawg.description.isNotEmpty ? rawg.description : null,
       metadataGenres: rawg.genres,
       rawgClipUrl: rawg.clipUrl,
-      rawgBackgroundUrl: rawg.backgroundUrl,
     );
   }
 
@@ -814,6 +804,7 @@ class AppListProvider extends ChangeNotifier {
         metadataGenres: updated.metadataGenres,
         rawgClipUrl: updated.rawgClipUrl,
         rawgBackgroundUrl: updated.rawgBackgroundUrl,
+        screenshotUrls: updated.screenshotUrls,
       );
     }
   }
@@ -977,6 +968,7 @@ class _RawgResult {
   final List<String> genres;
   final String? clipUrl;
   final String? backgroundUrl;
+  final List<String> screenshotUrls;
 
   const _RawgResult({
     required this.appId,
@@ -985,5 +977,6 @@ class _RawgResult {
     required this.genres,
     this.clipUrl,
     this.backgroundUrl,
+    this.screenshotUrls = const [],
   });
 }

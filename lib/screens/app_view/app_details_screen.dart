@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:ui';
 
 import '../../widgets/poster_image.dart';
+import '../../widgets/game_backdrop_art.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
@@ -17,6 +18,7 @@ import '../../providers/plugins_provider.dart';
 import '../../providers/theme_provider.dart';
 import '../../models/theme_config.dart';
 import '../../services/metadata/steam_achievement_service.dart';
+import '../../services/metadata/game_art_policy.dart';
 import '../../services/metadata/steam_library_service.dart';
 import '../../services/metadata/steam_video_client.dart';
 import '../../services/preferences/game_preferences_store.dart';
@@ -419,7 +421,8 @@ class _AppDetailsScreenState extends State<AppDetailsScreen> {
   }
 
   Widget _buildBackdrop() {
-    if (widget.app.posterUrl == null || widget.app.posterUrl!.isEmpty) {
+    final selection = GameArtPolicy.selectBackdrop(widget.app);
+    if (!selection.hasArt) {
       return Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
@@ -435,18 +438,26 @@ class _AppDetailsScreenState extends State<AppDetailsScreen> {
     return Stack(
       fit: StackFit.expand,
       children: [
-        PosterImage(
-          url: widget.app.backgroundUrl!,
-          cacheKey: widget.app.backgroundCacheKey,
-          fit: BoxFit.cover,
-          memCacheWidth: perfMode ? 720 : 1920,
-        ),
-        if (!perfMode)
-          BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 36, sigmaY: 36),
-            child: Container(color: Colors.black.withValues(alpha: 0.58)),
+        GameBackdropArt(
+          app: widget.app,
+          heroCacheWidth: context.read<ThemeProvider>().backgroundArtCacheWidth,
+          fallbackColor: const Color(0xFF0B1624),
+          heroBuilder: (context, hero) => Stack(
+            fit: StackFit.expand,
+            children: [
+              hero,
+              if (!perfMode)
+                BackdropFilter(
+                  filter: ImageFilter.blur(sigmaX: 36, sigmaY: 36),
+                  child: Container(color: Colors.black.withValues(alpha: 0.58)),
+                )
+              else
+                Container(color: Colors.black.withValues(alpha: 0.65)),
+            ],
           ),
-        if (perfMode) Container(color: Colors.black.withValues(alpha: 0.65)),
+        ),
+        if (selection.role == GameBackdropRole.poster)
+          Container(color: Colors.black.withValues(alpha: 0.42)),
         Container(
           decoration: const BoxDecoration(
             gradient: LinearGradient(
