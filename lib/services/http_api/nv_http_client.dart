@@ -7,6 +7,7 @@ import '../../models/computer_details.dart';
 import '../../models/nv_app.dart';
 import '../crypto/client_identity.dart';
 import '../discovery/mdns_hostname_resolver.dart';
+import 'game_art_file_service.dart';
 
 class NvHttpClient {
   final Logger _log = Logger();
@@ -246,6 +247,14 @@ class NvHttpClient {
           return [];
         }
         lastAppListCertRejected = false;
+        final serverCert = expectedServerCert?.trim();
+        if (serverCert != null && serverCert.isNotEmpty) {
+          gameArtFileService.registerPinnedOrigin(
+            address: resolvedAddress,
+            port: httpsPort,
+            expectedServerCert: serverCert,
+          );
+        }
         return parseAppList(response.body, resolvedAddress, httpsPort);
       }
       _log.w(

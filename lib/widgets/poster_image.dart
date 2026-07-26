@@ -4,6 +4,8 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 
+import '../services/http_api/game_art_file_service.dart';
+
 class PosterImage extends StatelessWidget {
   final String url;
   final BoxFit fit;
@@ -42,6 +44,7 @@ class PosterImage extends StatelessWidget {
       'gameArtCacheV2',
       stalePeriod: const Duration(days: 90),
       maxNrOfCacheObjects: 800,
+      fileService: gameArtFileService,
     ),
   );
 
@@ -59,8 +62,7 @@ class PosterImage extends StatelessWidget {
         cacheWidth: memCacheWidth,
         cacheHeight: memCacheHeight,
         errorBuilder: (ctx, err, stack) =>
-            errorWidget?.call(ctx, url, err) ??
-            const SizedBox.shrink(),
+            errorWidget?.call(ctx, url, err) ?? const SizedBox.shrink(),
       );
     }
 
