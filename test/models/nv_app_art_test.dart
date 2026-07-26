@@ -28,6 +28,12 @@ void main() {
       ),
       isFalse,
     );
+    expect(
+      base.contentEquals(
+        base.copyWith(steamBackgroundUrl: 'https://steam/background.jpg'),
+      ),
+      isFalse,
+    );
   });
 
   test('host app normalization preserves hero and complete gallery', () {
@@ -77,5 +83,20 @@ void main() {
     );
 
     expect(app.backgroundUrl, isNull);
+  });
+
+  test('official Steam background persists and is preferred over RAWG', () {
+    final app = NvApp(
+      appId: 1,
+      appName: 'Hades',
+      steamBackgroundUrl: 'https://steam/background.jpg',
+      rawgBackgroundUrl: 'https://rawg/background.jpg',
+    );
+
+    final restored = NvApp.fromJson(app.toJson());
+
+    expect(restored.steamBackgroundUrl, app.steamBackgroundUrl);
+    expect(restored.backgroundUrl, app.steamBackgroundUrl);
+    expect(restored.backgroundCacheKey, app.artCacheKey('steambg'));
   });
 }

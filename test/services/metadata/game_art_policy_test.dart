@@ -18,6 +18,22 @@ void main() {
     expect(selected.url, 'host-hero');
   });
 
+  test('selects official Steam background before RAWG and poster', () {
+    final app = NvApp(
+      appId: 1,
+      appName: 'Hades',
+      posterUrl: 'poster',
+      steamBackgroundUrl: 'steam-background',
+      rawgBackgroundUrl: 'rawg-background',
+    );
+
+    final selected = GameArtPolicy.selectBackdrop(app);
+
+    expect(selected.role, GameBackdropRole.hero);
+    expect(selected.url, 'steam-background');
+    expect(selected.cacheKey, app.artCacheKey('steambg'));
+  });
+
   test('provider screenshots join gallery without replacing poster', () {
     final app = NvApp(
       appId: 1,

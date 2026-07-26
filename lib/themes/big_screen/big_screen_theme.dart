@@ -1085,16 +1085,16 @@ class _Background extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = context.watch<ThemeProvider>();
     return Stack(
       fit: StackFit.expand,
       children: [
         if (app != null)
           GameBackdropArt(
             app: app!,
-            heroCacheWidth: context
-                .read<ThemeProvider>()
-                .backgroundArtCacheWidth,
+            heroCacheWidth: theme.backgroundArtCacheWidth,
             fallbackColor: const Color(0xFF07111C),
+            enableKenBurns: !theme.reduceEffects && !theme.performanceMode,
           )
         else
           const ColoredBox(color: Color(0xFF07111C)),

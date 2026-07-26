@@ -104,6 +104,10 @@ class SteamVideoClient {
         movies: movies,
         description: description,
         genres: genres,
+        backgroundImageUrl: _toHttps(
+          (data['background_raw'] as String?) ??
+              (data['background'] as String?),
+        ),
       );
     } catch (_) {
       return const SteamStoreDetails(movies: []);
@@ -133,11 +137,13 @@ class SteamStoreDetails {
   final List<SteamMovie> movies;
   final String? description;
   final List<String> genres;
+  final String? backgroundImageUrl;
 
   const SteamStoreDetails({
     required this.movies,
     this.description,
     this.genres = const [],
+    this.backgroundImageUrl,
   });
 }
 
@@ -183,12 +189,12 @@ class SteamMovie {
 
   String? get bestUrl => mp4Sd ?? mp4Hd ?? hlsH264 ?? dashH264 ?? webmSd;
 
-  static String? _toHttps(String? url) {
-    if (url == null) return null;
-    if (url.startsWith('http://')) return 'https://${url.substring(7)}';
-    return url;
-  }
-
   @override
   String toString() => 'SteamMovie(id: $id, name: $name, url: $bestUrl)';
+}
+
+String? _toHttps(String? url) {
+  if (url == null) return null;
+  if (url.startsWith('http://')) return 'https://${url.substring(7)}';
+  return url;
 }

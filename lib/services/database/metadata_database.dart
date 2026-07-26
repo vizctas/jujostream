@@ -10,7 +10,7 @@ class MetadataDatabase {
   MetadataDatabase._();
 
   static const _kDbName = 'jujo_metadata.db';
-  static const _kVersion = 4;
+  static const _kVersion = 5;
   static const _kTable = 'game_metadata';
 
   static Database? _db;
@@ -28,6 +28,7 @@ class MetadataDatabase {
           metadata_genres TEXT,
           steam_video_url  TEXT,
           steam_video_thumb TEXT,
+          steam_background_url TEXT,
           rawg_clip_url TEXT,
           rawg_background_url TEXT,
           poster_url TEXT,
@@ -68,6 +69,13 @@ class MetadataDatabase {
             WHERE poster_url = rawg_background_url
                OR poster_url LIKE '%/media/screenshots/%'
           ''');
+        }
+        if (oldVersion < 5) {
+          try {
+            await db.execute(
+              'ALTER TABLE $_kTable ADD COLUMN steam_background_url TEXT',
+            );
+          } catch (_) {}
         }
       },
     );
@@ -114,6 +122,7 @@ class MetadataDatabase {
             metadataGenres: genres ?? const [],
             steamVideoUrl: row['steam_video_url'] as String?,
             steamVideoThumb: row['steam_video_thumb'] as String?,
+            steamBackgroundUrl: row['steam_background_url'] as String?,
             rawgClipUrl: row['rawg_clip_url'] as String?,
             rawgBackgroundUrl: row['rawg_background_url'] as String?,
             posterUrl: (app.posterUrl?.isNotEmpty ?? false)
@@ -145,6 +154,7 @@ class MetadataDatabase {
               (a.description?.isNotEmpty ?? false) ||
               a.metadataGenres.isNotEmpty ||
               (a.steamVideoUrl?.isNotEmpty ?? false) ||
+              (a.steamBackgroundUrl?.isNotEmpty ?? false) ||
               (a.rawgClipUrl?.isNotEmpty ?? false) ||
               (a.rawgBackgroundUrl?.isNotEmpty ?? false) ||
               (a.posterUrl?.isNotEmpty ?? false) ||
@@ -165,6 +175,7 @@ class MetadataDatabase {
           'metadata_genres': app.metadataGenres.join(','),
           'steam_video_url': app.steamVideoUrl,
           'steam_video_thumb': app.steamVideoThumb,
+          'steam_background_url': app.steamBackgroundUrl,
           'rawg_clip_url': app.rawgClipUrl,
           'rawg_background_url': app.rawgBackgroundUrl,
           'poster_url': app.posterUrl,

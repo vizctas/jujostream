@@ -248,6 +248,7 @@ class AppListProvider extends ChangeNotifier {
                 pluginName: previous.pluginName,
                 steamVideoUrl: previous.steamVideoUrl,
                 steamVideoThumb: previous.steamVideoThumb,
+                steamBackgroundUrl: previous.steamBackgroundUrl,
                 rawgClipUrl: previous.rawgClipUrl,
                 rawgBackgroundUrl: previous.rawgBackgroundUrl,
               );
@@ -293,6 +294,7 @@ class AppListProvider extends ChangeNotifier {
                 pluginName: prev.pluginName,
                 steamVideoUrl: prev.steamVideoUrl,
                 steamVideoThumb: prev.steamVideoThumb,
+                steamBackgroundUrl: prev.steamBackgroundUrl,
                 rawgClipUrl: prev.rawgClipUrl,
                 rawgBackgroundUrl: prev.rawgBackgroundUrl,
               );
@@ -578,7 +580,9 @@ class AppListProvider extends ChangeNotifier {
     final targets = _apps.where((a) {
       final needsVideo = a.steamVideoUrl == null || a.steamVideoUrl!.isEmpty;
       final needsDesc = a.description == null || a.description!.isEmpty;
-      return needsVideo || needsDesc;
+      final needsBackground =
+          a.steamBackgroundUrl == null || a.steamBackgroundUrl!.isEmpty;
+      return needsVideo || needsDesc || needsBackground;
     }).toList();
     if (targets.isEmpty) return;
 
@@ -643,6 +647,11 @@ class AppListProvider extends ChangeNotifier {
             steamVideoThumb:
                 (app.steamVideoThumb == null || app.steamVideoThumb!.isEmpty)
                 ? bestMovie?.thumbnail
+                : null,
+            steamBackgroundUrl:
+                (app.steamBackgroundUrl == null ||
+                    app.steamBackgroundUrl!.isEmpty)
+                ? store.backgroundImageUrl
                 : null,
             description:
                 (app.description == null || app.description!.isEmpty) &&
@@ -803,6 +812,7 @@ class AppListProvider extends ChangeNotifier {
         description: updated.description,
         metadataGenres: updated.metadataGenres,
         rawgClipUrl: updated.rawgClipUrl,
+        steamBackgroundUrl: updated.steamBackgroundUrl,
         rawgBackgroundUrl: updated.rawgBackgroundUrl,
         screenshotUrls: updated.screenshotUrls,
       );

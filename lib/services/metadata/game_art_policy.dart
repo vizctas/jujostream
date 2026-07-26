@@ -25,6 +25,15 @@ class GameArtPolicy {
       );
     }
 
+    final steamHero = _usable(app.steamBackgroundUrl);
+    if (steamHero != null) {
+      return GameBackdropSelection(
+        role: GameBackdropRole.hero,
+        url: steamHero,
+        cacheKey: app.artCacheKey('steambg'),
+      );
+    }
+
     final providerHero = _usable(app.rawgBackgroundUrl);
     if (providerHero != null) {
       return GameBackdropSelection(

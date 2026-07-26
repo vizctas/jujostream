@@ -23,6 +23,7 @@ class NvApp {
 
   final String? steamVideoUrl;
   final String? steamVideoThumb;
+  final String? steamBackgroundUrl;
   final String? rawgClipUrl;
 
   /// Crisp 16:9 background/hero served by the host (/appasset AssetType=3).
@@ -54,6 +55,7 @@ class NvApp {
     this.serverUuid,
     this.steamVideoUrl,
     this.steamVideoThumb,
+    this.steamBackgroundUrl,
     this.rawgClipUrl,
     this.heroImageUrl,
     this.screenshotUrls = const [],
@@ -67,6 +69,7 @@ class NvApp {
     final identity = '${serverUuid ?? norm}:$appId';
     final source = switch (kind) {
       'hero' => heroImageUrl,
+      'steambg' => steamBackgroundUrl,
       'rawgbg' => rawgBackgroundUrl,
       'poster' => posterUrl,
       'shot' when idx >= 0 && idx < screenshotUrls.length =>
@@ -85,12 +88,16 @@ class NvApp {
     return hash.toRadixString(16).padLeft(8, '0');
   }
 
-  /// Best landscape background. Portrait posters are composed separately.
-  String? get backgroundUrl => heroImageUrl ?? rawgBackgroundUrl;
+  /// Best landscape background. Portrait posters are only a last-resort
+  /// full-bleed fallback in [GameArtPolicy].
+  String? get backgroundUrl =>
+      heroImageUrl ?? steamBackgroundUrl ?? rawgBackgroundUrl;
 
   /// Cache key matching whichever source [backgroundUrl] resolved to.
   String get backgroundCacheKey => heroImageUrl != null
       ? artCacheKey('hero')
+      : steamBackgroundUrl != null
+      ? artCacheKey('steambg')
       : rawgBackgroundUrl != null
       ? artCacheKey('rawgbg')
       : artCacheKey('empty');
@@ -111,6 +118,7 @@ class NvApp {
     String? serverUuid,
     String? steamVideoUrl,
     String? steamVideoThumb,
+    String? steamBackgroundUrl,
     String? rawgClipUrl,
     String? heroImageUrl,
     List<String>? screenshotUrls,
@@ -132,6 +140,7 @@ class NvApp {
       serverUuid: serverUuid ?? this.serverUuid,
       steamVideoUrl: steamVideoUrl ?? this.steamVideoUrl,
       steamVideoThumb: steamVideoThumb ?? this.steamVideoThumb,
+      steamBackgroundUrl: steamBackgroundUrl ?? this.steamBackgroundUrl,
       rawgClipUrl: rawgClipUrl ?? this.rawgClipUrl,
       heroImageUrl: heroImageUrl ?? this.heroImageUrl,
       screenshotUrls: screenshotUrls ?? this.screenshotUrls,
@@ -176,6 +185,7 @@ class NvApp {
     if (serverUuid != null) 'serverUuid': serverUuid,
     if (steamVideoUrl != null) 'steamVideoUrl': steamVideoUrl,
     if (steamVideoThumb != null) 'steamVideoThumb': steamVideoThumb,
+    if (steamBackgroundUrl != null) 'steamBackgroundUrl': steamBackgroundUrl,
     if (rawgClipUrl != null) 'rawgClipUrl': rawgClipUrl,
     if (heroImageUrl != null) 'heroImageUrl': heroImageUrl,
     if (screenshotUrls.isNotEmpty) 'screenshotUrls': screenshotUrls,
@@ -200,6 +210,7 @@ class NvApp {
       serverUuid: json['serverUuid'],
       steamVideoUrl: json['steamVideoUrl'],
       steamVideoThumb: json['steamVideoThumb'],
+      steamBackgroundUrl: json['steamBackgroundUrl'],
       rawgClipUrl: json['rawgClipUrl'],
       heroImageUrl: json['heroImageUrl'],
       screenshotUrls:
@@ -222,6 +233,7 @@ class NvApp {
     if (serverUuid != other.serverUuid) return false;
     if (steamVideoUrl != other.steamVideoUrl) return false;
     if (steamVideoThumb != other.steamVideoThumb) return false;
+    if (steamBackgroundUrl != other.steamBackgroundUrl) return false;
     if (rawgClipUrl != other.rawgClipUrl) return false;
     if (heroImageUrl != other.heroImageUrl) return false;
     if (rawgBackgroundUrl != other.rawgBackgroundUrl) return false;

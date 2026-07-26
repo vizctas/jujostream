@@ -51,14 +51,28 @@ void main() {
   });
 
   testWidgets(
-    'poster fallback stays sharp and contained over blurred extension',
+    'poster fallback remains full bleed without detached or blurred copies',
     (tester) async {
       await tester.pumpWidget(
-        _testApp(
-          NvApp(
-            appId: 1,
-            appName: 'Hades',
-            posterUrl: 'https://host/poster.jpg',
+        MaterialApp(
+          home: SizedBox(
+            width: 1920,
+            height: 1080,
+            child: GameBackdropArt(
+              app: NvApp(
+                appId: 1,
+                appName: 'Hades',
+                posterUrl: 'https://host/poster.jpg',
+              ),
+              enableKenBurns: true,
+              validateHeroDimensions: false,
+              heroBuilder: (_, background) => Stack(
+                children: [
+                  background,
+                  const SizedBox(key: Key('background-motion-layer')),
+                ],
+              ),
+            ),
           ),
         ),
       );
@@ -66,12 +80,11 @@ void main() {
       final poster = tester.widget<PosterImage>(
         find.byKey(const Key('game-backdrop-poster')),
       );
-      expect(poster.fit, BoxFit.contain);
-      expect(poster.memCacheWidth, 720);
-      expect(
-        find.byKey(const Key('game-backdrop-poster-blur')),
-        findsOneWidget,
-      );
+      expect(poster.fit, BoxFit.cover);
+      expect(poster.memCacheWidth, 1920);
+      expect(find.byKey(const Key('game-backdrop-poster-blur')), findsNothing);
+      expect(find.byKey(const Key('background-motion-layer')), findsOneWidget);
+      expect(find.byKey(const Key('game-backdrop-ken-burns')), findsOneWidget);
     },
   );
 }

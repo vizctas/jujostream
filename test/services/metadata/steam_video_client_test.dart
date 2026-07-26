@@ -52,6 +52,32 @@ void main() {
 
       expect(appId, 620);
     });
+
+    test('store data exposes the official high-resolution background', () async {
+      final client = SteamVideoClient(
+        client: _FakeClient(
+          http.Response(
+            jsonEncode({
+              '620': {
+                'success': true,
+                'data': {
+                  'background_raw':
+                      'http://shared.fastly.steamstatic.com/store_item_assets/steam/apps/620/page_bg_raw.jpg',
+                },
+              },
+            }),
+            200,
+          ),
+        ),
+      );
+
+      final details = await client.getStoreData(620);
+
+      expect(
+        details.backgroundImageUrl,
+        'https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/620/page_bg_raw.jpg',
+      );
+    });
   });
 }
 

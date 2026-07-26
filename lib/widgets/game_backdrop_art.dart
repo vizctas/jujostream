@@ -1,5 +1,3 @@
-import 'dart:ui';
-
 import 'package:flutter/material.dart';
 
 import '../models/nv_app.dart';
@@ -12,36 +10,48 @@ class GameBackdropArt extends StatefulWidget {
     super.key,
     required this.app,
     this.heroCacheWidth = 1920,
-    this.posterCacheWidth = 720,
-    this.posterAlignment = Alignment.centerRight,
-    this.posterWidthFactor = 0.38,
-    this.posterHeightFactor = 0.82,
     this.fallbackColor = const Color(0xFF07111C),
     this.validateHeroDimensions = true,
+    this.enableKenBurns = false,
     this.heroBuilder,
   });
 
   final NvApp app;
   final int heroCacheWidth;
-  final int posterCacheWidth;
-  final Alignment posterAlignment;
-  final double posterWidthFactor;
-  final double posterHeightFactor;
   final Color fallbackColor;
   final bool validateHeroDimensions;
+  final bool enableKenBurns;
   final Widget Function(BuildContext context, Widget hero)? heroBuilder;
 
   @override
   State<GameBackdropArt> createState() => _GameBackdropArtState();
 }
 
-class _GameBackdropArtState extends State<GameBackdropArt> {
+class _GameBackdropArtState extends State<GameBackdropArt>
+    with SingleTickerProviderStateMixin {
   bool? _heroEligible;
   int _validationGeneration = 0;
+  late final AnimationController _kenBurnsController;
+  late final Animation<double> _kenBurnsScale;
+  late final Animation<Offset> _kenBurnsDrift;
 
   @override
   void initState() {
     super.initState();
+    _kenBurnsController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 24),
+    );
+    final curve = CurvedAnimation(
+      parent: _kenBurnsController,
+      curve: Curves.easeInOut,
+    );
+    _kenBurnsScale = Tween<double>(begin: 1.02, end: 1.08).animate(curve);
+    _kenBurnsDrift = Tween<Offset>(
+      begin: const Offset(-8, -3),
+      end: const Offset(8, 5),
+    ).animate(curve);
+    _syncKenBurns();
     _validateHero();
   }
 
@@ -49,9 +59,29 @@ class _GameBackdropArtState extends State<GameBackdropArt> {
   void didUpdateWidget(covariant GameBackdropArt oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.app.heroImageUrl != widget.app.heroImageUrl ||
+        oldWidget.app.steamBackgroundUrl != widget.app.steamBackgroundUrl ||
         oldWidget.app.rawgBackgroundUrl != widget.app.rawgBackgroundUrl ||
         oldWidget.validateHeroDimensions != widget.validateHeroDimensions) {
       _validateHero();
+    }
+    if (oldWidget.enableKenBurns != widget.enableKenBurns) {
+      _syncKenBurns();
+    }
+  }
+
+  @override
+  void dispose() {
+    _kenBurnsController.dispose();
+    super.dispose();
+  }
+
+  void _syncKenBurns() {
+    if (widget.enableKenBurns) {
+      _kenBurnsController.repeat(reverse: true);
+    } else {
+      _kenBurnsController
+        ..stop()
+        ..reset();
     }
   }
 
@@ -83,18 +113,29 @@ class _GameBackdropArtState extends State<GameBackdropArt> {
     final child = switch (selection.role) {
       GameBackdropRole.hero when _heroEligible == true => _buildHero(selection),
       GameBackdropRole.hero => _posterOrEmpty(),
-      GameBackdropRole.poster => _posterComposition(
+      GameBackdropRole.poster => _buildFullBleed(
         selection.url!,
         selection.cacheKey,
+        key: const Key('game-backdrop-poster'),
       ),
       GameBackdropRole.none => ColoredBox(
         key: const Key('game-backdrop-empty'),
         color: widget.fallbackColor,
       ),
     };
-    return AnimatedSwitcher(
+    final backdrop = AnimatedSwitcher(
       duration: const Duration(milliseconds: 220),
       child: child,
+    );
+    if (!widget.enableKenBurns) return backdrop;
+    return AnimatedBuilder(
+      key: const Key('game-backdrop-ken-burns'),
+      animation: _kenBurnsController,
+      child: backdrop,
+      builder: (_, child) => Transform.translate(
+        offset: _kenBurnsDrift.value,
+        child: Transform.scale(scale: _kenBurnsScale.value, child: child),
+      ),
     );
   }
 
@@ -120,68 +161,24 @@ class _GameBackdropArtState extends State<GameBackdropArt> {
         color: widget.fallbackColor,
       );
     }
-    return _posterComposition(poster, widget.app.artCacheKey('poster'));
+    return _buildFullBleed(
+      poster,
+      widget.app.artCacheKey('poster'),
+      key: const Key('game-backdrop-poster'),
+    );
   }
 
-  Widget _posterComposition(String url, String? cacheKey) {
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        ClipRect(
-          key: const Key('game-backdrop-poster-blur'),
-          child: ImageFiltered(
-            imageFilter: ImageFilter.blur(sigmaX: 26, sigmaY: 26),
-            child: Transform.scale(
-              scale: 1.12,
-              child: PosterImage(
-                url: url,
-                cacheKey: cacheKey,
-                fit: BoxFit.cover,
-                memCacheWidth: widget.posterCacheWidth,
-                errorWidget: (_, _, _) =>
-                    ColoredBox(color: widget.fallbackColor),
-              ),
-            ),
-          ),
-        ),
-        ColoredBox(color: Colors.black.withValues(alpha: 0.42)),
-        Align(
-          alignment: widget.posterAlignment,
-          child: FractionallySizedBox(
-            widthFactor: widget.posterWidthFactor,
-            heightFactor: widget.posterHeightFactor,
-            child: Center(
-              child: AspectRatio(
-                aspectRatio: 2 / 3,
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(14),
-                    boxShadow: const [
-                      BoxShadow(
-                        color: Color(0x99000000),
-                        blurRadius: 32,
-                        offset: Offset(0, 14),
-                      ),
-                    ],
-                  ),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(14),
-                    child: PosterImage(
-                      key: const Key('game-backdrop-poster'),
-                      url: url,
-                      cacheKey: cacheKey,
-                      fit: BoxFit.contain,
-                      memCacheWidth: widget.posterCacheWidth,
-                      errorWidget: (_, _, _) =>
-                          ColoredBox(color: widget.fallbackColor),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-      ],
+  Widget _buildFullBleed(String url, String? cacheKey, {required Key key}) {
+    final background = PosterImage(
+      key: key,
+      url: url,
+      cacheKey: cacheKey,
+      fit: BoxFit.cover,
+      width: double.infinity,
+      height: double.infinity,
+      memCacheWidth: widget.heroCacheWidth,
+      errorWidget: (_, _, _) => ColoredBox(color: widget.fallbackColor),
     );
+    return widget.heroBuilder?.call(context, background) ?? background;
   }
 }

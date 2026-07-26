@@ -19,7 +19,7 @@ single gameplay screenshot to primary background.
 
 | Role | Meaning | Allowed presentation |
 |---|---|---|
-| Poster | Portrait cover | Cards; contained fallback composition |
+| Poster | Portrait cover | Cards; full-bleed fallback only when no banner exists |
 | Hero | Landscape promotional banner/artwork | Full-bleed selected-game background |
 | Screenshot | Gameplay capture | Gallery only |
 
@@ -75,9 +75,11 @@ RAWG enrichment:
 
 One shared selector serves every theme:
 
-1. Valid hero/banner.
-2. High-resolution poster fallback composition.
-3. Theme-native empty-art background.
+1. Valid host hero/banner.
+2. Official Steam landscape background.
+3. RAWG primary landscape background.
+4. High-resolution poster as a full-bleed fallback.
+5. Theme-native empty-art background.
 
 Themes control overlays, gradients, motion, and placement. Themes do not choose
 different image roles.
@@ -93,10 +95,10 @@ different image roles.
 
 ### Poster only
 
-- Sharp foreground poster using `BoxFit.contain`.
-- Darkened, blurred extension from same poster behind it.
-- Never crop portrait poster as full-screen sharp art.
-- Theme may change composition, not source semantics.
+- Render as the same full-bleed background layer using `BoxFit.cover`.
+- Preserve the theme's existing Ken Burns motion, dimming, and gradients.
+- Never add a detached foreground poster or blurred duplicate composition.
+- Prefer an official landscape banner whenever one is available.
 
 ### No usable art
 
@@ -108,8 +110,8 @@ Before full-bleed presentation:
 
 - Image must be landscape.
 - Preferred minimum: 1280×720.
-- Portrait `AssetType=3` from an old server is reclassified as poster fallback.
-- Failed or undersized hero uses poster composition.
+- Portrait `AssetType=3` from an old server is rejected as a hero.
+- Failed or undersized hero uses the high-resolution poster full-bleed.
 
 Validation result is cached to avoid repeat decoding.
 
@@ -124,7 +126,7 @@ Validation result is cached to avoid repeat decoding.
 
 ## Error Handling
 
-- Hero failure -> poster composition.
+- Hero failure -> full-bleed high-resolution poster.
 - Poster failure -> theme-native empty state.
 - Individual gallery failure -> omit failed item; retain remaining gallery.
 - Metadata/provider failure must not replace known-good host art.
@@ -150,16 +152,17 @@ Validation result is cached to avoid repeat decoding.
 - Parser/provider preserve hero and complete gallery.
 - Merge, persistence, and equality include all art fields.
 - RAWG screenshots never become poster or hero.
-- Selector priority is hero -> poster composition -> empty state.
+- Selector priority is host hero -> Steam background -> RAWG background ->
+  full-bleed poster -> empty state.
 - Old-server portrait hero is rejected as full-bleed.
 - Every theme consumes the shared selector.
 
 ## Acceptance Criteria
 
 - No single screenshot automatically appears as selected-game background.
-- No portrait poster is sharply cropped across full screen.
 - Valid hero renders at 1080p target or 720p minimum.
-- Poster fallback remains sharp and correctly framed.
+- Poster fallback remains sharp and participates in the original background
+  motion instead of introducing a new layout.
 - Screenshots appear together in gallery.
 - All themes resolve identical primary art for the same game.
 - Cache migration removes previously misclassified art.

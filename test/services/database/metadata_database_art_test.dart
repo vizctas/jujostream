@@ -28,4 +28,19 @@ void main() {
     expect(merged.posterUrl, 'host-poster');
     expect(merged.screenshotUrls, ['host-shot', 'rawg-shot']);
   });
+
+  test('stored metadata restores official Steam background', () {
+    final merged = MetadataDatabase.mergeRowsForTest(
+      [NvApp(appId: 1, appName: 'Hades')],
+      [
+        {
+          'app_id': 1,
+          'game_name': 'Hades',
+          'steam_background_url': 'https://steam/background.jpg',
+        },
+      ],
+    ).single;
+
+    expect(merged.steamBackgroundUrl, 'https://steam/background.jpg');
+  });
 }
