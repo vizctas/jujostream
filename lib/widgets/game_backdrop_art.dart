@@ -29,7 +29,10 @@ class GameBackdropArt extends StatefulWidget {
 
 class _GameBackdropArtState extends State<GameBackdropArt>
     with SingleTickerProviderStateMixin {
-  bool? _heroEligible;
+  GameBackdropSelection? _resolvedHero;
+  GameHeroProbe? _heroProbe;
+  Size _requestedViewport = Size.zero;
+  bool _validationScheduled = false;
   int _validationGeneration = 0;
   late final AnimationController _kenBurnsController;
   late final Animation<double> _kenBurnsScale;
@@ -40,19 +43,19 @@ class _GameBackdropArtState extends State<GameBackdropArt>
     super.initState();
     _kenBurnsController = AnimationController(
       vsync: this,
-      duration: const Duration(seconds: 24),
+      duration: const Duration(seconds: 30),
     );
     final curve = CurvedAnimation(
       parent: _kenBurnsController,
       curve: Curves.easeInOut,
     );
-    _kenBurnsScale = Tween<double>(begin: 1.02, end: 1.08).animate(curve);
+    _kenBurnsScale = Tween<double>(begin: 1.0, end: 1.025).animate(curve);
     _kenBurnsDrift = Tween<Offset>(
-      begin: const Offset(-8, -3),
-      end: const Offset(8, 5),
+      begin: const Offset(-3, -1),
+      end: const Offset(3, 2),
     ).animate(curve);
+    _primeUnvalidatedHero();
     _syncKenBurns();
-    _validateHero();
   }
 
   @override
@@ -62,7 +65,13 @@ class _GameBackdropArtState extends State<GameBackdropArt>
         oldWidget.app.steamBackgroundUrl != widget.app.steamBackgroundUrl ||
         oldWidget.app.rawgBackgroundUrl != widget.app.rawgBackgroundUrl ||
         oldWidget.validateHeroDimensions != widget.validateHeroDimensions) {
-      _validateHero();
+      _requestedViewport = Size.zero;
+      _resolvedHero = null;
+      _heroProbe = null;
+      _primeUnvalidatedHero();
+      _scheduleValidationForViewport(
+        MediaQuery.maybeSizeOf(context) ?? Size.zero,
+      );
     }
     if (oldWidget.enableKenBurns != widget.enableKenBurns) {
       _syncKenBurns();
@@ -85,33 +94,100 @@ class _GameBackdropArtState extends State<GameBackdropArt>
     }
   }
 
-  void _validateHero() {
+  void _primeUnvalidatedHero() {
+    if (widget.validateHeroDimensions) return;
+    final candidates = GameArtPolicy.heroCandidates(widget.app);
+    if (candidates.isEmpty) return;
+    _resolvedHero = candidates.first;
+    _heroProbe = const GameHeroProbe(width: 1920, height: 1080);
+  }
+
+  void _scheduleValidationForViewport(Size viewport) {
+    if (viewport.isEmpty ||
+        ((_requestedViewport.width - viewport.width).abs() < 1 &&
+            (_requestedViewport.height - viewport.height).abs() < 1) ||
+        _validationScheduled) {
+      return;
+    }
+    _requestedViewport = viewport;
+    _validationScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _validationScheduled = false;
+      if (mounted) _validateHero(viewport);
+    });
+  }
+
+  void _validateHero(Size viewport) {
     final generation = ++_validationGeneration;
-    final selection = GameArtPolicy.selectBackdrop(widget.app);
-    if (selection.role != GameBackdropRole.hero) {
-      _heroEligible = null;
+    final candidates = GameArtPolicy.heroCandidates(widget.app);
+    _resolvedHero = null;
+    if (candidates.isEmpty) {
+      _heroProbe = null;
       return;
     }
     if (!widget.validateHeroDimensions) {
-      _heroEligible = true;
+      _resolvedHero = candidates.first;
+      _heroProbe = const GameHeroProbe(width: 1920, height: 1080);
       return;
     }
-    _heroEligible = null;
-    GameArtValidator.isEligibleHero(
-      selection.url!,
-      cacheKey: selection.cacheKey,
-    ).then((eligible) {
-      if (mounted && generation == _validationGeneration) {
-        setState(() => _heroEligible = eligible);
+    _heroProbe = null;
+    () async {
+      GameBackdropSelection? bestCandidate;
+      GameHeroProbe? bestProbe;
+      var bestRetainedFraction = 0.0;
+      for (final candidate in candidates) {
+        final probe = await GameArtValidator.probeHero(
+          candidate.url!,
+          cacheKey: candidate.cacheKey,
+        );
+        if (!mounted || generation != _validationGeneration) return;
+        if (!probe.isEligibleFor(
+          viewportWidth: viewport.width,
+          viewportHeight: viewport.height,
+        )) {
+          continue;
+        }
+        final retained = probe.retainedFractionFor(
+          viewportWidth: viewport.width,
+          viewportHeight: viewport.height,
+        );
+        // Candidate order is the quality preference. A later source replaces
+        // it only when it preserves materially more of its composition.
+        if (bestCandidate == null || retained > bestRetainedFraction + 0.02) {
+          bestCandidate = candidate;
+          bestProbe = probe;
+          bestRetainedFraction = retained;
+        }
       }
-    });
+      if (mounted && generation == _validationGeneration) {
+        setState(() {
+          _resolvedHero = bestCandidate;
+          _heroProbe = bestProbe;
+        });
+      }
+    }();
   }
 
   @override
   Widget build(BuildContext context) {
-    final selection = GameArtPolicy.selectBackdrop(widget.app);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final viewport =
+            constraints.hasBoundedWidth && constraints.hasBoundedHeight
+            ? constraints.biggest
+            : MediaQuery.sizeOf(context);
+        _scheduleValidationForViewport(viewport);
+        return _buildBackdrop();
+      },
+    );
+  }
+
+  Widget _buildBackdrop() {
+    final selection = _resolvedHero ?? GameArtPolicy.posterFallback(widget.app);
     final child = switch (selection.role) {
-      GameBackdropRole.hero when _heroEligible == true => _buildHero(selection),
+      GameBackdropRole.hero when _heroProbe?.isEligible == true => _buildHero(
+        selection,
+      ),
       GameBackdropRole.hero => _posterOrEmpty(),
       GameBackdropRole.poster => _buildFullBleed(
         selection.url!,
@@ -127,7 +203,11 @@ class _GameBackdropArtState extends State<GameBackdropArt>
       duration: const Duration(milliseconds: 220),
       child: child,
     );
-    if (!widget.enableKenBurns) return backdrop;
+    final animateHero =
+        widget.enableKenBurns &&
+        (selection.hasArt ||
+            (widget.app.posterUrl?.trim().isNotEmpty ?? false));
+    if (!animateHero) return backdrop;
     return AnimatedBuilder(
       key: const Key('game-backdrop-ken-burns'),
       animation: _kenBurnsController,
@@ -145,6 +225,7 @@ class _GameBackdropArtState extends State<GameBackdropArt>
       url: selection.url!,
       cacheKey: selection.cacheKey,
       fit: BoxFit.cover,
+      alignment: Alignment.center,
       width: double.infinity,
       height: double.infinity,
       memCacheWidth: widget.heroCacheWidth,
@@ -173,7 +254,10 @@ class _GameBackdropArtState extends State<GameBackdropArt>
       key: key,
       url: url,
       cacheKey: cacheKey,
+      // Preserve the established cinematic fallback: the poster remains the
+      // background layer, not a detached foreground card.
       fit: BoxFit.cover,
+      alignment: Alignment.center,
       width: double.infinity,
       height: double.infinity,
       memCacheWidth: widget.heroCacheWidth,

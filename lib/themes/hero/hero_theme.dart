@@ -506,6 +506,7 @@ class _HeroBodyState extends State<_HeroBody>
                         .read<ThemeProvider>()
                         .backgroundArtCacheWidth,
                     fallbackColor: tp.background,
+                    enableKenBurns: !tp.reduceEffects && !tp.performanceMode,
                   ),
                 ),
               )

@@ -30,6 +30,8 @@ import '../../providers/cloud_mfa_provider.dart';
 import '../../services/auth/supabase_config.dart';
 import '../../ui/computer_connection_status.dart';
 import '../../services/audio/ui_sound_service.dart';
+import '../../services/navigation/async_single_flight.dart';
+import '../../widgets/computer_entry_overlay.dart';
 import '../../widgets/mfa_bypassed_confirmation_dialog.dart';
 import '../../widgets/tour_overlay.dart';
 import 'focus_mode_screen.dart';
@@ -106,6 +108,7 @@ class _PcViewScreenState extends State<PcViewScreen>
   final FocusNode _screenFocusNode = FocusNode(debugLabel: 'pc-view-screen');
   bool _focusRequested = false;
   bool _autoConnectAttempted = false;
+  final AsyncSingleFlight _computerEntryFlight = AsyncSingleFlight();
 
   final _iconFocusNodes = List.generate(
     4,
@@ -1006,6 +1009,10 @@ class _PcViewScreenState extends State<PcViewScreen>
   }
 
   Future<void> _onComputerTapped(ComputerDetails computer) async {
+    await _computerEntryFlight.run(() => _performComputerEntry(computer));
+  }
+
+  Future<void> _performComputerEntry(ComputerDetails computer) async {
     if (!computer.isReachable) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(AppLocalizations.of(context).serverOffline)),
@@ -1013,80 +1020,97 @@ class _PcViewScreenState extends State<PcViewScreen>
       return;
     }
 
-    if (!computer.isPaired) {
-      final provider = context.read<ComputerProvider>();
-      final ok = await provider.verifyPairing(computer);
-      if (!mounted) return;
-      if (!ok) {
-        final mfa = context.read<CloudMfaProvider>();
-        final hasSession =
-            SupabaseConfig.current.isConfigured &&
-            Supabase.instance.client.auth.currentSession != null;
-        if (computer.isCloud &&
-            hasSession &&
-            (mfa.status == CloudMfaStatus.setupRequired ||
-                mfa.status == CloudMfaStatus.verifyRequired)) {
-          final action = await MfaBypassedConfirmationDialog.show(context);
-          if (!mounted) return;
-          if (action == MfaBypassedAction.enterMfa) {
-            final verified = await Navigator.push<bool>(
-              context,
-              MaterialPageRoute(
-                builder: (_) => const CloudAuthScreen(
-                  isFirstRun: false,
-                  popOnSuccess: true,
-                ),
-              ),
-            );
+    OverlayEntry? progress = showComputerEntryOverlay(
+      context,
+      computerName: computer.name,
+    );
+    void hideProgress() {
+      progress?.remove();
+      progress = null;
+    }
+
+    try {
+      if (!computer.isPaired) {
+        final provider = context.read<ComputerProvider>();
+        final ok = await provider.verifyPairing(computer);
+        if (!mounted) return;
+        if (!ok) {
+          final mfa = context.read<CloudMfaProvider>();
+          final hasSession =
+              SupabaseConfig.current.isConfigured &&
+              Supabase.instance.client.auth.currentSession != null;
+          if (computer.isCloud &&
+              hasSession &&
+              (mfa.status == CloudMfaStatus.setupRequired ||
+                  mfa.status == CloudMfaStatus.verifyRequired)) {
+            final action = await MfaBypassedConfirmationDialog.show(context);
             if (!mounted) return;
-            if (verified == true) {
-              await _onComputerTapped(computer);
+            if (action == MfaBypassedAction.enterMfa) {
+              hideProgress();
+              final verified = await Navigator.push<bool>(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const CloudAuthScreen(
+                    isFirstRun: false,
+                    popOnSuccess: true,
+                  ),
+                ),
+              );
+              if (!mounted) return;
+              if (verified == true) {
+                await _performComputerEntry(computer);
+              }
+              return;
+            } else if (action == MfaBypassedAction.usePin) {
+              hideProgress();
+              final paired = await _showPairingDialog(computer);
+              if (!mounted || !paired) return;
             }
             return;
-          } else if (action == MfaBypassedAction.usePin) {
-            final paired = await _showPairingDialog(computer);
-            if (!mounted || !paired) return;
+          }
+
+          hideProgress();
+          final paired = await _showPairingDialog(computer);
+          if (!mounted || !paired) {
+            return;
           }
           return;
         }
-
-        final paired = await _showPairingDialog(computer);
-        if (!mounted || !paired) {
+      } else {
+        // ── Entry gate: verify pairing is still valid on the server ─────
+        // Prevents entering a server that revoked pairing server-side while
+        // the client still had a stale "paired" cache.
+        final provider = context.read<ComputerProvider>();
+        final stillPaired = await provider.verifyPairing(computer);
+        if (!mounted) return;
+        if (!stillPaired) {
+          final l = AppLocalizations.of(context);
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text(l.serverUnpaired)));
           return;
         }
-        return;
       }
-    } else {
-      // ── Entry gate: verify pairing is still valid on the server ─────
-      // Prevents entering a server that revoked pairing server-side while
-      // the client still had a stale "paired" cache.
-      final provider = context.read<ComputerProvider>();
-      final stillPaired = await provider.verifyPairing(computer);
+
       if (!mounted) return;
-      if (!stillPaired) {
-        final l = AppLocalizations.of(context);
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(l.serverUnpaired)));
-        return;
+      hideProgress();
+
+      // Play server enter sound + strong haptic feedback
+      UiSoundService.playServerEnter();
+      HapticFeedback.heavyImpact();
+
+      await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => AppViewScreen(computer: computer),
+        ),
+      );
+
+      if (mounted && !TvDetector.instance.isTV) {
+        SystemChrome.setPreferredOrientations([]);
       }
-    }
-
-    if (!mounted) return;
-
-    // Play server enter sound + strong haptic feedback
-    UiSoundService.playServerEnter();
-    HapticFeedback.heavyImpact();
-
-    await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => AppViewScreen(computer: computer),
-      ),
-    );
-
-    if (mounted && !TvDetector.instance.isTV) {
-      SystemChrome.setPreferredOrientations([]);
+    } finally {
+      hideProgress();
     }
   }
 

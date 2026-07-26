@@ -16,9 +16,17 @@ class GameArtFileService extends FileService {
   }) : _publicClient = publicClient ?? http.Client(),
        _pinnedClientFactory =
            pinnedClientFactory ??
-           ((cert) => IOClient(
-             ClientIdentity.createHttpClient(expectedServerCert: cert),
-           ));
+           ((cert) {
+             final client = ClientIdentity.createHttpClient(
+               expectedServerCert: cert,
+             );
+             // Artwork is best-effort and must never occupy every NVHTTPS
+             // worker needed for launch and stream control.
+             client.maxConnectionsPerHost = 2;
+             client.connectionTimeout = const Duration(seconds: 6);
+             client.idleTimeout = const Duration(seconds: 15);
+             return IOClient(client);
+           });
 
   final http.Client _publicClient;
   final PinnedArtClientFactory _pinnedClientFactory;

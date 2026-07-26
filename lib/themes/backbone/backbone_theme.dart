@@ -455,6 +455,7 @@ class _BodyState extends State<_Body> {
                         .read<ThemeProvider>()
                         .backgroundArtCacheWidth,
                     fallbackColor: tp.background,
+                    enableKenBurns: !tp.reduceEffects && !tp.performanceMode,
                   ),
                 ),
               )

@@ -111,6 +111,17 @@ class AppLocalizations {
     'favorites': {'en': 'Favorites', 'es': 'Favoritos'},
     'recent': {'en': 'Recent', 'es': 'Recientes'},
     'all': {'en': 'All', 'es': 'Todos'},
+    'hiddenGames': {'en': 'Hidden games', 'es': 'Juegos ocultos'},
+    'hideGame': {'en': 'Hide game', 'es': 'Ocultar juego'},
+    'unhideGame': {'en': 'Show game again', 'es': 'Volver a mostrar juego'},
+    'gameHidden': {
+      'en': 'Game hidden on this device',
+      'es': 'Juego ocultado en este dispositivo',
+    },
+    'gameVisibleAgain': {
+      'en': 'Game is visible again',
+      'es': 'El juego vuelve a estar visible',
+    },
     'search': {'en': 'Search', 'es': 'Buscar'},
     'searchGame': {'en': 'Search game', 'es': 'Buscar juego'},
     'typeGameName': {'en': 'Type the name', 'es': 'Escribe el nombre'},
@@ -191,6 +202,10 @@ class AppLocalizations {
     },
 
     'connecting': {'en': 'Connecting to', 'es': 'Conectando con'},
+    'secureConnectionInProgress': {
+      'en': 'Checking the secure connection and loading your library...',
+      'es': 'Verificando la conexion segura y cargando tu biblioteca...',
+    },
     'disconnect': {'en': 'Disconnect', 'es': 'Desconectar'},
     'specialKeys': {'en': 'Special Keys', 'es': 'Teclas especiales'},
     'stats': {'en': 'Stats', 'es': 'Stats'},
@@ -984,6 +999,11 @@ class AppLocalizations {
   String get favorites => _s('favorites');
   String get recent => _s('recent');
   String get all => _s('all');
+  String get hiddenGames => _s('hiddenGames');
+  String get hideGame => _s('hideGame');
+  String get unhideGame => _s('unhideGame');
+  String get gameHidden => _s('gameHidden');
+  String get gameVisibleAgain => _s('gameVisibleAgain');
   String get search => _s('search');
   String get searchGame => _s('searchGame');
   String get typeGameName => _s('typeGameName');
@@ -1026,6 +1046,10 @@ class AppLocalizations {
   String connecting(String appName) => locale.languageCode == 'es'
       ? 'Conectando con $appName…'
       : 'Connecting to $appName…';
+  String connectingToComputer(String name) => locale.languageCode == 'es'
+      ? 'Conectando con $name...'
+      : 'Connecting to $name...';
+  String get secureConnectionInProgress => _s('secureConnectionInProgress');
   String get disconnect => _s('disconnect');
   String get specialKeys => _s('specialKeys');
   String get stats => _s('stats');

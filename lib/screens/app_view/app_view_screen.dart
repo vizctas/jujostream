@@ -24,6 +24,7 @@ import '../../services/metadata/steam_achievement_service.dart';
 import '../../services/metadata/background_blur_service.dart';
 import '../../services/metadata/game_art_policy.dart';
 import '../../services/preferences/game_preferences_store.dart';
+import '../../services/preferences/hidden_apps_store.dart';
 import '../../services/preferences/launcher_preferences.dart';
 import 'app_details_screen.dart';
 import 'app_view_presentation_settings_screen.dart';
@@ -65,6 +66,7 @@ enum _AppFilter {
   achievements100,
   achievementsPending,
   achievementsNever,
+  hidden,
 }
 
 enum _ViewMode { carousel, grid }
@@ -133,11 +135,13 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
   _BrowseSection _browseSection = _BrowseSection.carousel;
   int _selectedCategoryIndex = 0;
   Set<int> _favoriteAppIds = <int>{};
+  Set<int> _hiddenAppIds = <int>{};
   List<int> _topPlayedAppIds = const <int>[];
   int? _activeCollectionId;
   List<GameCollection> _collections = const <GameCollection>[];
   final GamePreferencesStore _gamePreferencesStore =
       const GamePreferencesStore();
+  final HiddenAppsStore _hiddenAppsStore = const HiddenAppsStore();
   final Map<int, GamePreferencesProfile> _profilesByAppId = {};
   final ScrollController _carouselController = ScrollController();
   final ScrollController _gridScrollController = ScrollController();
@@ -205,6 +209,7 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
       }
     });
     _loadFavorites();
+    unawaited(_loadHiddenApps());
     unawaited(_loadTopPlayed());
     unawaited(_loadCollections());
     _gridScrollController.addListener(_onGridScroll);
@@ -222,8 +227,8 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
     });
     _backgroundDrift =
         Tween<Offset>(
-          begin: const Offset(-12, -6),
-          end: const Offset(12, 8),
+          begin: const Offset(-3, -1),
+          end: const Offset(3, 2),
         ).animate(
           CurvedAnimation(
             parent: _backgroundMotionController,
@@ -231,7 +236,7 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
           ),
         );
 
-    _burnScale = Tween<double>(begin: 1.04, end: 1.18).animate(
+    _burnScale = Tween<double>(begin: 1.0, end: 1.025).animate(
       CurvedAnimation(
         parent: _backgroundMotionController,
         curve: Curves.easeInOut,
@@ -395,6 +400,33 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
     await prefs.setStringList(
       _favoritesKey,
       _favoriteAppIds.map((e) => e.toString()).toList(growable: false),
+    );
+  }
+
+  Future<void> _loadHiddenApps() async {
+    final values = await _hiddenAppsStore.load(_hostId);
+    if (!mounted) return;
+    setState(() => _hiddenAppIds = values);
+  }
+
+  Future<void> _toggleHidden(NvApp app) async {
+    final hiding = !_hiddenAppIds.contains(app.appId);
+    setState(() {
+      if (hiding) {
+        _hiddenAppIds.add(app.appId);
+      } else {
+        _hiddenAppIds.remove(app.appId);
+      }
+    });
+    await _hiddenAppsStore.save(_hostId, _hiddenAppIds);
+    if (!mounted) return;
+
+    final l = AppLocalizations.of(context);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(hiding ? l.gameHidden : l.gameVisibleAgain),
+        duration: const Duration(seconds: 2),
+      ),
     );
   }
 
@@ -1412,6 +1444,7 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
 
   void _showActionsSheet(List<NvApp> apps, NvApp selected) {
     final isFav = _favoriteAppIds.contains(selected.appId);
+    final isHidden = _hiddenAppIds.contains(selected.appId);
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: _tp.surface,
@@ -1485,6 +1518,19 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
                   () {
                     Navigator.pop(ctx);
                     _toggleFavorite(selected);
+                  },
+                ),
+                _sheetOption(
+                  isHidden
+                      ? Icons.visibility_outlined
+                      : Icons.visibility_off_outlined,
+                  isHidden
+                      ? AppLocalizations.of(ctx).unhideGame
+                      : AppLocalizations.of(ctx).hideGame,
+                  Colors.white70,
+                  () {
+                    Navigator.pop(ctx);
+                    _toggleHidden(selected);
                   },
                 ),
                 _sheetOption(

@@ -16,33 +16,37 @@ class GameArtPolicy {
   const GameArtPolicy._();
 
   static GameBackdropSelection selectBackdrop(NvApp app) {
-    final hostHero = _usable(app.heroImageUrl);
-    if (hostHero != null) {
-      return GameBackdropSelection(
-        role: GameBackdropRole.hero,
-        url: hostHero,
-        cacheKey: app.artCacheKey('hero'),
+    final candidates = heroCandidates(app);
+    if (candidates.isNotEmpty) return candidates.first;
+
+    return posterFallback(app);
+  }
+
+  static List<GameBackdropSelection> heroCandidates(NvApp app) {
+    final candidates = <GameBackdropSelection>[];
+    final seen = <String>{};
+
+    void add(String? value, String cacheKind) {
+      final url = _usable(value);
+      if (url == null || !seen.add(url)) return;
+      candidates.add(
+        GameBackdropSelection(
+          role: GameBackdropRole.hero,
+          url: url,
+          cacheKey: app.artCacheKey(cacheKind),
+        ),
       );
     }
 
-    final steamHero = _usable(app.steamBackgroundUrl);
-    if (steamHero != null) {
-      return GameBackdropSelection(
-        role: GameBackdropRole.hero,
-        url: steamHero,
-        cacheKey: app.artCacheKey('steambg'),
-      );
-    }
+    // Prefer curated/provider artwork over Steam background_raw images. The
+    // latter are often landscape close-ups rather than composed heroes.
+    add(app.heroImageUrl, 'hero');
+    add(app.rawgBackgroundUrl, 'rawgbg');
+    add(app.steamBackgroundUrl, 'steambg');
+    return List.unmodifiable(candidates);
+  }
 
-    final providerHero = _usable(app.rawgBackgroundUrl);
-    if (providerHero != null) {
-      return GameBackdropSelection(
-        role: GameBackdropRole.hero,
-        url: providerHero,
-        cacheKey: app.artCacheKey('rawgbg'),
-      );
-    }
-
+  static GameBackdropSelection posterFallback(NvApp app) {
     final poster = _usable(app.posterUrl);
     if (poster != null) {
       return GameBackdropSelection(
@@ -82,6 +86,42 @@ class GameArtPolicy {
   static bool isEligibleHero({required int width, required int height}) {
     if (width < 1280 || height < 720) return false;
     return width / height >= 1.4;
+  }
+
+  /// Fraction of source content retained when rendered with [BoxFit.cover].
+  static double coverRetainedFraction({
+    required int width,
+    required int height,
+    required double viewportWidth,
+    required double viewportHeight,
+  }) {
+    if (width <= 0 ||
+        height <= 0 ||
+        viewportWidth <= 0 ||
+        viewportHeight <= 0) {
+      return 0;
+    }
+    final imageAspect = width / height;
+    final viewportAspect = viewportWidth / viewportHeight;
+    return imageAspect < viewportAspect
+        ? imageAspect / viewportAspect
+        : viewportAspect / imageAspect;
+  }
+
+  static bool isEligibleHeroForViewport({
+    required int width,
+    required int height,
+    required double viewportWidth,
+    required double viewportHeight,
+  }) {
+    if (!isEligibleHero(width: width, height: height)) return false;
+    return coverRetainedFraction(
+          width: width,
+          height: height,
+          viewportWidth: viewportWidth,
+          viewportHeight: viewportHeight,
+        ) >=
+        0.72;
   }
 
   static String? _usable(String? value) {

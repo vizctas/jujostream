@@ -9,6 +9,7 @@ import '../services/http_api/game_art_file_service.dart';
 class PosterImage extends StatelessWidget {
   final String url;
   final BoxFit fit;
+  final Alignment alignment;
   final double? width;
   final double? height;
   final int? memCacheWidth;
@@ -26,6 +27,7 @@ class PosterImage extends StatelessWidget {
     super.key,
     required this.url,
     this.fit = BoxFit.cover,
+    this.alignment = Alignment.center,
     this.width,
     this.height,
     this.memCacheWidth,
@@ -57,6 +59,7 @@ class PosterImage extends StatelessWidget {
       return Image.file(
         File(path),
         fit: fit,
+        alignment: alignment,
         width: width,
         height: height,
         cacheWidth: memCacheWidth,
@@ -71,6 +74,7 @@ class PosterImage extends StatelessWidget {
       cacheKey: cacheKey,
       cacheManager: artCacheManager,
       fit: fit,
+      alignment: alignment,
       width: width,
       height: height,
       memCacheWidth: memCacheWidth,

@@ -44,8 +44,11 @@ mixin _AppViewFiltersMixin on _AppViewScreenBase {
     return Padding(
       padding: const EdgeInsets.only(right: 6),
       child: GestureDetector(
-        onTap: () =>
-            _applyFilter(cat.filter, playniteCategory: cat.playniteCategory, collectionId: cat.collectionId),
+        onTap: () => _applyFilter(
+          cat.filter,
+          playniteCategory: cat.playniteCategory,
+          collectionId: cat.collectionId,
+        ),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 150),
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -86,7 +89,6 @@ mixin _AppViewFiltersMixin on _AppViewScreenBase {
               if (key == LogicalKeyboardKey.gameButtonB ||
                   key == LogicalKeyboardKey.escape ||
                   key == LogicalKeyboardKey.goBack) {
-
                 Navigator.pop(ctx);
                 return KeyEventResult.handled;
               }
@@ -168,7 +170,8 @@ mixin _AppViewFiltersMixin on _AppViewScreenBase {
                       return KeyEventResult.ignored;
                     },
                     child: TextButton(
-                      onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+                      onPressed: () =>
+                          Navigator.pop(ctx, controller.text.trim()),
                       child: Text(AppLocalizations.of(context).apply),
                     ),
                   ),
@@ -253,6 +256,20 @@ mixin _AppViewFiltersMixin on _AppViewScreenBase {
                       _applyFilter(_AppFilter.favorites);
                     },
                   ),
+                  if (_hiddenAppIds.isNotEmpty)
+                    _FilterFocusableTile(
+                      title:
+                          '${AppLocalizations.of(ctx).hiddenGames} (${_hiddenAppIds.length})',
+                      leading: const Icon(
+                        Icons.visibility_off_outlined,
+                        color: Colors.white60,
+                        size: 20,
+                      ),
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        _applyFilter(_AppFilter.hidden);
+                      },
+                    ),
                   if (playniteCategories.isNotEmpty) ...[
                     const Divider(color: Colors.white12),
                     Padding(
@@ -285,7 +302,10 @@ mixin _AppViewFiltersMixin on _AppViewScreenBase {
                   if (_collections.isNotEmpty) ...[
                     const Divider(color: Colors.white12),
                     Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 4,
+                      ),
                       child: Text(
                         AppLocalizations.of(ctx).myCollections,
                         style: const TextStyle(
@@ -298,11 +318,19 @@ mixin _AppViewFiltersMixin on _AppViewScreenBase {
                     ..._collections.map(
                       (col) => _FilterFocusableTile(
                         title: col.name,
-                        leading: Icon(Icons.folder_outlined, color: Color(col.colorValue), size: 20),
-                        subtitle: '${col.appIds.length} ${AppLocalizations.of(ctx).gamesCount}',
+                        leading: Icon(
+                          Icons.folder_outlined,
+                          color: Color(col.colorValue),
+                          size: 20,
+                        ),
+                        subtitle:
+                            '${col.appIds.length} ${AppLocalizations.of(ctx).gamesCount}',
                         onTap: () {
                           Navigator.pop(ctx);
-                          _applyFilter(_AppFilter.collection, collectionId: col.id);
+                          _applyFilter(
+                            _AppFilter.collection,
+                            collectionId: col.id,
+                          );
                         },
                       ),
                     ),
@@ -313,7 +341,7 @@ mixin _AppViewFiltersMixin on _AppViewScreenBase {
             ),
           ),
         ),
-    ),
+      ),
     );
   }
 
@@ -423,7 +451,10 @@ mixin _AppViewFiltersMixin on _AppViewScreenBase {
                             ),
                             ...orderedGenres.map(
                               (label) => _genreFilterChip(
-                                label: MacroGenreClassifier.localizedLabel(label, AppLocalizations.of(ctx)),
+                                label: MacroGenreClassifier.localizedLabel(
+                                  label,
+                                  AppLocalizations.of(ctx),
+                                ),
                                 count: counts[label] ?? 0,
                                 active:
                                     _activeFilter == _AppFilter.macroGenre &&
@@ -470,46 +501,52 @@ mixin _AppViewFiltersMixin on _AppViewScreenBase {
         }
         return KeyEventResult.ignored;
       },
-      child: Builder(builder: (ctx) {
-        final hasFocus = Focus.of(ctx).hasFocus;
-        return InkWell(
-          onTap: onTap,
-          focusColor: Colors.white.withValues(alpha: 0.12),
-          borderRadius: BorderRadius.circular(999),
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 150),
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            decoration: BoxDecoration(
-              color: active
-                  ? _tp.accentLight.withValues(alpha: 0.22)
-                  : hasFocus
-                      ? Colors.white.withValues(alpha: 0.14)
-                      : Colors.white.withValues(alpha: 0.06),
-              borderRadius: BorderRadius.circular(999),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  label,
-                  style: TextStyle(
-                    color: active || hasFocus ? Colors.white : Colors.white70,
-                    fontWeight: active || hasFocus ? FontWeight.w700 : FontWeight.w500,
+      child: Builder(
+        builder: (ctx) {
+          final hasFocus = Focus.of(ctx).hasFocus;
+          return InkWell(
+            onTap: onTap,
+            focusColor: Colors.white.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(999),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 150),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: active
+                    ? _tp.accentLight.withValues(alpha: 0.22)
+                    : hasFocus
+                    ? Colors.white.withValues(alpha: 0.14)
+                    : Colors.white.withValues(alpha: 0.06),
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    label,
+                    style: TextStyle(
+                      color: active || hasFocus ? Colors.white : Colors.white70,
+                      fontWeight: active || hasFocus
+                          ? FontWeight.w700
+                          : FontWeight.w500,
+                    ),
                   ),
-                ),
-                const SizedBox(width: 6),
-                Text(
-                  '$count',
-                  style: TextStyle(
-                    color: active || hasFocus ? Colors.white70 : Colors.white38,
-                    fontSize: 12,
+                  const SizedBox(width: 6),
+                  Text(
+                    '$count',
+                    style: TextStyle(
+                      color: active || hasFocus
+                          ? Colors.white70
+                          : Colors.white38,
+                      fontSize: 12,
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-        );
-      }),
+          );
+        },
+      ),
     );
   }
 
@@ -520,14 +557,15 @@ mixin _AppViewFiltersMixin on _AppViewScreenBase {
     String? macroGenre,
     int? collectionId,
   }) {
-
     if (filter != _AppFilter.all) {
       final allApps = context.read<AppListProvider>().apps.toList();
       final categories = _categoryItems(allApps);
       final match = categories.where((c) {
         if (c.filter != filter) return false;
-        if (filter == _AppFilter.playniteCategory) return c.playniteCategory == playniteCategory;
-        if (filter == _AppFilter.collection) return c.collectionId == collectionId;
+        if (filter == _AppFilter.playniteCategory)
+          return c.playniteCategory == playniteCategory;
+        if (filter == _AppFilter.collection)
+          return c.collectionId == collectionId;
         return true;
       }).firstOrNull;
       if (match != null && match.count == 0) {
@@ -545,8 +583,10 @@ mixin _AppViewFiltersMixin on _AppViewScreenBase {
     final categories = _categoryItems(allApps);
     int categoryIndex = categories.indexWhere((c) {
       if (c.filter != filter) return false;
-      if (filter == _AppFilter.playniteCategory) return c.playniteCategory == playniteCategory;
-      if (filter == _AppFilter.collection) return c.collectionId == collectionId;
+      if (filter == _AppFilter.playniteCategory)
+        return c.playniteCategory == playniteCategory;
+      if (filter == _AppFilter.collection)
+        return c.collectionId == collectionId;
       return true;
     });
     if (categoryIndex < 0) categoryIndex = 0;
@@ -556,7 +596,9 @@ mixin _AppViewFiltersMixin on _AppViewScreenBase {
           ? playniteCategory
           : null;
       _activeMacroGenre = filter == _AppFilter.macroGenre ? macroGenre : null;
-      _activeCollectionId = filter == _AppFilter.collection ? collectionId : null;
+      _activeCollectionId = filter == _AppFilter.collection
+          ? collectionId
+          : null;
       _selectedCategoryIndex = categoryIndex >= 0 ? categoryIndex : 0;
       _browseSection = _BrowseSection.carousel;
     });
@@ -575,14 +617,19 @@ mixin _AppViewFiltersMixin on _AppViewScreenBase {
       case _AppFilter.mostPlayed:
         return AppLocalizations.of(context).mostPlayed;
       case _AppFilter.collection:
-        final col = _collections.where((c) => c.id == _activeCollectionId).firstOrNull;
+        final col = _collections
+            .where((c) => c.id == _activeCollectionId)
+            .firstOrNull;
         return col?.name ?? AppLocalizations.of(context).collectionFallback;
       case _AppFilter.playniteCategory:
         return _activePlayniteCategory ??
             AppLocalizations.of(context).categoryLabel;
       case _AppFilter.macroGenre:
         return _activeMacroGenre != null
-            ? MacroGenreClassifier.localizedLabel(_activeMacroGenre!, AppLocalizations.of(context))
+            ? MacroGenreClassifier.localizedLabel(
+                _activeMacroGenre!,
+                AppLocalizations.of(context),
+              )
             : AppLocalizations.of(context).genreLabel;
       case _AppFilter.achievements100:
         return AppLocalizations.of(context).achievements100;
@@ -590,6 +637,8 @@ mixin _AppViewFiltersMixin on _AppViewScreenBase {
         return AppLocalizations.of(context).achievementsPending;
       case _AppFilter.achievementsNever:
         return AppLocalizations.of(context).achievementsNeverStarted;
+      case _AppFilter.hidden:
+        return AppLocalizations.of(context).hiddenGames;
       case _AppFilter.all:
         return AppLocalizations.of(context).all;
     }
@@ -599,6 +648,10 @@ mixin _AppViewFiltersMixin on _AppViewScreenBase {
   List<NvApp> _visibleApps(List<NvApp> apps) {
     final visible = apps
         .where((app) {
+          final isHidden = _hiddenAppIds.contains(app.appId);
+          final matchesVisibility = _activeFilter == _AppFilter.hidden
+              ? isHidden
+              : !isHidden;
           final matchesSearch =
               _searchQuery.isEmpty ||
               app.appName.toLowerCase().contains(_searchQuery.toLowerCase());
@@ -610,11 +663,12 @@ mixin _AppViewFiltersMixin on _AppViewScreenBase {
             _AppFilter.mostPlayed => _topPlayedAppIds.contains(app.appId),
             _AppFilter.collection =>
               _activeCollectionId != null &&
-              (_collections
-                .where((c) => c.id == _activeCollectionId)
-                .firstOrNull
-                ?.appIds
-                .contains(app.appId) ?? false),
+                  (_collections
+                          .where((c) => c.id == _activeCollectionId)
+                          .firstOrNull
+                          ?.appIds
+                          .contains(app.appId) ??
+                      false),
             _AppFilter.playniteCategory =>
               _activePlayniteCategory != null &&
                   app.tags.contains(_activePlayniteCategory),
@@ -629,9 +683,10 @@ mixin _AppViewFiltersMixin on _AppViewScreenBase {
               (_achievementCache[app.appId]?.inProgress ?? false),
             _AppFilter.achievementsNever =>
               (_achievementCache[app.appId]?.neverStarted ?? false),
+            _AppFilter.hidden => true,
             _ => true,
           };
-          return matchesSearch && matchesFilter;
+          return matchesVisibility && matchesSearch && matchesFilter;
         })
         .toList(growable: false);
 
@@ -660,7 +715,6 @@ mixin _AppViewFiltersMixin on _AppViewScreenBase {
 
     if (_activeFilter == _AppFilter.recent ||
         _activeFilter == _AppFilter.mostPlayed) {
-
       if (_activeFilter == _AppFilter.mostPlayed) {
         final leftRank = _topPlayedAppIds.contains(left.appId)
             ? _topPlayedAppIds.indexOf(left.appId)
@@ -698,12 +752,15 @@ mixin _AppViewFiltersMixin on _AppViewScreenBase {
   @override
   List<_CategoryItem> _categoryItems(List<NvApp> apps) {
     final lp = context.read<LauncherPreferences>();
-    final rawRecentCount = apps
+    final libraryApps = apps
+        .where((app) => !_hiddenAppIds.contains(app.appId))
+        .toList(growable: false);
+    final rawRecentCount = libraryApps
         .where((app) => (_profilesByAppId[app.appId]?.lastSessionAtMs ?? 0) > 0)
         .length;
     final recentCount = rawRecentCount.clamp(0, lp.maxRecentCount);
-    final runningCount = apps.where((app) => app.isRunning).length;
-    final favoriteCount = apps
+    final runningCount = libraryApps.where((app) => app.isRunning).length;
+    final favoriteCount = libraryApps
         .where((app) => _favoriteAppIds.contains(app.appId))
         .length;
 
@@ -711,7 +768,7 @@ mixin _AppViewFiltersMixin on _AppViewScreenBase {
       _CategoryItem(
         filter: _AppFilter.all,
         label: AppLocalizations.of(context).all,
-        count: apps.length,
+        count: libraryApps.length,
       ),
       _CategoryItem(
         filter: _AppFilter.recent,
@@ -733,15 +790,25 @@ mixin _AppViewFiltersMixin on _AppViewScreenBase {
         _CategoryItem(
           filter: _AppFilter.collection,
           label: col.name,
-          count: col.appIds.where((id) => apps.any((a) => a.appId == id)).length,
+          count: col.appIds
+              .where((id) => libraryApps.any((a) => a.appId == id))
+              .length,
           collectionId: col.id,
+        ),
+      if (_hiddenAppIds.isNotEmpty)
+        _CategoryItem(
+          filter: _AppFilter.hidden,
+          label: AppLocalizations.of(context).hiddenGames,
+          count: _hiddenAppIds.length,
         ),
     ];
 
     final provider = context.read<AppListProvider>();
     for (final cat in provider.playniteCategories) {
       if (cat.name.isEmpty) continue;
-      final catCount = apps.where((app) => app.tags.contains(cat.name)).length;
+      final catCount = libraryApps
+          .where((app) => app.tags.contains(cat.name))
+          .length;
       if (catCount == 0) continue;
       items.add(
         _CategoryItem(
@@ -765,13 +832,13 @@ mixin _AppViewFiltersMixin on _AppViewScreenBase {
           ),
         );
       } else if (_achievementCache.isNotEmpty) {
-        final count100 = apps
+        final count100 = libraryApps
             .where((a) => _achievementCache[a.appId]?.isComplete ?? false)
             .length;
-        final countPending = apps
+        final countPending = libraryApps
             .where((a) => _achievementCache[a.appId]?.inProgress ?? false)
             .length;
-        final countNever = apps
+        final countNever = libraryApps
             .where((a) => _achievementCache[a.appId]?.neverStarted ?? false)
             .length;
         if (count100 > 0) {
@@ -817,11 +884,16 @@ mixin _AppViewFiltersMixin on _AppViewScreenBase {
 
     final recalc = categories.indexWhere((c) {
       if (c.filter != _activeFilter) return false;
-      if (_activeFilter == _AppFilter.playniteCategory) return c.playniteCategory == _activePlayniteCategory;
-      if (_activeFilter == _AppFilter.collection) return c.collectionId == _activeCollectionId;
+      if (_activeFilter == _AppFilter.playniteCategory)
+        return c.playniteCategory == _activePlayniteCategory;
+      if (_activeFilter == _AppFilter.collection)
+        return c.collectionId == _activeCollectionId;
       return true;
     });
-    _selectedCategoryIndex = (recalc >= 0 ? recalc : 0).clamp(0, categories.length - 1);
+    _selectedCategoryIndex = (recalc >= 0 ? recalc : 0).clamp(
+      0,
+      categories.length - 1,
+    );
 
     if (!lp.showCategoryBar) return const SizedBox.shrink();
 
@@ -928,7 +1000,6 @@ mixin _AppViewFiltersMixin on _AppViewScreenBase {
       ),
     );
   }
-
 }
 
 class _CategoryItem {
@@ -979,34 +1050,41 @@ class _FilterFocusableTile extends StatelessWidget {
         }
         return KeyEventResult.ignored;
       },
-      child: Builder(builder: (ctx) {
-        final hasFocus = Focus.of(ctx).hasFocus;
-        return AnimatedContainer(
-          duration: const Duration(milliseconds: 150),
-          margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 1),
-          decoration: BoxDecoration(
-            color: hasFocus
-                ? Colors.white.withValues(alpha: 0.10)
-                : Colors.transparent,
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: ListTile(
-            leading: leading,
-            title: Text(
-              title,
-              style: TextStyle(
-                color: hasFocus ? Colors.white : Colors.white,
-                fontWeight: hasFocus ? FontWeight.bold : FontWeight.normal,
-              ),
+      child: Builder(
+        builder: (ctx) {
+          final hasFocus = Focus.of(ctx).hasFocus;
+          return AnimatedContainer(
+            duration: const Duration(milliseconds: 150),
+            margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 1),
+            decoration: BoxDecoration(
+              color: hasFocus
+                  ? Colors.white.withValues(alpha: 0.10)
+                  : Colors.transparent,
+              borderRadius: BorderRadius.circular(8),
             ),
-            subtitle: subtitle != null
-                ? Text(subtitle!,
-                    style: const TextStyle(color: Colors.white38, fontSize: 11))
-                : null,
-            onTap: onTap,
-          ),
-        );
-      }),
+            child: ListTile(
+              leading: leading,
+              title: Text(
+                title,
+                style: TextStyle(
+                  color: hasFocus ? Colors.white : Colors.white,
+                  fontWeight: hasFocus ? FontWeight.bold : FontWeight.normal,
+                ),
+              ),
+              subtitle: subtitle != null
+                  ? Text(
+                      subtitle!,
+                      style: const TextStyle(
+                        color: Colors.white38,
+                        fontSize: 11,
+                      ),
+                    )
+                  : null,
+              onTap: onTap,
+            ),
+          );
+        },
+      ),
     );
   }
 }

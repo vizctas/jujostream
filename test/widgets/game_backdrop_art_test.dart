@@ -51,7 +51,7 @@ void main() {
   });
 
   testWidgets(
-    'poster fallback remains full bleed without detached or blurred copies',
+    'poster fallback remains cinematic and receives enabled Ken Burns motion',
     (tester) async {
       await tester.pumpWidget(
         MaterialApp(
@@ -87,6 +87,27 @@ void main() {
       expect(find.byKey(const Key('game-backdrop-ken-burns')), findsOneWidget);
     },
   );
+
+  testWidgets('eligible landscape hero receives subtle Ken Burns motion', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: GameBackdropArt(
+          app: NvApp(
+            appId: 1,
+            appName: 'Hades',
+            heroImageUrl: 'https://host/hero.jpg',
+          ),
+          enableKenBurns: true,
+          validateHeroDimensions: false,
+        ),
+      ),
+    );
+
+    expect(find.byKey(const Key('game-backdrop-hero')), findsOneWidget);
+    expect(find.byKey(const Key('game-backdrop-ken-burns')), findsOneWidget);
+  });
 }
 
 Widget _testApp(NvApp app) {

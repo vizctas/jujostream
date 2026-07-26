@@ -514,6 +514,7 @@ class _Ps5BodyState extends State<_Ps5Body> {
                         .read<ThemeProvider>()
                         .backgroundArtCacheWidth,
                     fallbackColor: tp.background,
+                    enableKenBurns: !tp.reduceEffects && !tp.performanceMode,
                   ),
                 ),
               )

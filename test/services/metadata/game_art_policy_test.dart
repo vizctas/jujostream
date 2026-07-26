@@ -18,7 +18,7 @@ void main() {
     expect(selected.url, 'host-hero');
   });
 
-  test('selects official Steam background before RAWG and poster', () {
+  test('selects provider hero before Steam close-up and poster', () {
     final app = NvApp(
       appId: 1,
       appName: 'Hades',
@@ -30,8 +30,8 @@ void main() {
     final selected = GameArtPolicy.selectBackdrop(app);
 
     expect(selected.role, GameBackdropRole.hero);
-    expect(selected.url, 'steam-background');
-    expect(selected.cacheKey, app.artCacheKey('steambg'));
+    expect(selected.url, 'rawg-background');
+    expect(selected.cacheKey, app.artCacheKey('rawgbg'));
   });
 
   test('provider screenshots join gallery without replacing poster', () {
@@ -68,10 +68,58 @@ void main() {
     expect(gallery.toSet(), hasLength(8));
   });
 
-  test('full-bleed hero requires landscape 720p minimum', () {
+  test('full-screen hero requires landscape 720p minimum', () {
     expect(GameArtPolicy.isEligibleHero(width: 1920, height: 1080), isTrue);
     expect(GameArtPolicy.isEligibleHero(width: 1280, height: 720), isTrue);
+    expect(GameArtPolicy.isEligibleHero(width: 1920, height: 620), isFalse);
     expect(GameArtPolicy.isEligibleHero(width: 1024, height: 576), isFalse);
     expect(GameArtPolicy.isEligibleHero(width: 1080, height: 1920), isFalse);
+  });
+
+  test('evaluates fullscreen artwork against the actual viewport', () {
+    expect(
+      GameArtPolicy.isEligibleHeroForViewport(
+        width: 1280,
+        height: 720,
+        viewportWidth: 1920,
+        viewportHeight: 1080,
+      ),
+      isTrue,
+    );
+    expect(
+      GameArtPolicy.isEligibleHeroForViewport(
+        width: 1920,
+        height: 720,
+        viewportWidth: 1280,
+        viewportHeight: 800,
+      ),
+      isFalse,
+    );
+    expect(
+      GameArtPolicy.coverRetainedFraction(
+        width: 1280,
+        height: 720,
+        viewportWidth: 1024,
+        viewportHeight: 768,
+      ),
+      closeTo(0.75, 0.001),
+    );
+  });
+
+  test('exposes hero candidates in fallback order', () {
+    final app = NvApp(
+      appId: 1,
+      appName: 'Hades',
+      heroImageUrl: 'host',
+      steamBackgroundUrl: 'steam',
+      rawgBackgroundUrl: 'rawg',
+      posterUrl: 'poster',
+    );
+
+    expect(
+      GameArtPolicy.heroCandidates(app).map((candidate) => candidate.url),
+      ['host', 'rawg', 'steam'],
+    );
+    expect(GameArtPolicy.posterFallback(app).url, 'poster');
   });
 }

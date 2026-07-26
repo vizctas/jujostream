@@ -1,3 +1,5 @@
+import 'dart:io' as io;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -6,6 +8,7 @@ import '../../l10n/app_localizations.dart';
 import '../../utils/app_version.dart';
 import '../../providers/locale_provider.dart';
 import '../../providers/theme_provider.dart';
+import '../../services/update/client_update_service.dart';
 
 String _tr(BuildContext context, String en, String es) {
   return AppLocalizations.of(context).locale.languageCode == 'es' ? es : en;
@@ -16,8 +19,10 @@ class AboutScreen extends StatefulWidget {
 
   static const _kofiUrl = 'https://ko-fi.com/jujodev';
   static const _repoUrl = 'https://github.com/vizctas/jujo.client';
-  static const _artemisUrl = 'https://github.com/ClassicOldSong/moonlight-android';
-  static const _moonlightUrl = 'https://github.com/moonlight-stream/moonlight-android';
+  static const _artemisUrl =
+      'https://github.com/ClassicOldSong/moonlight-android';
+  static const _moonlightUrl =
+      'https://github.com/moonlight-stream/moonlight-android';
   static const _licenseUrl = 'https://www.gnu.org/licenses/gpl-3.0.html';
 
   @override
@@ -26,19 +31,32 @@ class AboutScreen extends StatefulWidget {
 
 class _AboutScreenState extends State<AboutScreen> {
   final ScrollController _scrollController = ScrollController();
+  late final ClientUpdateService _updateService;
+  _UpdateStatus _updateStatus = _UpdateStatus.idle;
+  ClientUpdateRelease? _availableUpdate;
+  io.File? _downloadedApk;
+  double? _downloadProgress;
+  String? _updateError;
 
   @override
   void initState() {
     super.initState();
+    _updateService = ClientUpdateService(
+      currentVersion: ClientVersion.parse(kAppVersion),
+    );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_scrollController.hasClients) {
         _scrollController.jumpTo(0);
+      }
+      if (io.Platform.isAndroid) {
+        _checkForUpdate();
       }
     });
   }
 
   @override
   void dispose() {
+    _updateService.dispose();
     _scrollController.dispose();
     super.dispose();
   }
@@ -74,81 +92,347 @@ class _AboutScreenState extends State<AboutScreen> {
       child: FocusTraversalGroup(
         policy: OrderedTraversalPolicy(),
         child: Scaffold(
-        backgroundColor: tp.background,
-        extendBodyBehindAppBar: true,
-        appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        surfaceTintColor: Colors.transparent,
-        foregroundColor: tp.colors.isLight ? Colors.black87 : Colors.white,
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        iconTheme: IconThemeData(
-          shadows: [Shadow(color: Colors.black45, blurRadius: 8)],
+          backgroundColor: tp.background,
+          extendBodyBehindAppBar: true,
+          appBar: AppBar(
+            backgroundColor: Colors.transparent,
+            surfaceTintColor: Colors.transparent,
+            foregroundColor: tp.colors.isLight ? Colors.black87 : Colors.white,
+            elevation: 0,
+            scrolledUnderElevation: 0,
+            iconTheme: IconThemeData(
+              shadows: [Shadow(color: Colors.black45, blurRadius: 8)],
+            ),
+          ),
+          body: ListView(
+            controller: _scrollController,
+            padding: const EdgeInsets.only(top: 0, bottom: 48),
+            children: [
+              _buildHeroHeader(context),
+              const SizedBox(height: 8),
+
+              if (io.Platform.isAndroid) _buildUpdatePanel(context),
+
+              _section(l.credits),
+              _creditTile(
+                icon: Icons.code,
+                iconColor: context.read<ThemeProvider>().accentLight,
+                title: l.developedBy,
+                subtitle: 'Vizctas',
+              ),
+              _creditTile(
+                icon: Icons.fork_right,
+                iconColor: const Color(0xFF0F3460),
+                title: l.basedOn,
+                subtitle: 'ClassicOldSong (Artemis)',
+              ),
+              _linkTile(
+                context: context,
+                icon: Icons.fork_right,
+                iconColor: const Color(0xFF0F3460),
+                label: 'Artemis / moonlight-android',
+                url: AboutScreen._artemisUrl,
+              ),
+              _linkTile(
+                context: context,
+                icon: Icons.fork_right,
+                iconColor: Colors.white38,
+                label: 'Moonlight Android (upstream)',
+                url: AboutScreen._moonlightUrl,
+              ),
+
+              _section(_tr(context, 'Links', 'Enlaces')),
+              _linkTile(
+                context: context,
+                icon: Icons.code,
+                iconColor: context.read<ThemeProvider>().accentLight,
+                label: _tr(
+                  context,
+                  'Source Code (GitHub)',
+                  'Código fuente (GitHub)',
+                ),
+                url: AboutScreen._repoUrl,
+              ),
+
+              _section(_tr(context, 'License', 'Licencia')),
+              _creditTile(
+                icon: Icons.gavel,
+                iconColor: Colors.white54,
+                title: _tr(
+                  context,
+                  'This project is open source',
+                  'Este proyecto es open source',
+                ),
+                subtitle: 'GNU General Public License v3.0',
+              ),
+              _linkTile(
+                context: context,
+                icon: Icons.open_in_new,
+                iconColor: Colors.white38,
+                label: _tr(
+                  context,
+                  'Read the full license',
+                  'Leer la licencia completa',
+                ),
+                subtitle: 'gnu.org/licenses/gpl-3.0',
+                url: AboutScreen._licenseUrl,
+              ),
+            ],
+          ),
         ),
       ),
-      body: ListView(
-        controller: _scrollController,
-        padding: const EdgeInsets.only(top: 0, bottom: 48),
-        children: [
+    );
+  }
 
-          _buildHeroHeader(context),
-          const SizedBox(height: 8),
+  Future<void> _checkForUpdate() async {
+    if (_updateStatus == _UpdateStatus.checking ||
+        _updateStatus == _UpdateStatus.downloading) {
+      return;
+    }
+    setState(() {
+      _updateStatus = _UpdateStatus.checking;
+      _updateError = null;
+    });
+    try {
+      final release = await _updateService.checkForUpdate();
+      if (!mounted) return;
+      setState(() {
+        _availableUpdate = release;
+        _updateStatus = release == null
+            ? _UpdateStatus.upToDate
+            : _UpdateStatus.available;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _updateStatus = _UpdateStatus.error;
+        _updateError = error.toString();
+      });
+    }
+  }
 
-          _section(l.credits),
-          _creditTile(
-            icon: Icons.code,
-            iconColor: context.read<ThemeProvider>().accentLight,
-            title: l.developedBy,
-            subtitle: 'Vizctas',
-          ),
-          _creditTile(
-            icon: Icons.fork_right,
-            iconColor: const Color(0xFF0F3460),
-            title: l.basedOn,
-            subtitle: 'ClassicOldSong (Artemis)',
-          ),
-          _linkTile(
-            context: context,
-            icon: Icons.fork_right,
-            iconColor: const Color(0xFF0F3460),
-            label: 'Artemis / moonlight-android',
-            url: AboutScreen._artemisUrl,
-          ),
-          _linkTile(
-            context: context,
-            icon: Icons.fork_right,
-            iconColor: Colors.white38,
-            label: 'Moonlight Android (upstream)',
-            url: AboutScreen._moonlightUrl,
-          ),
+  Future<void> _downloadUpdate() async {
+    final release = _availableUpdate;
+    if (release == null || _updateStatus == _UpdateStatus.downloading) return;
+    setState(() {
+      _updateStatus = _UpdateStatus.downloading;
+      _downloadProgress = 0;
+      _updateError = null;
+    });
+    try {
+      final apk = await _updateService.downloadAndVerify(
+        release,
+        onProgress: (received, total) {
+          if (!mounted || total <= 0) return;
+          setState(() {
+            _downloadProgress = (received / total).clamp(0, 1);
+          });
+        },
+      );
+      if (!mounted) return;
+      setState(() {
+        _downloadedApk = apk;
+        _downloadProgress = 1;
+        _updateStatus = _UpdateStatus.readyToInstall;
+      });
+      await _installDownloadedUpdate();
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _updateStatus = _UpdateStatus.error;
+        _updateError = error.toString();
+      });
+    }
+  }
 
-          _section(_tr(context, 'Links', 'Enlaces')),
-          _linkTile(
-            context: context,
-            icon: Icons.code,
-            iconColor: context.read<ThemeProvider>().accentLight,
-            label: _tr(context, 'Source Code (GitHub)', 'Código fuente (GitHub)'),
-            url: AboutScreen._repoUrl,
-          ),
+  Future<void> _installDownloadedUpdate() async {
+    final apk = _downloadedApk;
+    if (apk == null) return;
+    try {
+      if (!await _updateService.canInstallPackages()) {
+        await _updateService.openInstallPermission();
+        if (!mounted) return;
+        setState(() => _updateStatus = _UpdateStatus.permissionRequired);
+        return;
+      }
+      if (!mounted) return;
+      setState(() => _updateStatus = _UpdateStatus.installing);
+      final opened = await _updateService.installApk(apk);
+      if (!mounted) return;
+      if (!opened) {
+        throw StateError('Android could not open the package installer');
+      }
+      setState(() => _updateStatus = _UpdateStatus.readyToInstall);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _updateStatus = _UpdateStatus.error;
+        _updateError = error.toString();
+      });
+    }
+  }
 
-          _section(_tr(context, 'License', 'Licencia')),
-          _creditTile(
-            icon: Icons.gavel,
-            iconColor: Colors.white54,
-            title: _tr(context, 'This project is open source', 'Este proyecto es open source'),
-            subtitle: 'GNU General Public License v3.0',
+  Widget _buildUpdatePanel(BuildContext context) {
+    final tp = context.watch<ThemeProvider>();
+    final busy =
+        _updateStatus == _UpdateStatus.checking ||
+        _updateStatus == _UpdateStatus.downloading ||
+        _updateStatus == _UpdateStatus.installing;
+
+    String title;
+    String detail;
+    String action;
+    VoidCallback? onPressed;
+    switch (_updateStatus) {
+      case _UpdateStatus.idle:
+      case _UpdateStatus.checking:
+        title = _tr(
+          context,
+          'Checking for updates',
+          'Buscando actualizaciones',
+        );
+        detail = _tr(
+          context,
+          'Current version $kAppVersion',
+          'Versión actual $kAppVersion',
+        );
+        action = _tr(context, 'Checking…', 'Buscando…');
+        break;
+      case _UpdateStatus.upToDate:
+        title = _tr(
+          context,
+          'JUJO Stream is up to date',
+          'JUJO Stream está actualizado',
+        );
+        detail = _tr(
+          context,
+          'You have the latest stable release.',
+          'Tienes la última versión estable.',
+        );
+        action = _tr(context, 'Check again', 'Buscar de nuevo');
+        onPressed = _checkForUpdate;
+        break;
+      case _UpdateStatus.available:
+        title = _tr(context, 'Update available', 'Actualización disponible');
+        detail = _tr(
+          context,
+          'Version ${_availableUpdate?.version} is ready to download.',
+          'La versión ${_availableUpdate?.version} está lista para descargar.',
+        );
+        action = _tr(context, 'Download update', 'Descargar actualización');
+        onPressed = _downloadUpdate;
+        break;
+      case _UpdateStatus.downloading:
+        title = _tr(context, 'Downloading update', 'Descargando actualización');
+        detail = _tr(
+          context,
+          'The APK will be verified before installation.',
+          'El APK será verificado antes de instalarse.',
+        );
+        action = '${((_downloadProgress ?? 0) * 100).round()}%';
+        break;
+      case _UpdateStatus.permissionRequired:
+        title = _tr(
+          context,
+          'Installation permission required',
+          'Permiso de instalación requerido',
+        );
+        detail = _tr(
+          context,
+          'Allow JUJO Stream to install updates, then return and continue.',
+          'Autoriza a JUJO Stream para instalar actualizaciones, regresa y continúa.',
+        );
+        action = _tr(context, 'Continue installation', 'Continuar instalación');
+        onPressed = _installDownloadedUpdate;
+        break;
+      case _UpdateStatus.readyToInstall:
+      case _UpdateStatus.installing:
+        title = _tr(context, 'Update verified', 'Actualización verificada');
+        detail = _tr(
+          context,
+          'Android will confirm the signed installation.',
+          'Android confirmará la instalación firmada.',
+        );
+        action = _tr(context, 'Install update', 'Instalar actualización');
+        if (_updateStatus != _UpdateStatus.installing) {
+          onPressed = _installDownloadedUpdate;
+        }
+        break;
+      case _UpdateStatus.error:
+        title = _tr(context, 'Update check failed', 'No se pudo actualizar');
+        detail =
+            _updateError ??
+            _tr(context, 'Please try again.', 'Intenta nuevamente.');
+        action = _tr(context, 'Retry', 'Reintentar');
+        onPressed = _checkForUpdate;
+        break;
+    }
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.06),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: Colors.white12),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: tp.accent.withValues(alpha: 0.18),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(Icons.system_update_alt, color: tp.accentLight),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      detail,
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white60,
+                        fontSize: 12,
+                      ),
+                    ),
+                    if (_updateStatus == _UpdateStatus.downloading) ...[
+                      const SizedBox(height: 10),
+                      LinearProgressIndicator(value: _downloadProgress),
+                    ],
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              FilledButton(
+                onPressed: busy ? null : onPressed,
+                child: busy
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : Text(action),
+              ),
+            ],
           ),
-          _linkTile(
-            context: context,
-            icon: Icons.open_in_new,
-            iconColor: Colors.white38,
-            label: _tr(context, 'Read the full license', 'Leer la licencia completa'),
-            subtitle: 'gnu.org/licenses/gpl-3.0',
-            url: AboutScreen._licenseUrl,
-          ),
-        ],
-      ),
-      ),
+        ),
       ),
     );
   }
@@ -157,7 +441,8 @@ class _AboutScreenState extends State<AboutScreen> {
     final tp = context.watch<ThemeProvider>();
     final media = MediaQuery.of(context);
     final isLandscape = media.size.width > media.size.height;
-    final topPadding = media.padding.top + kToolbarHeight + (isLandscape ? 16 : 24);
+    final topPadding =
+        media.padding.top + kToolbarHeight + (isLandscape ? 16 : 24);
     return Container(
       width: double.infinity,
       padding: EdgeInsets.fromLTRB(24, topPadding, 24, isLandscape ? 20 : 30),
@@ -165,10 +450,7 @@ class _AboutScreenState extends State<AboutScreen> {
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [
-            tp.background,
-            Color.lerp(tp.background, tp.accent, 0.62)!,
-          ],
+          colors: [tp.background, Color.lerp(tp.background, tp.accent, 0.62)!],
         ),
       ),
       child: Column(
@@ -193,8 +475,15 @@ class _AboutScreenState extends State<AboutScreen> {
           ),
           const SizedBox(height: 6),
           Text(
-            _tr(context, 'Next-gen GameStream client for Sunshine & Apollo', 'Cliente GameStream de nueva generación para Sunshine y Apollo'),
-            style: TextStyle(color: Colors.white54, fontSize: isLandscape ? 12 : 14),
+            _tr(
+              context,
+              'Next-gen GameStream client for Sunshine & Apollo',
+              'Cliente GameStream de nueva generación para Sunshine y Apollo',
+            ),
+            style: TextStyle(
+              color: Colors.white54,
+              fontSize: isLandscape ? 12 : 14,
+            ),
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 10),
@@ -229,14 +518,20 @@ class _AboutScreenState extends State<AboutScreen> {
                     duration: const Duration(milliseconds: 150),
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(8),
-                      boxShadow: focused ? [
-                        BoxShadow(
-                          color: const Color(0xFF29abe0).withValues(alpha: 0.6),
-                          blurRadius: 16,
-                          spreadRadius: 4,
-                        )
-                      ] : [],
-                      border: focused ? Border.all(color: Colors.white, width: 2) : null,
+                      boxShadow: focused
+                          ? [
+                              BoxShadow(
+                                color: const Color(
+                                  0xFF29abe0,
+                                ).withValues(alpha: 0.6),
+                                blurRadius: 16,
+                                spreadRadius: 4,
+                              ),
+                            ]
+                          : [],
+                      border: focused
+                          ? Border.all(color: Colors.white, width: 2)
+                          : null,
                     ),
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(8),
@@ -244,9 +539,18 @@ class _AboutScreenState extends State<AboutScreen> {
                         'https://storage.ko-fi.com/cdn/kofi2.png?v=3',
                         height: 40,
                         errorBuilder: (_, _, _) => Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 10,
+                          ),
                           color: const Color(0xFF29abe0),
-                          child: const Text('Support me on Ko-fi', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                          child: const Text(
+                            'Support me on Ko-fi',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
                         ),
                       ),
                     ),
@@ -260,6 +564,8 @@ class _AboutScreenState extends State<AboutScreen> {
     );
   }
 
+  // Retained for the compact settings variant that embeds language selection.
+  // ignore: unused_element
   Widget _buildLanguagePicker(BuildContext context, AppLocalizations l) {
     final localeProvider = context.watch<LocaleProvider>();
     return Padding(
@@ -269,8 +575,10 @@ class _AboutScreenState extends State<AboutScreen> {
           const Icon(Icons.language, color: Colors.white54),
           const SizedBox(width: 12),
           Expanded(
-            child: Text(l.language,
-                style: const TextStyle(color: Colors.white, fontSize: 16)),
+            child: Text(
+              l.language,
+              style: const TextStyle(color: Colors.white, fontSize: 16),
+            ),
           ),
 
           _langChip(
@@ -332,10 +640,18 @@ class _AboutScreenState extends State<AboutScreen> {
     return _FocusableStaticTile(
       child: ListTile(
         leading: Icon(icon, color: iconColor),
-        title: Text(title, style: const TextStyle(color: Colors.white54, fontSize: 12)),
-        subtitle: Text(subtitle,
-            style: const TextStyle(
-                color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600)),
+        title: Text(
+          title,
+          style: const TextStyle(color: Colors.white54, fontSize: 12),
+        ),
+        subtitle: Text(
+          subtitle,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
       ),
     );
   }
@@ -363,11 +679,27 @@ class _AboutScreenState extends State<AboutScreen> {
     if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(_tr(context, 'Could not open $url', 'No se pudo abrir $url'))),
+          SnackBar(
+            content: Text(
+              _tr(context, 'Could not open $url', 'No se pudo abrir $url'),
+            ),
+          ),
         );
       }
     }
   }
+}
+
+enum _UpdateStatus {
+  idle,
+  checking,
+  upToDate,
+  available,
+  downloading,
+  permissionRequired,
+  readyToInstall,
+  installing,
+  error,
 }
 
 class _LangChip extends StatefulWidget {
@@ -414,7 +746,8 @@ class _LangChipState extends State<_LangChip> {
         return KeyEventResult.ignored;
       },
       child: GestureDetector(
-        onTap: () => context.read<LocaleProvider>().setByLanguageCode(widget.code),
+        onTap: () =>
+            context.read<LocaleProvider>().setByLanguageCode(widget.code),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 200),
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
@@ -426,7 +759,9 @@ class _LangChipState extends State<_LangChip> {
             border: Border.all(
               color: _focused
                   ? Colors.white
-                  : (widget.active ? context.read<ThemeProvider>().accent : Colors.white24),
+                  : (widget.active
+                        ? context.read<ThemeProvider>().accent
+                        : Colors.white24),
               width: _focused ? 1.5 : 1.0,
             ),
           ),
@@ -493,18 +828,34 @@ class _LinkTileState extends State<_LinkTile> {
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 150),
         decoration: BoxDecoration(
-          color: _focused ? Colors.white.withValues(alpha: 0.08) : Colors.transparent,
+          color: _focused
+              ? Colors.white.withValues(alpha: 0.08)
+              : Colors.transparent,
           borderRadius: BorderRadius.circular(8),
           border: Border.all(
-            color: _focused ? context.read<ThemeProvider>().accentLight : Colors.transparent,
+            color: _focused
+                ? context.read<ThemeProvider>().accentLight
+                : Colors.transparent,
             width: _focused ? 1.5 : 1.0,
           ),
         ),
         child: ListTile(
           leading: Icon(widget.icon, color: widget.iconColor),
-          title: Text(widget.label, style: const TextStyle(color: Colors.white)),          subtitle: widget.subtitle != null
-              ? Text(widget.subtitle!, style: const TextStyle(color: Colors.white54, fontSize: 12))
-              : null,          trailing: const Icon(Icons.open_in_new, color: Colors.white38, size: 18),
+          title: Text(
+            widget.label,
+            style: const TextStyle(color: Colors.white),
+          ),
+          subtitle: widget.subtitle != null
+              ? Text(
+                  widget.subtitle!,
+                  style: const TextStyle(color: Colors.white54, fontSize: 12),
+                )
+              : null,
+          trailing: const Icon(
+            Icons.open_in_new,
+            color: Colors.white38,
+            size: 18,
+          ),
           onTap: () => widget.onLaunch(widget.url),
         ),
       ),
@@ -648,10 +999,14 @@ class _FocusableStaticTileState extends State<_FocusableStaticTile> {
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 150),
         decoration: BoxDecoration(
-          color: _focused ? Colors.white.withValues(alpha: 0.06) : Colors.transparent,
+          color: _focused
+              ? Colors.white.withValues(alpha: 0.06)
+              : Colors.transparent,
           borderRadius: BorderRadius.circular(8),
           border: Border.all(
-            color: _focused ? context.read<ThemeProvider>().accentLight : Colors.transparent,
+            color: _focused
+                ? context.read<ThemeProvider>().accentLight
+                : Colors.transparent,
             width: _focused ? 1.5 : 1.0,
           ),
         ),
