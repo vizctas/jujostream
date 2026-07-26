@@ -308,6 +308,86 @@ void main() {
     );
 
     test(
+      'repairs a rotated server identity only from the authenticated cloud profile',
+      () async {
+        await Supabase.instance.client.auth.signInWithPassword(
+          email: 'user@test.com',
+          password: 'password123',
+        );
+
+        final computer = ComputerDetails(
+          uuid: 'rotated-server',
+          name: 'Gaming Rig',
+          localAddress: '192.168.3.6',
+          httpsPort: 47984,
+          configHttpsPort: 47990,
+          serverCert: 'OLD-FINGERPRINT',
+          isCloud: true,
+          pairState: PairState.paired,
+        );
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setStringList('saved_computers', [
+          jsonEncode(computer.toJson()),
+        ]);
+
+        mockHttpClient.dbRows = [
+          {
+            'id': 'cloud-row',
+            'user_id': 'mock-user-uuid',
+            'server_uuid': 'rotated-server',
+            'server_url': 'https://192.168.3.6:47990',
+            'server_name': 'Gaming Rig',
+            'cert_fingerprint': 'NEW-FINGERPRINT',
+            'local_addresses': ['192.168.3.6'],
+          },
+        ];
+
+        String? pairingPin;
+        CloudSyncService.instance.pairingClientFactoryForTest = (candidate) {
+          pairingPin = candidate.serverCert;
+          return MockCloudPairingHttpClient();
+        };
+
+        expect(
+          await CloudSyncService.instance
+              .recoverCloudPairingAfterServerIdentityChange(computer),
+          isTrue,
+        );
+        expect(computer.serverCert, 'NEW-FINGERPRINT');
+        expect(pairingPin, 'NEW-FINGERPRINT');
+
+        final saved = prefs.getStringList('saved_computers')!;
+        final restored = ComputerDetails.fromJson(jsonDecode(saved.single));
+        expect(restored.serverCert, 'NEW-FINGERPRINT');
+        expect(restored.pairState, PairState.paired);
+      },
+    );
+
+    test('does not replace a server pin while signed out', () async {
+      await Supabase.instance.client.auth.signOut();
+      final computer = ComputerDetails(
+        uuid: 'rotated-server',
+        localAddress: '192.168.3.6',
+        serverCert: 'OLD-FINGERPRINT',
+        pairState: PairState.paired,
+      );
+      var pairingAttempted = false;
+      CloudSyncService.instance.pairingClientFactoryForTest = (_) {
+        pairingAttempted = true;
+        return MockCloudPairingHttpClient();
+      };
+
+      expect(
+        await CloudSyncService.instance
+            .recoverCloudPairingAfterServerIdentityChange(computer),
+        isFalse,
+      );
+      expect(computer.serverCert, 'OLD-FINGERPRINT');
+      expect(computer.pairState, PairState.paired);
+      expect(pairingAttempted, isFalse);
+    });
+
+    test(
       'pullConfigFromSupabase keeps local-only computers out of cloud profiles',
       () async {
         // 1. Sign in the mock Supabase user

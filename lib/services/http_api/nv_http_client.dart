@@ -1,3 +1,4 @@
+import 'dart:io' show HandshakeException;
 import 'dart:math';
 import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:http/http.dart' as http;
@@ -9,10 +10,30 @@ import '../crypto/client_identity.dart';
 import '../discovery/mdns_hostname_resolver.dart';
 import 'game_art_file_service.dart';
 
+enum AppListFailure {
+  none,
+  serverRejectedClientCertificate,
+  serverIdentityRejected,
+  network,
+}
+
 class NvHttpClient {
   final Logger _log = Logger();
-  final http.Client _httpClient = http.Client();
+  final http.Client _httpClient;
   final MdnsHostnameResolver _mdnsResolver = MdnsHostnameResolver();
+  final http.Client Function(String? expectedServerCert) _httpsClientFactory;
+
+  NvHttpClient({
+    http.Client? httpClient,
+    http.Client Function(String? expectedServerCert)? httpsClientFactory,
+  }) : _httpClient = httpClient ?? http.Client(),
+       _httpsClientFactory =
+           httpsClientFactory ??
+           ((expectedServerCert) => IOClient(
+             ClientIdentity.createHttpClient(
+               expectedServerCert: expectedServerCert,
+             ),
+           ));
 
   static const int defaultHttpsPort = 47984;
   static const int defaultHttpPort = 47989;
@@ -20,14 +41,15 @@ class NvHttpClient {
   /// True when the most recent getAppList call returned empty because the
   /// server rejected the client certificate (vs a network failure).
   /// Lets callers trigger cloud-pairing recovery instead of just erroring.
-  bool lastAppListCertRejected = false;
+  AppListFailure lastAppListFailure = AppListFailure.none;
+
+  bool get lastAppListCertRejected =>
+      lastAppListFailure == AppListFailure.serverRejectedClientCertificate;
 
   static String get uniqueId => ClientIdentity.uniqueId;
 
   http.Client _newHttpsClient(String? expectedServerCert) {
-    return IOClient(
-      ClientIdentity.createHttpClient(expectedServerCert: expectedServerCert),
-    );
+    return _httpsClientFactory(expectedServerCert);
   }
 
   String _baseUrl(String address, int port, {bool https = true}) {
@@ -203,7 +225,7 @@ class NvHttpClient {
     int httpsPort = defaultHttpsPort,
     String? expectedServerCert,
   }) async {
-    lastAppListCertRejected = false;
+    lastAppListFailure = AppListFailure.none;
     final resolvedAddress = await _resolveAddress(address);
     try {
       final url =
@@ -229,7 +251,7 @@ class NvHttpClient {
         final xmlStatus = extractXmlValue(response.body, 'status_code');
         if (xmlStatus != null && xmlStatus != '200') {
           _log.w('applist XML status_code=$xmlStatus (not paired or error)');
-          lastAppListCertRejected = true;
+          lastAppListFailure = AppListFailure.serverRejectedClientCertificate;
           return [];
         }
         // on_verify_failed sends the status_code as an XML attribute
@@ -243,10 +265,10 @@ class NvHttpClient {
             'applist XML attr status_code=$attrStatus '
             '(client cert not recognized by server)',
           );
-          lastAppListCertRejected = true;
+          lastAppListFailure = AppListFailure.serverRejectedClientCertificate;
           return [];
         }
-        lastAppListCertRejected = false;
+        lastAppListFailure = AppListFailure.none;
         final serverCert = expectedServerCert?.trim();
         if (serverCert != null && serverCert.isNotEmpty) {
           gameArtFileService.registerPinnedOrigin(
@@ -260,7 +282,13 @@ class NvHttpClient {
       _log.w(
         'applist HTTPS ${response.statusCode} from $resolvedAddress:$httpsPort',
       );
+    } on HandshakeException catch (e) {
+      lastAppListFailure = expectedServerCert?.trim().isNotEmpty ?? false
+          ? AppListFailure.serverIdentityRejected
+          : AppListFailure.network;
+      _log.e('Failed TLS handshake with $resolvedAddress: $e');
     } catch (e) {
+      lastAppListFailure = AppListFailure.network;
       _log.e('Failed to get app list from $resolvedAddress: $e');
     }
     return [];

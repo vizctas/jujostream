@@ -23,6 +23,9 @@ export '../services/http_api/nv_http_client.dart' show LaunchResult;
 export '../services/http_api/vibepollo_cfg_client.dart'
     show PlayniteCategory, PlayniteStatus;
 
+typedef ServerIdentityRecovery =
+    Future<bool> Function(ComputerDetails computer);
+
 @visibleForTesting
 NvApp normalizeHostApp(NvApp app, {required int runningId}) {
   final cleanName = app.appName
@@ -35,13 +38,23 @@ NvApp normalizeHostApp(NvApp app, {required int runningId}) {
 }
 
 class AppListProvider extends ChangeNotifier {
-  final NvHttpClient _httpClient = NvHttpClient();
+  final NvHttpClient _httpClient;
+  final ServerIdentityRecovery _recoverServerIdentity;
   final VibepolloCfgClient _cfgClient = VibepolloCfgClient();
   final RawgClient _rawgClient = RawgClient();
   final SteamVideoClient _steamClient = SteamVideoClient();
   final PluginsProvider _plugins;
 
-  AppListProvider(this._plugins);
+  AppListProvider(
+    this._plugins, {
+    NvHttpClient? httpClient,
+    ServerIdentityRecovery? recoverServerIdentity,
+  }) : _httpClient = httpClient ?? NvHttpClient(),
+       _recoverServerIdentity =
+           recoverServerIdentity ??
+           CloudSyncService
+               .instance
+               .recoverCloudPairingAfterServerIdentityChange;
 
   List<NvApp> _apps = [];
   List<PlayniteCategory> _playniteCategories = const [];
@@ -150,6 +163,27 @@ class AppListProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> _recoverRotatedServerIdentity(ComputerDetails computer) async {
+    final recovered = await _recoverServerIdentity(computer);
+    if (_disposed || _currentComputer?.uuid != computer.uuid) return;
+    if (!recovered) {
+      notifyListeners();
+      return;
+    }
+
+    // The failed load may still be merging its empty metadata result. Wait for
+    // that load to settle so it cannot overwrite the successful retry.
+    while (_isLoading &&
+        !_disposed &&
+        _currentComputer?.uuid == computer.uuid) {
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+    }
+    if (_disposed || _currentComputer?.uuid != computer.uuid) return;
+
+    _error = null;
+    await loadApps(computer);
+  }
+
   Future<void> loadApps(ComputerDetails computer, {bool silent = false}) async {
     if (silent && _silentRefreshInProgress) return;
     final isNewServer = _currentComputer?.uuid != computer.uuid;
@@ -231,8 +265,16 @@ class AppListProvider extends ChangeNotifier {
           .map((app) => normalizeHostApp(app, runningId: runningId))
           .toList(growable: false);
 
-      // always merge — never discard previously discovered apps
-      // (some servers return only the running app during active sessions)
+      // A normal /applist response is authoritative. Keep historical entries
+      // only for the known busy-session response containing the running app.
+      final isBusySessionList =
+          freshApps.length == 1 &&
+          (runningId > 0 || freshApps.single.isRunning);
+      if (freshApps.isNotEmpty && !isBusySessionList) {
+        final freshIds = freshApps.map((app) => app.appId).toSet();
+        _fullAppCache.removeWhere((appId, _) => !freshIds.contains(appId));
+      }
+
       for (final app in freshApps) {
         final previous = _fullAppCache[app.appId];
         _fullAppCache[app.appId] = previous == null
@@ -256,7 +298,9 @@ class AppListProvider extends ChangeNotifier {
       // persist so a crash/restart doesn't lose the full list
       unawaited(_persistAppCache(computer.uuid));
       final useCache =
-          _fullAppCache.length > freshApps.length && _fullAppCache.isNotEmpty;
+          isBusySessionList &&
+          _fullAppCache.length > freshApps.length &&
+          _fullAppCache.isNotEmpty;
 
       if (useCache) {
         int effectiveRunningId = runningId;
@@ -309,11 +353,21 @@ class AppListProvider extends ChangeNotifier {
           _silentRefreshInProgress = false;
           return;
         }
-        _error = 'No apps returned — server may not be paired or HTTPS failed.';
-        if (!silent &&
+        if (_httpClient.lastAppListFailure ==
+            AppListFailure.serverIdentityRejected) {
+          _error =
+              'Server identity changed. Sign in to JUJO.Cloud to verify it, '
+              'or pair this device again locally.';
+          if (!silent && !_cloudRepairAttempted) {
+            _cloudRepairAttempted = true;
+            unawaited(_recoverRotatedServerIdentity(computer));
+          }
+        } else if (!silent &&
             _httpClient.lastAppListCertRejected &&
             computer.isCloud &&
             !_cloudRepairAttempted) {
+          _error =
+              'Server rejected this device. Restoring secure Cloud pairing…';
           // Server rejected our cert but this server is cloud-registered:
           // the cert never landed in the server's registry (e.g. the
           // cloud-pair POST failed earlier). Re-run cloud pairing for this
@@ -326,14 +380,18 @@ class AppListProvider extends ChangeNotifier {
               }
             }),
           );
-        } else if (isNewServer && !silent) {
-          // Sunshine/Apollo can take a few seconds to persist the pairing
-          // before /applist returns apps. Retry once after a short delay.
-          Future.delayed(const Duration(seconds: 2), () {
-            if (!_disposed && _apps.isEmpty && _currentComputer != null) {
-              loadApps(_currentComputer!);
-            }
-          });
+        } else {
+          _error =
+              'No apps returned — server may not be paired or HTTPS failed.';
+          if (isNewServer && !silent) {
+            // Sunshine/Apollo can take a few seconds to persist the pairing
+            // before /applist returns apps. Retry once after a short delay.
+            Future.delayed(const Duration(seconds: 2), () {
+              if (!_disposed && _apps.isEmpty && _currentComputer != null) {
+                loadApps(_currentComputer!);
+              }
+            });
+          }
         }
       } else {
         _error = null;

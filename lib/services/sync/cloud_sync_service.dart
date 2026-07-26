@@ -579,6 +579,13 @@ class CloudSyncService {
   }
 
   bool _doesMatch(ComputerDetails local, Map<String, dynamic> cloud) {
+    final cloudUuid = cloud['server_uuid']?.toString().trim() ?? '';
+    if (cloudUuid.isNotEmpty &&
+        local.uuid.isNotEmpty &&
+        local.uuid == cloudUuid) {
+      return true;
+    }
+
     final String? cloudCert = cloud['cert_fingerprint'];
     if (cloudCert != null &&
         cloudCert.isNotEmpty &&
@@ -650,7 +657,7 @@ class CloudSyncService {
     }
   }
 
-  Future<void> _attemptCloudPairing(
+  Future<bool> _attemptCloudPairing(
     String serverUrl,
     String token,
     ComputerDetails computer,
@@ -659,13 +666,13 @@ class CloudSyncService {
       final clientPem = ClientIdentity.certPem;
       if (clientPem.isEmpty) {
         _log.w('Cloud pairing: certPem empty, skipping $serverUrl');
-        return;
+        return false;
       }
       if (computer.serverCert.isEmpty) {
         _log.w(
           'Cloud pairing: server certificate missing, skipping $serverUrl',
         );
-        return;
+        return false;
       }
 
       final deviceName = Platform.localHostname;
@@ -715,35 +722,15 @@ class CloudSyncService {
                         ? computer.uuid
                         : computer.localAddress] =
                     DateTime.now();
-                // Re-persist all computers with updated state.
-                final prefs = await SharedPreferences.getInstance();
-                final saved = prefs.getStringList(_kSavedComputers) ?? [];
-                final updatedList = <String>[];
-                for (final entry in saved) {
-                  try {
-                    final map = jsonDecode(entry) as Map<String, dynamic>;
-                    final c = ComputerDetails.fromJson(map);
-                    if ((computer.uuid.isNotEmpty && c.uuid == computer.uuid) ||
-                        (c.localAddress.isNotEmpty &&
-                            c.localAddress == computer.localAddress)) {
-                      c.pairState = PairState.paired;
-                      updatedList.add(jsonEncode(c.toJson()));
-                    } else {
-                      updatedList.add(entry);
-                    }
-                  } catch (_) {
-                    updatedList.add(entry);
-                  }
-                }
-                await prefs.setStringList(_kSavedComputers, updatedList);
+                await _persistComputerSecurityState(computer);
                 // Fire sync-completed so ComputerProvider reloads.
                 _syncCompletedController.add(null);
-                return;
+                return true;
               } else {
                 _log.w(
                   'Cloud pairing rejected by $serverUrl: ${resBody["error"]}',
                 );
-                return; // business rejection — don't retry
+                return false;
               }
             } else {
               _log.w(
@@ -766,6 +753,99 @@ class CloudSyncService {
       }
     } catch (e) {
       _log.w('Cloud pairing failed for $serverUrl: $e');
+    }
+    return false;
+  }
+
+  Future<void> _persistComputerSecurityState(ComputerDetails computer) async {
+    final prefs = await SharedPreferences.getInstance();
+    final saved = prefs.getStringList(_kSavedComputers) ?? const [];
+    final updated = <String>[];
+    for (final entry in saved) {
+      try {
+        final stored = ComputerDetails.fromJson(
+          jsonDecode(entry) as Map<String, dynamic>,
+        );
+        final matches =
+            (computer.uuid.isNotEmpty && stored.uuid == computer.uuid) ||
+            (computer.localAddress.isNotEmpty &&
+                stored.localAddress == computer.localAddress);
+        if (matches) {
+          stored.serverCert = computer.serverCert;
+          stored.isCloud = computer.isCloud;
+          stored.configHttpsPort = computer.configHttpsPort;
+          stored.pairState = computer.pairState;
+          updated.add(jsonEncode(stored.toJson()));
+        } else {
+          updated.add(entry);
+        }
+      } catch (_) {
+        updated.add(entry);
+      }
+    }
+    await prefs.setStringList(_kSavedComputers, updated);
+  }
+
+  /// Recovers from a rotated server certificate without weakening TLS.
+  ///
+  /// The replacement pin is accepted only from the authenticated user's
+  /// server profile. The client certificate is then registered again through
+  /// the newly pinned configuration endpoint.
+  Future<bool> recoverCloudPairingAfterServerIdentityChange(
+    ComputerDetails computer,
+  ) async {
+    final session = Supabase.instance.client.auth.currentSession;
+    final userId = session?.user.id;
+    if (session == null || userId == null) return false;
+
+    try {
+      final response = await Supabase.instance.client
+          .from('user_server_profiles')
+          .select()
+          .eq('user_id', userId);
+      final profiles = response as List<dynamic>;
+
+      Map<String, dynamic>? profile;
+      for (final row in profiles) {
+        final candidate = (row as Map).cast<String, dynamic>();
+        final fingerprint =
+            candidate['cert_fingerprint']?.toString().trim() ?? '';
+        if (fingerprint.isNotEmpty && _doesMatch(computer, candidate)) {
+          profile = candidate;
+          break;
+        }
+      }
+      if (profile == null) return false;
+
+      final fingerprint = profile['cert_fingerprint']?.toString().trim() ?? '';
+      if (fingerprint.isEmpty) return false;
+
+      computer.serverCert = fingerprint;
+      computer.isCloud = true;
+      computer.pairState = PairState.notPaired;
+      computer.pairStatusFromHttps = false;
+      final serverUrl = profile['server_url']?.toString() ?? '';
+      final configPort = _getPortFromUrl(serverUrl);
+      if (configPort > 0) computer.configHttpsPort = configPort;
+      await _persistComputerSecurityState(computer);
+
+      final host = computer.activeAddress.isNotEmpty
+          ? computer.activeAddress
+          : computer.manualAddress.isNotEmpty
+          ? computer.manualAddress
+          : computer.localAddress;
+      if (host.isEmpty) return false;
+
+      final graceKey = computer.uuid.isNotEmpty ? computer.uuid : host;
+      _cloudPairingGraceTimestamps[graceKey] = DateTime.now();
+      return _attemptCloudPairing(
+        'https://$host:${_configPort(computer)}',
+        session.accessToken,
+        computer,
+      );
+    } catch (e) {
+      _log.w('Cloud identity recovery failed: $e');
+      return false;
     }
   }
 
