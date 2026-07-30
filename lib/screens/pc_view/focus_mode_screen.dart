@@ -536,11 +536,25 @@ class _FocusModeScreenState extends State<FocusModeScreen>
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: Row(
         children: [
-          // The action cluster is ~208px of fixed width. Below roughly 250px of
-          // usable width the Spacer collapses and the brand title used to
-          // overflow; letting it shrink keeps the bar intact on a narrow phone.
-          const Flexible(child: JujoBrandTitle()),
-          const Spacer(),
+          // One flex child, not two. A `Flexible` title beside a `Spacer` splits
+          // the free space between them: the loose Flexible claims half and
+          // uses only what the title needs, so the leftover sat as dead space
+          // and the actions never reached the right edge — obvious in
+          // landscape, where there is the most free space to waste.
+          //
+          // Expanded takes all of it, keeping the title left and the actions
+          // hard right, while FittedBox scales the title down instead of
+          // overflowing once the ~208px action cluster crowds it.
+          const Expanded(
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: JujoBrandTitle(),
+              ),
+            ),
+          ),
           FocusableIconButton(
             focusNode: _appBarFocusNodes[0],
             icon: Icons.more_vert,
