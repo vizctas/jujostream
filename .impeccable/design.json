@@ -1,0 +1,208 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-07-28T00:00:00.000Z",
+  "title": "Design System: JUJO Stream",
+  "extensions": {
+    "colorMeta": {
+      "void": {
+        "role": "neutral",
+        "displayName": "Void",
+        "canonical": "oklch(16.6% 0.043 288)",
+        "tonalRamp": ["#07070F", "#0E0E1C", "#16192E", "#1C1D38", "#2A2B4E", "#3F4070", "#6668A0", "#A8A9CE"]
+      },
+      "panel": {
+        "role": "neutral",
+        "displayName": "Panel",
+        "canonical": "oklch(21.9% 0.049 285)",
+        "tonalRamp": ["#0A0B15", "#101223", "#16192E", "#1F2340", "#2E3358", "#454B7C", "#6E74A6", "#ADB1D0"]
+      },
+      "panel-raised": {
+        "role": "neutral",
+        "displayName": "Panel Raised",
+        "canonical": "oklch(24.1% 0.058 288)",
+        "tonalRamp": ["#0C0C18", "#131427", "#1C1D38", "#26284A", "#373A68", "#4F5389", "#787CB0", "#B4B7D6"]
+      },
+      "arcade-violet": {
+        "role": "primary",
+        "displayName": "Arcade Violet",
+        "canonical": "oklch(46.2% 0.243 293)",
+        "tonalRamp": ["#1A0C38", "#2A1359", "#3D1D80", "#5229B3", "#6C3CE1", "#8A63EA", "#A98FF1", "#CFC0F8"]
+      },
+      "arcade-violet-lit": {
+        "role": "primary",
+        "displayName": "Arcade Violet Lit",
+        "canonical": "oklch(62.7% 0.196 293)",
+        "tonalRamp": ["#241245", "#391D6E", "#502A9B", "#6B3CC9", "#8757EC", "#9B71F5", "#B99BF9", "#DCCEFC"]
+      },
+      "signal-cyan": {
+        "role": "secondary",
+        "displayName": "Signal Cyan",
+        "canonical": "oklch(83.5% 0.144 199)",
+        "tonalRamp": ["#00272B", "#003D45", "#005866", "#00768A", "#0097B0", "#00BAD7", "#00E5FF", "#94F3FF"]
+      },
+      "signal-cyan-deep": {
+        "role": "secondary",
+        "displayName": "Signal Cyan Deep",
+        "canonical": "oklch(70.1% 0.124 210)",
+        "tonalRamp": ["#00212B", "#003444", "#004B60", "#00657F", "#0091B4", "#00B8D4", "#3FD5EC", "#9DE9F6"]
+      },
+      "deep-indigo": {
+        "role": "tertiary",
+        "displayName": "Deep Indigo",
+        "canonical": "oklch(33.5% 0.089 258)",
+        "tonalRamp": ["#0A1424", "#101F38", "#152C50", "#1B3A6B", "#274F8D", "#3A6BB4", "#6591D2", "#A6C0E8"]
+      },
+      "muted-plum": {
+        "role": "tertiary",
+        "displayName": "Muted Plum",
+        "canonical": "oklch(28.7% 0.107 285)",
+        "tonalRamp": ["#12102A", "#1D1940", "#2D2864", "#3D3688", "#5049AC", "#6C66C6", "#948FDA", "#C4C1ED"]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Ink",
+        "canonical": "#FFFFFF",
+        "tonalRamp": ["#2B2B33", "#43434D", "#5C5C68", "#767683", "#92929E", "#B0B0B9", "#D3D3D9", "#FFFFFF"]
+      },
+      "ink-subtle": {
+        "role": "neutral",
+        "displayName": "Ink Subtle",
+        "canonical": "rgba(255,255,255,0.54)",
+        "tonalRamp": ["#232330", "#33333F", "#45454F", "#5A5A63", "#727279", "#8D8D93", "#ACACB0", "#D0D0D2"]
+      },
+      "ink-faint": {
+        "role": "neutral",
+        "displayName": "Ink Faint",
+        "canonical": "rgba(255,255,255,0.38)",
+        "tonalRamp": ["#1A1A26", "#26262F", "#34343C", "#45454C", "#59595F", "#707076", "#8B8B90", "#AAAAAE"]
+      },
+      "ink-divider": {
+        "role": "neutral",
+        "displayName": "Ink Divider",
+        "canonical": "rgba(255,255,255,0.24)",
+        "tonalRamp": ["#131320", "#1C1C28", "#262631", "#33333C", "#434349", "#565659", "#6C6C6E", "#858587"]
+      },
+      "ink-overlay": {
+        "role": "neutral",
+        "displayName": "Ink Overlay",
+        "canonical": "rgba(255,255,255,0.12)",
+        "tonalRamp": ["#0F0F1B", "#171722", "#20202A", "#2B2B33", "#38383E", "#48484C", "#5B5B5E", "#727274"]
+      }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display", "purpose": "Screen titles and hero counters. The ceiling at 28px; nothing in this app needs to be larger." },
+      "headline": { "displayName": "Headline", "purpose": "Section headings and dialog titles." },
+      "title": { "displayName": "Title", "purpose": "Game names, server names, list-row primaries, button labels." },
+      "body": { "displayName": "Body", "purpose": "Descriptions and prose. The most-used size in the app. Cap at 65-75ch." },
+      "label": { "displayName": "Label", "purpose": "Metadata, status text, chip labels, badges. Never below 11px for readable text." }
+    },
+    "shadows": [
+      { "name": "focus-lift", "value": "0 8px 24px rgba(0,0,0,0.35), 0 0 18px 3px rgba(108,60,225,0.35)", "purpose": "The gamepad-focused card, tile, or row. The only place a shadow carries meaning. Never on hover alone." },
+      { "name": "overlay-separation", "value": "0 4px 12px rgba(0,0,0,0.30)", "purpose": "Dialogs, sheets, and the now-playing banner: surfaces floating above the whole app rather than within a layout." }
+    ],
+    "motion": [
+      { "name": "micro", "value": "140ms cubic-bezier(0.215, 0.61, 0.355, 1)", "purpose": "Hover, press, and small state flips. MotionPolicy.microDuration; collapses to 0ms under reduced motion." },
+      { "name": "focus", "value": "160ms cubic-bezier(0.215, 0.61, 0.355, 1)", "purpose": "Focus travel between tiles. MotionPolicy.focusDuration; collapses to 0ms under reduced motion." },
+      { "name": "dialog", "value": "220ms cubic-bezier(0.215, 0.61, 0.355, 1)", "purpose": "Dialog and sheet entrance. MotionPolicy.dialogDuration; drops to 100ms under reduced motion, never to 0." },
+      { "name": "route", "value": "260ms cubic-bezier(0.645, 0.045, 0.355, 1)", "purpose": "Screen transitions. MotionPolicy.routeDuration; drops to 120ms under reduced motion." },
+      { "name": "background", "value": "300ms cubic-bezier(0.215, 0.61, 0.355, 1)", "purpose": "Wallpaper and backdrop crossfades. MotionPolicy.backgroundDuration; drops to 100ms under reduced motion." }
+    ],
+    "breakpoints": [
+      { "name": "handheld", "value": "600px" },
+      { "name": "tablet", "value": "900px" },
+      { "name": "tv", "value": "1280px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The single primary action on a screen. Arcade Violet fill, rationed like the accent it uses.",
+      "html": "<button class=\"ds-btn-primary\">Enter</button>",
+      "css": ".ds-btn-primary { background: #6C3CE1; color: #FFFFFF; font: 700 17px/1.3 Roboto, system-ui, sans-serif; padding: 10px 16px; border: none; border-radius: 10px; cursor: pointer; transition: background 140ms cubic-bezier(0.215,0.61,0.355,1); } .ds-btn-primary:hover { background: #7B4EE5; } .ds-btn-primary:active { background: #9B71F5; } .ds-btn-primary:focus-visible { outline: none; box-shadow: 0 8px 24px rgba(0,0,0,0.35), 0 0 18px 3px rgba(108,60,225,0.35); }"
+    },
+    {
+      "name": "Text Button",
+      "kind": "button",
+      "refersTo": "button-text",
+      "description": "Secondary actions. No fill; the lit violet label carries it.",
+      "html": "<button class=\"ds-btn-text\">Not now</button>",
+      "css": ".ds-btn-text { background: transparent; color: #9B71F5; font: 700 17px/1.3 Roboto, system-ui, sans-serif; padding: 8px 12px; border: none; border-radius: 10px; cursor: pointer; transition: background 140ms cubic-bezier(0.215,0.61,0.355,1); } .ds-btn-text:hover { background: rgba(108,60,225,0.08); } .ds-btn-text:focus-visible { outline: 2px solid #9B71F5; outline-offset: 2px; }"
+    },
+    {
+      "name": "Server Card",
+      "kind": "card",
+      "refersTo": "card-surface",
+      "description": "The signature component. Flat at rest; focus adds the tonal step, the accent border and the glow, all three.",
+      "html": "<article class=\"ds-card-server\" tabindex=\"0\"><header class=\"ds-card-server__top\"><span class=\"ds-badge-cloud\"><svg width=\"12\" height=\"12\" viewBox=\"0 0 24 24\" fill=\"currentColor\"><path d=\"M19.35 10.04A7.49 7.49 0 0 0 12 4a7.48 7.48 0 0 0-6.63 4.04A6 6 0 0 0 6 20h13a5 5 0 0 0 .35-9.96z\"/></svg>CLOUD</span></header><h3 class=\"ds-card-server__name\">Living Room PC</h3><p class=\"ds-card-server__addr\">192.168.1.42</p><footer class=\"ds-card-server__foot\"><span class=\"ds-status\"><i class=\"ds-status__dot\"></i>Connected</span><span class=\"ds-card-server__action\">Enter</span></footer></article>",
+      "css": ".ds-card-server { display: flex; flex-direction: column; gap: 8px; width: 260px; background: #16192E; color: #FFFFFF; padding: 16px; border: 2px solid transparent; border-radius: 14px; transition: background 140ms cubic-bezier(0.215,0.61,0.355,1), border-color 160ms cubic-bezier(0.215,0.61,0.355,1), box-shadow 160ms cubic-bezier(0.215,0.61,0.355,1); } .ds-card-server:focus-visible, .ds-card-server:hover { outline: none; background: #1C1D38; border-color: #6C3CE1; box-shadow: 0 8px 24px rgba(0,0,0,0.35), 0 0 18px 3px rgba(108,60,225,0.35); } .ds-card-server__top { display: flex; justify-content: flex-end; } .ds-badge-cloud { display: inline-flex; align-items: center; gap: 4px; color: #58A6FF; background: rgba(88,166,255,0.15); border: 1px solid rgba(88,166,255,0.30); border-radius: 4px; padding: 2px 6px; font: 700 9px/1.2 Roboto, system-ui, sans-serif; letter-spacing: 0.5px; } .ds-card-server__name { margin: 0; font: 700 17px/1.3 Roboto, system-ui, sans-serif; } .ds-card-server__addr { margin: 0; color: rgba(255,255,255,0.54); font: 400 13px/1.45 Roboto, system-ui, sans-serif; } .ds-card-server__foot { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.24); } .ds-status { display: inline-flex; align-items: center; gap: 6px; color: rgba(255,255,255,0.54); font: 600 11px/1.2 Roboto, system-ui, sans-serif; } .ds-status__dot { width: 8px; height: 8px; border-radius: 999px; background: #00E5FF; } .ds-card-server__action { color: #9B71F5; font: 700 13px/1.2 Roboto, system-ui, sans-serif; }"
+    },
+    {
+      "name": "Filter Chip",
+      "kind": "chip",
+      "refersTo": "chip-filter",
+      "description": "Library filters. Transparent and borderless until selected, when it takes a 20% accent wash.",
+      "html": "<div class=\"ds-chip-row\"><button class=\"ds-chip\">All</button><button class=\"ds-chip ds-chip--selected\">Installed</button><button class=\"ds-chip\">Favorites</button></div>",
+      "css": ".ds-chip-row { display: flex; gap: 8px; } .ds-chip { background: transparent; color: #FFFFFF; font: 600 11px/1.2 Roboto, system-ui, sans-serif; padding: 6px 12px; border: none; border-radius: 999px; cursor: pointer; transition: background 140ms cubic-bezier(0.215,0.61,0.355,1); } .ds-chip:hover { background: rgba(255,255,255,0.08); } .ds-chip--selected { background: rgba(108,60,225,0.20); } .ds-chip:focus-visible { outline: 2px solid #9B71F5; outline-offset: 2px; }"
+    },
+    {
+      "name": "Underline Input",
+      "kind": "input",
+      "refersTo": "input-field",
+      "description": "Underline only. No fill, no box: the rule is the whole control.",
+      "html": "<label class=\"ds-field\"><span class=\"ds-field__label\">Server address</span><input class=\"ds-field__input\" type=\"text\" placeholder=\"192.168.1.42\" /></label>",
+      "css": ".ds-field { display: flex; flex-direction: column; gap: 4px; width: 260px; } .ds-field__label { color: rgba(255,255,255,0.54); font: 600 11px/1.2 Roboto, system-ui, sans-serif; } .ds-field__input { background: transparent; color: #FFFFFF; font: 400 13px/1.45 Roboto, system-ui, sans-serif; padding: 8px 0; border: none; border-bottom: 1px solid rgba(255,255,255,0.24); border-radius: 4px 4px 0 0; transition: border-color 140ms cubic-bezier(0.215,0.61,0.355,1); } .ds-field__input::placeholder { color: rgba(255,255,255,0.54); } .ds-field__input:focus { outline: none; border-bottom-color: #9B71F5; }"
+    },
+    {
+      "name": "Launcher Nav Item",
+      "kind": "nav",
+      "refersTo": "card-surface",
+      "description": "Side-menu row shared by the launcher skins that declare hasSideMenu. Selected takes the accent; the rest sit at Ink Subtle.",
+      "html": "<nav class=\"ds-nav\"><a class=\"ds-nav__item ds-nav__item--active\" href=\"#\">Library</a><a class=\"ds-nav__item\" href=\"#\">Collections</a><a class=\"ds-nav__item\" href=\"#\">Settings</a></nav>",
+      "css": ".ds-nav { display: flex; flex-direction: column; gap: 4px; width: 200px; background: #16192E; padding: 12px; border-radius: 14px; } .ds-nav__item { color: rgba(255,255,255,0.54); font: 700 13px/1.2 Roboto, system-ui, sans-serif; text-decoration: none; padding: 10px 12px; border-radius: 10px; transition: background 140ms cubic-bezier(0.215,0.61,0.355,1), color 140ms cubic-bezier(0.215,0.61,0.355,1); } .ds-nav__item:hover { background: rgba(255,255,255,0.08); color: #FFFFFF; } .ds-nav__item--active { background: rgba(108,60,225,0.20); color: #FFFFFF; } .ds-nav__item:focus-visible { outline: 2px solid #6C3CE1; outline-offset: -2px; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Dark Room",
+    "overview": "The interface is the darkened room; the game artwork is the screen. Every surface in the chrome is a near-black or a low-chroma panel whose only job is to stop competing with the cover art it frames. When a poster loads, it should be the brightest, most saturated thing on the display by a wide margin. This is why all eleven shipped palettes are dark, why the accent is rationed, and why elevation is carried by tonal steps instead of shadow: light in this system belongs to the content, not to the container.\n\nDensity is deliberately low for a product-register UI. The primary reading distance is a couch, a TV, or a handheld, not a desk, so the type scale runs small on labels but the touch and focus targets run large, and the focused element is unmistakable from three metres away. Navigation assumes a gamepad first: focus is a first-class visual state, not a keyboard-accessibility afterthought, and every list has a defensible traversal order.\n\nThe system explicitly rejects the four things PRODUCT.md names: pixelated portrait covers stretched into landscape, a detached poster floating over a blurred duplicate of itself, decorative effects that sit on top of the artwork, and dense administration UI leaking into the play flow. Configuration surfaces exist, but they live behind their own door and never borrow the launcher's cinematic language to look important.",
+    "keyCharacteristics": [
+      "Dark by default across all eleven palettes; there is no light theme in practice.",
+      "Accent is rationed to action, selection, and state. Never decoration.",
+      "Depth comes from three tonal steps, not from shadow.",
+      "Focus is the loudest state in the system, because a gamepad has no cursor.",
+      "Motion is 140-300 ms, state-carrying, and fully removable via one setting."
+    ],
+    "rules": [
+      { "name": "The Artwork Wins Rule", "body": "Chrome never out-saturates the content it frames. If a screen's most vivid element is a button, a gradient, or a glow rather than the game's own artwork, the screen is wrong. Scrims over artwork are for legibility and are the minimum opacity that achieves 4.5:1 on the text above them — never a mood filter.", "section": "colors" },
+      { "name": "The Rationed Accent Rule", "body": "Arcade Violet covers <=10% of any screen. Primary action, current selection, and state indicators. It is not a border colour, not a heading colour, not a decorative divider.", "section": "colors" },
+      { "name": "The 4.5 Floor Rule", "body": "white38 (Ink Faint) is forbidden for body copy, placeholders, form labels, and empty-state text: it measures 3.6:1 on Void and fails WCAG AA. white54 is the floor for readable text. This is the single most likely regression in this codebase — it appears 44 times as fontSize: 10 companion text, which is exactly the combination that fails.", "section": "colors" },
+      { "name": "The Eleven Themes Rule", "body": "Every colour reaches the widget through ThemeProvider (tp.accent, tp.surface, tp.background, ...). A literal Color(0xFF...) in a screen or widget is a bug in ten of the eleven themes, and the reviewer's job is to catch it before it ships.", "section": "colors" },
+      { "name": "The Fixed Scale Rule", "body": "Sizes are fixed px, never clamp() or viewport-relative. Users sit at a consistent distance from a consistent panel; fluid type solves a problem this product does not have and makes a sidebar label shrink for no reason.", "section": "typography" },
+      { "name": "The 10px Ceiling Rule", "body": "fontSize: 10 and below is for badge glyphs and numeric chips only. Any sentence a user is expected to read starts at 11px, and at 11px it must be white54 or brighter. Small and faint is the failure mode; pick at most one.", "section": "typography" },
+      { "name": "The Flat-At-Rest Rule", "body": "If a card has a shadow while nothing is focused, delete the shadow and move it one tonal step instead. A 2014 app is one where every card is lifted; if the screen looks like a pile of business cards, the elevation is doing the layout's job.", "section": "elevation" },
+      { "name": "The Focus Is Loud Rule", "body": "The focused element must be identifiable from across a room in under half a second: tonal step plus accent border plus glow, all three. Focus is not a subtle 1px outline in this product.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do pull every colour from ThemeProvider, so a screen survives all eleven palettes.",
+      "Do keep readable text at white54 (6.0:1) or brighter on Void, and reserve white38 for large or disabled text.",
+      "Do carry depth with the three tonal steps — Void, Panel, Panel Raised — before reaching for a shadow.",
+      "Do make focus the loudest state on screen: tonal step, accent border, and glow together. A gamepad user has no cursor to fall back on.",
+      "Do route every animation through MotionPolicy, which already collapses durations to zero under reduceEffects or the OS's own reduced-motion flag.",
+      "Do let a game's own artwork be the most saturated thing on any screen it appears on.",
+      "Do give every one of the server card's six states a distinct read."
+    ],
+    "donts": [
+      "Don't enlarge a pixelated portrait cover into landscape artwork. Degrade to the poster or to a typographic fallback instead — PRODUCT.md names this first among anti-references.",
+      "Don't float a detached poster over a heavily blurred duplicate of itself. It is the launcher cliché this product exists to avoid.",
+      "Don't add decorative effects over a selected game's artwork. Scrims exist for contrast, at the minimum opacity that achieves it, and for nothing else.",
+      "Don't let dense administration UI or unfamiliar controls into the play flow. Configuration has its own screens.",
+      "Don't use Arcade Violet as a border, heading, or divider colour. It marks action, selection, and state; past ~10% of a screen it stops meaning anything.",
+      "Don't use Signal Cyan for anything that isn't live or connected. It is a temporal signal, not a second brand colour.",
+      "Don't ship a shadow on a resting card. If it needs separation, it needs a tonal step.",
+      "Don't write a literal Color(0xFF...) in a screen or widget.",
+      "Don't pair fontSize: 10 with white38. Small and faint together is unreadable at couch distance, and it is already the most common contrast failure in this codebase.",
+      "Don't introduce a second type family, a display font in a UI label, or a clamp() size. One family, five weights, fixed px."
+    ]
+  }
+}

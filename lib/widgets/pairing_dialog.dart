@@ -450,7 +450,7 @@ class _PairingDialogState extends State<PairingDialog> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Enter this PIN in Sunshine/Apollo to authorize JUJO:',
+              'Enter this PIN in Jujo.Stream Admin to authorize JUJO:',
               style: TextStyle(
                 color: isLight ? Colors.black54 : Colors.white70,
               ),

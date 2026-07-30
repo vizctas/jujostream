@@ -59,7 +59,8 @@ class CrashService {
     try {
       final ts = DateTime.now().toIso8601String();
       final content = '[$type] $ts\n$error\n\n${stack ?? ''}\n';
-      _logFile!.writeAsStringSync(content, mode: FileMode.writeOnly, flush: true);
+      // Append: writeOnly truncates, so only the most recent crash survived.
+      _logFile!.writeAsStringSync(content, mode: FileMode.append, flush: true);
     } catch (_) {}
   }
 }

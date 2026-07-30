@@ -212,7 +212,11 @@ class AppThemes {
       AppThemeId.forest => 'Forest',
       AppThemeId.sunset => 'Sunset',
       AppThemeId.ember => 'Ember',
-      AppThemeId.light => 'Light',
+      // Not a light theme, and cannot become one: 905 hardcoded `Colors.white*`
+      // values live across 44 files and only 8 of them consult `isLight`, so
+      // flipping this palette to a light one renders most of the app white on
+      // white. It is a lighter slate, and the label now says so.
+      AppThemeId.light => 'Slate',
     };
   }
 

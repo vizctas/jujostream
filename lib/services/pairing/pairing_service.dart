@@ -74,9 +74,12 @@ class PairingService {
     // Phase 1 blocks until the user enters the PIN. Phases 2-5 execute
     // immediately after in the same thread. Dart only polls for the result.
     final bool useNativeFullPairing = !kIsWeb && Platform.isAndroid;
-    final endpoint = useNativeFullPairing
-        ? _primaryPairingEndpoint(computer)
-        : await _resolvePairingEndpoint(computer, uniqueId);
+    // Probe on Android too. Taking the first candidate unprobed made pairing
+    // fail outright whenever activeAddress was stale, on a server that was
+    // reachable at one of its other addresses all along.
+    final endpoint =
+        await _resolvePairingEndpoint(computer, uniqueId) ??
+        (useNativeFullPairing ? _primaryPairingEndpoint(computer) : null);
 
     if (endpoint == null) {
       return PairingResult.failed(
@@ -805,7 +808,7 @@ class PairingService {
           if (serverExplicitlyRejected) {
             return PairingResult.failed(
               'Server rejected pairing after handshake. '
-              'Please check Sunshine/Apollo logs and try again.',
+              'Please check the server logs and try again.',
             );
           }
         }

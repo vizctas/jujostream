@@ -69,6 +69,11 @@ class AppListProvider extends ChangeNotifier {
   bool _enrichedOnce = false;
   bool _silentRefreshInProgress = false;
   bool _cloudRepairAttempted = false;
+
+  /// True when the last failed load was the server refusing this device's
+  /// certificate, rather than a network problem. Drives the "Re-pair" action —
+  /// "Retry" alone can never fix this.
+  bool lastFailureWasCertRejected = false;
   bool _forceRawgRefreshPending = false;
 
   final Map<int, NvApp> _fullAppCache = {};
@@ -353,6 +358,11 @@ class AppListProvider extends ChangeNotifier {
           _silentRefreshInProgress = false;
           return;
         }
+        lastFailureWasCertRejected =
+            _httpClient.lastAppListFailure ==
+                AppListFailure.serverIdentityRejected ||
+            _httpClient.lastAppListCertRejected;
+
         if (_httpClient.lastAppListFailure ==
             AppListFailure.serverIdentityRejected) {
           _error =
@@ -395,6 +405,7 @@ class AppListProvider extends ChangeNotifier {
         }
       } else {
         _error = null;
+        lastFailureWasCertRejected = false;
       }
 
       if (_cfgUsername == null && computer.uuid.isNotEmpty) {

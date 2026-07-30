@@ -491,7 +491,11 @@ class CloudSyncService {
             name: cloudName ?? host,
             localAddress: localIp,
             manualAddress: isIp ? '' : host,
-            httpsPort: cloudPort,
+            // cloudPort is the confighttp/web-API port from `server_url`, not
+            // the nvhttp HTTPS port. Assigning it to httpsPort sent /applist
+            // and /launch to the wrong port until the first successful poll.
+            // Leave it unset; /serverinfo reports the real one.
+            httpsPort: 0,
             configHttpsPort: cloudPort,
             remoteAddress: externalAddress ?? '',
             serverCert: certFingerprint,
@@ -641,19 +645,26 @@ class CloudSyncService {
     }
   }
 
+  /// Port of the cloud-advertised `server_url`, which is the web API.
+  ///
+  /// The default used to be 47984 (nvhttp HTTPS); a port-less URL therefore
+  /// sent every cloud-pair POST to nvhttp, where it could never succeed.
+  static const _defaultConfigHttpsPort = 47990;
+
   int _getPortFromUrl(String url) {
     try {
       final uri = Uri.parse(url);
-      return uri.hasPort ? uri.port : 47984;
+      return uri.hasPort ? uri.port : _defaultConfigHttpsPort;
     } catch (_) {
       final clean = url
           .replaceFirst('https://', '')
           .replaceFirst('http://', '');
       final colonIdx = clean.indexOf(':');
       if (colonIdx >= 0) {
-        return int.tryParse(clean.substring(colonIdx + 1)) ?? 47984;
+        return int.tryParse(clean.substring(colonIdx + 1)) ??
+            _defaultConfigHttpsPort;
       }
-      return 47984;
+      return _defaultConfigHttpsPort;
     }
   }
 

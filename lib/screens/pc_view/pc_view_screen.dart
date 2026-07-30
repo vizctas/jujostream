@@ -1,13 +1,9 @@
 import 'dart:async';
 import 'dart:io' as io;
 
-import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../l10n/app_localizations.dart';
 import '../../models/computer_details.dart';
 import '../../providers/computer_provider.dart';
@@ -27,14 +23,17 @@ import '../settings/profile_screen.dart';
 import '../settings/settings_screen.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/cloud_mfa_provider.dart';
-import '../../services/auth/supabase_config.dart';
-import '../../ui/computer_connection_status.dart';
 import '../../services/audio/ui_sound_service.dart';
 import '../../services/navigation/async_single_flight.dart';
 import '../../widgets/computer_entry_overlay.dart';
 import '../../widgets/mfa_bypassed_confirmation_dialog.dart';
 import '../../widgets/tour_overlay.dart';
 import 'focus_mode_screen.dart';
+import 'cloud_badge.dart';
+import 'focusable_icon_button.dart';
+import 'server_health_loop.dart';
+import 'server_profile_images.dart';
+import 'server_tile_state.dart';
 import '../auth/cloud_auth_screen.dart';
 import '../../ui/motion_policy.dart';
 
@@ -129,10 +128,8 @@ class _PcViewScreenState extends State<PcViewScreen>
   final _tourMoreKey = GlobalKey(debugLabel: 'tour-more-btn');
   final _tourServerCardKey = GlobalKey(debugLabel: 'tour-server-card');
 
-  static String _bgPrefKey(String uuid) => 'computer_bg_$uuid';
 
-  Timer? _healthTimer;
-  int _healthTick = 0;
+  ServerHealthLoop? _healthLoop;
 
   @override
   void initState() {
@@ -159,99 +156,41 @@ class _PcViewScreenState extends State<PcViewScreen>
   }
 
   Future<void> _loadAllBgPaths() async {
-    final prefs = await SharedPreferences.getInstance();
-    final all = prefs.getKeys();
-    final updated = <String, String>{};
-    for (final key in all) {
-      if (key.startsWith('computer_bg_')) {
-        final val = prefs.getString(key);
-        if (val != null && val.isNotEmpty) {
-          final uuid = key.substring('computer_bg_'.length);
-          updated[uuid] = val;
-        }
-      }
-    }
+    final stored = await ServerProfileImages.loadAll();
     if (!mounted) return;
     setState(
       () => _computerBgPaths
         ..clear()
-        ..addAll(updated),
+        ..addAll(stored),
     );
   }
 
   void _startHealthLoop() {
-    _healthTimer?.cancel();
-    _healthTimer = Timer.periodic(const Duration(seconds: 5), (_) {
-      _runHealthCheck();
-    });
-  }
-
-  void _runHealthCheck() {
-    if (!mounted) return;
-    final provider = context.read<ComputerProvider>();
-    final auth = context.read<AuthProvider>();
-
-    if (provider.activeSessionComputer != null) {
-      _healthTick++;
-      if (_healthTick % 24 != 0) return;
-    } else {
-      _healthTick++;
-    }
-
-    Future.microtask(() async {
-      if (provider.activeSessionComputer == null && _healthTick % 6 == 0) {
-        for (final computer in provider.computers) {
-          unawaited(provider.pollComputer(computer));
-        }
-      }
-
-      if (_healthTick % 12 == 0) {
-        if (auth.isSignedIn) {
-          try {
-            final session = Supabase.instance.client.auth.currentSession;
-            if (session == null || session.isExpired) {
-              if (mounted) {
-                auth.signOutFromCloud();
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Session expired — please sign in again'),
-                  ),
-                );
-              }
-            }
-          } catch (_) {}
-        }
-      }
-    });
+    _healthLoop?.stop();
+    _healthLoop = ServerHealthLoop(
+      context: context,
+      onSessionLost: () {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Session expired — please sign in again'),
+          ),
+        );
+      },
+    )..start();
   }
 
   Future<void> _pickComputerBackground(ComputerDetails computer) async {
-    String? path;
-
-    if (io.Platform.isMacOS) {
-      const imageGroup = XTypeGroup(
-        label: 'Images',
-        extensions: ['jpg', 'jpeg', 'png', 'webp'],
-      );
-      final result = await openFile(acceptedTypeGroups: [imageGroup]);
-      path = result?.path;
-    } else {
-      final picker = ImagePicker();
-      final picked = await picker.pickImage(source: ImageSource.gallery);
-      path = picked?.path;
-    }
-
-    if (path == null || path.isEmpty) return;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_bgPrefKey(computer.uuid), path);
-    if (!mounted) return;
-    final savedPath = path;
+    // Shared with focus mode. This screen's own copy skipped the
+    // persist-to-documents step, so on Windows and macOS the picked image was
+    // stored as a temporary picker path and stopped resolving later.
+    final savedPath = await ServerProfileImages.pick(computer.uuid);
+    if (savedPath == null || !mounted) return;
     setState(() => _computerBgPaths[computer.uuid] = savedPath);
   }
 
   Future<void> _removeComputerBackground(ComputerDetails computer) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_bgPrefKey(computer.uuid));
+    await ServerProfileImages.remove(computer.uuid);
     if (!mounted) return;
     setState(() => _computerBgPaths.remove(computer.uuid));
   }
@@ -346,7 +285,7 @@ class _PcViewScreenState extends State<PcViewScreen>
     // `immersiveSticky` call and make the notification bar reappear.
     // Each destination screen owns its own UI mode.
     PcViewScreen.pendingTour.removeListener(_onPendingTour);
-    _healthTimer?.cancel();
+    _healthLoop?.stop();
     _screenFocusNode.dispose();
     _shakeController?.dispose();
     for (final n in _iconFocusNodes) {
@@ -419,7 +358,7 @@ class _PcViewScreenState extends State<PcViewScreen>
                   Stack(
                     clipBehavior: Clip.none,
                     children: [
-                      _FocusableIconBtn(
+                      FocusableIconButton(
                         key: _tourMoreKey,
                         focusNode: _iconFocusNodes[0],
                         icon: Icons.more_vert,
@@ -431,7 +370,7 @@ class _PcViewScreenState extends State<PcViewScreen>
                       ),
                     ],
                   ),
-                  _FocusableIconBtn(
+                  FocusableIconButton(
                     key: _tourSettingsKey,
                     focusNode: _iconFocusNodes[1],
                     icon: Icons.settings,
@@ -450,7 +389,7 @@ class _PcViewScreenState extends State<PcViewScreen>
                   ),
                   const SizedBox(width: 4),
                   if (!auth.isSignedIn)
-                    _FocusableIconBtn(
+                    FocusableIconButton(
                       focusNode: _iconFocusNodes[2],
                       icon: Icons.cloud_off,
                       tooltip: 'Sign in to Jujo Cloud',
@@ -459,7 +398,7 @@ class _PcViewScreenState extends State<PcViewScreen>
                       onNav: (dir) => _handleIconNav(2, dir, 3),
                     )
                   else ...[
-                    _FocusableIconBtn(
+                    FocusableIconButton(
                       focusNode: _iconFocusNodes[2],
                       icon: auth.isSyncing ? Icons.sync : Icons.cloud_done,
                       tooltip: auth.isSyncing ? 'Syncing...' : 'Sync to cloud',
@@ -470,7 +409,7 @@ class _PcViewScreenState extends State<PcViewScreen>
                       onNav: (dir) => _handleIconNav(2, dir, 4),
                     ),
                     const SizedBox(width: 4),
-                    _FocusableIconBtn(
+                    FocusableIconButton(
                       focusNode: _iconFocusNodes[3],
                       icon: Icons.account_circle,
                       tooltip: 'Account',
@@ -828,12 +767,16 @@ class _PcViewScreenState extends State<PcViewScreen>
                       size: 22,
                     ),
                     const SizedBox(width: 10),
-                    const Text(
-                      'Exit JUJO?',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 18,
-                        fontWeight: FontWeight.w700,
+                    // Flexible so a longer localized title wraps instead of
+                    // overflowing the dialog.
+                    const Flexible(
+                      child: Text(
+                        'Exit JUJO?',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                     ),
                   ],
@@ -905,6 +848,9 @@ class _PcViewScreenState extends State<PcViewScreen>
             child: Text(
               l.searchingServers,
               style: const TextStyle(color: Colors.white60, fontSize: 12),
+              // `overflow` alone does nothing without a line limit: the text
+              // just wraps and grows the banner.
+              maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
           ),
@@ -1002,7 +948,9 @@ class _PcViewScreenState extends State<PcViewScreen>
                   ),
           );
 
-          return cardWrapper;
+          // Each tile carries artwork, a shadow and a focus animation. Without
+          // a boundary, one card animating its focus repaints the whole grid.
+          return RepaintBoundary(child: cardWrapper);
         },
       ),
     );
@@ -1013,7 +961,15 @@ class _PcViewScreenState extends State<PcViewScreen>
   }
 
   Future<void> _performComputerEntry(ComputerDetails computer) async {
-    if (!computer.isReachable) {
+    // `unknown` is the state of every record loaded from disk and of a server
+    // just paired by PIN — it is not evidence the server is down. Probe once
+    // before refusing, and only block on a confirmed `offline`.
+    var state = computer.state;
+    if (state == ComputerState.unknown) {
+      state = await context.read<ComputerProvider>().pollComputer(computer);
+      if (!mounted) return;
+    }
+    if (state == ComputerState.offline) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(AppLocalizations.of(context).serverOffline)),
       );
@@ -1036,9 +992,7 @@ class _PcViewScreenState extends State<PcViewScreen>
         if (!mounted) return;
         if (!ok) {
           final mfa = context.read<CloudMfaProvider>();
-          final hasSession =
-              SupabaseConfig.current.isConfigured &&
-              Supabase.instance.client.auth.currentSession != null;
+          final hasSession = hasCloudSession();
           if (computer.isCloud &&
               hasSession &&
               (mfa.status == CloudMfaStatus.setupRequired ||
@@ -1132,9 +1086,9 @@ class _PcViewScreenState extends State<PcViewScreen>
     ComputerOptionsDialog.show(
       context: context,
       computer: computer,
-      bgPaths: _computerBgPaths,
-      onPickBackground: _pickComputerBackground,
-      onRemoveBackground: _removeComputerBackground,
+      profileImagePaths: _computerBgPaths,
+      onPickProfileImage: _pickComputerBackground,
+      onRemoveProfileImage: _removeComputerBackground,
     );
   }
 
@@ -1173,7 +1127,8 @@ class _PcViewScreenState extends State<PcViewScreen>
                   style: const TextStyle(color: Colors.white),
                   decoration: InputDecoration(
                     hintText: l.ipAddressHint,
-                    hintStyle: const TextStyle(color: Colors.white38),
+                    // Placeholders carry the same 4.5:1 minimum as body text.
+                    hintStyle: const TextStyle(color: Colors.white54),
                     enabledBorder: const UnderlineInputBorder(
                       borderSide: BorderSide(color: Colors.white24),
                     ),
@@ -1194,7 +1149,8 @@ class _PcViewScreenState extends State<PcViewScreen>
                   style: const TextStyle(color: Colors.white),
                   decoration: InputDecoration(
                     hintText: '47989',
-                    hintStyle: const TextStyle(color: Colors.white38),
+                    // Placeholders carry the same 4.5:1 minimum as body text.
+                    hintStyle: const TextStyle(color: Colors.white54),
                     enabledBorder: const UnderlineInputBorder(
                       borderSide: BorderSide(color: Colors.white24),
                     ),
@@ -1286,6 +1242,11 @@ class _PcViewScreenState extends State<PcViewScreen>
   }
 }
 
+/// Decode ceiling for card artwork. A tile is 2-4 columns wide, so this covers
+/// a 4K TV with room to spare while keeping a phone-grid decode ~10x smaller
+/// than a native gallery photo.
+const int _cardImageCacheWidth = 720;
+
 class _ComputerCard extends StatefulWidget {
   final ComputerDetails computer;
   final String? customBgPath;
@@ -1310,61 +1271,51 @@ class _ComputerCardState extends State<_ComputerCard> {
   Widget build(BuildContext context) {
     final tp = context.watch<ThemeProvider>();
     final cloudSignedIn = context.watch<AuthProvider>().isSignedIn;
-    final isOnline = widget.computer.isReachable;
-    final isPaired = widget.computer.isPaired;
     return _buildCard(
       tp: tp,
-      isOnline: isOnline,
-      isPaired: isPaired,
-      connectionStatus: computerConnectionStatusLabel(
-        computerConnectionStatus(widget.computer, cloudSignedIn: cloudSignedIn),
-        isSpanish: AppLocalizations.of(context).locale.languageCode == 'es',
+      state: ServerTileState.of(
+        context,
+        widget.computer,
+        cloudSignedIn: cloudSignedIn,
       ),
-      glowOpacity: isOnline ? 0.45 : 0.0,
-      scale: 1.0,
     );
   }
 
-  Widget _buildCard({
-    required ThemeProvider tp,
-    required bool isOnline,
-    required bool isPaired,
-    required String connectionStatus,
-    required double glowOpacity,
-    required double scale,
-  }) {
-    final l = AppLocalizations.of(context);
-    final statusColor = isOnline
-        ? (isPaired ? Colors.greenAccent : Colors.orangeAccent)
-        : Colors.white24;
-    final statusText = isOnline
-        ? (isPaired ? l.connected : l.notPaired)
-        : l.disconnected;
-    final actionText = isOnline ? (isPaired ? l.enter : l.pairAction) : '';
-    final ipAddress = isOnline
-        ? (widget.computer.activeAddress.isNotEmpty
-              ? widget.computer.activeAddress
-              : widget.computer.localAddress)
-        : '';
+  Widget _buildCard({required ThemeProvider tp, required ServerTileState state}) {
+    // Local aliases keep the layout below untouched while the derivation itself
+    // lives in one place shared with both focus-mode layouts.
+    final isOnline = state.isOnline;
+    final isPaired = state.isPaired;
+    final statusColor = state.statusColor;
+    final statusText = state.statusText;
+    final actionText = state.actionText;
+    final ipAddress = state.address;
+    final connectionStatus = state.connectionStatus;
     final hasBg =
         widget.customBgPath != null && widget.customBgPath!.isNotEmpty;
 
-    return GestureDetector(
+    // One node for the whole card: a screen reader announces the server, its
+    // reachability and pairing state, and what activating it will do. The
+    // decorative artwork and the individual status glyphs inside are excluded so
+    // they don't fragment that into half a dozen unnamed stops.
+    return Semantics(
+      container: true,
+      button: true,
+      label: state.semanticLabel,
+      hint: actionText.isEmpty ? null : actionText,
       onTap: widget.onTap,
       onLongPress: widget.onLongPress,
-      child: Transform.scale(
-        scale: scale,
+      child: GestureDetector(
+        onTap: widget.onTap,
+        onLongPress: widget.onLongPress,
         child: Container(
+          // Flat at rest. A shadow on every tile turned a grid of servers into
+          // a pile of floating rectangles; separation comes from the tonal step
+          // off the page background, and the shadow is reserved for the focused
+          // card, where it actually means something.
           decoration: BoxDecoration(
             color: tp.surface.withValues(alpha: 0.85),
             borderRadius: BorderRadius.circular(12),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.3),
-                blurRadius: 10,
-                offset: const Offset(0, 4),
-              ),
-            ],
           ),
           child: ClipRRect(
             borderRadius: BorderRadius.circular(12),
@@ -1376,6 +1327,13 @@ class _ComputerCardState extends State<_ComputerCard> {
                     child: Image.file(
                       io.File(widget.customBgPath!),
                       fit: BoxFit.cover,
+                      // A gallery pick can be 12MP; a tile is a few hundred
+                      // pixels wide. Without this every card decodes at native
+                      // resolution and holds it in the image cache.
+                      cacheWidth: _cardImageCacheWidth,
+                      // Decorative: the card's Semantics node already names the
+                      // server and its state.
+                      excludeFromSemantics: true,
                       errorBuilder: (_, _, _) => const SizedBox.shrink(),
                     ),
                   ),
@@ -1396,6 +1354,8 @@ class _ComputerCardState extends State<_ComputerCard> {
                     child: Image.asset(
                       'assets/images/focus/default_focus00${widget.index % 4}.jpg',
                       fit: BoxFit.cover,
+                      cacheWidth: _cardImageCacheWidth,
+                      excludeFromSemantics: true,
                     ),
                   ),
                   Positioned.fill(
@@ -1419,43 +1379,7 @@ class _ComputerCardState extends State<_ComputerCard> {
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           if (widget.computer.isCloud)
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 6,
-                                vertical: 2,
-                              ),
-                              decoration: BoxDecoration(
-                                color: Colors.blueAccent.withValues(
-                                  alpha: 0.15,
-                                ),
-                                borderRadius: BorderRadius.circular(4),
-                                border: Border.all(
-                                  color: Colors.blueAccent.withValues(
-                                    alpha: 0.3,
-                                  ),
-                                ),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  const Icon(
-                                    Icons.cloud,
-                                    size: 12,
-                                    color: Colors.blueAccent,
-                                  ),
-                                  const SizedBox(width: 4),
-                                  Text(
-                                    'CLOUD',
-                                    style: TextStyle(
-                                      color: Colors.blueAccent.shade100,
-                                      fontSize: 9,
-                                      fontWeight: FontWeight.w700,
-                                      letterSpacing: 0.5,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            )
+                            const CloudBadge()
                           else
                             const SizedBox.shrink(),
                           const Icon(
@@ -1481,7 +1405,8 @@ class _ComputerCardState extends State<_ComputerCard> {
                         Text(
                           ipAddress,
                           style: const TextStyle(
-                            color: Colors.white38,
+                            // Sits over artwork; white38 was 3.6:1 at best.
+                            color: Colors.white54,
                             fontSize: 13,
                           ),
                         ),
@@ -1516,7 +1441,7 @@ class _ComputerCardState extends State<_ComputerCard> {
                                       style: TextStyle(
                                         color: isOnline
                                             ? Colors.white70
-                                            : Colors.white38,
+                                            : Colors.white54,
                                         fontSize: 13,
                                       ),
                                     ),
@@ -1542,36 +1467,53 @@ class _ComputerCardState extends State<_ComputerCard> {
                               ],
                             ),
                           ),
-                          Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              if (isOnline)
-                                Padding(
-                                  padding: const EdgeInsets.only(right: 6),
-                                  child: Opacity(
-                                    opacity: 0.45,
-                                    child: GamepadHintIcon('X', size: 20),
-                                  ),
-                                ),
-                              if (actionText.isNotEmpty) ...[
-                                Opacity(
-                                  opacity: 0.45,
-                                  child: GamepadHintIcon('A', size: 20),
-                                ),
-                                const SizedBox(width: 4),
-                                Opacity(
-                                  opacity: 0.8,
-                                  child: Text(
-                                    actionText,
-                                    style: const TextStyle(
-                                      color: Colors.white70,
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w500,
+                          // Gamepad hints are decoration next to the card's own
+                          // Semantics label, which already states the action.
+                          //
+                          // These three used static `Opacity` widgets — each one
+                          // forces a saveLayer, and this row renders once per
+                          // grid tile. Constant transparency belongs in the
+                          // color, which costs nothing.
+                          ExcludeSemantics(
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                if (isOnline)
+                                  const Padding(
+                                    padding: EdgeInsets.only(right: 6),
+                                    child: GamepadHintIcon(
+                                      'X',
+                                      size: 20,
+                                      opacity: 0.45,
                                     ),
                                   ),
-                                ),
+                                if (actionText.isNotEmpty) ...[
+                                  const GamepadHintIcon(
+                                    'A',
+                                    size: 20,
+                                    opacity: 0.45,
+                                  ),
+                                  const SizedBox(width: 4),
+                                  // On a 320px phone at 2 columns a tile is
+                                  // ~145px wide; a longer localized action verb
+                                  // overflowed this row.
+                                  Flexible(
+                                    child: Text(
+                                      actionText,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        color: Colors.white.withValues(
+                                          alpha: 0.56,
+                                        ),
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ],
-                            ],
+                            ),
                           ),
                         ],
                       ),
@@ -1704,110 +1646,53 @@ class _GridFocusableCardState extends State<_GridFocusableCard> {
       child: GestureDetector(
         onTap: widget.onSelect,
         onLongPress: widget.onLongPress,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 150),
-          decoration: BoxDecoration(borderRadius: BorderRadius.circular(12)),
-          foregroundDecoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-            color: (_hasFocus || widget.isSelected)
-                ? Colors.white.withValues(alpha: 0.06)
-                : Colors.transparent,
-          ),
-          transform: (_hasFocus || widget.isSelected)
-              ? (Matrix4.identity()..scale(1.01))
-              : Matrix4.identity(),
-          transformAlignment: Alignment.center,
-          child: widget.child,
+        child: Builder(
+          builder: (context) {
+            final active = _hasFocus || widget.isSelected;
+            final accent = context.watch<ThemeProvider>().accent;
+            return AnimatedContainer(
+              duration: const Duration(milliseconds: 150),
+              curve: Curves.easeOutCubic,
+              // Focus was a 6% white wash and a 1% scale — over card artwork
+              // that is effectively nothing, and this grid is driven by a
+              // gamepad with no cursor to fall back on. Accent ring plus glow
+              // plus a real scale step, matching the focus treatment the rest
+              // of the app already uses.
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(12),
+                boxShadow: active
+                    ? [
+                        BoxShadow(
+                          color: accent.withValues(alpha: 0.38),
+                          blurRadius: 20,
+                          spreadRadius: 2,
+                        ),
+                      ]
+                    : null,
+              ),
+              foregroundDecoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(12),
+                color: active
+                    ? Colors.white.withValues(alpha: 0.06)
+                    : Colors.transparent,
+                border: active
+                    ? Border.all(color: accent, width: 2)
+                    : null,
+              ),
+              transform: active
+                  ? (Matrix4.identity()..scale(1.035))
+                  : Matrix4.identity(),
+              transformAlignment: Alignment.center,
+              child: widget.child,
+            );
+          },
         ),
       ),
     );
   }
 }
 
-class _FocusableIconBtn extends StatefulWidget {
-  final FocusNode? focusNode;
-  final IconData icon;
-  final String tooltip;
-  final VoidCallback? onPressed;
-  final void Function(LogicalKeyboardKey dir)? onNav;
-  final Color? color;
 
-  const _FocusableIconBtn({
-    super.key,
-    this.focusNode,
-    required this.icon,
-    required this.tooltip,
-    this.onPressed,
-    this.onNav,
-    this.color,
-  });
-
-  @override
-  State<_FocusableIconBtn> createState() => _FocusableIconBtnState();
-}
-
-class _FocusableIconBtnState extends State<_FocusableIconBtn> {
-  bool _focused = false;
-
-  @override
-  Widget build(BuildContext context) {
-    return Focus(
-      focusNode: widget.focusNode,
-      onFocusChange: (f) => setState(() => _focused = f),
-      onKeyEvent: (_, event) {
-        if (event is! KeyDownEvent) return KeyEventResult.ignored;
-        final key = event.logicalKey;
-
-        if (key == LogicalKeyboardKey.gameButtonA ||
-            key == LogicalKeyboardKey.enter ||
-            key == LogicalKeyboardKey.select) {
-          widget.onPressed?.call();
-          return KeyEventResult.handled;
-        }
-
-        if (key == LogicalKeyboardKey.arrowDown ||
-            key == LogicalKeyboardKey.arrowUp ||
-            key == LogicalKeyboardKey.arrowLeft ||
-            key == LogicalKeyboardKey.arrowRight) {
-          widget.onNav?.call(key);
-          return KeyEventResult.handled;
-        }
-
-        if (key == LogicalKeyboardKey.gameButtonB ||
-            key == LogicalKeyboardKey.goBack ||
-            key == LogicalKeyboardKey.escape) {
-          Navigator.maybePop(context);
-          return KeyEventResult.handled;
-        }
-        return KeyEventResult.ignored;
-      },
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 120),
-        margin: const EdgeInsets.symmetric(horizontal: 2, vertical: 6),
-        decoration: BoxDecoration(
-          color: _focused
-              ? Colors.white.withValues(alpha: 0.15)
-              : Colors.transparent,
-          borderRadius: BorderRadius.circular(8),
-          border: _focused
-              ? Border.all(color: Colors.white54, width: 1.5)
-              : null,
-        ),
-        child: IconButton(
-          icon: Icon(widget.icon, color: widget.color ?? Colors.white),
-          tooltip: widget.tooltip,
-          onPressed: widget.onPressed,
-          focusNode: FocusNode(skipTraversal: true),
-          style: IconButton.styleFrom(
-            focusColor: Colors.transparent,
-            hoverColor: Colors.transparent,
-            highlightColor: Colors.transparent,
-          ),
-        ),
-      ),
-    );
-  }
-}
 
 class _MainMenuDialog extends StatefulWidget {
   final BuildContext parentContext;
@@ -2100,23 +1985,32 @@ class _MainMenuDialogState extends State<_MainMenuDialog> {
                 ],
               ),
             ),
-            GestureDetector(
-              onTap: () => auth.signOut(),
-              child: Container(
-                padding: EdgeInsets.symmetric(
-                  horizontal: compact ? 10 : 11,
-                  vertical: compact ? 5 : 6,
-                ),
-                decoration: BoxDecoration(
-                  color: Colors.redAccent.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: Text(
-                  'Sign out',
-                  style: TextStyle(
-                    color: Colors.redAccent,
-                    fontSize: compact ? 10 : 11,
-                    fontWeight: FontWeight.w700,
+            Semantics(
+              label: 'Sign out',
+              button: true,
+              child: InkWell(
+                onTap: () => auth.signOut(),
+                borderRadius: BorderRadius.circular(999),
+                child: Container(
+                  // The pill keeps its compact look; the tap target is padded
+                  // out to a reachable height. It was ~24px.
+                  constraints: const BoxConstraints(minHeight: 40),
+                  alignment: Alignment.center,
+                  padding: EdgeInsets.symmetric(
+                    horizontal: compact ? 14 : 16,
+                    vertical: compact ? 10 : 11,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.redAccent.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    'Sign out',
+                    style: TextStyle(
+                      color: Colors.redAccent,
+                      fontSize: compact ? 11 : 12,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ),
               ),

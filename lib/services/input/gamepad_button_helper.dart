@@ -119,10 +119,18 @@ class GamepadHintIcon extends StatelessWidget {
   final double size;
   final bool forceVisible;
 
+  /// Constant transparency, applied to the image itself.
+  ///
+  /// Callers used to wrap this in an `Opacity` widget, which forces a
+  /// `saveLayer` for what is a fixed value — expensive when the hint renders
+  /// once per item in a grid or list.
+  final double opacity;
+
   const GamepadHintIcon(this.button, {
     super.key,
     this.size = 25,
     this.forceVisible = false,
+    this.opacity = 1.0,
   });
 
   @override
@@ -132,7 +140,15 @@ class GamepadHintIcon extends StatelessWidget {
       return const SizedBox.shrink();
     }
     final asset = GamepadButtonHelper.instance.assetFor(button, scheme: prefs.buttonScheme);
-    return Image.asset(asset, width: size, height: size, filterQuality: FilterQuality.medium);
+    return Image.asset(
+      asset,
+      width: size,
+      height: size,
+      filterQuality: FilterQuality.medium,
+      excludeFromSemantics: true,
+      color: opacity < 1.0 ? Color.fromRGBO(255, 255, 255, opacity) : null,
+      colorBlendMode: opacity < 1.0 ? BlendMode.modulate : null,
+    );
   }
 }
 

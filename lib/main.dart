@@ -42,6 +42,9 @@ import 'services/crash/crash_service.dart';
 import 'services/telemetry/beta_telemetry_service.dart';
 import 'ui/motion_policy.dart';
 
+/// Why cloud sign-in is unavailable, if it is. Reported to telemetry at boot.
+String? supabaseInitError;
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -53,7 +56,13 @@ void main() async {
       );
     } catch (e) {
       debugPrint('Error initializing Supabase: $e');
+      supabaseInitError = e.toString();
     }
+  } else {
+    // Silent until now: a build made without --dart-define fails every cloud
+    // login with "Cloud sync is not configured" and no clue why.
+    supabaseInitError =
+        'SUPABASE_URL / SUPABASE_PUBLISHABLE_KEY missing from this build.';
   }
 
   FocusManager.instance.highlightStrategy = FocusHighlightStrategy.automatic;
@@ -66,12 +75,15 @@ void main() async {
     debugPaintPointersEnabled = false;
   }
   await BetaTelemetryService.initialize();
-  if (!kReleaseMode) {
-    BetaTelemetryService.installDebugPrintCapture();
-  }
+  // Also in release: without this the telemetry log has no NvHttpClient /
+  // PairingService / CloudSyncService lines, which is exactly what is needed to
+  // diagnose a customer's pairing or "server offline" report.
+  BetaTelemetryService.installDebugPrintCapture();
   BetaTelemetryService.event('app_boot', {
     'platform': io.Platform.operatingSystem,
     'debug': kDebugMode,
+    'cloudConfigured': SupabaseConfig.current.isConfigured,
+    if (supabaseInitError != null) 'cloudInitError': supabaseInitError,
   });
 
   // Generate per-device identity (cert + key + uniqueId) on first launch.

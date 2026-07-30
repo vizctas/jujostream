@@ -78,8 +78,8 @@ class AppLocalizations {
       'es': 'Vinculación requerida',
     },
     'pairingInstructions': {
-      'en': 'Enter this PIN in Sunshine/Apollo to authorize JUJO:',
-      'es': 'Ingresa este PIN en Sunshine/Apollo para autorizar JUJO:',
+      'en': 'Enter this PIN in Jujo.Stream Admin to authorize JUJO:',
+      'es': 'Ingresa este PIN en Jujo.Stream Admin para autorizar JUJO:',
     },
     'pairing': {'en': 'Pairing in progress…', 'es': 'Vinculando…'},
     'pairingFailed': {'en': 'Pairing failed', 'es': 'Error al vincular'},
@@ -144,8 +144,8 @@ class AppLocalizations {
       'es': 'Apariencia del launcher',
     },
     'configureVibepollo': {
-      'en': 'Configure Vibepollo API',
-      'es': 'Configurar Vibepollo API',
+      'en': 'Configure Server API',
+      'es': 'Configurar API del servidor',
     },
     'activeSession': {'en': 'Active Session', 'es': 'Sesión activa'},
     'quitSession': {'en': 'Quit Session', 'es': 'Cerrar sesión'},
@@ -223,8 +223,8 @@ class AppLocalizations {
       'es': 'Buscando servidores...',
     },
     'makeSureSunshine': {
-      'en': 'Make sure Sunshine/Apollo is running on your PC',
-      'es': 'Asegúrate de que Sunshine/Apollo esté corriendo en tu PC',
+      'en': 'Make sure Jujo.Stream Server is running on your PC',
+      'es': 'Asegúrate de que Jujo.Stream Server esté corriendo en tu PC',
     },
     'wakeOnLan': {'en': 'Wake PC', 'es': 'Despertar PC'},
     'macNotAvailable': {'en': 'MAC not available', 'es': 'MAC no disponible'},
@@ -367,14 +367,14 @@ class AppLocalizations {
     'achievementsPending': {'en': 'Pending', 'es': 'Pendientes'},
     'achievementsNeverStarted': {'en': 'Not started', 'es': 'Sin iniciar'},
     'vibepolloConfigApi': {
-      'en': 'Vibepollo Config API',
-      'es': 'Vibepollo Config API',
+      'en': 'Server Config API',
+      'es': 'API de configuración del servidor',
     },
     'vibepolloInstructions': {
       'en':
-          'Enter the web UI credentials for your Vibepollo server to enable Playnite library categories and store badges.',
+          'Enter the web UI credentials for your Jujo.Stream Server to enable Playnite library categories and store badges.',
       'es':
-          'Ingresa las credenciales de la web UI de tu servidor Vibepollo para habilitar categorías de biblioteca Playnite y badges de tienda.',
+          'Ingresa las credenciales de la web UI de tu Jujo.Stream Server para habilitar categorías de biblioteca Playnite y badges de tienda.',
     },
     'username': {'en': 'Username', 'es': 'Usuario'},
     'password': {'en': 'Password', 'es': 'Contraseña'},

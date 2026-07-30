@@ -2,14 +2,10 @@ import 'dart:io' as io;
 import 'dart:math' as math;
 import 'dart:async';
 
-import 'package:file_selector/file_selector.dart';
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
-import 'package:image_picker/image_picker.dart';
-import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -32,10 +28,13 @@ import '../settings/profile_screen.dart';
 import '../../ui/motion_policy.dart';
 import '../about/about_screen.dart';
 import 'pc_view_screen.dart';
+import 'cloud_badge.dart';
+import 'focusable_icon_button.dart';
+import 'server_health_loop.dart';
+import 'server_profile_images.dart';
+import 'server_tile_state.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/cloud_mfa_provider.dart';
-import '../../services/auth/supabase_config.dart';
-import '../../ui/computer_connection_status.dart';
 import '../../widgets/mfa_bypassed_confirmation_dialog.dart';
 import '../../widgets/computer_entry_overlay.dart';
 import '../auth/cloud_auth_screen.dart';
@@ -55,6 +54,14 @@ Future<void> setFocusModeEnabled(bool value) async {
   final prefs = await SharedPreferences.getInstance();
   await prefs.setBool(_kFocusModeEnabled, value);
 }
+
+/// Decode ceilings for the per-server artwork.
+///
+/// Cards top out at 420 logical px wide and circles at 220, so decoding a
+/// gallery photo at native resolution — which is what happened before — held
+/// tens of megabytes per page in the image cache for nothing.
+const int kFocusCardImageCacheWidth = 900;
+const int kFocusCircleImageCacheWidth = 480;
 
 String _focusDefaultAsset(int index) =>
     'assets/images/focus/default_focus00${index % 4}.jpg';
@@ -78,6 +85,11 @@ class _FocusModeScreenState extends State<FocusModeScreen>
     (i) => FocusNode(debugLabel: 'focus-appbar-icon-$i'),
   );
   final FocusNode _pageViewFocusNode = FocusNode(debugLabel: 'focus-pageview');
+
+  /// Whether keyboard/gamepad focus is on the carousel rather than the app bar.
+  /// Drives the selected card's glow so only one thing looks focused at a time.
+  bool _pageViewHasFocus = true;
+
   int _activeAppBarIndex = 0;
 
   /// True when FocusModeScreen owns the ambient audio — false while a
@@ -89,10 +101,7 @@ class _FocusModeScreenState extends State<FocusModeScreen>
   /// Per-server custom background image paths (uuid → path).
   final Map<String, String> _bgPaths = {};
 
-  Timer? _healthTimer;
-  int _healthTick = 0;
-
-  static String _bgPrefKey(String uuid) => 'computer_bg_$uuid';
+  ServerHealthLoop? _healthLoop;
 
   @override
   void initState() {
@@ -134,21 +143,12 @@ class _FocusModeScreenState extends State<FocusModeScreen>
   }
 
   Future<void> _loadBgPaths() async {
-    final prefs = await SharedPreferences.getInstance();
-    final updated = <String, String>{};
-    for (final key in prefs.getKeys()) {
-      if (key.startsWith('computer_bg_')) {
-        final val = prefs.getString(key);
-        if (val != null && val.isNotEmpty) {
-          updated[key.substring('computer_bg_'.length)] = val;
-        }
-      }
-    }
+    final stored = await ServerProfileImages.loadAll();
     if (!mounted) return;
     setState(
       () => _bgPaths
         ..clear()
-        ..addAll(updated),
+        ..addAll(stored),
     );
   }
 
@@ -185,7 +185,7 @@ class _FocusModeScreenState extends State<FocusModeScreen>
     // UI mode and Flutter initializes it before disposing this one; resetting
     // here races with the next initState and re-exposes the notification bar.
     UiSoundService.stopAmbience();
-    _healthTimer?.cancel();
+    _healthLoop?.stop();
     _pageController.dispose();
     _pageViewFocusNode.dispose();
     for (final node in _appBarFocusNodes) {
@@ -221,7 +221,13 @@ class _FocusModeScreenState extends State<FocusModeScreen>
   }
 
   Future<void> _performComputerEntry(ComputerDetails computer) async {
-    if (!computer.isReachable) {
+    // See pc_view_screen: `unknown` means "not polled yet", not "down".
+    var state = computer.state;
+    if (state == ComputerState.unknown) {
+      state = await context.read<ComputerProvider>().pollComputer(computer);
+      if (!mounted) return;
+    }
+    if (state == ComputerState.offline) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(AppLocalizations.of(context).serverOffline)),
       );
@@ -243,9 +249,7 @@ class _FocusModeScreenState extends State<FocusModeScreen>
         if (!mounted) return;
         if (!ok) {
           final mfa = context.read<CloudMfaProvider>();
-          final hasSession =
-              SupabaseConfig.current.isConfigured &&
-              Supabase.instance.client.auth.currentSession != null;
+          final hasSession = hasCloudSession();
           if (computer.isCloud &&
               hasSession &&
               (mfa.status == CloudMfaStatus.setupRequired ||
@@ -325,101 +329,57 @@ class _FocusModeScreenState extends State<FocusModeScreen>
     }
   }
 
-  void _startHealthLoop() {
-    _healthTimer?.cancel();
-    _healthTimer = Timer.periodic(const Duration(seconds: 5), (_) {
-      _runHealthCheck();
-    });
-  }
+  /// Cache for [_sortedForDisplay], keyed by the identity of the source list
+  /// plus the ranks that drive the ordering.
+  List<ComputerDetails>? _sortedCache;
+  String? _sortedCacheKey;
 
-  void _runHealthCheck() {
-    if (!mounted) return;
-    final provider = context.read<ComputerProvider>();
-    final auth = context.read<AuthProvider>();
-
-    // Skip if actively streaming
-    if (provider.activeSessionComputer != null) {
-      _healthTick++;
-      if (_healthTick % 24 != 0) return;
-    } else {
-      _healthTick++;
+  /// Online + paired first, then online + unpaired, then offline.
+  ///
+  /// This ran as a copy-and-sort on every `Consumer` rebuild — several times a
+  /// second while polling. The order only changes when a server's reachability
+  /// or pairing does, so key the cache on exactly that.
+  List<ComputerDetails> _sortedForDisplay(List<ComputerDetails> source) {
+    int rank(ComputerDetails c) {
+      if (c.isReachable && c.isPaired) return 0;
+      if (c.isReachable) return 1;
+      return 2;
     }
 
-    Future.microtask(() async {
-      if (provider.activeSessionComputer == null && _healthTick % 6 == 0) {
-        for (final computer in provider.computers) {
-          unawaited(provider.pollComputer(computer));
-        }
-      }
+    final key = source.map((c) => '${c.uuid}:${rank(c)}').join('|');
+    final cached = _sortedCache;
+    if (cached != null && key == _sortedCacheKey) return cached;
 
-      if (_healthTick % 12 == 0) {
-        if (auth.isSignedIn) {
-          try {
-            final session = Supabase.instance.client.auth.currentSession;
-            if (session == null || session.isExpired) {
-              if (mounted) {
-                auth.signOutFromCloud();
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Session expired — please sign in again'),
-                  ),
-                );
-              }
-            }
-          } catch (_) {}
-        }
-      }
-    });
+    final sorted = List<ComputerDetails>.from(source)
+      ..sort((a, b) => rank(a).compareTo(rank(b)));
+    _sortedCache = sorted;
+    _sortedCacheKey = key;
+    return sorted;
+  }
+
+  void _startHealthLoop() {
+    _healthLoop?.stop();
+    _healthLoop = ServerHealthLoop(
+      context: context,
+      onSessionLost: () {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Session expired — please sign in again'),
+          ),
+        );
+      },
+    )..start();
   }
 
   Future<void> _pickBackground(ComputerDetails computer) async {
-    String? pickedPath;
-
-    if (io.Platform.isMacOS) {
-      const imageGroup = XTypeGroup(
-        label: 'Images',
-        extensions: ['jpg', 'jpeg', 'png', 'webp'],
-      );
-      final result = await openFile(acceptedTypeGroups: [imageGroup]);
-      pickedPath = result?.path;
-    } else {
-      final picker = ImagePicker();
-      final picked = await picker.pickImage(source: ImageSource.gallery);
-      pickedPath = picked?.path;
-    }
-
-    if (pickedPath == null || pickedPath.isEmpty) return;
-
-    // On macOS the picked file lives in a temporary security-scoped location
-    // that becomes inaccessible after the picker closes.  Copy it into the
-    // app's persistent documents directory so Image.file can read it later.
-    String savedPath = pickedPath;
-    if (io.Platform.isMacOS || io.Platform.isWindows) {
-      try {
-        final docsDir = await getApplicationDocumentsDirectory();
-        final bgDir = io.Directory(p.join(docsDir.path, 'backgrounds'));
-        if (!bgDir.existsSync()) bgDir.createSync(recursive: true);
-        final ext = p.extension(pickedPath).isNotEmpty
-            ? p.extension(pickedPath)
-            : '.jpg';
-        final destFile = io.File(p.join(bgDir.path, '${computer.uuid}$ext'));
-        await io.File(pickedPath).copy(destFile.path);
-        savedPath = destFile.path;
-      } catch (e) {
-        debugPrint('[FocusMode] Failed to copy background: $e');
-        // Fall back to the original path (may work on some systems).
-      }
-    }
-
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_bgPrefKey(computer.uuid), savedPath);
-    if (!mounted) return;
+    final savedPath = await ServerProfileImages.pick(computer.uuid);
+    if (savedPath == null || !mounted) return;
     setState(() => _bgPaths[computer.uuid] = savedPath);
   }
 
   Future<void> _removeBackground(ComputerDetails computer) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_bgPrefKey(computer.uuid));
+    await ServerProfileImages.remove(computer.uuid);
     if (!mounted) return;
     setState(() => _bgPaths.remove(computer.uuid));
   }
@@ -440,35 +400,21 @@ class _FocusModeScreenState extends State<FocusModeScreen>
         extendBodyBehindAppBar: true,
         body: Consumer<ComputerProvider>(
           builder: (context, provider, _) {
-            // Sort: online+paired first, then online+unpaired, then offline
-            final computers = List<ComputerDetails>.from(provider.computers)
-              ..sort((a, b) {
-                int rank(ComputerDetails c) {
-                  if (c.isReachable && c.isPaired) return 0;
-                  if (c.isReachable) return 1;
-                  return 2;
-                }
-
-                return rank(a).compareTo(rank(b));
-              });
+            final computers = _sortedForDisplay(provider.computers);
             final currentComputer =
                 computers.isNotEmpty && _currentPage < computers.length
                 ? computers[_currentPage]
                 : null;
-            final currentBgPath =
-                currentComputer != null && currentComputer.isPaired
-                ? _bgPaths[currentComputer.uuid]
-                : null;
-            // Background resolution order: per-server custom (existing feature,
-            // wins) → global wallpaper chosen in Settings/onboarding → built-in
-            // default asset.
+            // The wallpaper comes from Preferences only. The per-server image
+            // is a profile picture: it belongs inside the circle/card and used
+            // to hijack the whole screen, which made the wallpaper setting look
+            // broken whenever a server had one.
             final globalWallpaper = tp.focusWallpaper;
-            String? effectiveFilePath = currentBgPath;
+            String? effectiveFilePath;
             String effectiveAsset = currentComputer != null
                 ? _focusDefaultAsset(_currentPage)
                 : _focusDefaultAsset(0);
-            if ((effectiveFilePath == null || effectiveFilePath.isEmpty) &&
-                globalWallpaper.isNotEmpty) {
+            if (globalWallpaper.isNotEmpty) {
               if (globalWallpaper.startsWith('asset:')) {
                 effectiveAsset = globalWallpaper.substring(6);
               } else if (globalWallpaper.startsWith('file:')) {
@@ -590,9 +536,12 @@ class _FocusModeScreenState extends State<FocusModeScreen>
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: Row(
         children: [
-          const JujoBrandTitle(),
+          // The action cluster is ~208px of fixed width. Below roughly 250px of
+          // usable width the Spacer collapses and the brand title used to
+          // overflow; letting it shrink keeps the bar intact on a narrow phone.
+          const Flexible(child: JujoBrandTitle()),
           const Spacer(),
-          _FocusableIconBtn(
+          FocusableIconButton(
             focusNode: _appBarFocusNodes[0],
             icon: Icons.more_vert,
             tooltip: 'More',
@@ -601,7 +550,7 @@ class _FocusModeScreenState extends State<FocusModeScreen>
                 PcViewScreen.pendingTour.value ? null : _showMoreMenu(context),
             onNav: (dir) => _handleAppBarIconNav(0, dir, count),
           ),
-          _FocusableIconBtn(
+          FocusableIconButton(
             focusNode: _appBarFocusNodes[1],
             icon: Icons.settings,
             tooltip: 'Settings',
@@ -626,7 +575,7 @@ class _FocusModeScreenState extends State<FocusModeScreen>
           ),
           const SizedBox(width: 4),
           if (!auth.isSignedIn)
-            _FocusableIconBtn(
+            FocusableIconButton(
               focusNode: _appBarFocusNodes[2],
               icon: Icons.cloud_off,
               tooltip: 'Sign in to Jujo Cloud',
@@ -639,7 +588,7 @@ class _FocusModeScreenState extends State<FocusModeScreen>
               onNav: (dir) => _handleAppBarIconNav(2, dir, count),
             )
           else ...[
-            _FocusableIconBtn(
+            FocusableIconButton(
               focusNode: _appBarFocusNodes[2],
               icon: auth.isSyncing ? Icons.sync : Icons.cloud_done,
               tooltip: auth.isSyncing ? 'Syncing...' : 'Sync to cloud',
@@ -652,7 +601,7 @@ class _FocusModeScreenState extends State<FocusModeScreen>
               onNav: (dir) => _handleAppBarIconNav(2, dir, count),
             ),
             const SizedBox(width: 4),
-            _FocusableIconBtn(
+            FocusableIconButton(
               focusNode: _appBarFocusNodes[3],
               icon: Icons.account_circle,
               tooltip: 'Account',
@@ -755,7 +704,8 @@ class _FocusModeScreenState extends State<FocusModeScreen>
             l.makeSureSunshine,
             textAlign: TextAlign.center,
             style: TextStyle(
-              color: isLight ? Colors.black38 : Colors.white38,
+              // white38 is 3.6:1 — below the body-text floor.
+              color: isLight ? Colors.black54 : Colors.white54,
               fontSize: 13,
             ),
           ),
@@ -773,6 +723,12 @@ class _FocusModeScreenState extends State<FocusModeScreen>
       onFocusChange: (focused) {
         if (focused && _ambientEnabled && mounted) {
           UiSoundService.playAmbience();
+        }
+        // The card's glow used to track only `index == _currentPage`, so it
+        // stayed lit while focus was up in the app bar and the screen looked
+        // like two things were focused at once.
+        if (mounted && focused != _pageViewHasFocus) {
+          setState(() => _pageViewHasFocus = focused);
         }
       },
       onKeyEvent: (_, event) {
@@ -860,7 +816,7 @@ class _FocusModeScreenState extends State<FocusModeScreen>
               index: index,
               onTap: () => _onComputerTapped(computer),
               onLongPress: () => _showServerOptions(computer),
-              isSelected: index == _currentPage,
+              isSelected: index == _currentPage && _pageViewHasFocus,
             );
           }
           return _FocusServerCard(
@@ -869,7 +825,7 @@ class _FocusModeScreenState extends State<FocusModeScreen>
             index: index,
             onTap: () => _onComputerTapped(computer),
             onLongPress: () => _showServerOptions(computer),
-            isSelected: index == _currentPage,
+            isSelected: index == _currentPage && _pageViewHasFocus,
           );
         },
       ),
@@ -909,9 +865,9 @@ class _FocusModeScreenState extends State<FocusModeScreen>
     ComputerOptionsDialog.show(
       context: context,
       computer: computer,
-      bgPaths: _bgPaths,
-      onPickBackground: _pickBackground,
-      onRemoveBackground: _removeBackground,
+      profileImagePaths: _bgPaths,
+      onPickProfileImage: _pickBackground,
+      onRemoveProfileImage: _removeBackground,
     );
   }
 
@@ -927,12 +883,14 @@ class _FocusModeScreenState extends State<FocusModeScreen>
           children: [
             Icon(Icons.exit_to_app_rounded, color: tp.accentLight, size: 22),
             const SizedBox(width: 10),
-            Text(
-              'Exit JUJO?',
-              style: TextStyle(
-                color: tp.colors.isLight ? Colors.black87 : Colors.white,
-                fontSize: 18,
-                fontWeight: FontWeight.w700,
+            Flexible(
+              child: Text(
+                'Exit JUJO?',
+                style: TextStyle(
+                  color: tp.colors.isLight ? Colors.black87 : Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
             ),
           ],
@@ -1114,6 +1072,15 @@ class _FocusServerCardState extends State<_FocusServerCard>
     if (oldWidget.isSelected != widget.isSelected) _syncGlow();
   }
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Reacts to the reduce-effects toggle. build() used to schedule a
+    // post-frame callback for this on *every* rebuild, allocating a closure per
+    // frame to re-check a value that changes about once a year.
+    _syncAnimation();
+  }
+
   void _syncAnimation() {
     final reduce = context.read<ThemeProvider>().reduceEffects;
     if (!reduce && !_floatController.isAnimating) {
@@ -1143,29 +1110,25 @@ class _FocusServerCardState extends State<_FocusServerCard>
   @override
   Widget build(BuildContext context) {
     final tp = context.watch<ThemeProvider>();
-    // Sync animation state live: toggling reduce effects resumes/stops.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _syncAnimation();
-    });
     final isLight = tp.colors.isLight;
-    final isOnline = widget.computer.isReachable;
-    final isPaired = widget.computer.isPaired;
     final l = AppLocalizations.of(context);
     final cloudSignedIn = context.watch<AuthProvider>().isSignedIn;
-    final connectionStatus = computerConnectionStatusLabel(
-      computerConnectionStatus(widget.computer, cloudSignedIn: cloudSignedIn),
-      isSpanish: l.locale.languageCode == 'es',
+
+    final state = ServerTileState.of(
+      context,
+      widget.computer,
+      cloudSignedIn: cloudSignedIn,
+      offlineColor: isLight ? Colors.black26 : Colors.white24,
     );
+    final isOnline = state.isOnline;
+    final isPaired = state.isPaired;
+    final connectionStatus = state.connectionStatus;
+    final statusColor = state.statusColor;
+    final statusText = state.statusText;
+    final actionText = state.actionText;
 
     final reduceEffects = tp.reduceEffects;
 
-    final statusColor = isOnline
-        ? (isPaired ? Colors.greenAccent : Colors.orangeAccent)
-        : (isLight ? Colors.black26 : Colors.white24);
-    final statusText = isOnline
-        ? (isPaired ? l.connected : l.notPaired)
-        : l.disconnected;
-    final actionText = isOnline ? (isPaired ? l.enter : l.pairAction) : '';
     final isMacOS = io.Platform.isMacOS;
     final isAndroid = io.Platform.isAndroid;
     final maxWidth = isMacOS ? 420.0 : (isAndroid ? 340.0 : 370.0);
@@ -1183,10 +1146,17 @@ class _FocusServerCardState extends State<_FocusServerCard>
             child: child,
           );
         },
-        child: GestureDetector(
+        child: Semantics(
+          container: true,
+          button: true,
+          label: state.semanticLabel,
+          hint: actionText.isEmpty ? null : actionText,
           onTap: widget.onTap,
           onLongPress: widget.onLongPress,
-          child: Column(
+          child: GestureDetector(
+            onTap: widget.onTap,
+            onLongPress: widget.onLongPress,
+            child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               ConstrainedBox(
@@ -1243,14 +1213,20 @@ class _FocusServerCardState extends State<_FocusServerCard>
                               ? Image.file(
                                   io.File(widget.bgPath!),
                                   fit: BoxFit.cover,
+                                  cacheWidth: kFocusCardImageCacheWidth,
+                                  excludeFromSemantics: true,
                                   errorBuilder: (_, _, _) => Image.asset(
                                     _focusDefaultAsset(widget.index),
                                     fit: BoxFit.cover,
+                                    cacheWidth: kFocusCardImageCacheWidth,
+                                    excludeFromSemantics: true,
                                   ),
                                 )
                               : Image.asset(
                                   _focusDefaultAsset(widget.index),
                                   fit: BoxFit.cover,
+                                  cacheWidth: kFocusCardImageCacheWidth,
+                                  excludeFromSemantics: true,
                                 ),
                         ),
                         // ── Gradient overlay (always present) ──
@@ -1277,51 +1253,13 @@ class _FocusServerCardState extends State<_FocusServerCard>
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               if (widget.computer.isCloud)
-                                Container(
-                                  margin: const EdgeInsets.only(right: 6),
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 6,
-                                    vertical: 2,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: Colors.blueAccent.withValues(
-                                      alpha: 0.15,
-                                    ),
-                                    borderRadius: BorderRadius.circular(4),
-                                    border: Border.all(
-                                      color: Colors.blueAccent.withValues(
-                                        alpha: 0.3,
-                                      ),
-                                    ),
-                                  ),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      const Icon(
-                                        Icons.cloud,
-                                        size: 10,
-                                        color: Colors.blueAccent,
-                                      ),
-                                      const SizedBox(width: 3),
-                                      Text(
-                                        'CLOUD',
-                                        style: TextStyle(
-                                          color: Colors.blueAccent.shade100,
-                                          fontSize: 8,
-                                          fontWeight: FontWeight.w700,
-                                          letterSpacing: 0.5,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
+                                const Padding(
+                                  padding: EdgeInsets.only(right: 6),
+                                  child: CloudBadge(compact: true),
                                 ),
-                              GestureDetector(
+                              _MoreOptionsButton(
                                 onTap: widget.onLongPress,
-                                child: const Icon(
-                                  Icons.more_vert,
-                                  size: 20,
-                                  color: Colors.white54,
-                                ),
+                                iconSize: 20,
                               ),
                             ],
                           ),
@@ -1359,12 +1297,16 @@ class _FocusServerCardState extends State<_FocusServerCard>
                                       ),
                                     ),
                                     const SizedBox(width: 5),
-                                    Text(
+                                    Flexible(
+                                      child: Text(
                                       statusText,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
                                       style: TextStyle(
                                         color: statusColor,
                                         fontSize: 11,
                                         fontWeight: FontWeight.w600,
+                                      ),
                                       ),
                                     ),
                                   ],
@@ -1380,6 +1322,9 @@ class _FocusServerCardState extends State<_FocusServerCard>
                                   letterSpacing: 0.3,
                                 ),
                                 maxLines: 1,
+                                // Without this, `maxLines: 1` clips the name
+                                // mid-glyph instead of ellipsizing it.
+                                overflow: TextOverflow.ellipsis,
                               ),
                               if (isPaired)
                                 Text(
@@ -1414,6 +1359,7 @@ class _FocusServerCardState extends State<_FocusServerCard>
                 ),
               ),
             ],
+            ),
           ),
         ),
       ),
@@ -1480,6 +1426,15 @@ class _FocusServerCircleState extends State<_FocusServerCircle>
     if (oldWidget.isSelected != widget.isSelected) _syncGlow();
   }
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Reacts to the reduce-effects toggle. build() used to schedule a
+    // post-frame callback for this on *every* rebuild, allocating a closure per
+    // frame to re-check a value that changes about once a year.
+    _syncAnimation();
+  }
+
   void _syncAnimation() {
     final reduce = context.read<ThemeProvider>().reduceEffects;
     if (!reduce && !_floatController.isAnimating) {
@@ -1513,26 +1468,24 @@ class _FocusServerCircleState extends State<_FocusServerCircle>
       if (mounted) _syncAnimation();
     });
     final isLight = tp.colors.isLight;
-    final isOnline = widget.computer.isReachable;
-    final isPaired = widget.computer.isPaired;
     final l = AppLocalizations.of(context);
     final cloudSignedIn = context.watch<AuthProvider>().isSignedIn;
-    final connectionStatus = computerConnectionStatusLabel(
-      computerConnectionStatus(widget.computer, cloudSignedIn: cloudSignedIn),
-      isSpanish: l.locale.languageCode == 'es',
-    );
-    final reduceEffects = tp.reduceEffects;
 
-    // Border color encodes status: green=online, orange=unpaired, red=offline
-    final borderColor = isOnline
-        ? (isPaired ? Colors.greenAccent : Colors.orangeAccent)
-        : Colors.redAccent;
-    final actionText = isOnline ? (isPaired ? l.enter : l.pairAction) : '';
-    final ipAddress = isOnline
-        ? (widget.computer.activeAddress.isNotEmpty
-              ? widget.computer.activeAddress
-              : widget.computer.localAddress)
-        : '';
+    final state = ServerTileState.of(
+      context,
+      widget.computer,
+      cloudSignedIn: cloudSignedIn,
+      // The circle encodes offline as red on its border rather than a grey
+      // status dot, so it overrides just that one colour.
+      offlineColor: Colors.redAccent,
+    );
+    final isOnline = state.isOnline;
+    final isPaired = state.isPaired;
+    final connectionStatus = state.connectionStatus;
+    final borderColor = state.statusColor;
+    final actionText = state.actionText;
+    final ipAddress = state.address;
+    final reduceEffects = tp.reduceEffects;
 
     final isMacOS = io.Platform.isMacOS;
     final isAndroid = io.Platform.isAndroid;
@@ -1551,7 +1504,14 @@ class _FocusServerCircleState extends State<_FocusServerCircle>
             child: child,
           );
         },
-        child: GestureDetector(
+        child: Semantics(
+          container: true,
+          button: true,
+          label: state.semanticLabel,
+          hint: actionText.isEmpty ? null : actionText,
+          onTap: widget.onTap,
+          onLongPress: widget.onLongPress,
+          child: GestureDetector(
           onTap: widget.onTap,
           onLongPress: widget.onLongPress,
           child: Column(
@@ -1603,14 +1563,20 @@ class _FocusServerCircleState extends State<_FocusServerCircle>
                             ? Image.file(
                                 io.File(widget.bgPath!),
                                 fit: BoxFit.cover,
+                                cacheWidth: kFocusCircleImageCacheWidth,
+                                excludeFromSemantics: true,
                                 errorBuilder: (_, _, _) => Image.asset(
                                   _focusDefaultAsset(widget.index),
                                   fit: BoxFit.cover,
+                                  cacheWidth: kFocusCircleImageCacheWidth,
+                                  excludeFromSemantics: true,
                                 ),
                               )
                             : Image.asset(
                                 _focusDefaultAsset(widget.index),
                                 fit: BoxFit.cover,
+                                cacheWidth: kFocusCircleImageCacheWidth,
+                                excludeFromSemantics: true,
                               ),
                         // ── Subtle vignette ──
                         Container(
@@ -1652,20 +1618,10 @@ class _FocusServerCircleState extends State<_FocusServerCircle>
                                     color: Colors.blueAccent,
                                   ),
                                 ),
-                              GestureDetector(
+                              _MoreOptionsButton(
                                 onTap: widget.onLongPress,
-                                child: Container(
-                                  padding: const EdgeInsets.all(4),
-                                  decoration: BoxDecoration(
-                                    color: Colors.black.withValues(alpha: 0.3),
-                                    shape: BoxShape.circle,
-                                  ),
-                                  child: const Icon(
-                                    Icons.more_vert,
-                                    size: 16,
-                                    color: Colors.white70,
-                                  ),
-                                ),
+                                iconSize: 16,
+                                scrim: true,
                               ),
                             ],
                           ),
@@ -1696,7 +1652,11 @@ class _FocusServerCircleState extends State<_FocusServerCircle>
                 Text(
                   ipAddress,
                   style: TextStyle(
-                    color: isLight ? Colors.black38 : Colors.white38,
+                    // This sits over user-chosen artwork, so there is no fixed
+                    // background to measure against. white38 was 3.6:1 even on
+                    // the darkest theme; white54 clears 4.5:1 there and gives
+                    // the scrim something to work with over a bright poster.
+                    color: isLight ? Colors.black54 : Colors.white54,
                     fontSize: 12,
                     fontWeight: FontWeight.w400,
                   ),
@@ -1726,6 +1686,63 @@ class _FocusServerCircleState extends State<_FocusServerCircle>
               ),
             ],
           ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The overflow affordance on a server tile.
+///
+/// The glyph stays small so it doesn't crowd the artwork, but the hit area is a
+/// full 48×48: the two hand-rolled versions this replaces were 20×20 and 24×24,
+/// both under the WCAG 2.5.8 target size, and neither carried a label.
+class _MoreOptionsButton extends StatelessWidget {
+  const _MoreOptionsButton({
+    required this.onTap,
+    required this.iconSize,
+    this.scrim = false,
+  });
+
+  final VoidCallback onTap;
+  final double iconSize;
+
+  /// Circular dark backing, for tiles where the icon sits directly on artwork.
+  final bool scrim;
+
+  @override
+  Widget build(BuildContext context) {
+    final isSpanish =
+        AppLocalizations.of(context).locale.languageCode == 'es';
+    final icon = Icon(
+      Icons.more_vert,
+      size: iconSize,
+      color: scrim ? Colors.white70 : Colors.white54,
+    );
+
+    return Semantics(
+      label: isSpanish ? 'Opciones del servidor' : 'Server options',
+      button: true,
+      child: InkResponse(
+        onTap: onTap,
+        radius: 24,
+        containedInkWell: false,
+        child: SizedBox(
+          width: 48,
+          height: 48,
+          child: Center(
+            child: scrim
+                ? Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.3),
+                      shape: BoxShape.circle,
+                    ),
+                    child: icon,
+                  )
+                : icon,
+          ),
         ),
       ),
     );
@@ -1753,7 +1770,7 @@ class _GamepadHintsRow extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         if (isOnline) ...[
-          Opacity(opacity: 0.70, child: GamepadHintIcon('X', size: 18)),
+          const GamepadHintIcon('X', size: 18, opacity: 0.70),
           const SizedBox(width: 4),
           Text(
             settingsLabel,
@@ -1766,7 +1783,7 @@ class _GamepadHintsRow extends StatelessWidget {
           const SizedBox(width: 10),
         ],
         if (actionText.isNotEmpty) ...[
-          Opacity(opacity: 0.70, child: GamepadHintIcon('A', size: 18)),
+          const GamepadHintIcon('A', size: 18, opacity: 0.70),
           const SizedBox(width: 4),
           Text(
             actionText,
@@ -1834,20 +1851,16 @@ class _ParticleOverlayState extends State<_ParticleOverlay>
   @override
   Widget build(BuildContext context) {
     return RepaintBoundary(
-      // Prevent parent from rebuilding during animation
-      child: AnimatedBuilder(
-        animation: _controller,
-        builder: (context, child) {
-          return CustomPaint(
-            painter: _ParticlePainter(
-              particles: _particles,
-              progress: _controller.value,
-              color: widget.color,
-              isLight: widget.isLight,
-            ),
-            size: Size.infinite,
-          );
-        },
+      // The controller drives the painter directly. AnimatedBuilder would
+      // rebuild the CustomPaint widget every frame to hand it a new double.
+      child: CustomPaint(
+        painter: _ParticlePainter(
+          particles: _particles,
+          progress: _controller,
+          color: widget.color,
+          isLight: widget.isLight,
+        ),
+        size: Size.infinite,
       ),
     );
   }
@@ -1896,7 +1909,13 @@ class _WaveOverlay extends StatefulWidget {
 class _WaveOverlayState extends State<_WaveOverlay>
     with SingleTickerProviderStateMixin {
   late final Ticker _ticker;
-  double _time = 0.0;
+
+  /// Drives the painter directly. This used to be a plain field written through
+  /// `setState`, which rebuilt the element subtree 60 times a second to change
+  /// one double. Handing the notifier to `CustomPainter.repaint` repaints
+  /// without rebuilding anything.
+  final ValueNotifier<double> _time = ValueNotifier<double>(0);
+
   final List<_Ribbon> _ribbons = [];
 
   @override
@@ -1931,16 +1950,14 @@ class _WaveOverlayState extends State<_WaveOverlay>
     }
 
     _ticker = createTicker((elapsed) {
-      if (!mounted) return;
-      setState(() {
-        _time = elapsed.inMicroseconds / 1000000.0;
-      });
+      _time.value = elapsed.inMicroseconds / 1000000.0;
     })..start();
   }
 
   @override
   void dispose() {
     _ticker.dispose();
+    _time.dispose();
     super.dispose();
   }
 
@@ -1960,18 +1977,22 @@ class _WaveOverlayState extends State<_WaveOverlay>
 }
 
 class _WavePainter extends CustomPainter {
-  final double time;
+  /// Animation clock. Passed to `super.repaint` so the canvas re-paints on each
+  /// tick without the widget tree rebuilding.
+  final ValueListenable<double> timeListenable;
   final List<_Ribbon> ribbons;
   final Color color;
 
   _WavePainter({
-    required this.time,
+    required ValueListenable<double> time,
     required this.ribbons,
     required this.color,
-  });
+  }) : timeListenable = time,
+       super(repaint: time);
 
   @override
   void paint(Canvas canvas, Size size) {
+    final time = timeListenable.value;
     final w = size.width;
     final h = size.height;
     const baseY = 0.5;
@@ -2048,7 +2069,8 @@ class _WavePainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _WavePainter oldDelegate) => true;
+  bool shouldRepaint(covariant _WavePainter oldDelegate) =>
+      oldDelegate.color != color || oldDelegate.ribbons != ribbons;
 }
 
 class _Particle {
@@ -2069,19 +2091,23 @@ class _Particle {
 
 class _ParticlePainter extends CustomPainter {
   final List<_Particle> particles;
-  final double progress;
+
+  /// Animation clock, also wired to `super.repaint`.
+  final Animation<double> progressListenable;
   final Color color;
   final bool isLight;
 
   _ParticlePainter({
     required this.particles,
-    required this.progress,
+    required Animation<double> progress,
     required this.color,
     required this.isLight,
-  });
+  }) : progressListenable = progress,
+       super(repaint: progress);
 
   @override
   void paint(Canvas canvas, Size size) {
+    final progress = progressListenable.value;
     final paint = Paint()
       ..color = color.withValues(alpha: isLight ? 0.15 : 0.25);
 
@@ -2102,7 +2128,10 @@ class _ParticlePainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _ParticlePainter oldDelegate) => true;
+  bool shouldRepaint(covariant _ParticlePainter oldDelegate) =>
+      oldDelegate.color != color ||
+      oldDelegate.isLight != isLight ||
+      oldDelegate.particles != particles;
 }
 
 class _FocusModeMenuDialog extends StatelessWidget {
@@ -2299,9 +2328,25 @@ class _FocusMenuTileState extends State<_FocusMenuTile> {
                         ? Colors.white.withValues(alpha: 0.92)
                         : tp.background.withValues(alpha: 0.36)),
               borderRadius: BorderRadius.circular(15),
+              // The border used to be identical in both states, so on a gamepad
+              // the only cue was a 12%-alpha fill shift — invisible across a
+              // room. Focus now reads as tonal step + accent border + glow, the
+              // same vocabulary the pc_view menu already used.
               border: Border.all(
-                color: isLight ? Colors.black12 : Colors.white12,
+                color: _focused
+                    ? tp.accent
+                    : (isLight ? Colors.black12 : Colors.white12),
+                width: _focused ? 1.6 : 1,
               ),
+              boxShadow: _focused
+                  ? [
+                      BoxShadow(
+                        color: tp.accent.withValues(alpha: 0.30),
+                        blurRadius: 16,
+                        spreadRadius: 1,
+                      ),
+                    ]
+                  : null,
             ),
             child: Row(
               children: [
@@ -2345,86 +2390,4 @@ class _FocusMenuTileState extends State<_FocusMenuTile> {
   }
 }
 
-class _FocusableIconBtn extends StatefulWidget {
-  final FocusNode? focusNode;
-  final IconData icon;
-  final String tooltip;
-  final VoidCallback? onPressed;
-  final void Function(LogicalKeyboardKey dir)? onNav;
-  final Color? color;
 
-  const _FocusableIconBtn({
-    this.focusNode,
-    required this.icon,
-    required this.tooltip,
-    this.onPressed,
-    this.onNav,
-    this.color,
-  });
-
-  @override
-  State<_FocusableIconBtn> createState() => _FocusableIconBtnState();
-}
-
-class _FocusableIconBtnState extends State<_FocusableIconBtn> {
-  bool _focused = false;
-
-  @override
-  Widget build(BuildContext context) {
-    return Focus(
-      focusNode: widget.focusNode,
-      onFocusChange: (f) => setState(() => _focused = f),
-      onKeyEvent: (_, event) {
-        if (event is! KeyDownEvent) return KeyEventResult.ignored;
-        final key = event.logicalKey;
-
-        if (key == LogicalKeyboardKey.gameButtonA ||
-            key == LogicalKeyboardKey.enter ||
-            key == LogicalKeyboardKey.select) {
-          widget.onPressed?.call();
-          return KeyEventResult.handled;
-        }
-
-        if (key == LogicalKeyboardKey.arrowDown ||
-            key == LogicalKeyboardKey.arrowUp ||
-            key == LogicalKeyboardKey.arrowLeft ||
-            key == LogicalKeyboardKey.arrowRight) {
-          widget.onNav?.call(key);
-          return KeyEventResult.handled;
-        }
-
-        if (key == LogicalKeyboardKey.gameButtonB ||
-            key == LogicalKeyboardKey.goBack ||
-            key == LogicalKeyboardKey.escape) {
-          Navigator.maybePop(context);
-          return KeyEventResult.handled;
-        }
-        return KeyEventResult.ignored;
-      },
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 120),
-        margin: const EdgeInsets.symmetric(horizontal: 2, vertical: 6),
-        decoration: BoxDecoration(
-          color: _focused
-              ? Colors.white.withValues(alpha: 0.15)
-              : Colors.transparent,
-          borderRadius: BorderRadius.circular(8),
-          border: _focused
-              ? Border.all(color: Colors.white54, width: 1.5)
-              : null,
-        ),
-        child: IconButton(
-          icon: Icon(widget.icon, color: widget.color ?? Colors.white),
-          tooltip: widget.tooltip,
-          onPressed: widget.onPressed,
-          focusNode: FocusNode(skipTraversal: true),
-          style: IconButton.styleFrom(
-            focusColor: Colors.transparent,
-            hoverColor: Colors.transparent,
-            highlightColor: Colors.transparent,
-          ),
-        ),
-      ),
-    );
-  }
-}

@@ -53,13 +53,17 @@ APP_VERSION    = $(patsubst client-%,%,$(patsubst v%,%,$(TAG)))
 RELEASE_DIR    = $(RELEASE_DIST)/$(TAG)
 APK_SRC        = build/app/outputs/flutter-apk/app-release.apk
 AAB_SRC        = build/app/outputs/bundle/release/app-release.aab
-EXE_SRC        = build/windows/x64/runner/Release/jujostream.exe
+# The whole Release folder is the Windows app, not just the .exe: the runner
+# needs flutter_windows.dll, every plugin DLL, and data/ — which holds app.so,
+# the AOT snapshot carrying the --dart-define values. Shipping the bare exe
+# produced a 626 KB download that cannot start.
+WIN_SRC_DIR    = build/windows/x64/runner/Release
 APK_NAME       = JujoStream-$(TAG)-android.apk
 AAB_NAME       = JujoStream-$(TAG)-android.aab
-EXE_NAME       = JujoStream-$(TAG)-windows-x64.exe
+ZIP_NAME       = JujoStream-$(TAG)-windows-x64.zip
 APK_OUT        = $(RELEASE_DIR)/$(APK_NAME)
 AAB_OUT        = $(RELEASE_DIR)/$(AAB_NAME)
-EXE_OUT        = $(RELEASE_DIR)/$(EXE_NAME)
+ZIP_OUT        = $(RELEASE_DIR)/$(ZIP_NAME)
 SHA_OUT        = $(RELEASE_DIR)/SHA256SUMS.txt
 
 .PHONY: help setup-android-deps verify-android-keystore validate-release-tag build-apk build-aab release-apk release-apk-dry-run clean cbuild Grelease
@@ -136,8 +140,9 @@ $(RELEASE_DIR)/build-all: validate-release-tag $(RELEASE_DIR) verify-android-key
 	flutter build windows --release $(DART_DEFINES)
 	powershell -NoProfile -Command "Copy-Item -LiteralPath '$(APK_SRC)' -Destination '$(APK_OUT)' -Force"
 	powershell -NoProfile -Command "Copy-Item -LiteralPath '$(AAB_SRC)' -Destination '$(AAB_OUT)' -Force"
-	powershell -NoProfile -Command "Copy-Item -LiteralPath '$(EXE_SRC)' -Destination '$(EXE_OUT)' -Force"
-	powershell -NoProfile -Command "Set-Content -LiteralPath '$(SHA_OUT)' -Value @(((Get-FileHash -Algorithm SHA256 -LiteralPath '$(APK_OUT)').Hash.ToLowerInvariant() + '  $(APK_NAME)'), ((Get-FileHash -Algorithm SHA256 -LiteralPath '$(EXE_OUT)').Hash.ToLowerInvariant() + '  $(EXE_NAME)')) -Encoding ascii"
+	powershell -NoProfile -Command "if (-not (Test-Path -LiteralPath '$(WIN_SRC_DIR)/data/app.so')) { throw 'Windows build is incomplete: data/app.so is missing.' }"
+	powershell -NoProfile -Command "if (Test-Path -LiteralPath '$(ZIP_OUT)') { Remove-Item -LiteralPath '$(ZIP_OUT)' -Force }; Compress-Archive -Path '$(WIN_SRC_DIR)/*' -DestinationPath '$(ZIP_OUT)'"
+	powershell -NoProfile -Command "Set-Content -LiteralPath '$(SHA_OUT)' -Value @(((Get-FileHash -Algorithm SHA256 -LiteralPath '$(APK_OUT)').Hash.ToLowerInvariant() + '  $(APK_NAME)'), ((Get-FileHash -Algorithm SHA256 -LiteralPath '$(ZIP_OUT)').Hash.ToLowerInvariant() + '  $(ZIP_NAME)')) -Encoding ascii"
 	powershell -NoProfile -Command "New-Item -ItemType File -Path '$(RELEASE_DIR)/build-all' -Force | Out-Null"
 
 $(APK_OUT): $(RELEASE_DIR)/build-all
@@ -153,8 +158,8 @@ release-apk: validate-release-tag $(SHA_OUT)
 Grelease: validate-release-tag $(RELEASE_DIR)/build-all
 	git tag -f $(TAG)
 	set GIT_TERMINAL_PROMPT=0&& git push origin $(TAG) -f
-	gh release create $(TAG) "$(APK_OUT)" "$(EXE_OUT)" "$(SHA_OUT)" --repo $(GITHUB_REPO) --title "JujoStream $(TAG)" --notes "$(RELEASE_NOTES)" 2>NUL || \
-	gh release upload $(TAG) "$(APK_OUT)" "$(EXE_OUT)" "$(SHA_OUT)" --repo $(GITHUB_REPO) --clobber
+	gh release create $(TAG) "$(APK_OUT)" "$(ZIP_OUT)" "$(SHA_OUT)" --repo $(GITHUB_REPO) --title "JujoStream $(TAG)" --notes "$(RELEASE_NOTES)" 2>NUL || \
+	gh release upload $(TAG) "$(APK_OUT)" "$(ZIP_OUT)" "$(SHA_OUT)" --repo $(GITHUB_REPO) --clobber
 
 cbuild: release-apk
 	@echo "Build and release completed for version $(VERSION) with tag $(TAG)"

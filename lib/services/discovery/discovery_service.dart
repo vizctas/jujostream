@@ -192,6 +192,11 @@ class DiscoveryService {
 
     final discovery = _discovery;
     _discovery = null;
+    // Forget what was seen in this session. The cache is keyed by address and
+    // never expired, so after one app-switch every re-found service hit the
+    // duplicate check and stopped being emitted — LAN rediscovery was dead for
+    // the rest of the process lifetime.
+    _discoveredComputers.clear();
     if (discovery == null) return;
 
     try {

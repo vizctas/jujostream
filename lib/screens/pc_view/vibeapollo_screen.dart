@@ -56,7 +56,7 @@ const _actions = <_ApiAction>[
   _ApiAction(
     id: 'restart',
     label: 'Restart',
-    desc: 'Restart VibeApollo service',
+    desc: 'Restart the Jujo.Stream Server service',
     icon: Icons.restart_alt_rounded,
     method: 'POST',
     path: '/api/restart',
@@ -569,7 +569,7 @@ class _VibeApolloScreenState extends State<VibeApolloScreen> {
               ),
               const SizedBox(width: 8),
               const Text(
-                'VibeApollo',
+                'Server API',
                 style: TextStyle(fontWeight: FontWeight.w700, fontSize: 17),
               ),
             ],
@@ -647,13 +647,17 @@ class _VibeApolloScreenState extends State<VibeApolloScreen> {
     );
   }
 
+  /// Section heading.
+  ///
+  /// Was 10px uppercase at 1.1 tracking and 30% white: the tracked-eyebrow
+  /// pattern, and 2.7:1 against the panel. Sentence case at a readable size and
+  /// weight says the same thing at 8.9:1.
   Widget _sectionLabel(String text) => Text(
-    text.toUpperCase(),
-    style: TextStyle(
-      color: Colors.white.withValues(alpha: 0.30),
-      fontSize: 10,
-      fontWeight: FontWeight.w700,
-      letterSpacing: 1.1,
+    text,
+    style: const TextStyle(
+      color: Colors.white70,
+      fontSize: 12,
+      fontWeight: FontWeight.w600,
     ),
   );
 
@@ -729,9 +733,13 @@ class _VibeApolloScreenState extends State<VibeApolloScreen> {
                         onTap: _validating ? null : _validateToken,
                         child: AnimatedContainer(
                           duration: const Duration(milliseconds: 140),
+                          // Was 8/4, giving a ~22px-tall tap target. The pill
+                          // still reads as compact but is now reachable.
+                          constraints: const BoxConstraints(minHeight: 40),
+                          alignment: Alignment.center,
                           padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 4,
+                            horizontal: 14,
+                            vertical: 10,
                           ),
                           decoration: BoxDecoration(
                             color: tp.accent.withValues(alpha: 0.12),
@@ -760,12 +768,17 @@ class _VibeApolloScreenState extends State<VibeApolloScreen> {
                         ),
                       ),
                       const SizedBox(width: 8),
-                      Icon(
-                        _tokenVisible
-                            ? Icons.visibility_off_outlined
-                            : Icons.visibility_outlined,
-                        color: Colors.white30,
-                        size: 15,
+                      // The glyph is the only thing conveying this state, so it
+                      // needs a label a screen reader can read out.
+                      Semantics(
+                        label: _tokenVisible ? 'Token shown' : 'Token hidden',
+                        child: Icon(
+                          _tokenVisible
+                              ? Icons.visibility_off_outlined
+                              : Icons.visibility_outlined,
+                          color: Colors.white54,
+                          size: 15,
+                        ),
                       ),
                     ],
                   ),
@@ -798,7 +811,8 @@ class _VibeApolloScreenState extends State<VibeApolloScreen> {
                                   'Pega el Bearer token aqui…',
                                 ),
                                 hintStyle: const TextStyle(
-                                  color: Colors.white24,
+                                  // white24 measured 2.1:1 on this panel.
+                                  color: Colors.white54,
                                   fontSize: 13,
                                 ),
                                 border: InputBorder.none,
@@ -808,9 +822,17 @@ class _VibeApolloScreenState extends State<VibeApolloScreen> {
                               onChanged: _saveToken,
                             ),
                           ),
-                          const SizedBox(width: 8),
-                          GestureDetector(
-                            onTap: () async {
+                          // Was a bare 16x16 Icon in a GestureDetector: under
+                          // half the minimum target size, and unnamed.
+                          IconButton(
+                            icon: const Icon(
+                              Icons.content_paste_rounded,
+                              color: Colors.white54,
+                              size: 16,
+                            ),
+                            tooltip: 'Paste token',
+                            visualDensity: VisualDensity.compact,
+                            onPressed: () async {
                               final d = await Clipboard.getData(
                                 Clipboard.kTextPlain,
                               );
@@ -821,11 +843,6 @@ class _VibeApolloScreenState extends State<VibeApolloScreen> {
                                 _saveToken(d.text!);
                               }
                             },
-                            child: const Icon(
-                              Icons.content_paste_rounded,
-                              color: Colors.white30,
-                              size: 16,
-                            ),
                           ),
                         ],
                       ),
@@ -987,10 +1004,12 @@ class _ActionCardState extends State<_ActionCard> {
                 Text(
                   description,
                   style: TextStyle(
+                    // 0.28 measured 2.3:1. Disabled text is exempt from the
+                    // contrast minimum, enabled text is not.
                     color: Colors.white.withValues(
-                      alpha: isDisabled ? 0.22 : 0.28,
+                      alpha: isDisabled ? 0.38 : 0.70,
                     ),
-                    fontSize: 10,
+                    fontSize: 11,
                   ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,

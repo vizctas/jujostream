@@ -67,7 +67,7 @@ const Map<String, String> errorDescriptions = {
       'Another pairing session may already be active on the server.',
   'PAIR-006': 'Server rejected challenge — PIN incorrect or pairing state invalid.',
   'PAIR-007': 'Server rejected client pairing secret after handshake. '
-      'Check Sunshine/Apollo logs.',
+      'Check the server logs.',
   'PAIR-008': 'Malformed server response during pairing handshake.',
   'PAIR-009': 'DNS resolution failed for server hostname.',
   'PAIR-010': 'TLS/SSL handshake error during pairing.',

@@ -477,8 +477,8 @@ class _AboutScreenState extends State<AboutScreen> {
           Text(
             _tr(
               context,
-              'Next-gen GameStream client for Sunshine & Apollo',
-              'Cliente GameStream de nueva generación para Sunshine y Apollo',
+              'Next-gen GameStream client for Jujo.Stream Server',
+              'Cliente GameStream de nueva generación para Jujo.Stream Server',
             ),
             style: TextStyle(
               color: Colors.white54,

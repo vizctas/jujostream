@@ -13,6 +13,7 @@ import '../../models/game_collection.dart';
 import '../../models/nv_app.dart';
 import '../../providers/app_list_provider.dart';
 import '../../providers/computer_provider.dart';
+import '../../widgets/pairing_dialog.dart';
 
 import '../../providers/plugins_provider.dart';
 import '../../providers/settings_provider.dart';
@@ -679,6 +680,32 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
                         label: Text(AppLocalizations.of(context).retry),
                         onPressed: () => provider.loadApps(widget.computer),
                       ),
+                      // Retry alone cannot fix a rejected certificate — it
+                      // just repeats the doomed call. Offer the actual cure.
+                      if (provider.lastFailureWasCertRejected) ...[
+                        const SizedBox(height: 12),
+                        TextButton.icon(
+                          icon: const Icon(Icons.link, size: 18),
+                          label: Text(
+                            Localizations.localeOf(context).languageCode == 'es'
+                                ? 'Volver a emparejar'
+                                : 'Re-pair this device',
+                          ),
+                          onPressed: () async {
+                            await context
+                                .read<ComputerProvider>()
+                                .unpairComputer(widget.computer);
+                            if (!context.mounted) return;
+                            final paired = await showPairingDialog(
+                              context,
+                              widget.computer,
+                            );
+                            if (paired && context.mounted) {
+                              provider.loadApps(widget.computer);
+                            }
+                          },
+                        ),
+                      ],
                     ],
                   ),
                 ),

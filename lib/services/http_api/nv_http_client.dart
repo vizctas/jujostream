@@ -104,6 +104,8 @@ class NvHttpClient {
     return null;
   }
 
+  /// Convenience wrapper that discards the cert verdict.
+  /// Prefer [fetchServerInfo] on any path that owns pairing state.
   Future<ComputerDetails?> getServerInfoHttps(
     String address, {
     int httpsPort = defaultHttpsPort,
@@ -111,7 +113,34 @@ class NvHttpClient {
     Duration timeout = const Duration(seconds: 5),
     String? expectedServerCert,
   }) async {
+    final result = await fetchServerInfo(
+      address,
+      httpsPort: httpsPort,
+      httpPort: httpPort,
+      timeout: timeout,
+      expectedServerCert: expectedServerCert,
+    );
+    return result.info;
+  }
+
+  /// Fetches `/serverinfo`, reporting whether the pinned server certificate was
+  /// rejected.
+  ///
+  /// The HTTP fallback below makes a rotated server certificate look like an
+  /// ordinary reachable server, which is how a dead `serverCert` used to
+  /// survive forever. `certRejected` is the signal that the stored pairing is
+  /// gone and must be cleared — it is returned rather than stored on the
+  /// instance because this client is shared across concurrent calls.
+  Future<({ComputerDetails? info, bool certRejected})> fetchServerInfo(
+    String address, {
+    int httpsPort = defaultHttpsPort,
+    int httpPort = defaultHttpPort,
+    Duration timeout = const Duration(seconds: 5),
+    String? expectedServerCert,
+  }) async {
     final resolvedAddress = await _resolveAddress(address);
+    final pinned = expectedServerCert != null && expectedServerCert.isNotEmpty;
+    var certRejected = false;
     try {
       final url =
           '${_baseUrl(resolvedAddress, httpsPort)}/serverinfo'
@@ -136,7 +165,8 @@ class NvHttpClient {
               'serverinfo HTTPS XML status_code=$xmlAttrStatus (cert unrecognized), '
               'falling back to HTTP',
             );
-            // fall through to HTTP fallback below
+            // The server answered and refused this device: the pairing is gone.
+            certRejected = true;
           } else {
             final info = parseServerInfo(
               response.body,
@@ -144,18 +174,28 @@ class NvHttpClient {
               httpPort,
             );
             info.pairStatusFromHttps = true;
-            return info;
+            return (info: info, certRejected: false);
           }
         }
         _log.w('serverinfo HTTPS ${response.statusCode}, falling back to HTTP');
       } finally {
         client.close();
       }
+    } on HandshakeException catch (e) {
+      // Only meaningful when a cert was pinned: the server presented a
+      // different certificate than the one stored at pairing time.
+      certRejected = pinned;
+      _log.w('HTTPS serverinfo handshake failed ($e), falling back to HTTP');
     } catch (e) {
       _log.w('HTTPS serverinfo failed ($e), falling back to HTTP');
     }
 
-    return getServerInfo(resolvedAddress, port: httpPort, timeout: timeout);
+    final info = await getServerInfo(
+      resolvedAddress,
+      port: httpPort,
+      timeout: timeout,
+    );
+    return (info: info, certRejected: certRejected);
   }
 
   @visibleForTesting
@@ -450,6 +490,14 @@ class NvHttpClient {
               .timeout(const Duration(seconds: 10));
 
           if (response.statusCode != 200) {
+            // Server-side and rate-limit statuses are transient — Sunshine
+            // answers them while it is switching state. Returning immediately
+            // treated a 503 mid-transition as a permanent failure.
+            if (_isTransientStatus(response.statusCode) &&
+                attempt < _maxLaunchRetries) {
+              _log.w('Launch got HTTP ${response.statusCode}; retrying');
+              continue;
+            }
             return LaunchResult.fail('HTTP ${response.statusCode}');
           }
 
@@ -580,6 +628,11 @@ class NvHttpClient {
               .timeout(const Duration(seconds: 10));
 
           if (response.statusCode != 200) {
+            if (_isTransientStatus(response.statusCode) &&
+                attempt < _maxLaunchRetries) {
+              _log.w('Resume got HTTP ${response.statusCode}; retrying');
+              continue;
+            }
             return LaunchResult.fail('HTTP ${response.statusCode}');
           }
 
@@ -634,6 +687,11 @@ class NvHttpClient {
         msg.contains('timed out') ||
         msg.contains('timeout');
   }
+
+  /// Statuses worth another attempt: the server is up but momentarily unable
+  /// to serve the request (state transition, restart, rate limit).
+  static bool _isTransientStatus(int status) =>
+      status == 408 || status == 429 || status >= 500;
 
   /// Converts raw exceptions into user-friendly error messages.
   static String _friendlyError(Object e, String address, int port) {

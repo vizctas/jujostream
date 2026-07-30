@@ -17,6 +17,26 @@ import '../services/sync/cloud_sync_service.dart';
 import '../services/auth/supabase_config.dart';
 import '../services/crypto/client_identity.dart';
 
+/// Every address this server is known by, best guess first.
+///
+/// The hot paths (applist, launch, stream) all follow `activeAddress`, so
+/// making the poll try the alternatives and promote whichever answers is what
+/// lets a server survive a DHCP change or a switch between its `.local` name
+/// and its raw IP.
+List<String> candidateAddresses(ComputerDetails computer) {
+  final seen = <String>{};
+  return <String>[
+        computer.activeAddress,
+        computer.localAddress,
+        computer.manualAddress,
+        computer.remoteAddress,
+      ]
+      .map((a) => a.trim())
+      .where((a) => a.isNotEmpty)
+      .where(seen.add)
+      .toList(growable: false);
+}
+
 bool isComputerVisible({
   required ComputerDetails computer,
   required bool cloudSignedIn,
@@ -28,29 +48,16 @@ bool isComputerVisible({
       hasLocalPairingCredentials(computer);
 }
 
-/// A Cloud record may still be a trusted LAN server for this device after the
-/// Cloud session ends. Keep it visible only when the device holds its pinned
-/// pairing certificate and the saved endpoint is an RFC1918 LAN address.
-/// This deliberately excludes remote-only Cloud records.
+/// A Cloud record is still a trusted server for this device after the Cloud
+/// session ends: the pinned pairing certificate is the authority, and the cloud
+/// only ever added remote discovery on top of it.
+///
+/// This used to also require an RFC1918 `localAddress`, which hid servers
+/// reached over mDNS `.local`, IPv6, Tailscale (100.64/10) or link-local — a
+/// user standing next to their machine watched its card vanish when their
+/// Supabase token expired.
 bool hasLocalPairingCredentials(ComputerDetails computer) {
-  return computer.isPaired &&
-      computer.serverCert.isNotEmpty &&
-      _isPrivateIpv4Address(computer.localAddress);
-}
-
-bool _isPrivateIpv4Address(String address) {
-  final octets = address.trim().split('.');
-  if (octets.length != 4) return false;
-  final values = octets.map(int.tryParse).toList(growable: false);
-  if (values.any((value) => value == null || value < 0 || value > 255)) {
-    return false;
-  }
-
-  final first = values[0]!;
-  final second = values[1]!;
-  return first == 10 ||
-      (first == 172 && second >= 16 && second <= 31) ||
-      (first == 192 && second == 168);
+  return computer.isPaired && computer.serverCert.isNotEmpty;
 }
 
 /// Cloud is optional for LAN-only installations. Avoid reading Supabase's
@@ -59,6 +66,23 @@ bool isCloudSessionActive({
   required bool cloudConfigured,
   required bool Function() readSession,
 }) => cloudConfigured && readSession();
+
+/// Whether a cloud session is live right now.
+///
+/// `Supabase.instance` throws when `initialize()` failed — a build shipped with
+/// a bad URL/key, for instance. Unguarded, that exception used to propagate out
+/// of the `computers` getter during build and left a LAN-only user unable to
+/// see or enter any server at all. Every caller must go through here.
+bool hasCloudSession() => isCloudSessionActive(
+  cloudConfigured: SupabaseConfig.current.isConfigured,
+  readSession: () {
+    try {
+      return Supabase.instance.client.auth.currentSession != null;
+    } catch (_) {
+      return false;
+    }
+  },
+);
 
 /// Test seam for the server-side unpair request. The default keeps using the
 /// established nVHTTP endpoint implemented by [PairingService].
@@ -78,7 +102,13 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
   static const String _primaryServerKey = 'primary_server_uuid';
   static const String _customOrderKey = 'computer_custom_order';
   bool _isDiscovering = false;
-  bool _isPairing = false;
+
+  /// Servers with a pairing handshake in flight.
+  ///
+  /// This used to be one global flag, which froze polling for *every* server
+  /// for the whole handshake — phase 1 alone can block for minutes waiting on
+  /// the user to type a PIN.
+  final Set<String> _pairingKeys = <String>{};
   String? _error;
   Timer? _pollTimer;
 
@@ -136,16 +166,16 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
 
   static const Duration _activePollInterval = Duration(seconds: 3);
   static const Duration _idlePollInterval = Duration(seconds: 30);
-  static const Duration _pollTimeout = Duration(seconds: 2);
+  // getServerInfoHttps spends this budget twice (HTTPS 47984, then the HTTP
+  // 47989 fallback). At 2s a cold TLS handshake plus mDNS resolution blows
+  // through it and two consecutive misses mark a healthy server offline.
+  static const Duration _pollTimeout = Duration(seconds: 5);
   bool _appInForeground = true;
 
   /// Whether a JUJO cloud account is currently signed in. Cloud-paired servers
   /// must only be visible/enterable while signed in — on sign-out they are
   /// hidden (not deleted) and restored on the next sign-in.
-  bool get _cloudSignedIn => isCloudSessionActive(
-    cloudConfigured: SupabaseConfig.current.isConfigured,
-    readSession: () => Supabase.instance.client.auth.currentSession != null,
-  );
+  bool get _cloudSignedIn => hasCloudSession();
 
   List<ComputerDetails> get computers {
     final visible = _computers
@@ -177,7 +207,7 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   bool get isDiscovering => _isDiscovering;
-  bool get isPairing => _isPairing;
+  bool get isPairing => _pairingKeys.isNotEmpty;
 
   String? get error => _error;
 
@@ -262,8 +292,11 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<void> _pollAll() async {
-    if (_isPairing || _computers.isEmpty || !_appInForeground) return;
-    final snapshot = List<ComputerDetails>.from(_computers);
+    if (_computers.isEmpty || !_appInForeground) return;
+    final snapshot = _computers
+        .where((c) => !_pairingKeys.contains(_failKey(c)))
+        .toList(growable: false);
+    if (snapshot.isEmpty) return;
     // Poll all computers in parallel instead of sequentially.
     // Sequential polling with 5s timeouts caused extreme slowness on macOS
     // when any server was unreachable.
@@ -282,13 +315,22 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
         return;
       }
 
+      // This runs again after every cloud sync. Without carrying the polled
+      // state over, every server resets to `unknown` — which the UI treats as
+      // offline — until the next poll lands.
+      final knownStates = {
+        for (final c in _computers)
+          if (c.uuid.isNotEmpty) c.uuid: c.state,
+      };
+
       _computers
         ..clear()
         ..addAll(
           jsonList.map((entry) {
             final map = jsonDecode(entry) as Map<String, dynamic>;
             final computer = ComputerDetails.fromJson(map);
-            computer.state = ComputerState.unknown;
+            computer.state =
+                knownStates[computer.uuid] ?? ComputerState.unknown;
 
             if (computer.pairState == PairState.paired &&
                 computer.serverCert.isNotEmpty) {
@@ -464,11 +506,12 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
-  Future<void> pollComputer(ComputerDetails computer) async {
-    final address = computer.activeAddress.isNotEmpty
-        ? computer.activeAddress
-        : computer.localAddress;
-
+  /// Polls one server and returns its resulting state.
+  ///
+  /// Callers must use the return value rather than re-reading `computer.state`:
+  /// on success [_addOrUpdateComputer] replaces the list entry with a new
+  /// object, leaving the caller's reference stale.
+  Future<ComputerState> pollComputer(ComputerDetails computer) async {
     final httpPort = computer.externalPort > 0
         ? computer.externalPort
         : NvHttpClient.defaultHttpPort;
@@ -476,39 +519,80 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
         ? computer.httpsPort
         : NvHttpClient.defaultHttpsPort;
 
-    final serverInfo = await _httpClient.getServerInfoHttps(
-      address,
-      httpsPort: httpsPort,
-      httpPort: httpPort,
-      timeout: _pollTimeout,
-      expectedServerCert: computer.serverCert,
-    );
+    // Walk every known address instead of only activeAddress. The first one
+    // usually answers, so the common case is still a single request.
+    ({ComputerDetails? info, bool certRejected})? result;
+    for (final address in candidateAddresses(computer)) {
+      final attempt = await _httpClient.fetchServerInfo(
+        address,
+        httpsPort: httpsPort,
+        httpPort: httpPort,
+        timeout: _pollTimeout,
+        expectedServerCert: computer.serverCert,
+      );
+      result ??= attempt;
+      if (attempt.info != null || attempt.certRejected) {
+        result = attempt;
+        break;
+      }
+    }
+    final serverInfo = result?.info;
+    final certRejected = result?.certRejected ?? false;
+
+    if (certRejected) {
+      // The server is up and refuses this device — it was reinstalled or its
+      // state file was wiped. Drop the dead credentials so the UI offers
+      // pairing again instead of showing a permanently "connected" card.
+      _clearStalePairing(computer, serverInfo);
+    }
 
     if (serverInfo != null) {
       serverInfo.manualAddress = computer.manualAddress;
-      if (serverInfo.serverCert.isEmpty && computer.serverCert.isNotEmpty) {
+      if (!certRejected &&
+          serverInfo.serverCert.isEmpty &&
+          computer.serverCert.isNotEmpty) {
         serverInfo.serverCert = computer.serverCert;
       }
-      _pollFailCount[computer.uuid] = 0;
+      _pollFailCount[_failKey(computer)] = 0;
       _addOrUpdateComputer(serverInfo);
-    } else {
-      final key = computer.uuid.isNotEmpty
-          ? computer.uuid
-          : computer.localAddress;
-      final count = (_pollFailCount[key] ?? 0) + 1;
-      _pollFailCount[key] = count;
-      if (count >= _kOfflineThreshold) {
-        computer.state = ComputerState.offline;
-        _persistComputers();
-        notifyListeners();
-      }
+      return serverInfo.state;
     }
+
+    final key = _failKey(computer);
+    final count = (_pollFailCount[key] ?? 0) + 1;
+    _pollFailCount[key] = count;
+    if (count >= _kOfflineThreshold) {
+      computer.state = ComputerState.offline;
+      _persistComputers();
+      notifyListeners();
+      return ComputerState.offline;
+    }
+    return computer.state;
+  }
+
+  /// Key for [_pollFailCount]. Must be identical on the reset and the increment
+  /// side — using `uuid` on one and this fallback on the other meant a
+  /// uuid-less record could never clear its counter.
+  String _failKey(ComputerDetails c) =>
+      c.uuid.isNotEmpty ? c.uuid : c.localAddress;
+
+  /// Forgets the pairing credentials of a server that no longer recognises us.
+  void _clearStalePairing(ComputerDetails computer, ComputerDetails? fresh) {
+    for (final c in [computer, ?fresh]) {
+      c.serverCert = '';
+      c.pairState = PairState.notPaired;
+      c.pairStatusFromHttps = false;
+    }
+    _persistComputers();
+    notifyListeners();
   }
 
   void removeComputer(ComputerDetails computer) {
     _computers.removeWhere(
       (c) => c.uuid == computer.uuid || c.localAddress == computer.localAddress,
     );
+    _pollFailCount.remove(_failKey(computer));
+    _pairingCompletedAt.remove(_failKey(computer));
 
     _persistComputers();
     notifyListeners();
@@ -542,7 +626,8 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
       await stopDiscovery();
     }
 
-    _isPairing = true;
+    final pairingKey = _failKey(computer);
+    _pairingKeys.add(pairingKey);
     computer.pairState = PairState.alreadyInProgress;
     _error = null;
     notifyListeners();
@@ -570,8 +655,8 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
 
         unawaited(AchievementService.instance.unlock('first_connection'));
 
-        // Keep _isPairing = true during the post-pairing poll so the
-        // periodic _pollAll() timer doesn't race with us.
+        // Still marked as pairing during the post-pairing poll so the periodic
+        // _pollAll() timer doesn't race with us on *this* server.
         await pollComputer(computer);
       } else {
         computer.pairState = PairState.failed;
@@ -582,7 +667,7 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
 
       return result;
     } finally {
-      _isPairing = false;
+      _pairingKeys.remove(pairingKey);
       if (wasDiscovering) {
         await startDiscovery();
       }
@@ -617,13 +702,22 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
         : NvHttpClient.defaultHttpPort;
 
     try {
-      final info = await _httpClient.getServerInfoHttps(
+      final result = await _httpClient.fetchServerInfo(
         address,
         httpsPort: httpsPort,
         httpPort: httpPort,
         timeout: const Duration(seconds: 3),
         expectedServerCert: computer.serverCert,
       );
+      final info = result.info;
+
+      if (result.certRejected) {
+        // Reached the server and it refused this device. Not ambiguous, so do
+        // not fail open — clear the dead pairing and let the caller re-pair.
+        _clearStalePairing(computer, info);
+        return await _attemptCloudPairingOnTheFly(computer);
+      }
+
       if (info == null) {
         // Server unreachable — can't verify. Allow entry optimistically
         // (the stream will fail with a clear error if truly unpaired).
@@ -673,41 +767,54 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
+  /// Forgets this device's pairing with [computer].
+  ///
+  /// The request to the server is best-effort: if the server is gone,
+  /// reinstalled, or moved, there is nothing left to revoke there, and keeping
+  /// the local credentials would only leave the user stuck with a pairing that
+  /// cannot be repaired. Local state is therefore always cleared; the return
+  /// value reports whether the server also acknowledged.
   Future<bool> unpairComputer(ComputerDetails computer) async {
     final success =
         await (_unpairRequest?.call(computer) ??
             _pairingService.unpair(computer));
-    if (success) {
-      computer.pairState = PairState.notPaired;
-      computer.serverCert = '';
-      computer.pairStatusFromHttps = false;
 
-      // Clear grace period so a subsequent re-pair doesn't inherit
-      // stale protection from the previous pairing session.
-      final graceKey = computer.uuid.isNotEmpty
-          ? computer.uuid
-          : computer.localAddress;
-      _pairingCompletedAt.remove(graceKey);
+    computer.pairState = PairState.notPaired;
+    computer.serverCert = '';
+    computer.pairStatusFromHttps = false;
 
-      _persistComputers();
-      notifyListeners();
-    }
+    // Clear grace period so a subsequent re-pair doesn't inherit
+    // stale protection from the previous pairing session.
+    _pairingCompletedAt.remove(_failKey(computer));
+
+    _persistComputers();
+    notifyListeners();
     return success;
   }
 
   /// Revokes this client's pairing at the server before forgetting the local
-  /// record. A failure intentionally leaves the record intact so the user can
-  /// retry and never loses the route to revoke the device remotely.
+  /// record. A failure intentionally leaves the record — and its paired state —
+  /// intact so the user can retry and never loses the route to revoke the
+  /// device remotely.
+  ///
+  /// Unlike [unpairComputer] this is fail-closed on purpose: forgetting our
+  /// credentials while the server still trusts this device would leave an
+  /// authorised client with no way to revoke it from here.
   Future<bool> revokeAndForgetComputer(ComputerDetails computer) async {
-    final revoked = await unpairComputer(computer);
+    final revoked =
+        await (_unpairRequest?.call(computer) ??
+            _pairingService.unpair(computer));
     if (!revoked) return false;
 
+    _pairingCompletedAt.remove(_failKey(computer));
     removeComputer(computer);
     return true;
   }
 
   void _onComputerDiscovered(ComputerDetails computer) async {
-    if (_isPairing) {
+    // Only skip the server currently mid-handshake; discovering the others is
+    // harmless and keeps the list fresh.
+    if (_pairingKeys.contains(_failKey(computer))) {
       return;
     }
 
@@ -783,6 +890,17 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
       }
       if (computer.configHttpsPort == 0 && existing.configHttpsPort > 0) {
         computer.configHttpsPort = existing.configHttpsPort;
+      }
+      // An HTTP-fallback poll carries no <ExternalIP> and no <HttpsPort>, so
+      // without these a single degraded response wiped the remote address and
+      // reset a learned custom port back to the 47984 default, permanently.
+      if (computer.remoteAddress.isEmpty && existing.remoteAddress.isNotEmpty) {
+        computer.remoteAddress = existing.remoteAddress;
+      }
+      if (computer.httpsPort == NvHttpClient.defaultHttpsPort &&
+          existing.httpsPort > 0 &&
+          existing.httpsPort != NvHttpClient.defaultHttpsPort) {
+        computer.httpsPort = existing.httpsPort;
       }
       if (existing.isCloud) {
         computer.isCloud = true;

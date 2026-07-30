@@ -9,21 +9,25 @@ import '../providers/auth_provider.dart';
 import '../providers/computer_provider.dart';
 import '../providers/theme_provider.dart';
 import '../ui/computer_connection_status.dart';
+import '../widgets/pairing_dialog.dart';
 import '../widgets/server_info_card.dart';
 import '../screens/pc_view/vibeapollo_screen.dart';
 
 /// Shared server-options dialog used from both pc_view_screen and
 /// focus_mode_screen. Accepts callbacks so each screen can manage its own
-/// background-image state without coupling to a specific screen class.
+/// profile-image state without coupling to a specific screen class.
+///
+/// The profile image fills the server's circle (focus mode) or card (grid). It
+/// is not the wallpaper — that lives in Preferences.
 class ComputerOptionsDialog {
   const ComputerOptionsDialog._();
 
   static void show({
     required BuildContext context,
     required ComputerDetails computer,
-    required Map<String, String> bgPaths,
-    required Future<void> Function(ComputerDetails) onPickBackground,
-    required Future<void> Function(ComputerDetails) onRemoveBackground,
+    required Map<String, String> profileImagePaths,
+    required Future<void> Function(ComputerDetails) onPickProfileImage,
+    required Future<void> Function(ComputerDetails) onRemoveProfileImage,
   }) {
     final l = AppLocalizations.of(context);
     showGeneralDialog(
@@ -56,7 +60,7 @@ class ComputerOptionsDialog {
         final dialogMinHeight = (dialogMaxHeight * 0.54)
             .clamp(280.0, dialogMaxHeight)
             .toDouble();
-        final hasBg = bgPaths.containsKey(computer.uuid);
+        final hasProfileImage = profileImagePaths.containsKey(computer.uuid);
 
         return Focus(
           skipTraversal: true,
@@ -163,25 +167,29 @@ class ComputerOptionsDialog {
                               },
                             ),
                             _tile(
-                              icon: Icons.photo_library_outlined,
+                              icon: Icons.account_circle_outlined,
                               iconColor: Colors.indigoAccent,
-                              title: 'Background Image',
-                              subtitle: hasBg
-                                  ? 'Tap to change · Long press to remove'
-                                  : 'Use a custom image as card backdrop',
+                              title: l.locale.languageCode == 'es'
+                                  ? 'Imagen de perfil'
+                                  : 'Profile Image',
+                              subtitle: l.locale.languageCode == 'es'
+                                  ? 'Imagen de este servidor. El fondo se cambia en Preferencias.'
+                                  : "This server's image. The wallpaper is set in Preferences.",
                               onTap: () async {
                                 Navigator.pop(ctx);
-                                await onPickBackground(computer);
+                                await onPickProfileImage(computer);
                               },
                             ),
-                            if (hasBg)
+                            if (hasProfileImage)
                               _tile(
-                                icon: Icons.image_not_supported_outlined,
+                                icon: Icons.hide_image_outlined,
                                 iconColor: Colors.white38,
-                                title: 'Remove Background',
+                                title: l.locale.languageCode == 'es'
+                                    ? 'Quitar imagen de perfil'
+                                    : 'Remove Profile Image',
                                 onTap: () {
                                   Navigator.pop(ctx);
-                                  onRemoveBackground(computer);
+                                  onRemoveProfileImage(computer);
                                 },
                               ),
                             _tile(
@@ -204,7 +212,7 @@ class ComputerOptionsDialog {
                               _tile(
                                 icon: Icons.dashboard_customize_outlined,
                                 iconColor: const Color(0xFFA78BFA),
-                                title: 'VibeApollo API',
+                                title: 'Server API',
                                 subtitle: 'Command center',
                                 onTap: () {
                                   Navigator.pop(ctx);
@@ -263,6 +271,26 @@ class ComputerOptionsDialog {
                                       );
                                     },
                             ),
+                            // Always available. A server that was reinstalled
+                            // still looks "paired" from here until the next
+                            // poll, and without this tile the user had no way
+                            // back once the stored certificate went stale.
+                            _tile(
+                              icon: Icons.link,
+                              iconColor: Colors.lightGreenAccent,
+                              title: l.locale.languageCode == 'es'
+                                  ? 'Volver a emparejar'
+                                  : 'Re-pair',
+                              subtitle: l.locale.languageCode == 'es'
+                                  ? 'Usar si el servidor se reinstaló o dejó de reconocer este dispositivo'
+                                  : 'Use if the server was reinstalled or no longer recognises this device',
+                              onTap: () async {
+                                Navigator.pop(ctx);
+                                await provider.unpairComputer(computer);
+                                if (!context.mounted) return;
+                                await showPairingDialog(context, computer);
+                              },
+                            ),
                             if (computer.isPaired)
                               _tile(
                                 icon: Icons.link_off,
@@ -313,7 +341,7 @@ class ComputerOptionsDialog {
                                       .revokeAndForgetComputer(computer);
                                   if (!context.mounted) return;
                                   if (success) {
-                                    await onRemoveBackground(computer);
+                                    await onRemoveProfileImage(computer);
                                   }
                                   if (!context.mounted) return;
                                   ScaffoldMessenger.of(context).showSnackBar(
