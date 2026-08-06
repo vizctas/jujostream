@@ -49,8 +49,10 @@ class ComputerOptionsDialog {
         final provider = context.read<ComputerProvider>();
         final cloudSignedIn = context.read<AuthProvider>().isSignedIn;
         final size = MediaQuery.sizeOf(ctx);
+        // The branches were inverted: a window wider than 900 got a NARROWER
+        // dialog (490) than one between 601 and 900 (500).
         final dialogWidth = size.width > 900
-            ? 490.0
+            ? 560.0
             : size.width > 600
             ? 500.0
             : size.width - 24;

@@ -4,6 +4,8 @@ import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
 import 'package:logger/logger.dart';
+
+import '../diagnostics_logger.dart';
 import '../../models/computer_details.dart';
 import '../../models/nv_app.dart';
 import '../crypto/client_identity.dart';
@@ -18,7 +20,7 @@ enum AppListFailure {
 }
 
 class NvHttpClient {
-  final Logger _log = Logger();
+  final Logger _log = diagnosticsLogger('NvHttp');
   final http.Client _httpClient;
   final MdnsHostnameResolver _mdnsResolver = MdnsHostnameResolver();
   final http.Client Function(String? expectedServerCert) _httpsClientFactory;
@@ -141,53 +143,62 @@ class NvHttpClient {
     final resolvedAddress = await _resolveAddress(address);
     final pinned = expectedServerCert != null && expectedServerCert.isNotEmpty;
     var certRejected = false;
-    try {
-      final url =
-          '${_baseUrl(resolvedAddress, httpsPort)}/serverinfo'
-          '?uniqueid=$uniqueId';
-      _log.d('Fetching server info (HTTPS) from: $url');
-
-      final client = _newHttpsClient(expectedServerCert);
+    // Without a pinned certificate the handshake cannot succeed: the server's
+    // cert is self-signed, so verification against the trusted roots always
+    // ends in CERTIFICATE_VERIFY_FAILED. Attempting it anyway cost one TLS
+    // round-trip per known address per poll — hundreds of failures per session
+    // — for a result that was always the HTTP fallback below.
+    if (pinned) {
       try {
-        final response = await client.get(Uri.parse(url)).timeout(timeout);
+        final url =
+            '${_baseUrl(resolvedAddress, httpsPort)}/serverinfo'
+            '?uniqueid=$uniqueId';
+        _log.d('Fetching server info (HTTPS) from: $url');
 
-        if (response.statusCode == 200) {
-          // on_verify_failed (nvhttp.cpp) sends HTTP 200 with status_code="401" as an XML
-          // attribute when the client cert is unrecognized. extractXmlValue uses an element
-          // regex and misses attributes — without this check we'd return pairStatusFromHttps=true
-          // + pairState=notPaired, falsely treating the server as "HTTPS confirmed not paired".
-          final attrMatch = RegExp(
-            r'status_code="(\d+)"',
-          ).firstMatch(response.body);
-          final xmlAttrStatus = attrMatch?.group(1);
-          if (xmlAttrStatus != null && xmlAttrStatus != '200') {
-            _log.w(
-              'serverinfo HTTPS XML status_code=$xmlAttrStatus (cert unrecognized), '
-              'falling back to HTTP',
-            );
-            // The server answered and refused this device: the pairing is gone.
-            certRejected = true;
-          } else {
-            final info = parseServerInfo(
-              response.body,
-              resolvedAddress,
-              httpPort,
-            );
-            info.pairStatusFromHttps = true;
-            return (info: info, certRejected: false);
+        final client = _newHttpsClient(expectedServerCert);
+        try {
+          final response = await client.get(Uri.parse(url)).timeout(timeout);
+
+          if (response.statusCode == 200) {
+            // on_verify_failed (nvhttp.cpp) sends HTTP 200 with status_code="401" as an XML
+            // attribute when the client cert is unrecognized. extractXmlValue uses an element
+            // regex and misses attributes — without this check we'd return pairStatusFromHttps=true
+            // + pairState=notPaired, falsely treating the server as "HTTPS confirmed not paired".
+            final attrMatch = RegExp(
+              r'status_code="(\d+)"',
+            ).firstMatch(response.body);
+            final xmlAttrStatus = attrMatch?.group(1);
+            if (xmlAttrStatus != null && xmlAttrStatus != '200') {
+              _log.w(
+                'serverinfo HTTPS XML status_code=$xmlAttrStatus (cert unrecognized), '
+                'falling back to HTTP',
+              );
+              // The server answered and refused this device: the pairing is gone.
+              certRejected = true;
+            } else {
+              final info = parseServerInfo(
+                response.body,
+                resolvedAddress,
+                httpPort,
+              );
+              info.pairStatusFromHttps = true;
+              return (info: info, certRejected: false);
+            }
           }
+          _log.w(
+            'serverinfo HTTPS ${response.statusCode}, falling back to HTTP',
+          );
+        } finally {
+          client.close();
         }
-        _log.w('serverinfo HTTPS ${response.statusCode}, falling back to HTTP');
-      } finally {
-        client.close();
+      } on HandshakeException catch (e) {
+        // A pinned cert that no longer matches: the server presented a
+        // different certificate than the one stored at pairing time.
+        certRejected = true;
+        _log.w('HTTPS serverinfo handshake failed ($e), falling back to HTTP');
+      } catch (e) {
+        _log.w('HTTPS serverinfo failed ($e), falling back to HTTP');
       }
-    } on HandshakeException catch (e) {
-      // Only meaningful when a cert was pinned: the server presented a
-      // different certificate than the one stored at pairing time.
-      certRejected = pinned;
-      _log.w('HTTPS serverinfo handshake failed ($e), falling back to HTTP');
-    } catch (e) {
-      _log.w('HTTPS serverinfo failed ($e), falling back to HTTP');
     }
 
     final info = await getServerInfo(
@@ -528,6 +539,28 @@ class NvHttpClient {
             riKey: serverRiKey,
             riKeyId: serverRiKeyId,
             sessionUrl: sessionUrl,
+            readinessVersion:
+                int.tryParse(
+                  extractXmlValue(
+                        response.body,
+                        'GameLaunchReadinessVersion',
+                      ) ??
+                      '0',
+                ) ??
+                0,
+            readinessRequired:
+                extractXmlValue(response.body, 'GameLaunchReadinessRequired') ==
+                '1',
+            readinessToken:
+                extractXmlValue(response.body, 'GameLaunchStateToken') ?? '',
+            readinessInitialState:
+                extractXmlValue(response.body, 'GameLaunchState') ?? '',
+            readinessGeneration:
+                int.tryParse(
+                  extractXmlValue(response.body, 'GameLaunchStateGeneration') ??
+                      '0',
+                ) ??
+                0,
           );
         } finally {
           client.close();
@@ -655,6 +688,28 @@ class NvHttpClient {
             riKey: serverRiKey,
             riKeyId: serverRiKeyId,
             sessionUrl: sessionUrl,
+            readinessVersion:
+                int.tryParse(
+                  extractXmlValue(
+                        response.body,
+                        'GameLaunchReadinessVersion',
+                      ) ??
+                      '0',
+                ) ??
+                0,
+            readinessRequired:
+                extractXmlValue(response.body, 'GameLaunchReadinessRequired') ==
+                '1',
+            readinessToken:
+                extractXmlValue(response.body, 'GameLaunchStateToken') ?? '',
+            readinessInitialState:
+                extractXmlValue(response.body, 'GameLaunchState') ?? '',
+            readinessGeneration:
+                int.tryParse(
+                  extractXmlValue(response.body, 'GameLaunchStateGeneration') ??
+                      '0',
+                ) ??
+                0,
           );
         } finally {
           client.close();
@@ -716,6 +771,86 @@ class NvHttpClient {
     return List<int>.generate(n, (_) => rng.nextInt(256));
   }
 
+  Future<GameLaunchState> getGameLaunchState(
+    String address,
+    String token, {
+    int port = defaultHttpsPort,
+    String? expectedServerCert,
+    bool retryFocus = false,
+  }) async {
+    if (token.isEmpty) {
+      return GameLaunchState.transportFailure('Missing launch-state token');
+    }
+
+    final query = Uri(
+      queryParameters: <String, String>{
+        'uniqueid': uniqueId,
+        'token': token,
+        'action': retryFocus ? 'retry' : 'status',
+      },
+    ).query;
+    final url = '${_baseUrl(address, port)}/launchstate?$query';
+
+    try {
+      final client = _newHttpsClient(expectedServerCert);
+      try {
+        final response = await client
+            .get(Uri.parse(url))
+            .timeout(const Duration(seconds: 5));
+        if (response.statusCode != 200) {
+          return GameLaunchState.transportFailure(
+            'Launch state HTTP ${response.statusCode}',
+          );
+        }
+
+        final xmlStatus =
+            int.tryParse(_extractRootAttribute(response.body, 'status_code')) ??
+            200;
+        if (xmlStatus != 200) {
+          final message = _extractRootAttribute(
+            response.body,
+            'status_message',
+          );
+          return GameLaunchState.transportFailure(
+            message.isEmpty ? 'Launch state rejected ($xmlStatus)' : message,
+            statusCode: xmlStatus,
+          );
+        }
+
+        return GameLaunchState(
+          requestSucceeded: true,
+          phase: extractXmlValue(response.body, 'GameLaunchState') ?? 'unknown',
+          ready: extractXmlValue(response.body, 'GameLaunchReady') == '1',
+          failed: extractXmlValue(response.body, 'GameLaunchFailed') == '1',
+          detail: extractXmlValue(response.body, 'GameLaunchDetail') ?? '',
+          failureCode:
+              extractXmlValue(response.body, 'GameLaunchFailureCode') ?? '',
+          generation:
+              int.tryParse(
+                extractXmlValue(response.body, 'GameLaunchStateGeneration') ??
+                    '0',
+              ) ??
+              0,
+          attempt:
+              int.tryParse(
+                extractXmlValue(response.body, 'GameLaunchAttempt') ?? '0',
+              ) ??
+              0,
+          selectedPid:
+              int.tryParse(
+                extractXmlValue(response.body, 'GameLaunchSelectedPid') ?? '0',
+              ) ??
+              0,
+        );
+      } finally {
+        client.close();
+      }
+    } catch (e) {
+      _log.w('Launch-state request failed: $e');
+      return GameLaunchState.transportFailure(_friendlyError(e, address, port));
+    }
+  }
+
   Future<bool> quitApp(
     String address, {
     int port = defaultHttpsPort,
@@ -747,6 +882,14 @@ class NvHttpClient {
     return match?.group(1)?.trim();
   }
 
+  String _extractRootAttribute(String xml, String attribute) {
+    final match = RegExp(
+      '$attribute="([^"]*)"',
+      caseSensitive: false,
+    ).firstMatch(xml);
+    return match?.group(1)?.trim() ?? '';
+  }
+
   void dispose() {
     _httpClient.close();
   }
@@ -758,6 +901,11 @@ class LaunchResult {
   final int riKeyId;
   final String? sessionUrl;
   final String error;
+  final int readinessVersion;
+  final bool readinessRequired;
+  final String readinessToken;
+  final String readinessInitialState;
+  final int readinessGeneration;
 
   const LaunchResult._({
     required this.success,
@@ -765,19 +913,71 @@ class LaunchResult {
     this.riKeyId = 0,
     this.sessionUrl,
     this.error = '',
+    this.readinessVersion = 0,
+    this.readinessRequired = false,
+    this.readinessToken = '',
+    this.readinessInitialState = '',
+    this.readinessGeneration = 0,
   });
 
   factory LaunchResult.ok({
     required String riKey,
     required int riKeyId,
     String? sessionUrl,
+    int readinessVersion = 0,
+    bool readinessRequired = false,
+    String readinessToken = '',
+    String readinessInitialState = '',
+    int readinessGeneration = 0,
   }) => LaunchResult._(
     success: true,
     riKey: riKey,
     riKeyId: riKeyId,
     sessionUrl: sessionUrl,
+    readinessVersion: readinessVersion,
+    readinessRequired: readinessRequired,
+    readinessToken: readinessToken,
+    readinessInitialState: readinessInitialState,
+    readinessGeneration: readinessGeneration,
   );
 
   factory LaunchResult.fail(String error) =>
       LaunchResult._(success: false, error: error);
+}
+
+class GameLaunchState {
+  final bool requestSucceeded;
+  final int statusCode;
+  final String phase;
+  final bool ready;
+  final bool failed;
+  final String detail;
+  final String failureCode;
+  final int generation;
+  final int attempt;
+  final int selectedPid;
+  final String error;
+
+  const GameLaunchState({
+    required this.requestSucceeded,
+    this.statusCode = 200,
+    this.phase = 'unknown',
+    this.ready = false,
+    this.failed = false,
+    this.detail = '',
+    this.failureCode = '',
+    this.generation = 0,
+    this.attempt = 0,
+    this.selectedPid = 0,
+    this.error = '',
+  });
+
+  factory GameLaunchState.transportFailure(
+    String error, {
+    int statusCode = 0,
+  }) => GameLaunchState(
+    requestSucceeded: false,
+    statusCode: statusCode,
+    error: error,
+  );
 }

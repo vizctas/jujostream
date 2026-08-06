@@ -71,7 +71,7 @@ class GamepadHandler(
         private const val START_DOWN_TIME_MOUSE_MODE_MS = 1500L
         private const val REMAP_IGNORE = -1
         private const val REMAP_CONSUME = -2
-        private const val MAX_GAMEPADS = 4
+        private const val MAX_GAMEPADS = 8
 
         private const val LI_CTYPE_XBOX: Byte = 0x01
         private const val LI_CTYPE_PS: Byte = 0x02
@@ -215,6 +215,16 @@ class GamepadHandler(
     private var deviceRumbleEnabled: Boolean = false
     private var rumbleFallbackStrength: Int = 100
 
+    // Controller light requests are Binder-backed. A LightsSession owns one
+    // Binder token and must remain open for the lifetime of its request. Keep
+    // one session per input device instead of allocating one per LED packet.
+    private val controllerFeedbackLock = Any()
+    private val controllerLedThrottle = ControllerLedThrottle()
+    private val controllerLightSessions = mutableMapOf<Int, AutoCloseable>()
+    private val controllerLedRunnables = mutableMapOf<Int, Runnable>()
+    private var ledCallbackCount = 0L
+    private var ledAppliedCount = 0L
+
     var mouseEmulationActive: Boolean = false
         private set
     private var mouseEmuLeftButtonDown: Boolean = false
@@ -253,6 +263,18 @@ class GamepadHandler(
     // the phone's global one as fallback). Tracked so we unregister from the right one.
     private var activeMotionSensorManager: SensorManager? = null
 
+    /// Motion types currently registered (0x01 accel, 0x02 gyro), and the rate
+    /// they were registered at.
+    ///
+    /// The server asks for accelerometer and gyroscope in SEPARATE calls. The
+    /// old code tore down every listener on each call and registered only the
+    /// type just asked for, so accel killed gyro, gyro killed accel, forever:
+    /// 69 register/unregister cycles a minute, 144% CPU, and an ANR that got
+    /// the app killed. Tracking what is already live makes each call a no-op
+    /// when nothing actually changed.
+    private var activeMotionTypes: Int = 0
+    private var activeMotionRateHz: Int = 0
+
     init {
         instance = this
 
@@ -276,10 +298,15 @@ class GamepadHandler(
                     // early-returns when its _showOverlay is already false.
                     overlayVisible = false
                     if (active) {
+                        synchronized(controllerFeedbackLock) {
+                            ledCallbackCount = 0L
+                            ledAppliedCount = 0L
+                        }
                         val count = detectControllers()
                         result.success(count)
                     } else {
                         stopMotionSensors()
+                        releaseControllerFeedbackResources("stream inactive")
                         controllers.clear()
                         deviceSlots.clear()
                         currentControllers = 0
@@ -376,11 +403,24 @@ class GamepadHandler(
                     result.success(null)
                 }
                 "setInputPreferences" -> {
-                    forceQwertyLayoutEnabled = call.argument<Boolean>("forceQwertyLayout") ?: true
-                    usbDriverEnabled = call.argument<Boolean>("usbDriverEnabled") ?: true
-                    usbBindAllEnabled = call.argument<Boolean>("usbBindAll") ?: false
-                    joyConEnabled = call.argument<Boolean>("joyConEnabled") ?: false
-                    val count = if (isStreaming) detectControllers() else countGamepads()
+                    val nextForceQwerty = call.argument<Boolean>("forceQwertyLayout") ?: true
+                    val nextUsbDriver = call.argument<Boolean>("usbDriverEnabled") ?: true
+                    val nextUsbBindAll = call.argument<Boolean>("usbBindAll") ?: false
+                    val nextJoyCon = call.argument<Boolean>("joyConEnabled") ?: false
+                    val topologyChanged =
+                        forceQwertyLayoutEnabled != nextForceQwerty ||
+                            usbDriverEnabled != nextUsbDriver ||
+                            usbBindAllEnabled != nextUsbBindAll ||
+                            joyConEnabled != nextJoyCon
+                    forceQwertyLayoutEnabled = nextForceQwerty
+                    usbDriverEnabled = nextUsbDriver
+                    usbBindAllEnabled = nextUsbBindAll
+                    joyConEnabled = nextJoyCon
+                    val count = when {
+                        isStreaming && topologyChanged -> detectControllers()
+                        isStreaming -> Integer.bitCount(currentControllers.toInt())
+                        else -> countGamepads()
+                    }
                     result.success(count)
                 }
                 "setRumbleConfig" -> {
@@ -520,6 +560,9 @@ class GamepadHandler(
     }
 
     private fun detectControllers(): Int {
+        // Redetection replaces the device map. Close any session bound to the
+        // old map first so hot-plug/reconnect cannot retain stale Binder tokens.
+        releaseControllerFeedbackResources("controller redetect", logSummary = false)
         controllers.clear()
         deviceSlots.clear()
         currentControllers = 0
@@ -1526,43 +1569,162 @@ class GamepadHandler(
     }
 
     fun handleSetControllerLED(controllerNumber: Int, r: Int, g: Int, b: Int) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
+        if (!isStreaming || Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
 
-        val deviceId = deviceSlots.entries.firstOrNull { it.value == controllerNumber }?.key
-            ?: return
-        val device = InputDevice.getDevice(deviceId) ?: return
-
-        val lm = device.lightsManager ?: return
-        val lights = lm.lights
-        if (lights.isEmpty()) return
+        // A physical DualSense may expose multiple Android InputDevice nodes.
+        // Select the node that actually owns an RGB light rather than relying
+        // on mutable-map iteration order.
+        val deviceId = deviceSlots.entries
+            .asSequence()
+            .filter { it.value == controllerNumber }
+            .map { it.key }
+            .firstOrNull { id ->
+                val device = InputDevice.getDevice(id) ?: return@firstOrNull false
+                try {
+                    device.lightsManager?.lights?.any { it.hasRgbControl() } == true
+                } catch (_: Exception) {
+                    false
+                }
+            } ?: return
 
         val color = android.graphics.Color.rgb(r, g, b)
-        val request = android.hardware.lights.LightsRequest.Builder()
-        for (light in lights) {
-            if (light.hasRgbControl()) {
-                request.addLight(light, android.hardware.lights.LightState.Builder()
-                    .setColor(color)
-                    .build())
-            }
+        val task: Runnable
+        val schedule: ControllerLedSchedule
+        synchronized(controllerFeedbackLock) {
+            ledCallbackCount++
+            schedule = controllerLedThrottle.enqueue(deviceId, color, System.nanoTime()) ?: return
+            task = Runnable { dispatchControllerLed(deviceId) }
+            controllerLedRunnables[deviceId] = task
         }
-        try {
-            val session = lm.openSession()
-            session.requestLights(request.build())
+        mainHandler.postDelayed(task, schedule.delayMs)
+    }
 
+    @android.annotation.TargetApi(Build.VERSION_CODES.S)
+    private fun dispatchControllerLed(deviceId: Int) {
+        val color = synchronized(controllerFeedbackLock) {
+            controllerLedRunnables.remove(deviceId)
+            controllerLedThrottle.takePending(deviceId, System.nanoTime())
+        } ?: return
+
+        if (!isStreaming) return
+        val device = InputDevice.getDevice(deviceId) ?: return
+        val lightsManager = try { device.lightsManager } catch (_: Exception) { null } ?: return
+        val rgbLights = lightsManager.lights.filter { it.hasRgbControl() }
+        if (rgbLights.isEmpty()) return
+
+        val request = android.hardware.lights.LightsRequest.Builder().also { builder ->
+            val state = android.hardware.lights.LightState.Builder().setColor(color).build()
+            for (light in rgbLights) builder.addLight(light, state)
+        }.build()
+
+        try {
+            val session = synchronized(controllerFeedbackLock) {
+                (controllerLightSessions[deviceId]
+                    as? android.hardware.lights.LightsManager.LightsSession)
+                    ?: lightsManager.openSession().also { opened ->
+                        controllerLightSessions[deviceId] = opened
+                        Log.i(TAG, "Controller LED session opened: deviceId=$deviceId, " +
+                            "liveSessions=${controllerLightSessions.size}")
+                    }
+            }
+            session.requestLights(request)
+            synchronized(controllerFeedbackLock) {
+                controllerLedThrottle.markApplied(deviceId, color)
+                ledAppliedCount++
+                if (ledAppliedCount % 300L == 0L) {
+                    Log.i(TAG, "Controller LED feedback: callbacks=$ledCallbackCount " +
+                        "applied=$ledAppliedCount liveSessions=${controllerLightSessions.size}")
+                }
+            }
         } catch (e: Exception) {
             Log.w(TAG, "Failed to set controller LED: ${e.message}")
+            releaseControllerLightSession(deviceId)
         }
     }
 
+    private fun releaseControllerLightSession(deviceId: Int) {
+        val task: Runnable?
+        val session: AutoCloseable?
+        synchronized(controllerFeedbackLock) {
+            task = controllerLedRunnables.remove(deviceId)
+            session = controllerLightSessions.remove(deviceId)
+            controllerLedThrottle.clear(deviceId)
+        }
+        task?.let { mainHandler.removeCallbacks(it) }
+        try {
+            session?.close()
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to close controller LED session for deviceId=$deviceId: ${e.message}")
+        }
+    }
+
+    fun releaseControllerFeedbackResources(
+        reason: String = "stream cleanup",
+        logSummary: Boolean = true,
+    ) {
+        val tasks: List<Runnable>
+        val sessions: List<AutoCloseable>
+        val callbacks: Long
+        val applied: Long
+        synchronized(controllerFeedbackLock) {
+            tasks = controllerLedRunnables.values.toList()
+            sessions = controllerLightSessions.values.toList()
+            callbacks = ledCallbackCount
+            applied = ledAppliedCount
+            controllerLedRunnables.clear()
+            controllerLightSessions.clear()
+            controllerLedThrottle.clearAll()
+        }
+        for (task in tasks) mainHandler.removeCallbacks(task)
+        for (session in sessions) {
+            try {
+                session.close()
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to close controller LED session: ${e.message}")
+            }
+        }
+        if (logSummary && (callbacks > 0L || applied > 0L || sessions.isNotEmpty())) {
+            Log.i(TAG, "Controller feedback released ($reason): ledCallbacks=$callbacks " +
+                "ledApplied=$applied sessionsClosed=${sessions.size}")
+        }
+    }
+
+    /// True only if motion capability was advertised for the active controller.
+    private var motionAdvertised: Boolean = false
+
     fun handleSetMotionEventState(controllerNumber: Int, motionType: Int, reportRateHz: Int) {
+        // Sunshine requests motion regardless of the capability bits we send.
+        // Honouring it on a TV box produced an endless enable/disable loop —
+        // 156 register cycles in one session — that saturated the main thread.
+        // If we did not advertise motion, there is nothing to deliver.
+        if (!motionAdvertised) {
+            if (activeMotionTypes != 0) stopMotionSensors()
+            return
+        }
+        val controllerChanged = motionControllerNumber != controllerNumber
         motionControllerNumber = controllerNumber
         motionReportRateHz = reportRateHz
 
-        if (reportRateHz > 0) {
-            startMotionSensors(motionType, reportRateHz)
-        } else {
-            stopMotionSensors()
+        if (reportRateHz <= 0) {
+            // Rate 0 means "stop this type". Drop it from the active set and
+            // only tear everything down once nothing is left.
+            val remaining = activeMotionTypes and motionType.inv()
+            if (remaining == 0) {
+                stopMotionSensors()
+            } else if (remaining != activeMotionTypes) {
+                startMotionSensors(remaining, activeMotionRateHz)
+            }
+            return
         }
+
+        // Additive: asking for gyro must not cancel accelerometer.
+        val wanted = if (controllerChanged) motionType else (activeMotionTypes or motionType)
+        if (wanted == activeMotionTypes &&
+            reportRateHz == activeMotionRateHz &&
+            !controllerChanged) {
+            return  // already exactly what is running
+        }
+        startMotionSensors(wanted, reportRateHz)
     }
 
     private fun startMotionSensors(motionType: Int, rateHz: Int) {
@@ -1600,12 +1762,17 @@ class GamepadHandler(
             sm.getDefaultSensor(Sensor.TYPE_GYROSCOPE)?.let { sm.registerListener(this, it, delayUs) }
         }
         activeMotionSensorManager = sm
+        activeMotionTypes = motionType
+        activeMotionRateHz = rateHz
         Log.i(TAG, "Motion sensors started: type=$motionType, rate=${rateHz}Hz, source=$source")
     }
 
     private fun stopMotionSensors() {
+        if (activeMotionSensorManager == null && activeMotionTypes == 0) return
         activeMotionSensorManager?.unregisterListener(this)
         activeMotionSensorManager = null
+        activeMotionTypes = 0
+        activeMotionRateHz = 0
         Log.i(TAG, "Motion sensors stopped")
     }
 
@@ -1641,6 +1808,7 @@ class GamepadHandler(
     }
 
     override fun onInputDeviceRemoved(deviceId: Int) {
+        releaseControllerLightSession(deviceId)
         val slot = deviceSlots[deviceId]
         if (slot != null) {
 
@@ -1719,24 +1887,62 @@ class GamepadHandler(
             caps = caps or LI_CCAP_TOUCHPAD
         }
 
+        // Motion capability was advertised on the DRIVER mode alone, whether or
+        // not this controller can deliver sensor data. When it cannot keep up,
+        // the server sees stale motion, re-requests it every couple of seconds,
+        // and each re-request re-registers listeners: 296 register/unregister
+        // cycles in one session on the Chromecast, saturating the main thread
+        // until the system killed the app. Only advertise what can actually
+        // deliver: a real per-controller sensor, and never on a TV box — gyro
+        // aiming is a handheld feature, and on these boxes the loop is fatal.
+        val motionCapable = !isTvDevice() && controllerHasMotionSensors(dev)
+        // Remember the decision: the server asks for motion anyway, ignoring
+        // the capability bits we send, so the request has to be refused here.
+        motionAdvertised = motionCapable
+
         when {
             controllerDriverMode == DRIVER_DUALSHOCK -> {
                 caps = caps or LI_CCAP_RUMBLE or LI_CCAP_TOUCHPAD
             }
             controllerDriverMode == DRIVER_DUALSENSE -> {
                 caps = caps or LI_CCAP_RUMBLE or LI_CCAP_TRIGGER_RUMBLE or
-                    LI_CCAP_TOUCHPAD or LI_CCAP_ACCEL or LI_CCAP_GYRO or LI_CCAP_RGB_LED
+                    LI_CCAP_TOUCHPAD or LI_CCAP_RGB_LED
+                if (motionCapable) {
+                    caps = caps or LI_CCAP_ACCEL or LI_CCAP_GYRO
+                }
             }
         }
 
         if (type == LI_CTYPE_PS && controllerDriverMode == DRIVER_AUTO) {
             caps = caps or LI_CCAP_RUMBLE or LI_CCAP_TRIGGER_RUMBLE or LI_CCAP_TOUCHPAD
             if (state.productId == 0x0ce6 || state.productId == 0x0df2) {
-                caps = caps or LI_CCAP_ACCEL or LI_CCAP_GYRO or LI_CCAP_RGB_LED
+                caps = caps or LI_CCAP_RGB_LED
+                if (motionCapable) {
+                    caps = caps or LI_CCAP_ACCEL or LI_CCAP_GYRO
+                }
             }
         }
         if (readBatteryState(dev) != null) caps = caps or LI_CCAP_BATTERY_STATE
         return caps.toShort()
+    }
+
+    private fun isTvDevice(): Boolean {
+        val pm = context.packageManager
+        return pm.hasSystemFeature(android.content.pm.PackageManager.FEATURE_LEANBACK) ||
+            pm.hasSystemFeature(android.content.pm.PackageManager.FEATURE_TELEVISION)
+    }
+
+    /// True only when the controller itself exposes gyro or accelerometer
+    /// through InputDevice.getSensorManager (API 31+).
+    private fun controllerHasMotionSensors(dev: InputDevice): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return false
+        return try {
+            val sm = dev.sensorManager
+            sm.getDefaultSensor(Sensor.TYPE_GYROSCOPE) != null ||
+                sm.getDefaultSensor(Sensor.TYPE_ACCELEROMETER) != null
+        } catch (_: Exception) {
+            false
+        }
     }
 
     /**

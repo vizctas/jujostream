@@ -51,7 +51,7 @@ void main() {
   });
 
   testWidgets(
-    'poster fallback remains cinematic and receives enabled Ken Burns motion',
+    'poster fallback preserves the full poster over a cinematic backing layer',
     (tester) async {
       await tester.pumpWidget(
         MaterialApp(
@@ -80,9 +80,13 @@ void main() {
       final poster = tester.widget<PosterImage>(
         find.byKey(const Key('game-backdrop-poster')),
       );
-      expect(poster.fit, BoxFit.cover);
+      final blurredBacking = tester.widget<PosterImage>(
+        find.byKey(const Key('game-backdrop-poster-blur')),
+      );
+      expect(poster.fit, BoxFit.contain);
       expect(poster.memCacheWidth, 1920);
-      expect(find.byKey(const Key('game-backdrop-poster-blur')), findsNothing);
+      expect(blurredBacking.fit, BoxFit.cover);
+      expect(blurredBacking.cacheKey, poster.cacheKey);
       expect(find.byKey(const Key('background-motion-layer')), findsOneWidget);
       expect(find.byKey(const Key('game-backdrop-ken-burns')), findsOneWidget);
     },

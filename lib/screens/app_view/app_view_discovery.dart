@@ -137,6 +137,8 @@ mixin _AppViewDiscoveryMixin on _AppViewScreenBase {
                   url: app.posterUrl!,
                   cacheKey: app.artCacheKey('poster'),
                   fit: BoxFit.cover,
+                  // 50x68 tile — uncapped this decoded the full-size poster.
+                  memCacheWidth: 120,
                   errorWidget: (_, _, _) => const _DiscoveryPlaceholder(),
                 )
               : const _DiscoveryPlaceholder(),

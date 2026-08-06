@@ -295,17 +295,23 @@ class VideoDecoderRenderer(
         if (tryNumber <= 2 && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             format.setInteger(MediaFormat.KEY_FRAME_RATE, redrawRate)
             if (isWeakDevice) {
-                // Use the actual stream rate — capping at 30 tells the decoder to budget 30fps,
-                // which causes batch output (2 frames at once) at 60fps → latency loop drops half.
-                format.setFloat(MediaFormat.KEY_OPERATING_RATE, redrawRate.toFloat())
-                format.setInteger(MediaFormat.KEY_PRIORITY, 0)
+                // Fire TV's MediaTek path performs well with the legacy 30 fps
+                // budget. Weak Amlogic decoders need the actual stream rate;
+                // advertising 30 for 60 fps content can batch output frames.
+                val policy = WeakDeviceDecoderPolicy.forDecoder(redrawRate, isAmlogicDecoder)
+                format.setFloat(MediaFormat.KEY_OPERATING_RATE, policy.operatingRate)
+                format.setInteger(MediaFormat.KEY_PRIORITY, policy.priority)
+                Log.i(TAG, "Weak decoder rate policy: operatingRate=${policy.operatingRate}, priority=${policy.priority}, amlogic=$isAmlogicDecoder")
             } else if (isQualcommDecoder) {
                 // Qualcomm decoders respond well to MAX operating rate for lowest latency.
                 // Other SoC families may silently reject this value or misbehave.
                 format.setFloat(MediaFormat.KEY_OPERATING_RATE, Short.MAX_VALUE.toFloat())
                 format.setInteger(MediaFormat.KEY_PRIORITY, 0)
             } else {
-                // Non-Qualcomm: use realtime priority without ludicrous operating rate
+                // Realtime priority, no explicit operating rate. Measured: the
+                // Amlogic decoder presented 1764/1800 frames without it. Adding
+                // it was an untested guess bundled with another change, so it
+                // goes back out — one variable at a time.
                 format.setInteger(MediaFormat.KEY_PRIORITY, 0)
             }
         }
@@ -812,14 +818,15 @@ class VideoDecoderRenderer(
         receiveTimeMs: Long, enqueueTimeMs: Long
     ): Int {
         if (stopping) return DR_OK
+        val isPictureData = bufferType == BUFFER_TYPE_PICDATA
+        if (isPictureData) totalFramesReceived++
         if (codecRecoveryRequested) {
             codecRecoveryRequested = false
             recoverWeakAmlogicDecoder(force = true)
-            return DR_NEED_IDR
+            return rejectPictureDecodeUnit(isPictureData)
         }
-        if (decoderRestarting) return DR_NEED_IDR
-        val decoder = videoDecoder ?: return DR_NEED_IDR
-        totalFramesReceived++
+        if (decoderRestarting) return rejectPictureDecodeUnit(isPictureData)
+        val decoder = videoDecoder ?: return rejectPictureDecodeUnit(isPictureData)
 
         if (!zeroOutputWarningEmitted && totalFramesRendered == 0L &&
             totalFramesReceived > 60 && startTimeNs > 0L) {
@@ -839,7 +846,7 @@ class VideoDecoderRenderer(
             }
         }
 
-        if (totalFramesReceived % 300 == 0L) {
+        if (isPictureData && totalFramesReceived % 300 == 0L) {
             Log.i(TAG, "FRAME STATS: recv=$totalFramesReceived rendered=$totalFramesRendered " +
                 "dropped=$totalFramesDropped latency=${avgDecodeLatencyMs.toInt()}ms decoder=$decoderName")
         }
@@ -858,7 +865,7 @@ class VideoDecoderRenderer(
                         BUFFER_TYPE_PPS -> { synchronized(csdLock) { ppsBuffer = csdArray }; return DR_OK }
                     }
                 } else if (requiresCodecConfigSubmission()) {
-                    if (!submitCsdBuffers()) return DR_NEED_IDR
+                    if (!submitCsdBuffers()) return rejectPictureDecodeUnit(isPictureData)
                     submittedCsd = true
                 }
             }
@@ -866,10 +873,11 @@ class VideoDecoderRenderer(
             val inputIndex = acquireInputBuffer(decoder)
             if (inputIndex < 0) {
                 recoverWeakAmlogicDecoder(force = false)
-                return DR_NEED_IDR
+                return rejectPictureDecodeUnit(isPictureData)
             }
 
-            val inputBuffer = decoder.getInputBuffer(inputIndex) ?: return DR_NEED_IDR
+            val inputBuffer = decoder.getInputBuffer(inputIndex)
+                ?: return rejectPictureDecodeUnit(isPictureData)
             inputBuffer.clear()
 
             data.position(0)
@@ -893,8 +901,13 @@ class VideoDecoderRenderer(
 
         } catch (e: IllegalStateException) {
             Log.e(TAG, "Error submitting decode unit", e)
-            return DR_NEED_IDR
+            return rejectPictureDecodeUnit(isPictureData)
         }
+    }
+
+    private fun rejectPictureDecodeUnit(isPictureData: Boolean): Int {
+        if (isPictureData) totalFramesDropped++
+        return DR_NEED_IDR
     }
 
     private fun acquireInputBuffer(decoder: MediaCodec): Int {

@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:logger/logger.dart';
+
+import '../diagnostics_logger.dart';
 import 'package:nsd/nsd.dart';
 
 import '../../models/computer_details.dart';
@@ -34,7 +36,7 @@ class DiscoveryService {
        _discoveryStopper = discoveryStopper ?? stopNsdDiscovery,
        _hostnameResolver = hostnameResolver ?? MdnsHostnameResolver();
 
-  final Logger _log = Logger();
+  final Logger _log = diagnosticsLogger('Discovery');
   final DiscoveryStarter _discoveryStarter;
   final DiscoveryStopper _discoveryStopper;
   final MdnsHostnameResolver _hostnameResolver;

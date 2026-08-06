@@ -104,7 +104,11 @@ class _TourOverlayState extends State<TourOverlay>
     _pulseController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1100),
-    )..repeat(reverse: true);
+    );
+    // Only tick while a tour is on screen. TourOverlay wraps the whole app, so
+    // an unconditional repeat() kept a ticker alive for the entire session
+    // driving a ring that is not painted.
+    _syncPulse();
 
     _spotAnim = AlwaysStoppedAnimation(Offset.zero);
     TourController.instance.addListener(_onTourChanged);
@@ -118,9 +122,18 @@ class _TourOverlayState extends State<TourOverlay>
     super.dispose();
   }
 
+  void _syncPulse() {
+    if (TourController.instance.isActive) {
+      if (!_pulseController.isAnimating) _pulseController.repeat(reverse: true);
+    } else if (_pulseController.isAnimating) {
+      _pulseController.stop();
+    }
+  }
+
   void _onTourChanged() {
     if (!mounted) return;
     setState(() {});
+    _syncPulse();
     final step = TourController.instance.current;
     if (step == null) return;
     final size = MediaQuery.sizeOf(context);
@@ -133,7 +146,10 @@ class _TourOverlayState extends State<TourOverlay>
       _spotAnim = AlwaysStoppedAnimation(next);
       return;
     }
-    _currentSpot = _targetSpot;
+    // Start from where the ring actually IS, not from the previous step's
+    // destination. Advancing a step before the 560ms glide finished made the
+    // spotlight teleport to the stale target and only then ease to the new one.
+    _currentSpot = _spotAnim.value;
     _targetSpot = next;
     _spotAnim = _posController.drive(
       Tween<Offset>(begin: _currentSpot, end: _targetSpot).chain(

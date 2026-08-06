@@ -2,6 +2,10 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+
+import '../providers/theme_provider.dart';
+import '../ui/motion_policy.dart';
 
 /// AppBar brand title: animated cube icon + "JUJO.Stream".
 ///
@@ -39,9 +43,23 @@ class _JujoBrandTitleState extends State<JujoBrandTitle>
     _translateY = _sequence(const [0, -20, 2, -9, 1, 0]).animate(_controller);
     _rotation = _sequence(const [0, 21, -11, 7, -3, 0])
         .animate(_controller); // degrees
-    _controller.forward();
-    _timer = Timer.periodic(const Duration(seconds: 15), (_) {
-      if (mounted) _controller.forward(from: 0);
+    // Deferred so MediaQuery/ThemeProvider are readable. This bounce lives in
+    // the home screen app bar and repeated every 15s for the life of the
+    // screen, ignoring both the in-app Reduce Effects toggle and the OS
+    // reduce-motion setting. Its twin in cinematic_intro_screen already
+    // honoured reduced motion; the two disagreed.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final motion = MotionPolicy.fromContext(
+        context,
+        context.read<ThemeProvider>(),
+      );
+      if (motion.reduceMotion) return;
+      _controller.forward();
+      if (!motion.allowContinuousEffects) return;
+      _timer = Timer.periodic(const Duration(seconds: 15), (_) {
+        if (mounted) _controller.forward(from: 0);
+      });
     });
   }
 

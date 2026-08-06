@@ -347,6 +347,31 @@ class StreamingPlatformChannel {
     }
   }
 
+  static Future<bool> requestIdrFrame() async {
+    try {
+      final result = await _channel.invokeMethod<bool>('requestIdrFrame');
+      return result ?? false;
+    } on PlatformException catch (e) {
+      _log.e('Failed to request IDR frame: ${e.message}');
+      return false;
+    } on MissingPluginException {
+      return false;
+    }
+  }
+
+  /// Changes compositor visibility without destroying the decoder surface.
+  static Future<void> setVideoVisible(bool visible) async {
+    try {
+      await _channel.invokeMethod<void>('setVideoVisible', {
+        'visible': visible,
+      });
+    } on PlatformException catch (e) {
+      _log.e('Failed to set native video visibility: ${e.message}');
+    } on MissingPluginException {
+      // Texture-only desktop shells have no native SurfaceView gate.
+    }
+  }
+
   static Stream<Map<String, dynamic>> get statsStream {
     return _statsChannel.receiveBroadcastStream().map((event) {
       return Map<String, dynamic>.from(event as Map);

@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:io' as io;
 import 'dart:math';
 import 'dart:typed_data';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter/services.dart';
+import 'package:jujostream/services/audio/ui_effect_player.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -11,7 +13,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 class UiSoundService {
   UiSoundService._();
 
-  static AudioPlayer? _player;
+  static Future<UiEffectPlayer>? _playerFuture;
   static AudioPlayer? _ambiencePlayer;
   static AudioPlayer? _initPlayer;
   static Uint8List? _clickWav;
@@ -37,6 +39,7 @@ class UiSoundService {
   static void enterStreamSession() {
     _isStreaming = true;
     stopAmbience();
+    unawaited(_shutdownUiPlayers());
   }
 
   static void exitStreamSession() {
@@ -136,15 +139,32 @@ class UiSoundService {
     return _ambiencePlayer!;
   }
 
-  static AudioPlayer _getPlayer() {
-    if (_player == null) {
-      final p = AudioPlayer();
-      p.setAudioContext(_ambientContext());
-      p.setReleaseMode(ReleaseMode.stop);
-      p.setVolume(0.36);
-      _player = p;
+  static Future<UiEffectPlayer> _getPlayer() =>
+      _playerFuture ??= UiEffectPlayer.create(audioContext: _ambientContext());
+
+  static Future<void> _shutdownUiPlayers() async {
+    final effectPlayerFuture = _playerFuture;
+    final initPlayer = _initPlayer;
+    _playerFuture = null;
+    _initPlayer = null;
+    _configured = false;
+
+    if (effectPlayerFuture != null) {
+      try {
+        await (await effectPlayerFuture).shutdown();
+      } catch (e) {
+        debugPrint('[UiSound] effect-player shutdown error: $e');
+      }
     }
-    return _player!;
+    if (initPlayer != null) {
+      try {
+        await initPlayer.stop();
+        await initPlayer.dispose();
+      } catch (e) {
+        debugPrint('[UiSound] init-player shutdown error: $e');
+      }
+    }
+    debugPrint('[UiSound] stream session: UI effect players drained');
   }
 
   static AudioContext _ambientContext() => AudioContext(
@@ -162,9 +182,8 @@ class UiSoundService {
   );
 
   static Future<void> ensureInitialized() async {
-    if (_configured) return;
-    final player = _getPlayer();
-    await player.setAudioContext(_ambientContext());
+    if (_configured || _isStreaming) return;
+    await _getPlayer();
     _configured = true;
     // Pre-warm the audio cache directory so first playback is fast.
     _ensureAudioCacheDir();
@@ -219,6 +238,7 @@ class UiSoundService {
   static String? _clickWavPath;
 
   static void playClick() {
+    if (_isStreaming) return;
     _playClickAsync();
   }
 
@@ -226,8 +246,9 @@ class UiSoundService {
     try {
       _clickWav ??= _buildClickWav();
       _clickWavPath ??= await _writeToAudioCache('click.wav', _clickWav!);
-      final player = _getPlayer();
-      player.stop();
+      if (_isStreaming) return;
+      final player = await _getPlayer();
+      if (_isStreaming) return;
       await player.play(DeviceFileSource(_clickWavPath!));
     } catch (_) {
       SystemSound.play(SystemSoundType.click);
@@ -278,6 +299,7 @@ class UiSoundService {
   }
 
   static void playFavorite() {
+    if (_isStreaming) return;
     _playFavoriteAsync();
   }
 
@@ -285,8 +307,9 @@ class UiSoundService {
     try {
       _favWav ??= _buildFavoriteWav();
       _favWavPath ??= await _writeToAudioCache('favorite.wav', _favWav!);
-      final player = _getPlayer();
-      player.stop();
+      if (_isStreaming) return;
+      final player = await _getPlayer();
+      if (_isStreaming) return;
       await player.play(DeviceFileSource(_favWavPath!));
     } catch (_) {}
   }
@@ -427,15 +450,17 @@ class UiSoundService {
   static String? _clickToInitPath;
 
   static void playClickToInit() {
+    if (_isStreaming) return;
     _playClickToInitAsync();
   }
 
   static Future<void> _playClickToInitAsync() async {
     try {
       _clickToInitPath ??= await _loadAssetToFile('sound/ui/click_to_init.mp3');
-      if (_clickToInitPath == null) return;
+      if (_clickToInitPath == null || _isStreaming) return;
       final player = _getInitPlayer();
-      player.stop();
+      await player.stop();
+      if (_isStreaming) return;
       await player.play(DeviceFileSource(_clickToInitPath!));
     } catch (e) {
       debugPrint('[UiSound] playClickToInit error: $e');
@@ -445,15 +470,17 @@ class UiSoundService {
   static String? _serverEnterPath;
 
   static void playServerEnter() {
+    if (_isStreaming) return;
     _playServerEnterAsync();
   }
 
   static Future<void> _playServerEnterAsync() async {
     try {
       _serverEnterPath ??= await _loadAssetToFile('sound/ui/cv_server.mp3');
-      if (_serverEnterPath == null) return;
+      if (_serverEnterPath == null || _isStreaming) return;
       final player = _getInitPlayer();
-      player.stop();
+      await player.stop();
+      if (_isStreaming) return;
       await player.play(DeviceFileSource(_serverEnterPath!));
     } catch (e) {
       debugPrint('[UiSound] playServerEnter error: $e');
@@ -466,6 +493,7 @@ class UiSoundService {
   static const _uiMoveCoalesceWindow = Duration(milliseconds: 40);
 
   static void playUiMove() {
+    if (_isStreaming) return;
     final now = DateTime.now();
     final previous = _lastUiMoveRequest;
     if (previous != null && now.difference(previous) < _uiMoveCoalesceWindow) {
@@ -480,9 +508,10 @@ class UiSoundService {
     try {
       _uiMovePath ??= await _loadAssetToFile('sound/ui/ui_move.mp3');
       if (_uiMovePath == null || generation != _uiMoveGeneration) return;
-      final player = _getPlayer();
-      await player.stop();
+      if (_isStreaming) return;
+      final player = await _getPlayer();
       if (generation != _uiMoveGeneration) return;
+      if (_isStreaming) return;
       await player.play(DeviceFileSource(_uiMovePath!));
     } catch (e) {
       debugPrint('[UiSound] playUiMove error: $e');

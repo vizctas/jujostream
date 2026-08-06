@@ -32,6 +32,20 @@ class DirectSubmitViewFactory : PlatformViewFactory(StandardMessageCodec.INSTANC
         @Volatile
         private var surfaceLatch = CountDownLatch(1)
 
+        @Volatile
+        private var activeSurfaceView: SurfaceView? = null
+
+        @Volatile
+        private var videoVisible = false
+
+        fun setVideoVisible(visible: Boolean) {
+            videoVisible = visible
+            activeSurfaceView?.post {
+                activeSurfaceView?.alpha = if (visible) 1f else 0f
+                Log.d(TAG, "Native video visibility=$visible")
+            }
+        }
+
         fun awaitSurface(timeoutMs: Long): Surface? {
             activeSurface?.let { surface ->
                 if (surface.isValid) return surface
@@ -42,6 +56,7 @@ class DirectSubmitViewFactory : PlatformViewFactory(StandardMessageCodec.INSTANC
         }
 
         fun reset() {
+            setVideoVisible(false)
             val surface = activeSurface
             if (surface != null && surface.isValid) {
                 Log.d(TAG, "Preserving live direct submit surface across stream cleanup")
@@ -68,6 +83,8 @@ class DirectSubmitViewFactory : PlatformViewFactory(StandardMessageCodec.INSTANC
 
         init {
             surfaceView.setZOrderOnTop(false)
+            surfaceView.alpha = if (videoVisible) 1f else 0f
+            activeSurfaceView = surfaceView
             surfaceView.holder.addCallback(object : SurfaceHolder.Callback {
                 override fun surfaceCreated(holder: SurfaceHolder) {
                     activeSurface = holder.surface
@@ -95,6 +112,7 @@ class DirectSubmitViewFactory : PlatformViewFactory(StandardMessageCodec.INSTANC
             activeSurface = null
             surfaceLatch = CountDownLatch(1)
             currentView = null
+            if (activeSurfaceView === surfaceView) activeSurfaceView = null
         }
     }
 }

@@ -282,7 +282,20 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
   // same TextFormField path, so the device keyboard stays native.
   void _focusNativeInput(FocusNode focusNode) {
     focusNode.requestFocus();
-    SystemChannels.textInput.invokeMethod<void>('TextInput.show');
+    // Show the keyboard only after the field's input connection has attached.
+    // Showing it in the same tick raced the attach on TV: the IME appeared
+    // with no connection, so the remote's keys never reached it.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      SystemChannels.textInput.invokeMethod<void>('TextInput.show');
+    });
+  }
+
+  bool get _typingInField {
+    final focused = FocusManager.instance.primaryFocus;
+    return focused == _emailFocusNode ||
+        focused == _passwordFocusNode ||
+        focused == _mfaCodeFocusNode;
   }
 
   void _continueLocalOnly() {
@@ -322,6 +335,15 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
                       return KeyEventResult.ignored;
                     }
                     final key = event.logicalKey;
+                    // While an inner field is being edited, key events bubble
+                    // from it up through this ancestor. Stealing up/down here
+                    // yanked focus off the field, closed the IME connection,
+                    // and left the on-screen keyboard visible but deaf — the
+                    // remote could never reach it. Arrows belong to the IME
+                    // while typing.
+                    if (_typingInField) {
+                      return KeyEventResult.ignored;
+                    }
                     if (key == LogicalKeyboardKey.arrowUp) {
                       node.nearestScope?.focusInDirection(
                         TraversalDirection.up,

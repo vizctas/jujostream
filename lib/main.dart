@@ -194,6 +194,26 @@ class JujostreamApp extends StatelessWidget {
         GlobalCupertinoLocalizations.delegate,
       ],
       theme: themeProvider.buildThemeData(),
+      builder: (context, child) {
+        // Two problems solved in one place.
+        //
+        // 1. Nothing anywhere respected the system font size, and several
+        //    launcher themes put text inside fixed-height bars (72/46/100 px).
+        //    An unbounded scale spills that text over the content beneath it,
+        //    so the total is clamped to a range those bars can absorb.
+        // 2. TvDetector exposes a fontScale for 10-foot viewing, but
+        //    tvFontSize()/tvSpacing() had no callers at all and the app has
+        //    ~500 hardcoded font sizes. Boosting here reaches all of them at
+        //    once instead of editing every call site.
+        final systemScale = MediaQuery.textScalerOf(context).scale(1);
+        final tvBoost = TvDetector.instance.isTV ? 1.25 : 1.0;
+        final effective = (systemScale * tvBoost).clamp(0.85, 1.4);
+        return MediaQuery.withClampedTextScaling(
+          minScaleFactor: effective,
+          maxScaleFactor: effective,
+          child: child ?? const SizedBox.shrink(),
+        );
+      },
       home: const TourOverlay(child: StartupGate()),
       routes: {'/auth': (context) => const CloudAuthScreen()},
     );

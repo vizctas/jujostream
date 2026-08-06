@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -81,7 +82,25 @@ class AppListProvider extends ChangeNotifier {
   String? _cfgUsername;
   String? _cfgPassword;
 
-  List<NvApp> get apps => List.unmodifiable(_apps);
+  List<NvApp>? _appsViewSource;
+  UnmodifiableListView<NvApp>? _appsView;
+
+  /// Read-only view of the library.
+  ///
+  /// This used to be `List.unmodifiable(_apps)`, which COPIES the whole list on
+  /// every access — and the UI reads it several times per build, on a screen
+  /// that rebuilds often. It also handed out a new object each time, so nothing
+  /// downstream could cache on its identity. `_apps` is always reassigned,
+  /// never mutated in place, so an identity check is enough to know when to
+  /// rebuild the view.
+  List<NvApp> get apps {
+    if (!identical(_appsViewSource, _apps)) {
+      _appsViewSource = _apps;
+      _appsView = UnmodifiableListView<NvApp>(_apps);
+    }
+    return _appsView!;
+  }
+
   List<PlayniteCategory> get playniteCategories => _playniteCategories;
   bool get isLoading => _isLoading;
   bool get isEnriching => _isEnriching;
@@ -840,11 +859,15 @@ class AppListProvider extends ChangeNotifier {
       _replaceApp(updated);
       changedSinceSave = true;
 
-      if (i % 4 == 3) {
+      // Notify promptly (coalesced) so art appears as it lands, but hit the
+      // disk far less often: a full sqlite saveAll plus a jsonEncode of the
+      // entire cache every 4 items was 20 writes per 40-game refresh on a
+      // slow eMMC. The trailing block below still saves whatever remains.
+      if (!_disposed && _enrichGeneration == generation) _notifyCoalesced();
+      if (i % 12 == 11) {
         await MetadataDatabase.saveAll(_apps);
         final computer = _currentComputer;
         if (computer != null) unawaited(_persistAppCache(computer.uuid));
-        if (!_disposed && _enrichGeneration == generation) notifyListeners();
         changedSinceSave = false;
       }
     }
@@ -1007,11 +1030,51 @@ class AppListProvider extends ChangeNotifier {
     return result;
   }
 
+  Future<GameLaunchState> getGameLaunchState(
+    String token, {
+    bool retryFocus = false,
+  }) async {
+    final computer = _currentComputer;
+    if (computer == null) {
+      return GameLaunchState.transportFailure('No computer selected');
+    }
+    final address = computer.activeAddress.isNotEmpty
+        ? computer.activeAddress
+        : computer.localAddress;
+    final httpsPort = computer.httpsPort > 0
+        ? computer.httpsPort
+        : NvHttpClient.defaultHttpsPort;
+    return _httpClient.getGameLaunchState(
+      address,
+      token,
+      port: httpsPort,
+      expectedServerCert: computer.serverCert,
+      retryFocus: retryFocus,
+    );
+  }
+
   @override
   void dispose() {
     _disposed = true;
+    _coalescedNotifyTimer?.cancel();
     _httpClient.dispose();
     super.dispose();
+  }
+
+  Timer? _coalescedNotifyTimer;
+
+  /// Batches rapid-fire enrichment notifications to at most ~2 per second.
+  ///
+  /// The artwork refresh notified every few items — dozens of full library
+  /// rebuilds in the half-minute right after entering a server, which is
+  /// exactly when the user is browsing. The UI only needs to see the art
+  /// appear, not every individual batch land.
+  void _notifyCoalesced() {
+    if (_disposed) return;
+    _coalescedNotifyTimer ??= Timer(const Duration(milliseconds: 500), () {
+      _coalescedNotifyTimer = null;
+      if (!_disposed) notifyListeners();
+    });
   }
 }
 

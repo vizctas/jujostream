@@ -644,8 +644,59 @@ mixin _AppViewFiltersMixin on _AppViewScreenBase {
     }
   }
 
+  // ── Frame-local cache ─────────────────────────────────────────────────────
+  // _visibleApps re-filtered and re-sorted the whole library on every call,
+  // and one build calls it from up to five sites (carousel, header, discovery,
+  // preview, gamepad). Within a single frame the inputs cannot change except
+  // through the filter fields below (the discovery fallback mutates them
+  // mid-build), so caching per (frame, filter fingerprint) collapses those
+  // calls to one without any staleness: every other input mutation goes
+  // through setState, which schedules a new frame and a new timestamp.
+  Duration? _visCacheFrame;
+  String _visCacheFingerprint = '';
+  List<NvApp>? _visCacheResult;
+  int _visCacheSourceLength = -1;
+
+  /// Frame identity for the cache key, safe to call from anywhere.
+  ///
+  /// `currentFrameTimeStamp` throws when read outside a frame, and the precache
+  /// helpers call _visibleApps from Timer callbacks, which run between frames —
+  /// that threw 14 times in one session and aborted the precache each time.
+  /// Off-frame callers get a null key, which simply misses the cache and
+  /// recomputes: the same work as before the memo existed, never a crash.
+  Duration? _currentFrameKey() {
+    try {
+      return SchedulerBinding.instance.currentFrameTimeStamp;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  String _filterFingerprint() =>
+      '$_activeFilter|$_searchQuery|$_activeMacroGenre'
+      '|$_activePlayniteCategory|$_activeCollectionId|$_viewMode';
+
   @override
   List<NvApp> _visibleApps(List<NvApp> apps) {
+    final frame = _currentFrameKey();
+    final fingerprint = _filterFingerprint();
+    if (_visCacheResult != null &&
+        frame != null &&
+        _visCacheFrame == frame &&
+        _visCacheSourceLength == apps.length &&
+        _visCacheFingerprint == fingerprint) {
+      return _visCacheResult!;
+    }
+
+    final result = _computeVisibleApps(apps);
+    _visCacheFrame = frame;
+    _visCacheFingerprint = fingerprint;
+    _visCacheSourceLength = apps.length;
+    _visCacheResult = result;
+    return result;
+  }
+
+  List<NvApp> _computeVisibleApps(List<NvApp> apps) {
     final visible = apps
         .where((app) {
           final isHidden = _hiddenAppIds.contains(app.appId);
@@ -690,7 +741,14 @@ mixin _AppViewFiltersMixin on _AppViewScreenBase {
         })
         .toList(growable: false);
 
-    visible.sort((left, right) => _compareVisibleApps(left, right));
+    // The comparator lowercased both names per comparison — O(n log n) string
+    // allocations per sort. Precompute them once.
+    final lowerNames = <int, String>{
+      for (final app in visible) app.appId: app.appName.toLowerCase(),
+    };
+    int byName(NvApp a, NvApp b) =>
+        lowerNames[a.appId]!.compareTo(lowerNames[b.appId]!);
+    visible.sort((left, right) => _compareVisibleApps(left, right, byName));
 
     if (_activeFilter == _AppFilter.recent) {
       final lp = context.read<LauncherPreferences>();
@@ -702,7 +760,11 @@ mixin _AppViewFiltersMixin on _AppViewScreenBase {
     return visible;
   }
 
-  int _compareVisibleApps(NvApp left, NvApp right) {
+  int _compareVisibleApps(
+    NvApp left,
+    NvApp right,
+    int Function(NvApp, NvApp) byName,
+  ) {
     final leftProfile = _profilesByAppId[left.appId];
     final rightProfile = _profilesByAppId[right.appId];
 
@@ -710,7 +772,7 @@ mixin _AppViewFiltersMixin on _AppViewScreenBase {
       if (left.isRunning != right.isRunning) {
         return right.isRunning ? 1 : -1;
       }
-      return left.appName.toLowerCase().compareTo(right.appName.toLowerCase());
+      return byName(left, right);
     }
 
     if (_activeFilter == _AppFilter.recent ||
@@ -746,7 +808,7 @@ mixin _AppViewFiltersMixin on _AppViewScreenBase {
       return recencyDelta;
     }
 
-    return left.appName.toLowerCase().compareTo(right.appName.toLowerCase());
+    return byName(left, right);
   }
 
   @override

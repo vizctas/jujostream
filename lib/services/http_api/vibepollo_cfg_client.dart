@@ -4,6 +4,8 @@ import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
 import 'package:logger/logger.dart';
 
+import '../diagnostics_logger.dart';
+
 import '../crypto/client_identity.dart';
 
 class PlayniteGame {
@@ -70,7 +72,7 @@ class PlayniteStatus {
 class VibepolloCfgClient {
   static const int defaultConfigPort = 47990;
 
-  final Logger _log = Logger();
+  final Logger _log = diagnosticsLogger('CfgApi');
 
   String? _sessionCookie;
   String? expectedServerCert;

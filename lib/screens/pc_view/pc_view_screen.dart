@@ -65,6 +65,9 @@ class PcViewScreen extends StatefulWidget {
           );
         },
         transitionDuration: motion.routeDuration,
+        // Without this the pop fell back to Flutter's 300ms default, so
+        // leaving the screen ran at a different speed than entering it.
+        reverseTransitionDuration: motion.routeDuration,
       ),
     );
   }

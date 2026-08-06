@@ -16,17 +16,33 @@ Future<void> _feedbackHeavy() async {
 mixin _AppViewGamepadMixin on _AppViewScreenBase {
   @override
   KeyEventResult _onKeyEvent(KeyEvent event, List<NvApp> apps, NvApp selected) {
+    // `selected` arrives from the closure of whichever card's FocusNode really
+    // holds Flutter focus. The highlight the user sees follows _selectedAppId
+    // instead, and _requestCardFocus is best-effort — when it misses (node not
+    // built after a long jump or a filter switch), the two desync and pressing
+    // A launched a different game than the highlighted one. Every action below
+    // resolves against the same state that paints the highlight.
+    selected = _selectedApp(apps);
     if (event is! KeyDownEvent) {
       return KeyEventResult.ignored;
     }
 
-    final allApps = context.read<AppListProvider>().apps.toList();
-    final categories = _categoryItems(allApps);
-    if (_selectedCategoryIndex >= categories.length) {
-      _selectedCategoryIndex = 0;
-    }
-
     final logical = event.logicalKey;
+
+    // Only the LB/RB tab-switch branches need the category list, but it was
+    // computed up front — four full-library passes on EVERY keypress, arrows
+    // included. Held D-pad repeat paid it dozens of times per second.
+    List<_CategoryItem>? categoriesCache;
+    List<_CategoryItem> categories() {
+      if (categoriesCache != null) return categoriesCache!;
+      final cats = _categoryItems(
+        context.read<AppListProvider>().apps.toList(),
+      );
+      if (_selectedCategoryIndex >= cats.length) {
+        _selectedCategoryIndex = 0;
+      }
+      return categoriesCache = cats;
+    }
 
     if (logical == LogicalKeyboardKey.arrowRight) {
       _moveSelection(apps, 1);
@@ -140,33 +156,35 @@ mixin _AppViewGamepadMixin on _AppViewScreenBase {
     }
 
     if (logical == LogicalKeyboardKey.gameButtonRight2) {
+      final cats = categories();
       int nextIdx = _selectedCategoryIndex;
-      for (int i = 0; i < categories.length; i++) {
-        nextIdx = (nextIdx + 1) % categories.length;
-        if (categories[nextIdx].count > 0) break;
+      for (int i = 0; i < cats.length; i++) {
+        nextIdx = (nextIdx + 1) % cats.length;
+        if (cats[nextIdx].count > 0) break;
       }
       _feedbackNavigate();
       setState(() => _selectedCategoryIndex = nextIdx);
       _applyFilter(
-        categories[nextIdx].filter,
-        playniteCategory: categories[nextIdx].playniteCategory,
-        collectionId: categories[nextIdx].collectionId,
+        cats[nextIdx].filter,
+        playniteCategory: cats[nextIdx].playniteCategory,
+        collectionId: cats[nextIdx].collectionId,
       );
       return KeyEventResult.handled;
     }
 
     if (logical == LogicalKeyboardKey.gameButtonLeft2) {
+      final cats = categories();
       int nextIdx = _selectedCategoryIndex;
-      for (int i = 0; i < categories.length; i++) {
-        nextIdx = (nextIdx - 1 + categories.length) % categories.length;
-        if (categories[nextIdx].count > 0) break;
+      for (int i = 0; i < cats.length; i++) {
+        nextIdx = (nextIdx - 1 + cats.length) % cats.length;
+        if (cats[nextIdx].count > 0) break;
       }
       _feedbackNavigate();
       setState(() => _selectedCategoryIndex = nextIdx);
       _applyFilter(
-        categories[nextIdx].filter,
-        playniteCategory: categories[nextIdx].playniteCategory,
-        collectionId: categories[nextIdx].collectionId,
+        cats[nextIdx].filter,
+        playniteCategory: cats[nextIdx].playniteCategory,
+        collectionId: cats[nextIdx].collectionId,
       );
       return KeyEventResult.handled;
     }

@@ -14,7 +14,15 @@ class SettingsProvider extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     final configJson = prefs.getString('stream_config');
     if (configJson != null) {
-      _config = StreamConfiguration.fromJson(jsonDecode(configJson));
+      try {
+        _config = StreamConfiguration.fromJson(jsonDecode(configJson));
+      } catch (e) {
+        // main() awaits this before runApp(), so anything thrown here used to
+        // stop the app from starting at all. Falling back to defaults keeps a
+        // corrupt pref from bricking the install; the next save overwrites it.
+        debugPrint('SettingsProvider: stored stream_config unusable ($e); '
+            'falling back to defaults.');
+      }
     }
     _loaded = true;
     notifyListeners();

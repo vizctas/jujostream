@@ -172,6 +172,28 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
   static const Duration _pollTimeout = Duration(seconds: 5);
   bool _appInForeground = true;
 
+  /// True while a game is streaming.
+  ///
+  /// Polling every saved server every 3 seconds means a TLS handshake per
+  /// server per tick, on the main isolate. During gameplay that measured 71%
+  /// user CPU on the UI thread of a Chromecast HD — enough that input events
+  /// missed their 5-second deadline and Android killed the app for not
+  /// responding. Nothing on the server list is even visible while streaming,
+  /// so the polling has nothing to update.
+  bool _streamingActive = false;
+
+  /// Suspends server polling for the duration of a stream.
+  void setStreamingActive(bool active) {
+    if (_streamingActive == active) return;
+    _streamingActive = active;
+    if (active) {
+      _pollTimer?.cancel();
+      _pollTimer = null;
+    } else if (_appInForeground) {
+      _startAdaptivePoll();
+    }
+  }
+
   /// Whether a JUJO cloud account is currently signed in. Cloud-paired servers
   /// must only be visible/enterable while signed in — on sign-out they are
   /// hidden (not deleted) and restored on the next sign-in.
@@ -287,12 +309,16 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
 
   void _startAdaptivePoll() {
     _pollTimer?.cancel();
+    if (_streamingActive) {
+      _pollTimer = null;
+      return;
+    }
     final interval = _appInForeground ? _activePollInterval : _idlePollInterval;
     _pollTimer = Timer.periodic(interval, (_) => _pollAll());
   }
 
   Future<void> _pollAll() async {
-    if (_computers.isEmpty || !_appInForeground) return;
+    if (_computers.isEmpty || !_appInForeground || _streamingActive) return;
     final snapshot = _computers
         .where((c) => !_pairingKeys.contains(_failKey(c)))
         .toList(growable: false);
@@ -323,22 +349,32 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
           if (c.uuid.isNotEmpty) c.uuid: c.state,
       };
 
+      // Decode into a separate list first. This used to clear() and then
+      // addAll() a lazy map(): one bad entry threw midway, leaving the servers
+      // before it loaded and everything after it gone — and the outer catch
+      // swallowed it. The next _persistComputers() then wrote the truncated
+      // list back, losing those pairings for good. Now a bad entry costs only
+      // itself, and a total failure leaves the previous list untouched.
+      final loaded = <ComputerDetails>[];
+      for (final entry in jsonList) {
+        try {
+          final map = jsonDecode(entry) as Map<String, dynamic>;
+          final computer = ComputerDetails.fromJson(map);
+          computer.state = knownStates[computer.uuid] ?? ComputerState.unknown;
+
+          if (computer.pairState == PairState.paired &&
+              computer.serverCert.isNotEmpty) {
+            computer.pairStatusFromHttps = true;
+          }
+          loaded.add(computer);
+        } catch (e) {
+          debugPrint('ComputerProvider: skipping unreadable saved server ($e)');
+        }
+      }
+
       _computers
         ..clear()
-        ..addAll(
-          jsonList.map((entry) {
-            final map = jsonDecode(entry) as Map<String, dynamic>;
-            final computer = ComputerDetails.fromJson(map);
-            computer.state =
-                knownStates[computer.uuid] ?? ComputerState.unknown;
-
-            if (computer.pairState == PairState.paired &&
-                computer.serverCert.isNotEmpty) {
-              computer.pairStatusFromHttps = true;
-            }
-            return computer;
-          }),
-        );
+        ..addAll(loaded);
       final orderList = prefs.getStringList(_customOrderKey);
       if (orderList != null) {
         _customOrder
@@ -346,7 +382,10 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
           ..addAll(orderList);
       }
       notifyListeners();
-    } catch (_) {}
+    } catch (e) {
+      // Silence here meant saved servers could vanish with no trace at all.
+      debugPrint('ComputerProvider: could not load saved servers ($e)');
+    }
   }
 
   Future<void> _persistComputers() async {
@@ -617,10 +656,20 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
     _pairingService.requestCancel();
   }
 
+  /// Pairs [computer] and commits the result to local state.
+  ///
+  /// For PIN pairing, [pin] is the typed code. For Consigna / Watchword,
+  /// [pin] is the challenge id and [watchwordAnswer] holds the selected words
+  /// in order. Both modes MUST come through here rather than calling
+  /// PairingService directly: everything below the handshake — storing the
+  /// server certificate, flipping pairState, the grace period, persistence,
+  /// notifying listeners — lives here, and skipping it leaves a device that
+  /// paired successfully on the wire still showing as unpaired.
   Future<PairingResult> pairComputer(
     ComputerDetails computer,
-    String pin,
-  ) async {
+    String pin, {
+    List<String>? watchwordAnswer,
+  }) async {
     final wasDiscovering = _isDiscovering;
     if (wasDiscovering) {
       await stopDiscovery();
@@ -633,7 +682,11 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
 
     try {
-      final result = await _pairingService.pair(computer, pin);
+      final result = await _pairingService.pair(
+        computer,
+        pin,
+        watchwordAnswer: watchwordAnswer,
+      );
 
       if (result.paired) {
         computer.pairState = PairState.paired;
@@ -860,6 +913,19 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
+  /// Fields whose change is actually visible to the UI or worth persisting.
+  ///
+  /// The 3-second poll called _persistComputers() (jsonEncode of every server
+  /// plus a SharedPreferences write) and notifyListeners() on every tick, even
+  /// when the reply was identical to the last one. On a TV box with slow
+  /// storage that is a disk write and a provider-wide rebuild every 3 seconds,
+  /// forever. Comparing this signature skips both when nothing moved.
+  static String _stateSignature(ComputerDetails c) =>
+      '${c.uuid}|${c.name}|${c.state}|${c.pairState}|${c.runningGameId}'
+      '|${c.activeAddress}|${c.localAddress}|${c.remoteAddress}'
+      '|${c.httpsPort}|${c.configHttpsPort}|${c.externalPort}'
+      '|${c.serverCert.length}|${c.pairStatusFromHttps}|${c.isCloud}';
+
   void _addOrUpdateComputer(ComputerDetails computer) {
     // Match by UUID first (most reliable), then by localAddress or activeAddress.
     // On macOS, mDNS may discover the same server via different addresses
@@ -969,9 +1035,16 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
         computer.pairState = PairState.paired;
         computer.pairStatusFromHttps = true;
       }
+      final unchanged =
+          _stateSignature(existing) == _stateSignature(computer);
       final oldKey = _orderKey(existing);
       final newKey = _orderKey(computer);
       _computers[existingIndex] = computer;
+      if (unchanged && oldKey == newKey) {
+        // Same reply as last poll — keep the fresher object but skip the disk
+        // write and the rebuild.
+        return;
+      }
       // Migrate custom order key if UUID was discovered (empty -> non-empty)
       if (oldKey != newKey && oldKey.isNotEmpty) {
         final idx = _customOrder.indexOf(oldKey);
@@ -1005,7 +1078,7 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
   /// Mirrors CloudSyncService._configPort — confighttp runs at base+1,
   /// nvhttp HTTPS at base-5, so the offset is always 6.
   static int _configPort(ComputerDetails c) =>
-      c.configHttpsPort > 0 ? c.configHttpsPort : c.httpsPort + 6;
+      c.configHttpsPort > 0 ? c.configHttpsPort : c.effectiveHttpsPort + 6;
 
   void _retryCloudPairingOnResume() {
     if (!SupabaseConfig.current.isConfigured) return;

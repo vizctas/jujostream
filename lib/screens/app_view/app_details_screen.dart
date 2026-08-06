@@ -434,7 +434,14 @@ class _AppDetailsScreenState extends State<AppDetailsScreen> {
       );
     }
 
-    final perfMode = context.read<ThemeProvider>().performanceMode;
+    // A sigma-36 full-width Gaussian blur is one of the most expensive single
+    // draws in Flutter, and this screen opens on every "details" press. It was
+    // gated on performanceMode alone, which defaults to false, so every TV box
+    // paid for it by default. The `else` branch below is a flat scrim that
+    // reads almost identically at couch distance.
+    final perfMode =
+        context.read<ThemeProvider>().performanceMode ||
+        TvDetector.instance.isTV;
     return Stack(
       fit: StackFit.expand,
       children: [
@@ -558,6 +565,8 @@ class _AppDetailsScreenState extends State<AppDetailsScreen> {
                           ? widget.app.artCacheKey('poster')
                           : null,
                       fit: BoxFit.cover,
+                      // Fixed 140x188 box; 2x for density.
+                      memCacheWidth: 300,
                     ),
             ),
           ),

@@ -652,6 +652,11 @@ class _CinematicIntroScreenState extends State<CinematicIntroScreen>
               ],
             ),
             textDirection: TextDirection.ltr,
+            // The reveal box is sized from this measurement while the actual
+            // Text renders through MediaQuery's textScaler (boosted 1.25x on
+            // TV). Measuring unscaled made the box 25% too narrow and the
+            // title showed clipped.
+            textScaler: MediaQuery.textScalerOf(context),
           )..layout();
 
           final textWidth = textPainter.width + 4;

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:ui' show ImageByteFormat, PlatformDispatcher;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -41,6 +42,7 @@ import '../../services/tv/tv_detector.dart';
 import '../../themes/launcher_theme.dart';
 import '../../widgets/poster_image.dart';
 import '../../widgets/game_backdrop_art.dart';
+import '../../widgets/launch_experience.dart';
 import '../game/game_stream_screen.dart';
 import '../../models/stream_configuration.dart';
 import '../../ui/motion_policy.dart';
@@ -112,7 +114,6 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
   Future<void> _openSmartGenreFilters();
   Widget _buildDiscoveryBoostSection(NvApp selected, List<NvApp> allApps);
   void _queueAccentColorExtraction(NvApp app);
-  Future<void> _extractAccentColor(NvApp app);
   void _scheduleVideoPreview(NvApp app);
   String? _previewUrlFor(NvApp app);
   void _disposeVideoController();
@@ -492,344 +493,360 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
       backgroundColor: _tp.background,
       resizeToAvoidBottomInset: false,
 
-      body: Consumer<AppListProvider>(
-        builder: (context, provider, child) {
-          final pluginsProvider = context.watch<PluginsProvider>();
-          if (_activeFilter == _AppFilter.macroGenre &&
-              !pluginsProvider.canUseSmartGenreFilters) {
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (mounted &&
-                  _activeFilter == _AppFilter.macroGenre &&
-                  !context.read<PluginsProvider>().canUseSmartGenreFilters) {
-                _applyFilter(_AppFilter.all);
-              }
-            });
-          }
+      body: Stack(
+        children: [
+          Positioned.fill(child: _buildLibraryBody()),
+          // While posters/metadata download, browsing is heavier than usual.
+          // Without saying so, that reads as "the app is slow", not "the app
+          // is working" — a client has no way to know the difference.
+          const Positioned(
+            top: 10,
+            right: 12,
+            child: SafeArea(child: _EnrichmentIndicator()),
+          ),
+        ],
+      ),
+    );
+  }
 
-          if ((_activeFilter == _AppFilter.achievements100 ||
-                  _activeFilter == _AppFilter.achievementsPending ||
-                  _activeFilter == _AppFilter.achievementsNever) &&
-              !pluginsProvider.canUseAchievementsOverlay) {
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (mounted) _applyFilter(_AppFilter.all);
-            });
-          }
+  Widget _buildLibraryBody() {
+    return Consumer<AppListProvider>(
+      builder: (context, provider, child) {
+        final pluginsProvider = context.watch<PluginsProvider>();
+        if (_activeFilter == _AppFilter.macroGenre &&
+            !pluginsProvider.canUseSmartGenreFilters) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted &&
+                _activeFilter == _AppFilter.macroGenre &&
+                !context.read<PluginsProvider>().canUseSmartGenreFilters) {
+              _applyFilter(_AppFilter.all);
+            }
+          });
+        }
 
-          if (pluginsProvider.canUseAchievementsOverlay &&
-              !_achievementsInitiated &&
-              provider.apps.isNotEmpty) {
-            _achievementsInitiated = true;
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (mounted) _loadAllAchievements(provider.apps.toList());
-            });
-          }
+        if ((_activeFilter == _AppFilter.achievements100 ||
+                _activeFilter == _AppFilter.achievementsPending ||
+                _activeFilter == _AppFilter.achievementsNever) &&
+            !pluginsProvider.canUseAchievementsOverlay) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) _applyFilter(_AppFilter.all);
+          });
+        }
 
-          if (_videoPluginWasEnabled != true && provider.apps.isNotEmpty) {
-            _videoPluginWasEnabled = true;
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (!mounted) return;
-              final visibleApps = _visibleApps(provider.apps.toList());
-              if (visibleApps.isNotEmpty) {
-                _scheduleVideoPreview(_selectedApp(visibleApps));
-              }
-            });
-          }
+        if (pluginsProvider.canUseAchievementsOverlay &&
+            !_achievementsInitiated &&
+            provider.apps.isNotEmpty) {
+          _achievementsInitiated = true;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) _loadAllAchievements(provider.apps.toList());
+          });
+        }
 
-          if (provider.apps.isNotEmpty && !_profilesPrimed) {
-            _profilesPrimed = true;
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (mounted) _primeProfilesForCurrentApps();
-            });
-          }
+        if (_videoPluginWasEnabled != true && provider.apps.isNotEmpty) {
+          _videoPluginWasEnabled = true;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) return;
+            final visibleApps = _visibleApps(provider.apps.toList());
+            if (visibleApps.isNotEmpty) {
+              _scheduleVideoPreview(_selectedApp(visibleApps));
+            }
+          });
+        }
 
-          if (provider.apps.isNotEmpty && !_focusRequested) {
-            _focusRequested = true;
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (mounted) _screenFocusNode.requestFocus();
-            });
-          }
+        if (provider.apps.isNotEmpty && !_profilesPrimed) {
+          _profilesPrimed = true;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) _primeProfilesForCurrentApps();
+          });
+        }
 
-          // Show skeleton when:
-          //  1. Actively loading with no apps yet, OR
-          //  2. Pre-load state: loadApps() hasn't been called yet for this
-          //     screen (isLoading=false, apps empty, no error). This happens
-          //     on the very first build frame before addPostFrameCallback
-          //     fires loadApps(). Without this, the user briefly sees the
-          //     "No apps found" empty state before the skeleton appears.
-          final isPreLoadState =
-              !provider.isLoading &&
-              provider.apps.isEmpty &&
-              provider.error == null;
-          if ((provider.isLoading && provider.apps.isEmpty) || isPreLoadState) {
-            return Scaffold(
-              backgroundColor: _tp.background,
-              body: SafeArea(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    IconButton(
-                      icon: Icon(
-                        Icons.arrow_back,
-                        color: _tp.isLight ? Colors.black87 : Colors.white,
+        if (provider.apps.isNotEmpty && !_focusRequested) {
+          _focusRequested = true;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) _screenFocusNode.requestFocus();
+          });
+        }
+
+        // Show skeleton when:
+        //  1. Actively loading with no apps yet, OR
+        //  2. Pre-load state: loadApps() hasn't been called yet for this
+        //     screen (isLoading=false, apps empty, no error). This happens
+        //     on the very first build frame before addPostFrameCallback
+        //     fires loadApps(). Without this, the user briefly sees the
+        //     "No apps found" empty state before the skeleton appears.
+        final isPreLoadState =
+            !provider.isLoading &&
+            provider.apps.isEmpty &&
+            provider.error == null;
+        if ((provider.isLoading && provider.apps.isEmpty) || isPreLoadState) {
+          return Scaffold(
+            backgroundColor: _tp.background,
+            body: SafeArea(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  IconButton(
+                    icon: Icon(
+                      Icons.arrow_back,
+                      color: _tp.isLight ? Colors.black87 : Colors.white,
+                    ),
+                    onPressed: () => Navigator.of(context).pop(),
+                  ),
+                  const SizedBox(height: 16),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: Row(
+                      children: List.generate(
+                        4,
+                        (_) => Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: Container(
+                            width: 64,
+                            height: 28,
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.06),
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                          ),
+                        ),
                       ),
-                      onPressed: () => Navigator.of(context).pop(),
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  Expanded(
+                    child: Center(
+                      child: SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        padding: const EdgeInsets.symmetric(horizontal: 24),
+                        child: Row(
+                          children: List.generate(
+                            5,
+                            (i) => Padding(
+                              padding: const EdgeInsets.only(right: 12),
+                              child: _SkeletonCard(
+                                delay: Duration(milliseconds: i * 120),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }
+        if (provider.error != null && provider.apps.isEmpty) {
+          return Focus(
+            autofocus: true,
+            onKeyEvent: (_, ev) {
+              if (ev is! KeyDownEvent) return KeyEventResult.ignored;
+              final k = ev.logicalKey;
+              if (k == LogicalKeyboardKey.gameButtonB ||
+                  k == LogicalKeyboardKey.goBack ||
+                  k == LogicalKeyboardKey.escape) {
+                Navigator.maybePop(context);
+                return KeyEventResult.handled;
+              }
+              if (k == LogicalKeyboardKey.gameButtonA ||
+                  k == LogicalKeyboardKey.select ||
+                  k == LogicalKeyboardKey.enter) {
+                provider.loadApps(widget.computer);
+                return KeyEventResult.handled;
+              }
+              return KeyEventResult.ignored;
+            },
+            child: Scaffold(
+              backgroundColor: _tp.background,
+              appBar: AppBar(
+                title: Text(widget.computer.name),
+                backgroundColor: _tp.surface,
+                foregroundColor: _tp.isLight ? Colors.black87 : Colors.white,
+                elevation: 0,
+                leading: IconButton(
+                  autofocus: false,
+                  icon: Icon(
+                    Icons.arrow_back,
+                    color: _tp.isLight ? Colors.black87 : Colors.white,
+                  ),
+                  onPressed: () => Navigator.maybePop(context),
+                ),
+              ),
+              body: Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(
+                      Icons.error_outline,
+                      size: 64,
+                      color: Colors.redAccent,
                     ),
                     const SizedBox(height: 16),
                     Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      child: Row(
-                        children: List.generate(
-                          4,
-                          (_) => Padding(
-                            padding: const EdgeInsets.only(right: 8),
-                            child: Container(
-                              width: 64,
-                              height: 28,
-                              decoration: BoxDecoration(
-                                color: Colors.white.withValues(alpha: 0.06),
-                                borderRadius: BorderRadius.circular(14),
-                              ),
-                            ),
-                          ),
-                        ),
+                      padding: const EdgeInsets.symmetric(horizontal: 32),
+                      child: Text(
+                        provider.error!,
+                        style: const TextStyle(color: Colors.white70),
+                        textAlign: TextAlign.center,
                       ),
                     ),
-                    const SizedBox(height: 24),
-                    Expanded(
-                      child: Center(
-                        child: SingleChildScrollView(
-                          scrollDirection: Axis.horizontal,
-                          padding: const EdgeInsets.symmetric(horizontal: 24),
-                          child: Row(
-                            children: List.generate(
-                              5,
-                              (i) => Padding(
-                                padding: const EdgeInsets.only(right: 12),
-                                child: _SkeletonCard(
-                                  delay: Duration(milliseconds: i * 120),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
+                    const SizedBox(height: 20),
+                    ElevatedButton.icon(
+                      autofocus: true,
+                      icon: const Icon(Icons.refresh_rounded, size: 18),
+                      label: Text(AppLocalizations.of(context).retry),
+                      onPressed: () => provider.loadApps(widget.computer),
                     ),
+                    // Retry alone cannot fix a rejected certificate — it
+                    // just repeats the doomed call. Offer the actual cure.
+                    if (provider.lastFailureWasCertRejected) ...[
+                      const SizedBox(height: 12),
+                      TextButton.icon(
+                        icon: const Icon(Icons.link, size: 18),
+                        label: Text(
+                          Localizations.localeOf(context).languageCode == 'es'
+                              ? 'Volver a emparejar'
+                              : 'Re-pair this device',
+                        ),
+                        onPressed: () async {
+                          await context.read<ComputerProvider>().unpairComputer(
+                            widget.computer,
+                          );
+                          if (!context.mounted) return;
+                          final paired = await showPairingDialog(
+                            context,
+                            widget.computer,
+                          );
+                          if (paired && context.mounted) {
+                            provider.loadApps(widget.computer);
+                          }
+                        },
+                      ),
+                    ],
                   ],
                 ),
               ),
-            );
-          }
-          if (provider.error != null && provider.apps.isEmpty) {
-            return Focus(
-              autofocus: true,
-              onKeyEvent: (_, ev) {
-                if (ev is! KeyDownEvent) return KeyEventResult.ignored;
-                final k = ev.logicalKey;
-                if (k == LogicalKeyboardKey.gameButtonB ||
-                    k == LogicalKeyboardKey.goBack ||
-                    k == LogicalKeyboardKey.escape) {
-                  Navigator.maybePop(context);
-                  return KeyEventResult.handled;
-                }
-                if (k == LogicalKeyboardKey.gameButtonA ||
-                    k == LogicalKeyboardKey.select ||
-                    k == LogicalKeyboardKey.enter) {
-                  provider.loadApps(widget.computer);
-                  return KeyEventResult.handled;
-                }
-                return KeyEventResult.ignored;
-              },
-              child: Scaffold(
-                backgroundColor: _tp.background,
-                appBar: AppBar(
-                  title: Text(widget.computer.name),
-                  backgroundColor: _tp.surface,
-                  foregroundColor: _tp.isLight ? Colors.black87 : Colors.white,
-                  elevation: 0,
-                  leading: IconButton(
-                    autofocus: false,
-                    icon: Icon(
-                      Icons.arrow_back,
-                      color: _tp.isLight ? Colors.black87 : Colors.white,
-                    ),
-                    onPressed: () => Navigator.maybePop(context),
+            ),
+          );
+        }
+        if (provider.apps.isEmpty) {
+          return Focus(
+            autofocus: true,
+            onKeyEvent: (_, ev) {
+              if (ev is! KeyDownEvent) return KeyEventResult.ignored;
+              final k = ev.logicalKey;
+              if (k == LogicalKeyboardKey.gameButtonB ||
+                  k == LogicalKeyboardKey.goBack ||
+                  k == LogicalKeyboardKey.escape) {
+                Navigator.maybePop(context);
+                return KeyEventResult.handled;
+              }
+              return KeyEventResult.ignored;
+            },
+            child: Scaffold(
+              backgroundColor: _tp.background,
+              appBar: AppBar(
+                title: Text(widget.computer.name),
+                backgroundColor: _tp.surface,
+                foregroundColor: _tp.isLight ? Colors.black87 : Colors.white,
+                elevation: 0,
+                leading: IconButton(
+                  autofocus: false,
+                  icon: Icon(
+                    Icons.arrow_back,
+                    color: _tp.isLight ? Colors.black87 : Colors.white,
                   ),
+                  onPressed: () => Navigator.maybePop(context),
                 ),
-                body: Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(
-                        Icons.error_outline,
-                        size: 64,
-                        color: Colors.redAccent,
-                      ),
-                      const SizedBox(height: 16),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 32),
-                        child: Text(
-                          provider.error!,
-                          style: const TextStyle(color: Colors.white70),
-                          textAlign: TextAlign.center,
-                        ),
-                      ),
-                      const SizedBox(height: 20),
-                      ElevatedButton.icon(
-                        autofocus: true,
-                        icon: const Icon(Icons.refresh_rounded, size: 18),
-                        label: Text(AppLocalizations.of(context).retry),
-                        onPressed: () => provider.loadApps(widget.computer),
-                      ),
-                      // Retry alone cannot fix a rejected certificate — it
-                      // just repeats the doomed call. Offer the actual cure.
-                      if (provider.lastFailureWasCertRejected) ...[
-                        const SizedBox(height: 12),
-                        TextButton.icon(
-                          icon: const Icon(Icons.link, size: 18),
-                          label: Text(
-                            Localizations.localeOf(context).languageCode == 'es'
-                                ? 'Volver a emparejar'
-                                : 'Re-pair this device',
-                          ),
-                          onPressed: () async {
-                            await context
-                                .read<ComputerProvider>()
-                                .unpairComputer(widget.computer);
-                            if (!context.mounted) return;
-                            final paired = await showPairingDialog(
-                              context,
-                              widget.computer,
-                            );
-                            if (paired && context.mounted) {
-                              provider.loadApps(widget.computer);
-                            }
-                          },
-                        ),
-                      ],
-                    ],
-                  ),
+              ),
+              body: Center(
+                child: Text(
+                  AppLocalizations.of(context).noAppsFound,
+                  style: const TextStyle(color: Colors.white70, fontSize: 16),
                 ),
+              ),
+            ),
+          );
+        }
+
+        final launcherTheme = context.read<ThemeProvider>().launcherTheme;
+        if (launcherTheme.id != LauncherThemeId.classic &&
+            _viewMode != _ViewMode.grid) {
+          final visibleApps = _visibleApps(provider.apps.toList());
+          _ensureValidSelection(visibleApps);
+          final selected = _selectedApp(visibleApps);
+
+          Widget? videoWidget;
+          int? videoAppId;
+          if (_videoReady &&
+              _videoController != null &&
+              _videoController!.value.isInitialized &&
+              _videoForAppId != null) {
+            videoAppId = _videoForAppId;
+            videoWidget = FittedBox(
+              fit: BoxFit.cover,
+              child: SizedBox(
+                width: _videoController!.value.size.width,
+                height: _videoController!.value.size.height,
+                child: VideoPlayer(_videoController!),
               ),
             );
           }
-          if (provider.apps.isEmpty) {
-            return Focus(
-              autofocus: true,
-              onKeyEvent: (_, ev) {
-                if (ev is! KeyDownEvent) return KeyEventResult.ignored;
-                final k = ev.logicalKey;
-                if (k == LogicalKeyboardKey.gameButtonB ||
-                    k == LogicalKeyboardKey.goBack ||
-                    k == LogicalKeyboardKey.escape) {
-                  Navigator.maybePop(context);
-                  return KeyEventResult.handled;
-                }
-                return KeyEventResult.ignored;
-              },
-              child: Scaffold(
-                backgroundColor: _tp.background,
-                appBar: AppBar(
-                  title: Text(widget.computer.name),
-                  backgroundColor: _tp.surface,
-                  foregroundColor: _tp.isLight ? Colors.black87 : Colors.white,
-                  elevation: 0,
-                  leading: IconButton(
-                    autofocus: false,
-                    icon: Icon(
-                      Icons.arrow_back,
-                      color: _tp.isLight ? Colors.black87 : Colors.white,
-                    ),
-                    onPressed: () => Navigator.maybePop(context),
-                  ),
-                ),
-                body: Center(
-                  child: Text(
-                    AppLocalizations.of(context).noAppsFound,
-                    style: const TextStyle(color: Colors.white70, fontSize: 16),
-                  ),
-                ),
-              ),
-            );
-          }
-
-          final launcherTheme = context.read<ThemeProvider>().launcherTheme;
-          if (launcherTheme.id != LauncherThemeId.classic &&
-              _viewMode != _ViewMode.grid) {
-            final visibleApps = _visibleApps(provider.apps.toList());
-            _ensureValidSelection(visibleApps);
-            final selected = _selectedApp(visibleApps);
-
-            Widget? videoWidget;
-            int? videoAppId;
-            if (_videoReady &&
-                _videoController != null &&
-                _videoController!.value.isInitialized &&
-                _videoForAppId != null) {
-              videoAppId = _videoForAppId;
-              videoWidget = FittedBox(
-                fit: BoxFit.cover,
-                child: SizedBox(
-                  width: _videoController!.value.size.width,
-                  height: _videoController!.value.size.height,
-                  child: VideoPlayer(_videoController!),
-                ),
+          return launcherTheme.buildBody(
+            context: context,
+            apps: visibleApps,
+            allApps: provider.apps.toList(),
+            selectedIndex: visibleApps
+                .indexOf(selected)
+                .clamp(0, visibleApps.length - 1),
+            onAppSelected: _handleAppTap,
+            onAppDetails: _openDetailsScreen,
+            onIndexChanged: (i) {
+              if (i >= 0 && i < visibleApps.length) {
+                setState(() {
+                  _selectedAppId = visibleApps[i].appId;
+                  _focusedAppId = visibleApps[i].appId;
+                });
+                _queueAccentColorExtraction(visibleApps[i]);
+                _scheduleVideoPreview(visibleApps[i]);
+              }
+            },
+            activeSessionAppId: provider.apps
+                .cast<NvApp?>()
+                .firstWhere((a) => a?.isRunning == true, orElse: () => null)
+                ?.appId
+                .toString(),
+            isGridView: _viewMode == _ViewMode.grid,
+            favoriteIds: _favoriteAppIds.map((id) => id.toString()).toSet(),
+            onToggleFavorite: _toggleFavorite,
+            onToggleView: () => _toggleViewMode(provider.apps.toList()),
+            videoWidget: videoWidget,
+            videoForAppId: videoAppId,
+            onSearch: _openSearch,
+            onFilter: _openFilterPicker,
+            onSmartFilters: _openSmartGenreFilters,
+            onResumeRunning: () {
+              final running = provider.apps.cast<NvApp?>().firstWhere(
+                (a) => a?.isRunning == true,
+                orElse: () => null,
               );
-            }
-            return launcherTheme.buildBody(
-              context: context,
-              apps: visibleApps,
-              allApps: provider.apps.toList(),
-              selectedIndex: visibleApps
-                  .indexOf(selected)
-                  .clamp(0, visibleApps.length - 1),
-              onAppSelected: _handleAppTap,
-              onAppDetails: _openDetailsScreen,
-              onIndexChanged: (i) {
-                if (i >= 0 && i < visibleApps.length) {
-                  setState(() {
-                    _selectedAppId = visibleApps[i].appId;
-                    _focusedAppId = visibleApps[i].appId;
-                  });
-                  _queueAccentColorExtraction(visibleApps[i]);
-                  _scheduleVideoPreview(visibleApps[i]);
-                }
-              },
-              activeSessionAppId: provider.apps
-                  .cast<NvApp?>()
-                  .firstWhere((a) => a?.isRunning == true, orElse: () => null)
-                  ?.appId
-                  .toString(),
-              isGridView: _viewMode == _ViewMode.grid,
-              favoriteIds: _favoriteAppIds.map((id) => id.toString()).toSet(),
-              onToggleFavorite: _toggleFavorite,
-              onToggleView: () => _toggleViewMode(provider.apps.toList()),
-              videoWidget: videoWidget,
-              videoForAppId: videoAppId,
-              onSearch: _openSearch,
-              onFilter: _openFilterPicker,
-              onSmartFilters: _openSmartGenreFilters,
-              onResumeRunning: () {
-                final running = provider.apps.cast<NvApp?>().firstWhere(
-                  (a) => a?.isRunning == true,
-                  orElse: () => null,
-                );
-                if (running != null) _showRunningSheet(running);
-              },
-              onDetailViewChanged: (inDetail) {
-                _isDetailView = inDetail;
-                if (inDetail) {
-                  final sel = _selectedApp(visibleApps);
-                  _scheduleVideoPreview(sel);
-                } else {
-                  _disposeVideoController();
-                }
-              },
-              activeFilterLabel: _filterLabel(_activeFilter),
-            );
-          }
-          return _buildCarouselScreen(provider.apps);
-        },
-      ),
+              if (running != null) _showRunningSheet(running);
+            },
+            onDetailViewChanged: (inDetail) {
+              _isDetailView = inDetail;
+              if (inDetail) {
+                final sel = _selectedApp(visibleApps);
+                _scheduleVideoPreview(sel);
+              } else {
+                _disposeVideoController();
+              }
+            },
+            activeFilterLabel: _filterLabel(_activeFilter),
+          );
+        }
+        return _buildCarouselScreen(provider.apps);
+      },
     );
   }
 
@@ -1032,6 +1049,7 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
                   width: 26,
                   height: 34,
                   fit: BoxFit.cover,
+                  memCacheWidth: 80,
                   errorWidget: (_, _, _) => const SizedBox.shrink(),
                 ),
               ),
@@ -2550,9 +2568,6 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
 
   void _launchApp(NvApp app) async {
     // before navigation to stream screen. This prevents poster downloads
-    // from saturating the network during the RTSP handshake.
-    ImageLoadThrottle.pauseForStream();
-
     unawaited(AchievementService.instance.unlock('first_launch'));
 
     final hour = DateTime.now().hour;
@@ -2695,6 +2710,14 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
         ),
       ),
     );
+    await _precacheLaunchArt(app);
+    if (!mounted) {
+      _abortPendingLaunch();
+      return;
+    }
+    // The selected art is now in the persistent cache and Flutter image cache.
+    // Only then reduce image work for the RTSP/decoder startup window.
+    ImageLoadThrottle.pauseForStream();
 
     LaunchResult launch;
     try {
@@ -2769,6 +2792,11 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
           riKeyId: launch.riKeyId,
           rtspSessionUrl: launch.sessionUrl,
           overrideConfig: effectiveConfig,
+          readinessVersion: launch.readinessVersion,
+          readinessRequired: launch.readinessRequired,
+          readinessToken: launch.readinessToken,
+          readinessInitialState: launch.readinessInitialState,
+          readinessGeneration: launch.readinessGeneration,
         ),
         transitionsBuilder: (_, animation, secondaryAnimation, child) {
           return FadeTransition(
@@ -2797,6 +2825,25 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
       // Refresh app list now that we've returned from the stream screen.
       context.read<AppListProvider>().loadApps(widget.computer);
       _restoreScrollPosition();
+    }
+  }
+
+  Future<void> _precacheLaunchArt(NvApp app) async {
+    final selection = GameArtPolicy.selectBackdrop(app);
+    final url = selection.url?.trim();
+    if (url == null || url.isEmpty) return;
+    final cacheWidth = context.read<ThemeProvider>().backgroundArtCacheWidth;
+    try {
+      await precacheImage(
+        PosterImage.providerFor(
+          url,
+          cacheKey: selection.cacheKey,
+          maxWidth: cacheWidth,
+        ),
+        context,
+      ).timeout(const Duration(seconds: 4));
+    } catch (error) {
+      debugPrint('[LaunchArt] Precache skipped after failure: $error');
     }
   }
 
@@ -3065,75 +3112,11 @@ class _LaunchStartingOverlay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          if (app.posterUrl != null && app.posterUrl!.isNotEmpty)
-            ColorFiltered(
-              colorFilter: ColorFilter.mode(
-                Colors.black.withValues(alpha: 0.68),
-                BlendMode.darken,
-              ),
-              child: Image.network(
-                app.posterUrl!,
-                fit: BoxFit.cover,
-                errorBuilder: (_, _, _) =>
-                    const ColoredBox(color: Color(0xFF0D0818)),
-              ),
-            )
-          else
-            const ColoredBox(color: Color(0xFF0D0818)),
-          const DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: RadialGradient(
-                center: Alignment.center,
-                radius: 1.2,
-                colors: [Colors.transparent, Colors.black87],
-              ),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 60),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.end,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  app.appName,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 28,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: -0.5,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  computerName,
-                  style: const TextStyle(color: Colors.white54, fontSize: 14),
-                ),
-                const SizedBox(height: 24),
-                Text(
-                  message,
-                  style: const TextStyle(color: Colors.white70, fontSize: 13),
-                ),
-                const SizedBox(height: 10),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(4),
-                  child: LinearProgressIndicator(
-                    minHeight: 3,
-                    backgroundColor: Colors.white12,
-                    valueColor: AlwaysStoppedAnimation(accent),
-                  ),
-                ),
-                const SizedBox(height: 50),
-              ],
-            ),
-          ),
-        ],
-      ),
+    return LaunchExperience(
+      app: app,
+      computerName: computerName,
+      accent: accent,
+      message: message,
     );
   }
 }
@@ -3281,6 +3264,54 @@ class _FavoriteHeartOverlayState extends State<_FavoriteHeartOverlay>
               ),
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Small pill shown while the library is downloading posters and metadata.
+///
+/// Self-contained listener: only this widget rebuilds when the enrichment
+/// state flips, and it renders nothing at all when the library is idle.
+class _EnrichmentIndicator extends StatelessWidget {
+  const _EnrichmentIndicator();
+
+  @override
+  Widget build(BuildContext context) {
+    final busy = context.select<AppListProvider, bool>(
+      (p) => p.isEnriching || p.isLoading,
+    );
+    if (!busy) return const SizedBox.shrink();
+
+    final isEs = Localizations.localeOf(context).languageCode == 'es';
+    return IgnorePointer(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.65),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: Colors.white24, width: 1),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(
+              width: 11,
+              height: 11,
+              child: CircularProgressIndicator(
+                strokeWidth: 1.6,
+                color: Colors.white54,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              isEs
+                  ? 'Descargando arte y datos… la navegación puede ir lenta'
+                  : 'Downloading art & data… browsing may be slow',
+              style: const TextStyle(color: Colors.white70, fontSize: 11),
+            ),
+          ],
         ),
       ),
     );

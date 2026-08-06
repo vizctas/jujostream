@@ -51,6 +51,8 @@ mixin _AppViewGridMixin on _AppViewScreenBase {
                         width: double.infinity,
                         height: isLandscape ? 200 : 160,
                         fit: BoxFit.cover,
+                        // Side panel, a few hundred px wide at most.
+                        memCacheWidth: 400,
                       ),
                     ),
                   const SizedBox(height: 10),
@@ -244,6 +246,9 @@ mixin _AppViewGridMixin on _AppViewScreenBase {
         child: GridView.builder(
           controller: _gridScrollController,
           clipBehavior: Clip.none,
+          // Same reason as the carousel: keep rows just off-screen built so
+          // their posters are decoded before the D-pad reaches them.
+          cacheExtent: 1200,
           gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: crossAxisCount,
             childAspectRatio: lp.cardWidth / lp.cardHeight,
@@ -263,7 +268,7 @@ mixin _AppViewGridMixin on _AppViewScreenBase {
                 } else {
                   _feedbackNavigate();
                   setState(() => _selectedAppId = app.appId);
-                  _extractAccentColor(app);
+                  _queueAccentColorExtraction(app);
                 }
               },
               onLongPress: () {
@@ -389,7 +394,7 @@ mixin _AppViewGridMixin on _AppViewScreenBase {
                 if (focused) {
                   _feedbackNavigate();
                   _selectedAppId = app.appId;
-                  _extractAccentColor(app);
+                  _queueAccentColorExtraction(app);
                 }
               },
               onKeyEvent: (node, event) {

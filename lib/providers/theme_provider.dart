@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/theme_config.dart';
 import '../services/audio/ui_sound_service.dart';
 import '../services/database/achievement_service.dart';
+import '../services/tv/tv_detector.dart';
 import '../themes/launcher_theme.dart';
 import '../themes/launcher_theme_registry.dart';
 
@@ -130,8 +131,19 @@ class ThemeProvider extends ChangeNotifier {
   String get artQuality => _artQuality;
 
   /// Selected-game backgrounds: 1080p target, 720p floor.
-  int get backgroundArtCacheWidth =>
-      _performanceMode || _artQuality != 'high' ? 1280 : 1920;
+  ///
+  /// TV boxes take the floor without being asked. A 1920-wide backdrop costs
+  /// ~8 MB decoded and the crossfade holds two at once — on a Fire TV Stick
+  /// with 1.7 GB of shared RAM that is what makes browsing feel heavy. The
+  /// backdrop sits behind a gradient at couch distance, so 1280 is invisible.
+  int get backgroundArtCacheWidth {
+    // A TV backdrop sits behind a gradient at couch distance, so width buys
+    // nothing visible but costs the image cache dearly: 1280 decodes to ~3.7 MB
+    // and 40 games of them overflow the ~100 MB cache, evicting every grid
+    // poster. At 960 it is ~2 MB and the posters survive.
+    if (TvDetector.instance.isTV) return 960;
+    return _performanceMode || _artQuality != 'high' ? 1280 : 1920;
+  }
 
   int? get artQualityCacheWidth {
     switch (_artQuality) {

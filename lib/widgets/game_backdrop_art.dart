@@ -1,8 +1,11 @@
+import 'dart:ui' show ImageFilter;
+
 import 'package:flutter/material.dart';
 
 import '../models/nv_app.dart';
 import '../services/metadata/game_art_policy.dart';
 import '../services/metadata/game_art_validator.dart';
+import '../services/tv/tv_detector.dart';
 import 'poster_image.dart';
 
 class GameBackdropArt extends StatefulWidget {
@@ -21,6 +24,14 @@ class GameBackdropArt extends StatefulWidget {
   final Color fallbackColor;
   final bool validateHeroDimensions;
   final bool enableKenBurns;
+
+  /// Ken Burns pans and scales the full-screen backdrop forever. The four
+  /// launcher themes that enable it only check the opt-in reduceEffects /
+  /// performanceMode flags, which default to false — so on a TV box it ran
+  /// permanently unless the user found the setting. The default Classic view
+  /// already gates its own background motion on `!isTV`; this applies the same
+  /// rule for every theme at once, instead of at each of the four call sites.
+  bool get _kenBurnsAllowed => enableKenBurns && !TvDetector.instance.isTV;
   final Widget Function(BuildContext context, Widget hero)? heroBuilder;
 
   @override
@@ -85,7 +96,7 @@ class _GameBackdropArtState extends State<GameBackdropArt>
   }
 
   void _syncKenBurns() {
-    if (widget.enableKenBurns) {
+    if (widget._kenBurnsAllowed) {
       _kenBurnsController.repeat(reverse: true);
     } else {
       _kenBurnsController
@@ -204,7 +215,7 @@ class _GameBackdropArtState extends State<GameBackdropArt>
       child: child,
     );
     final animateHero =
-        widget.enableKenBurns &&
+        widget._kenBurnsAllowed &&
         (selection.hasArt ||
             (widget.app.posterUrl?.trim().isNotEmpty ?? false));
     if (!animateHero) return backdrop;
@@ -250,19 +261,68 @@ class _GameBackdropArtState extends State<GameBackdropArt>
   }
 
   Widget _buildFullBleed(String url, String? cacheKey, {required Key key}) {
-    final background = PosterImage(
-      key: key,
-      url: url,
-      cacheKey: cacheKey,
-      // Preserve the established cinematic fallback: the poster remains the
-      // background layer, not a detached foreground card.
-      fit: BoxFit.cover,
-      alignment: Alignment.center,
-      width: double.infinity,
-      height: double.infinity,
-      memCacheWidth: widget.heroCacheWidth,
-      errorWidget: (_, _, _) => ColoredBox(color: widget.fallbackColor),
+    final composition = ColoredBox(
+      color: widget.fallbackColor,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          ClipRect(
+            child: ImageFiltered(
+              imageFilter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
+              child: Transform.scale(
+                scale: 1.08,
+                child: ColorFiltered(
+                  colorFilter: ColorFilter.mode(
+                    Colors.black.withValues(alpha: 0.58),
+                    BlendMode.darken,
+                  ),
+                  child: PosterImage(
+                    key: const Key('game-backdrop-poster-blur'),
+                    url: url,
+                    cacheKey: cacheKey,
+                    fit: BoxFit.cover,
+                    width: double.infinity,
+                    height: double.infinity,
+                    memCacheWidth: widget.heroCacheWidth,
+                    errorWidget: (_, _, _) =>
+                        ColoredBox(color: widget.fallbackColor),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 72, vertical: 48),
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(12),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Color(0x99000000),
+                    blurRadius: 30,
+                    spreadRadius: 2,
+                  ),
+                ],
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: PosterImage(
+                  key: key,
+                  url: url,
+                  cacheKey: cacheKey,
+                  fit: BoxFit.contain,
+                  alignment: Alignment.center,
+                  width: double.infinity,
+                  height: double.infinity,
+                  memCacheWidth: widget.heroCacheWidth,
+                  errorWidget: (_, _, _) => const SizedBox.shrink(),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
-    return widget.heroBuilder?.call(context, background) ?? background;
+    return widget.heroBuilder?.call(context, composition) ?? composition;
   }
 }

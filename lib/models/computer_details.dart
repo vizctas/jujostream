@@ -69,6 +69,13 @@ class ComputerDetails {
         'isCloud': isCloud,
       };
 
+  /// Reads an enum by index without throwing on an out-of-range value.
+  /// A stale index from an older build must not take a saved server down.
+  static T _enumAt<T>(List<T> values, Object? index, T fallback) {
+    if (index is! int || index < 0 || index >= values.length) return fallback;
+    return values[index];
+  }
+
   factory ComputerDetails.fromJson(Map<String, dynamic> json) {
     return ComputerDetails(
       uuid: json['uuid'] ?? '',
@@ -81,9 +88,16 @@ class ComputerDetails {
       configHttpsPort: json['configHttpsPort'] ?? 0,
       externalPort: json['externalPort'] ?? 47989,
       serverCert: json['serverCert'] ?? '',
-      state:
-          ComputerState.values[json['state'] ?? ComputerState.unknown.index],
-      pairState: PairState.values[json['pairState'] ?? 0],
+      state: _enumAt(
+        ComputerState.values,
+        json['state'],
+        ComputerState.unknown,
+      ),
+      pairState: _enumAt(
+        PairState.values,
+        json['pairState'],
+        PairState.notPaired,
+      ),
       runningGameId: json['runningGameId'] ?? 0,
       activeAddress: json['activeAddress'] ?? '',
       serverVersion: json['serverVersion'] ?? '7.1.431.-1',
@@ -97,6 +111,10 @@ class ComputerDetails {
 
   bool get isReachable => state == ComputerState.online;
   bool get isPaired => pairState == PairState.paired;
+
+  /// nvhttp HTTPS port, never zero. Cloud-synced records land here with
+  /// `httpsPort = 0` until the first successful /serverinfo fills it in.
+  int get effectiveHttpsPort => httpsPort > 0 ? httpsPort : 47984;
 }
 
 enum ComputerState { online, offline, unknown }

@@ -419,6 +419,13 @@ Java_com_limelight_jujostream_native_1bridge_StreamingBridge_nativeInterruptConn
     LiInterruptConnection();
 }
 
+JNIEXPORT void JNICALL
+Java_com_limelight_jujostream_native_1bridge_StreamingBridge_nativeRequestIdrFrame(
+        JNIEnv* env, jclass clazz) {
+    LOGI("Requesting fresh IDR frame for privacy reveal");
+    LiRequestIdrFrame();
+}
+
 JNIEXPORT jint JNICALL
 Java_com_limelight_jujostream_native_1bridge_StreamingBridge_nativeGetPendingVideoFrames(
         JNIEnv* env, jclass clazz) {

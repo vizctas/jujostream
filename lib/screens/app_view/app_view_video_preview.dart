@@ -11,20 +11,69 @@ mixin _AppViewVideoPreviewMixin on _AppViewScreenBase {
       }
     });
 
-    _precacheAdjacentBackgrounds(app);
+    // Carousel posters are warmed at their own size, every move, undebounced —
+    // a poster that only loads once you stop moving reads as a broken app, not
+    // as an optimisation. They are cheap: ~0.5 MB each at 300 wide.
+    _precacheCarouselPosters(app);
 
     final reduce = context.read<ThemeProvider>().reduceEffects;
     if (TvDetector.instance.isTV || reduce) {
       _accentDebounce = Timer(const Duration(milliseconds: 150), () {
+        // The 480-wide backdrop is the expensive one, so it still waits for the
+        // D-pad to settle.
+        _precacheAdjacentBackgrounds(app);
         _scheduleVideoPreview(app);
       });
       return;
     }
 
+    _precacheAdjacentBackgrounds(app);
+
     _accentDebounce = Timer(const Duration(milliseconds: 250), () {
       _extractAccentColor(app);
     });
     _scheduleVideoPreview(app);
+  }
+
+  /// Decode caps the carousel/grid tiles actually use. Prefetching at any other
+  /// width lands in a different cache entry and does nothing for them.
+  static const _kCarouselPosterWidth = 300;
+  static const _kGridPosterWidth = 400;
+
+  /// Keeps a window of posters around the selection warm, at tile size.
+  ///
+  /// Only the immediate neighbours were ever prefetched, and at 480 wide — the
+  /// backdrop size, not the tile size — so fast D-pad movement always outran
+  /// the decoder and showed placeholders. A window of 6 covers a fast scroll,
+  /// and already-cached entries make precacheImage a no-op.
+  void _precacheCarouselPosters(NvApp app) {
+    final provider = context.read<AppListProvider>();
+    final visibleApps = _visibleApps(provider.apps.toList());
+    final idx = visibleApps.indexWhere((a) => a.appId == app.appId);
+    if (idx < 0) return;
+
+    const window = 6;
+    final width = _viewMode == _ViewMode.grid
+        ? _kGridPosterWidth
+        : _kCarouselPosterWidth;
+
+    for (var offset = -window; offset <= window; offset++) {
+      final neighbor = idx + offset;
+      if (neighbor < 0 || neighbor >= visibleApps.length) continue;
+      final nApp = visibleApps[neighbor];
+      final url = nApp.posterUrl;
+      if (url == null || url.isEmpty) continue;
+
+      precacheImage(
+        CachedNetworkImageProvider(
+          url,
+          maxWidth: width,
+          cacheKey: nApp.artCacheKey('poster'),
+          cacheManager: PosterImage.artCacheManager,
+        ),
+        context,
+      );
+    }
   }
 
   void _precacheAdjacentBackgrounds(NvApp app) {
@@ -262,7 +311,6 @@ mixin _AppViewVideoPreviewMixin on _AppViewScreenBase {
     }
   }
 
-  @override
   Future<void> _extractAccentColor(NvApp app) async {
     if (app.appId == _accentAppId) return;
     final reqId = ++_accentRequestId;

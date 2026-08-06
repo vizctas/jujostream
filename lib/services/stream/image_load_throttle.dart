@@ -31,10 +31,13 @@ class ImageLoadThrottle {
     _savedMaximumSize = cache.maximumSize;
     _savedMaximumSizeBytes = cache.maximumSizeBytes;
 
-    cache.clearLiveImages();
-
-    cache.maximumSize = 10;
-    cache.maximumSizeBytes = 10 << 20; // 10 MB
+    // Freeing memory and bandwidth for the handshake is the point; wiping the
+    // library is not. clearLiveImages() plus a 10 MB ceiling evicted nearly
+    // everything, so returning from a game re-decoded every poster — the
+    // "it's all loading again" pause. A 40 MB ceiling still sheds most of the
+    // pressure while the grid the user comes back to survives.
+    cache.maximumSize = 60;
+    cache.maximumSizeBytes = 40 << 20; // 40 MB
   }
 
   /// Restore normal image loading after stream ends.

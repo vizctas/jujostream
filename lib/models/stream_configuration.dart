@@ -101,6 +101,7 @@ class StreamConfiguration {
   final bool enableVrr;
   final bool enableDirectSubmit;
   final bool forceSkiaRenderer;
+  final LaunchRevealEffect launchRevealEffect;
   final bool hostPresetOverrideEnabled;
   final String hostPresetOverrideId;
 
@@ -251,6 +252,7 @@ class StreamConfiguration {
     this.enableVrr = false,
     this.enableDirectSubmit = false,
     this.forceSkiaRenderer = false,
+    this.launchRevealEffect = LaunchRevealEffect.random,
     this.hostPresetOverrideEnabled = false,
     this.hostPresetOverrideId = '',
     this.aspectRatio = 'auto',
@@ -338,6 +340,7 @@ class StreamConfiguration {
     bool? enableVrr,
     bool? enableDirectSubmit,
     bool? forceSkiaRenderer,
+    LaunchRevealEffect? launchRevealEffect,
     bool? hostPresetOverrideEnabled,
     String? hostPresetOverrideId,
     String? aspectRatio,
@@ -432,6 +435,7 @@ class StreamConfiguration {
       enableVrr: enableVrr ?? this.enableVrr,
       enableDirectSubmit: enableDirectSubmit ?? this.enableDirectSubmit,
       forceSkiaRenderer: forceSkiaRenderer ?? this.forceSkiaRenderer,
+      launchRevealEffect: launchRevealEffect ?? this.launchRevealEffect,
       hostPresetOverrideEnabled:
           hostPresetOverrideEnabled ?? this.hostPresetOverrideEnabled,
       hostPresetOverrideId: hostPresetOverrideId ?? this.hostPresetOverrideId,
@@ -523,6 +527,7 @@ class StreamConfiguration {
     'enableVrr': enableVrr,
     'enableDirectSubmit': enableDirectSubmit,
     'forceSkiaRenderer': forceSkiaRenderer,
+    'launchRevealEffect': launchRevealEffect.index,
     'hostPresetOverrideEnabled': hostPresetOverrideEnabled,
     'hostPresetOverrideId': hostPresetOverrideId,
     'aspectRatio': aspectRatio,
@@ -531,6 +536,18 @@ class StreamConfiguration {
     'videoPacingSlackMs': videoPacingSlackMs,
     'videoMaxFrameAgeMs': videoMaxFrameAgeMs,
   };
+
+  /// Reads an enum by index without ever throwing.
+  ///
+  /// A stored index that no longer exists — because an enum gained or lost a
+  /// value in a later release, or the pref was corrupted — used to throw
+  /// RangeError out of fromJson. Nothing caught it, and this runs before
+  /// runApp(), so the app could not start at all until the user cleared its
+  /// data. Three fields already clamped; five did not.
+  static T _enumAt<T>(List<T> values, Object? index, T fallback) {
+    if (index is! int || index < 0 || index >= values.length) return fallback;
+    return values[index];
+  }
 
   factory StreamConfiguration.fromJson(Map<String, dynamic> json) {
     return StreamConfiguration(
@@ -544,11 +561,22 @@ class StreamConfiguration {
             0,
             VideoCodec.values.length - 1,
           )],
-      scaleMode: VideoScaleMode.values[json['scaleMode'] ?? 0],
-      framePacing:
-          FramePacing.values[json['framePacing'] ?? FramePacing.adaptive.index],
+      scaleMode: _enumAt(
+        VideoScaleMode.values,
+        json['scaleMode'],
+        VideoScaleMode.values[0],
+      ),
+      framePacing: _enumAt(
+        FramePacing.values,
+        json['framePacing'],
+        FramePacing.adaptive,
+      ),
       fullRange: json['fullRange'] ?? false,
-      audioConfig: AudioConfig.values[json['audioConfig'] ?? 0],
+      audioConfig: _enumAt(
+        AudioConfig.values,
+        json['audioConfig'],
+        AudioConfig.values[0],
+      ),
       audioQuality:
           AudioQuality.values[(json['audioQuality'] ?? 0).clamp(
             0,
@@ -559,11 +587,13 @@ class StreamConfiguration {
       enableSops: json['enableSops'] ?? true,
       // On desktop platforms (macOS, Windows), default to trackpad (relative)
       // mode so the server hides its cursor. On mobile, default to directTouch.
-      mouseMode:
-          MouseMode.values[json['mouseMode'] ??
-              ((Platform.isMacOS || Platform.isWindows || Platform.isLinux)
-                  ? MouseMode.trackpad.index
-                  : MouseMode.directTouch.index)],
+      mouseMode: _enumAt(
+        MouseMode.values,
+        json['mouseMode'],
+        (Platform.isMacOS || Platform.isWindows || Platform.isLinux)
+            ? MouseMode.trackpad
+            : MouseMode.directTouch,
+      ),
       mouseEmulation: json['mouseEmulation'] ?? true,
       gamepadMouseEmulation: json['gamepadMouseEmulation'] ?? true,
       mouseLocalCursor: json['mouseLocalCursor'] ?? false,
@@ -577,7 +607,11 @@ class StreamConfiguration {
       flipFaceButtons: json['flipFaceButtons'] ?? false,
       multiControllerEnabled: json['multiControllerEnabled'] ?? true,
       controllerCount: json['controllerCount'] ?? 0,
-      controllerDriver: ControllerDriver.values[json['controllerDriver'] ?? 0],
+      controllerDriver: _enumAt(
+        ControllerDriver.values,
+        json['controllerDriver'],
+        ControllerDriver.values[0],
+      ),
       usbDriverEnabled: json['usbDriverEnabled'] ?? true,
       usbBindAll: json['usbBindAll'] ?? false,
       joyCon: json['joyCon'] ?? false,
@@ -619,7 +653,8 @@ class StreamConfiguration {
       screenshotHoldMs: json['screenshotHoldMs'] ?? 2500,
       overlayTriggerCombo: json['overlayTriggerCombo'] ?? 0x0330,
       overlayTriggerHoldMs: json['overlayTriggerHoldMs'] ?? 0,
-      desktopOverlayKeys: (json['desktopOverlayKeys'] as List<dynamic>?)
+      desktopOverlayKeys:
+          (json['desktopOverlayKeys'] as List<dynamic>?)
               ?.map((e) => e.toString())
               .toList() ??
           const ['Shift', '-'],
@@ -635,6 +670,11 @@ class StreamConfiguration {
       enableVrr: json['enableVrr'] ?? false,
       enableDirectSubmit: json['enableDirectSubmit'] ?? false,
       forceSkiaRenderer: json['forceSkiaRenderer'] ?? false,
+      launchRevealEffect: _enumAt(
+        LaunchRevealEffect.values,
+        json['launchRevealEffect'],
+        LaunchRevealEffect.random,
+      ),
       hostPresetOverrideEnabled: json['hostPresetOverrideEnabled'] ?? false,
       hostPresetOverrideId: json['hostPresetOverrideId'] ?? '',
       aspectRatio: json['aspectRatio'] as String? ?? 'auto',
@@ -660,6 +700,15 @@ class StreamConfiguration {
 }
 
 enum VideoCodec { h264, h265, av1, auto }
+
+enum LaunchRevealEffect {
+  random,
+  cinematicIris,
+  prismBloom,
+  signalVeil,
+  posterReveal,
+  minimalLuxe,
+}
 
 enum AudioConfig { stereo, surround51, surround71 }
 

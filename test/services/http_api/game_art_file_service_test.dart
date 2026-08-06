@@ -1,11 +1,31 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:jujostream/services/http_api/game_art_file_service.dart';
 
 void main() {
+  final binding = TestWidgetsFlutterBinding.ensureInitialized();
+  const pathProviderChannel = MethodChannel('plugins.flutter.io/path_provider');
+
+  setUpAll(() async {
+    binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      pathProviderChannel,
+      (_) async => Directory.systemTemp.path,
+    );
+  });
+
+  tearDownAll(() async {
+    binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      pathProviderChannel,
+      null,
+    );
+  });
+
   test('routes paired host artwork through its pinned client', () async {
     final publicRequests = <Uri>[];
     final pinnedRequests = <Uri>[];
@@ -63,4 +83,45 @@ void main() {
     expect(await response.content.transform(utf8.decoder).join(), 'public');
     expect(pinnedClientCreated, isFalse);
   });
+
+  test(
+    'launch artwork is downloaded once and reused from the art cache',
+    () async {
+      var requests = 0;
+      final png = base64Decode(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+      );
+      final key = 'launch-cache-${DateTime.now().microsecondsSinceEpoch}';
+      const url = 'https://cdn.example/launch-poster.png';
+      final service = GameArtFileService(
+        publicClient: MockClient((_) async {
+          requests++;
+          return http.Response.bytes(
+            png,
+            200,
+            headers: {'content-type': 'image/png'},
+          );
+        }),
+      );
+      final manager = CacheManager(
+        Config(
+          'launch-art-test-${DateTime.now().microsecondsSinceEpoch}',
+          stalePeriod: const Duration(days: 90),
+          maxNrOfCacheObjects: 10,
+          fileService: service,
+        ),
+      );
+
+      try {
+        final first = await manager.getSingleFile(url, key: key);
+        expect(await first.readAsBytes(), isNotEmpty);
+        final second = await manager.getSingleFile(url, key: key);
+        expect(second.path, first.path);
+        expect(requests, 1);
+      } finally {
+        await manager.removeFile(key);
+        await manager.dispose();
+      }
+    },
+  );
 }

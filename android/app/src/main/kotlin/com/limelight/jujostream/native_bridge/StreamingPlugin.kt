@@ -91,6 +91,7 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
     private var directSubmitActive = false
 
     private var statsTimer: Timer? = null
+    private val statsGuard = StreamStatsGuard()
     private var lastFramesReceived = 0L
     private var lastFramesRendered = 0L
     private var lastFramesDropped = 0L
@@ -192,6 +193,24 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
             "getStats" -> handleGetStats(result)
             "probeCodec" -> handleProbeCodec(call, result)
             "isDirectSubmitActive" -> result.success(directSubmitActive)
+            "setVideoVisible" -> {
+                val visible = call.argument<Boolean>("visible") ?: false
+                DirectSubmitViewFactory.setVideoVisible(
+                    visible
+                )
+                Log.i(TAG, "LaunchPrivacy videoVisible=$visible directSubmit=$directSubmitActive")
+                result.success(null)
+            }
+            "requestIdrFrame" -> {
+                if (isStreamingActive && isConnectionEstablished) {
+                    StreamingBridge.nativeRequestIdrFrame()
+                    Log.i(TAG, "LaunchPrivacy IDR request accepted")
+                    result.success(true)
+                } else {
+                    Log.w(TAG, "LaunchPrivacy IDR request rejected: stream not established")
+                    result.success(false)
+                }
+            }
             "startMicCapture" -> handleStartMicCapture(result)
             "requestMicPermission" -> handleRequestMicPermission(result)
             "stopMicCapture" -> {
@@ -250,10 +269,22 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
 
         val allSupported = CodecProbe.rankCodecs(width, height, fps, enableHdr)
 
+        // Weak-device mitigations, restored after an A/B against client 1.0.8.
+        //
+        // Measured on the same server, same scene:
+        //   Fire TV 1.0.8  pacing=0 LATENCY, lowLatencyFrameBalance=false ->  4-5 ms, 100% presented
+        //   Chromecast     pacing=4 adaptive, lowLatencyFrameBalance=true -> 14-28 ms, judders
+        // Both negotiate HEVC and both render through the texture path, so the
+        // codec and the render path are NOT what separates them: the pacing and
+        // frame-balance flags are, and both come from here. Disabling this whole
+        // branch (as an earlier attempt did) silently took them away.
+        //
+        // What stays off is the auto-DirectSubmit that arrived later: on Amlogic
+        // the SurfaceControl path presented 398 of 10500 frames.
         val weakDevice = detectWeakDevice()
         val effectiveCodec = when {
             weakDevice && videoCodec == "auto" -> {
-                Log.w(TAG, "Weak TV device detected — forcing H264 (was $resolvedCodec)")
+                Log.w(TAG, "Weak TV device — advertising H264 (was $resolvedCodec)")
                 "H264"
             }
             else -> resolvedCodec
@@ -275,10 +306,11 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
         Log.i(TAG, "Decoder map: $decodersByMime (weakDevice=$weakDevice, preferred=$effectiveCodec)")
 
         if (weakDevice && effectiveCodec == "H264") {
-            val avcDecoder = decodersByMime["video/avc"]
             decodersByMime.keys.retainAll(setOf("video/avc"))
-            Log.i(TAG, "Weak device: stripped codec map to avc-only → $decodersByMime")
+            Log.i(TAG, "Weak device: stripped codec map to avc-only -> $decodersByMime")
         }
+
+
 
         // Never advertise a codec that has no safe clear-playback decoder on this device.
         // This prevents the server from negotiating a codec we'd then fail to decode.
@@ -372,7 +404,16 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
             surfaceProducer?.setSize(width, height)
         }
 
-        val effectiveQueueDepth = if (weakDevice) minOf(frameQueueDepth.coerceIn(0, 6), 1) else frameQueueDepth.coerceIn(0, 6)
+        // Depth 1 leaves no slack at all: a single late packet starves the
+        // decoder, which triggers an IDR, which starves it again. 2 still keeps
+        // latency low but absorbs ordinary network jitter.
+        // 1.0.8 clamped this to 1 on weak devices; match it so the whole
+        // configuration is one known-good set rather than a mix.
+        val effectiveQueueDepth = if (weakDevice) {
+            minOf(frameQueueDepth.coerceIn(0, 6), 1)
+        } else {
+            frameQueueDepth.coerceIn(0, 6)
+        }
         videoRenderer = VideoDecoderRenderer(
             if (directSurface != null) null else surfaceProducer!!.surface,
             effectiveFramePacingMode,
@@ -511,6 +552,7 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
 
     private fun handleStopStream(result: MethodChannel.Result) {
         Log.i(TAG, "Stopping stream")
+        stopStatsPolling()
 
         try {
             StreamingBridge.nativeStopConnection()
@@ -783,7 +825,8 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
         lastFramesReceived = 0L
         stagnantRenderTicks = 0
         renderStallNotified = false
-        statsTimer?.cancel()
+        stopStatsPolling()
+        statsGuard.startSession()
         statsTimer = Timer("StreamStats", true).also { timer ->
             timer.scheduleAtFixedRate(object : TimerTask() {
                 override fun run() {
@@ -802,10 +845,17 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
                     val decodeTime = renderer.avgDecodeLatencyMs.toInt()
                     val bitrateM = (configuredBitrateKbps / 1000.0).toInt().coerceAtLeast(1)
                     val resolution = "${renderer.initialWidth}x${renderer.initialHeight}"
-                    val pendingAudioMs = StreamingBridge.nativeGetPendingAudioDuration().coerceAtLeast(0)
-                    val rttInfo = StreamingBridge.getEstimatedRtt()
-                    val rttMs = rttInfo?.first ?: -1
-                    val rttVarianceMs = rttInfo?.second ?: -1
+                    val nativeStats = statsGuard.runIfActive {
+                        val rttInfo = StreamingBridge.getEstimatedRtt()
+                        Triple(
+                            StreamingBridge.nativeGetPendingAudioDuration().coerceAtLeast(0),
+                            rttInfo?.first ?: -1,
+                            rttInfo?.second ?: -1,
+                        )
+                    } ?: return
+                    val pendingAudioMs = nativeStats.first
+                    val rttMs = nativeStats.second
+                    val rttVarianceMs = nativeStats.third
 
                     val statsMap = renderer.getStats()
                     val queueDepth = statsMap["queueDepth"] as? Int ?: 0
@@ -875,6 +925,7 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
     }
 
     override fun onConnectionTerminated(errorCode: Int) {
+        stopStatsPolling()
         if (isPipMode) {
             Log.i(TAG, "onConnectionTerminated during PiP — deferring to PiP exit (errorCode=$errorCode)")
             cleanup()
@@ -911,13 +962,10 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
             lowFreqMotor.toInt() and 0xFFFF,
             highFreqMotor.toInt() and 0xFFFF
         )
-
-        sendEvent(mapOf(
-            "type" to "rumble",
-            "controller" to controllerNumber.toInt(),
-            "lowFreq" to lowFreqMotor.toInt(),
-            "highFreq" to highFreqMotor.toInt()
-        ))
+        // Rumble is fully handled on Android. Forwarding every haptic packet to
+        // Dart made the generic stats listener run HUD parsing, session metrics,
+        // telemetry, and dynamic-bitrate evaluation for feedback that no Dart
+        // consumer uses. Two active controllers can generate this at frame rate.
     }
 
     override fun onRumbleTriggers(controllerNumber: Short, leftTrigger: Short, rightTrigger: Short) {
@@ -946,6 +994,8 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
     }
 
     private fun cleanup() {
+        stopStatsPolling()
+        GamepadHandler.instance?.releaseControllerFeedbackResources("native stream cleanup")
         isStreamingActive = false
         isConnectionEstablished = false
         directSubmitActive = false
@@ -956,8 +1006,6 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
         renderStallNotified = false
         DisplayModeHelper.restore(activity)
         DirectSubmitViewFactory.reset()
-        statsTimer?.cancel()
-        statsTimer = null
         videoRenderer?.stop()
         videoRenderer?.cleanup()
         videoRenderer = null
@@ -971,10 +1019,21 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
     }
 
     private fun stopNativeConnection() {
+        stopStatsPolling()
         try {
             StreamingBridge.nativeStopConnection()
         } catch (e: Exception) {
             Log.w(TAG, "stopNativeConnection: ignored — $e")
+        }
+    }
+
+    private fun stopStatsPolling() {
+        val wasRunning = statsTimer != null
+        statsGuard.stopAndAwait()
+        statsTimer?.cancel()
+        statsTimer = null
+        if (wasRunning) {
+            Log.i(TAG, "StreamStats stopped; native stats calls drained")
         }
     }
 }

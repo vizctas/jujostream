@@ -10,6 +10,9 @@ import 'package:provider/provider.dart';
 
 import '../models/computer_details.dart';
 import '../providers/computer_provider.dart';
+import 'pairing_mode_dialog.dart';
+import 'watchword_pairing_dialog.dart';
+import '../services/pairing/watchword_service.dart';
 import '../providers/theme_provider.dart';
 import '../services/crypto/client_identity.dart';
 
@@ -580,6 +583,41 @@ Future<bool> showPairingDialog(
       final proceed = await _showNotificationDisclaimer(context);
       if (!proceed || !context.mounted) return false;
     }
+  }
+
+  if (!context.mounted) return false;
+
+  // Probe only to decide whether to show a "Ready" hint. Routing on the probe
+  // alone was wrong: a challenge only exists once someone presses the button in
+  // StreamAdmin, so in the normal case the user silently landed on PIN and
+  // never learned Watchword existed. The choice belongs to the user.
+  final address = computer.activeAddress.isNotEmpty
+      ? computer.activeAddress
+      : computer.localAddress;
+  var watchwordWaiting = false;
+  if (address.isNotEmpty) {
+    final probe = WatchwordService();
+    try {
+      final challenge = await probe.fetchChallenge(
+        address: address,
+        port: computer.externalPort,
+        uniqueId: ClientIdentity.uniqueId,
+      );
+      watchwordWaiting = challenge != null;
+    } finally {
+      probe.dispose();
+    }
+  }
+
+  if (!context.mounted) return false;
+  final mode = await showPairingModeDialog(
+    context,
+    watchwordWaiting: watchwordWaiting,
+  );
+  if (mode == null || !context.mounted) return false;
+
+  if (mode == PairingMode.watchword) {
+    return await showWatchwordPairingDialog(context, computer);
   }
 
   if (!context.mounted) return false;

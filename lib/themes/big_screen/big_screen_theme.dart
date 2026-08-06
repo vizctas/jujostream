@@ -602,6 +602,9 @@ class _BigScreenBodyState extends State<_BigScreenBody> {
             child: ListView.separated(
               controller: _gameScrollController,
               scrollDirection: Axis.horizontal,
+              // Keep off-screen cards built so their posters are already
+              // decoded when fast D-pad movement arrives.
+              cacheExtent: 1600,
               padding: const EdgeInsets.only(right: 360),
               itemCount: widget.apps.length,
               separatorBuilder: (_, _) => const SizedBox(width: _cardGap),
@@ -826,6 +829,9 @@ class _BigScreenBodyState extends State<_BigScreenBody> {
       child: ListView.separated(
         controller: _newsScrollController,
         scrollDirection: Axis.horizontal,
+        // Keep off-screen cards built so their posters are already
+        // decoded when fast D-pad movement arrives.
+        cacheExtent: 1600,
         padding: const EdgeInsets.fromLTRB(28, 14, 28, 24),
         itemCount: items.length,
         separatorBuilder: (_, _) => const SizedBox(width: 16),
@@ -980,6 +986,9 @@ class _BigScreenBodyState extends State<_BigScreenBody> {
       height: 320,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
+        // Keep off-screen cards built so their posters are already
+        // decoded when fast D-pad movement arrives.
+        cacheExtent: 1600,
         padding: const EdgeInsets.fromLTRB(28, 14, 28, 24),
         itemCount: 4,
         separatorBuilder: (_, _) => const SizedBox(width: 16),

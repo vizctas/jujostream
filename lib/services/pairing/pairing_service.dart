@@ -8,7 +8,10 @@ import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
 import 'package:pointycastle/export.dart';
 import 'package:logger/logger.dart';
+
+import '../diagnostics_logger.dart';
 import '../../models/computer_details.dart';
+import 'watchword_service.dart';
 import '../crypto/client_identity.dart';
 import '../discovery/mdns_hostname_resolver.dart';
 import '../errors/error_codes.dart';
@@ -17,7 +20,7 @@ class PairingService {
   PairingService({MdnsHostnameResolver? mdnsResolver})
     : _mdnsResolver = mdnsResolver ?? MdnsHostnameResolver();
 
-  final Logger _log = Logger();
+  final Logger _log = diagnosticsLogger('Pairing');
   final MdnsHostnameResolver _mdnsResolver;
   static const Duration _pairPhaseTimeout = Duration(seconds: 60);
 
@@ -57,7 +60,17 @@ class PairingService {
     return random.nextInt(10000).toString().padLeft(4, '0');
   }
 
-  Future<PairingResult> pair(ComputerDetails computer, String pin) async {
+  /// Pairs with [computer].
+  ///
+  /// For PIN pairing, [pin] is the code the user typed. For Consigna /
+  /// Watchword pairing, [pin] is the (non-secret) challenge id and
+  /// [watchwordAnswer] holds the words the user selected, in order — those get
+  /// folded into the salted proof the server checks instead of a typed code.
+  Future<PairingResult> pair(
+    ComputerDetails computer,
+    String pin, {
+    List<String>? watchwordAnswer,
+  }) async {
     // Reset cancellation flag for this fresh pairing attempt.
     _cancelRequested = false;
 
@@ -73,7 +86,12 @@ class PairingService {
     // Solution: ALL 5 phases run in a native Java thread inside the FGS.
     // Phase 1 blocks until the user enters the PIN. Phases 2-5 execute
     // immediately after in the same thread. Dart only polls for the result.
-    final bool useNativeFullPairing = !kIsWeb && Platform.isAndroid;
+    // The native handshake knows nothing about the otpauth proof, so a
+    // watchword answer has to take the Dart path. That path exists and works;
+    // it just cannot survive the app being backgrounded — which watchword
+    // pairing never needs, since the words are selected inside the app.
+    final bool useNativeFullPairing =
+        !kIsWeb && Platform.isAndroid && (watchwordAnswer?.isEmpty ?? true);
     // Probe on Android too. Taking the first candidate unprobed made pairing
     // fail outright whenever activeAddress was stale, on a server that was
     // reachable at one of its other addresses all along.
@@ -94,7 +112,13 @@ class PairingService {
     }
 
     // ── OTHER PLATFORMS: Dart-based pairing (process doesn't pause) ──────
-    return _pairViaDart(computer, pin, endpoint.baseUrl, uniqueId);
+    return _pairViaDart(
+      computer,
+      pin,
+      endpoint.baseUrl,
+      uniqueId,
+      watchwordAnswer: watchwordAnswer,
+    );
   }
 
   Future<_PairingEndpoint?> _resolvePairingEndpoint(
@@ -447,8 +471,9 @@ class PairingService {
     ComputerDetails computer,
     String pin,
     String baseUrl,
-    String uniqueId,
-  ) async {
+    String uniqueId, {
+    List<String>? watchwordAnswer,
+  }) async {
     try {
       // ── Upfront server-state reset ───────────────────────────────────────
       try {
@@ -469,6 +494,7 @@ class PairingService {
           '&updateState=1'
           '&phrase=getservercert'
           '&salt=${_bytesToHex(salt)}'
+          '${_watchwordProofParam(pin, _bytesToHex(salt), watchwordAnswer)}'
           '&clientcert=${_bytesToHex(_clientCertPemBytes)}';
 
       _log.d('Phase 1: ${sanitizePairingLogMessage(phase1Url)}');
@@ -861,6 +887,25 @@ class PairingService {
     return Uint8List.fromList(
       List.generate(length, (_) => random.nextInt(256)),
     );
+  }
+
+  /// Extra query parameter carrying the watchword proof, or empty for PIN mode.
+  ///
+  /// The words themselves never go on the wire — only
+  /// sha256(challengeId + saltHex + words) uppercased, which is byte-for-byte
+  /// what the server computes with util::hex(..., rev: true).
+  String _watchwordProofParam(
+    String challengeId,
+    String saltHex,
+    List<String>? answer,
+  ) {
+    if (answer == null || answer.isEmpty) return '';
+    final proof = WatchwordService.buildProof(
+      challengeId: challengeId,
+      saltHex: saltHex,
+      orderedWords: answer,
+    );
+    return '&otpauth=$proof';
   }
 
   Uint8List _deriveAesKey(Uint8List salt, String pin) {

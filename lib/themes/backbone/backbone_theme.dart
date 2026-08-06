@@ -712,6 +712,9 @@ class _BodyState extends State<_Body> {
             child: ListView.builder(
               controller: _sc,
               scrollDirection: Axis.horizontal,
+              // Keep off-screen cards built so their posters are already
+              // decoded when fast D-pad movement arrives.
+              cacheExtent: 1600,
               padding: const EdgeInsets.only(left: 24, right: 24),
               itemCount: widget.apps.length,
               itemBuilder: (_, i) {

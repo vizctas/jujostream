@@ -291,6 +291,19 @@ class _SettingsScreenState extends State<SettingsScreen>
                               startupAnimation,
                             ),
                           ),
+                          _choiceTile(
+                            context,
+                            _tr(
+                              context,
+                              'Game reveal effect',
+                              'Efecto de apertura del juego',
+                            ),
+                            _launchRevealEffectLabel(
+                              context,
+                              c.launchRevealEffect,
+                            ),
+                            () => _pickLaunchRevealEffect(context, settings, c),
+                          ),
 
                           _section(_tr(context, 'Ambience', 'Ambiente')),
                           _choiceTile(
@@ -662,8 +675,8 @@ class _SettingsScreenState extends State<SettingsScreen>
                               // where the prompt breaks the stream). If the user
                               // denies, revert the toggle so it doesn't lie.
                               if (v) {
-                                final granted = await StreamingPlatformChannel
-                                    .requestMicPermission();
+                                final granted =
+                                    await StreamingPlatformChannel.requestMicPermission();
                                 if (!granted && context.mounted) {
                                   settings.updateConfig(
                                     c.copyWith(clientMic: false),
@@ -2697,6 +2710,53 @@ class _SettingsScreenState extends State<SettingsScreen>
     ]);
   }
 
+  String _launchRevealEffectLabel(BuildContext ctx, LaunchRevealEffect effect) {
+    return switch (effect) {
+      LaunchRevealEffect.random => _tr(ctx, 'Random', 'Aleatorio'),
+      LaunchRevealEffect.cinematicIris => _tr(
+        ctx,
+        'Cinematic Iris',
+        'Iris cinematográfico',
+      ),
+      LaunchRevealEffect.prismBloom => _tr(
+        ctx,
+        'Prism Bloom',
+        'Resplandor prisma',
+      ),
+      LaunchRevealEffect.signalVeil => _tr(ctx, 'Signal Veil', 'Velo de señal'),
+      LaunchRevealEffect.posterReveal => _tr(
+        ctx,
+        'Poster Reveal',
+        'Revelado de póster',
+      ),
+      LaunchRevealEffect.minimalLuxe => _tr(
+        ctx,
+        'Minimal Luxe',
+        'Minimalista luxe',
+      ),
+    };
+  }
+
+  void _pickLaunchRevealEffect(
+    BuildContext ctx,
+    SettingsProvider settings,
+    StreamConfiguration config,
+  ) {
+    _showPicker(
+      ctx,
+      _tr(ctx, 'Game reveal effect', 'Efecto de apertura del juego'),
+      [
+        for (final effect in LaunchRevealEffect.values)
+          (
+            _launchRevealEffectLabel(ctx, effect),
+            () => settings.updateConfig(
+              config.copyWith(launchRevealEffect: effect),
+            ),
+          ),
+      ],
+    );
+  }
+
   String _focusWallpaperLabel(BuildContext ctx, ThemeProvider tp) {
     final v = tp.focusWallpaper;
     if (v.isEmpty) return _tr(ctx, 'Default', 'Predeterminado');
@@ -3064,7 +3124,7 @@ class _SettingsScreenState extends State<SettingsScreen>
         _tr(ctx, 'AUTO (detect)', 'AUTO (detectar)'),
         () => s.updateConfig(c.copyWith(controllerCount: 0)),
       ),
-      ...[1, 2, 3, 4].map(
+      ...[1, 2, 3, 4, 5, 6, 7, 8].map(
         (n) => (
           _tr(
             ctx,

@@ -14,6 +14,40 @@ import '../../models/computer_details.dart';
 import '../auth/google_auth_service.dart';
 import '../crypto/client_identity.dart';
 
+/// Human-readable name this device registers under when pairing through the
+/// cloud.
+///
+/// `Platform.localHostname` returns the literal string "localhost" on Android,
+/// so every phone was registering under that name. That is bad on its own — the
+/// server's client list showed a row called "localhost" instead of the device —
+/// and it becomes destructive when the server deduplicates by name.
+///
+/// Falls back to the platform plus a short slice of the stable client id, which
+/// already exists and is unique per install.
+String cloudPairDeviceName() {
+  final host = Platform.localHostname.trim();
+  if (host.isNotEmpty && host.toLowerCase() != 'localhost') return host;
+
+  final id = ClientIdentity.uniqueId;
+  final suffix = id.length >= 6
+      ? id.substring(id.length - 6).toUpperCase()
+      : id.toUpperCase();
+
+  final platform = Platform.isAndroid
+      ? 'Android'
+      : Platform.isIOS
+      ? 'iOS'
+      : Platform.isWindows
+      ? 'Windows'
+      : Platform.isMacOS
+      ? 'macOS'
+      : Platform.isLinux
+      ? 'Linux'
+      : 'Jujo.Stream';
+
+  return suffix.isEmpty ? '$platform client' : '$platform · $suffix';
+}
+
 class CloudSyncService {
   CloudSyncService._();
   static final instance = CloudSyncService._();
@@ -54,7 +88,7 @@ class CloudSyncService {
   /// Uses the stored configHttpsPort when available (set from server_url in Supabase),
   /// falling back to httpsPort+6 for servers that were locally paired before cloud sync.
   static int _configPort(ComputerDetails c) =>
-      c.configHttpsPort > 0 ? c.configHttpsPort : c.httpsPort + 6;
+      c.configHttpsPort > 0 ? c.configHttpsPort : c.effectiveHttpsPort + 6;
 
   static const _fileName = 'jujostream_config.json';
   static const _mimeType = 'application/json';
@@ -686,11 +720,10 @@ class CloudSyncService {
         return false;
       }
 
-      final deviceName = Platform.localHostname;
       final body = jsonEncode({
         'token': token,
         'clientCert': clientPem,
-        'deviceName': deviceName.isNotEmpty ? deviceName : 'Jujo.Stream Client',
+        'deviceName': cloudPairDeviceName(),
       });
 
       final uri = Uri.parse('$serverUrl/api/pair/cloud');

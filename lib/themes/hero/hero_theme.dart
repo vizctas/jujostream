@@ -750,6 +750,9 @@ class _HeroBodyState extends State<_HeroBody>
             child: ListView.builder(
               controller: _iconSc,
               scrollDirection: Axis.horizontal,
+              // Keep off-screen cards built so their posters are already
+              // decoded when fast D-pad movement arrives.
+              cacheExtent: 1600,
               padding: const EdgeInsets.symmetric(horizontal: 24),
               itemCount: widget.apps.length,
               itemBuilder: (_, i) {
@@ -952,6 +955,9 @@ class _HeroBodyState extends State<_HeroBody>
           child: ListView.builder(
             controller: _iconSc,
             scrollDirection: Axis.horizontal,
+            // Keep off-screen cards built so their posters are already
+            // decoded when fast D-pad movement arrives.
+            cacheExtent: 1600,
             padding: const EdgeInsets.symmetric(horizontal: 24),
             itemCount: widget.apps.length,
             itemBuilder: (_, i) {

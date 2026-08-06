@@ -22,11 +22,15 @@ import '../../services/telemetry/beta_telemetry_service.dart';
 import '../../services/tv/tv_detector.dart';
 import '../../services/input/gamepad_button_helper.dart';
 import '../../services/stream/image_load_throttle.dart';
+import '../../ui/motion_policy.dart';
+import '../../widgets/launch_reveal_transition.dart';
 import '../../widgets/notification_mirror_overlay.dart';
 import '../../widgets/session_metrics_dialog.dart';
+import '../../widgets/launch_experience.dart';
 import '../../widgets/virtual_gamepad/virtual_gamepad_overlay.dart';
 import 'direct_touch_handler.dart';
 import 'dynamic_bitrate_controller.dart';
+import 'game_launch_privacy_gate.dart';
 import 'stream_hud_stats.dart';
 import 'perf_stats_overlay.dart';
 import 'quick_fav_keys_panel.dart';
@@ -41,6 +45,11 @@ class GameStreamScreen extends StatefulWidget {
   final int riKeyId;
   final String? rtspSessionUrl;
   final StreamConfiguration? overrideConfig;
+  final int readinessVersion;
+  final bool readinessRequired;
+  final String readinessToken;
+  final String readinessInitialState;
+  final int readinessGeneration;
 
   const GameStreamScreen({
     super.key,
@@ -50,6 +59,11 @@ class GameStreamScreen extends StatefulWidget {
     this.riKeyId = 0,
     this.rtspSessionUrl,
     this.overrideConfig,
+    this.readinessVersion = 0,
+    this.readinessRequired = false,
+    this.readinessToken = '',
+    this.readinessInitialState = '',
+    this.readinessGeneration = 0,
   });
 
   @override
@@ -57,7 +71,7 @@ class GameStreamScreen extends StatefulWidget {
 }
 
 class _GameStreamScreenState extends State<GameStreamScreen>
-    with WidgetsBindingObserver {
+    with WidgetsBindingObserver, SingleTickerProviderStateMixin {
   static const int _reconnectCooldownMs = 8000;
 
   static DateTime? _lastDisconnectTime;
@@ -101,6 +115,17 @@ class _GameStreamScreenState extends State<GameStreamScreen>
   Timer? _reconnectTimer;
   Timer? _overlayTransitionTimer;
   Timer? _presetSafetyTimer;
+  Timer? _postReadyFrameTimer;
+
+  late final GameLaunchPrivacyGate _privacyGate;
+  bool _hostReadinessFailed = false;
+  bool _revealInFlight = false;
+  late final AnimationController _revealController;
+  LaunchRevealEffect _activeRevealEffect = LaunchRevealEffect.minimalLuxe;
+  int _latestFramesRendered = 0;
+  int _lastLoggedReadinessGeneration = -1;
+  String _lastLoggedReadinessPhase = '';
+  String _lastReadinessDetail = '';
 
   late MouseMode _touchMode;
 
@@ -173,7 +198,14 @@ class _GameStreamScreenState extends State<GameStreamScreen>
   @override
   void initState() {
     super.initState();
+    _revealController = AnimationController(vsync: this);
+    _privacyGate = GameLaunchPrivacyGate(required: !_isDesktopApp);
+    unawaited(StreamingPlatformChannel.setVideoVisible(false));
     ImageLoadThrottle.pauseForStream();
+    // Stop polling servers over TLS while a game is running: it burned the UI
+    // thread hard enough to cause input ANRs, and there is no server list on
+    // screen for it to refresh.
+    context.read<ComputerProvider>().setStreamingActive(true);
     WidgetsBinding.instance.addObserver(this);
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.landscapeLeft,
@@ -209,12 +241,27 @@ class _GameStreamScreenState extends State<GameStreamScreen>
   }
 
   Future<void> _startInitialStream() async {
+    if (_privacyGate.required &&
+        (widget.readinessVersion < 1 ||
+            !widget.readinessRequired ||
+            widget.readinessToken.isEmpty)) {
+      _failHostReadiness(
+        'El servidor no entregó una prueba de juego listo. Actualiza y reinicia '
+        'JUJOSTREAM Server; el video se mantiene oculto para no exponer el escritorio.',
+      );
+      return;
+    }
     await TvDetector.instance.init();
     if (!mounted) return;
-    setState(() {
-      _autoDirectSubmit =
-          TvDetector.instance.isTV || TvDetector.instance.isLowRam;
-    });
+    // Measured on a Chromecast HD, same scene, same server:
+    //   texture path      -> 1764 of 1800 frames presented, 28 ms
+    //   direct-submit     ->  398 of 10500 presented, 2200 ms
+    // On the SurfaceControl path here the frames enter the decoder and never
+    // reach the screen, with almost nothing reported as dropped. Auto-forcing
+    // it on every TV came with the MiBox commit (764e196); the texture path is
+    // what actually works on these boxes. The setting stays available for
+    // anyone whose device needs it.
+    setState(() => _autoDirectSubmit = false);
     if (_shouldUseDirectSubmit) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _startStreaming();
@@ -227,12 +274,21 @@ class _GameStreamScreenState extends State<GameStreamScreen>
   bool get _shouldUseDirectSubmit =>
       _config.enableDirectSubmit || _autoDirectSubmit;
 
+  bool get _isDesktopApp =>
+      widget.app.appName.trim().toLowerCase() == 'desktop';
+
+  bool get _videoPresentationAllowed =>
+      _privacyGate.revealEligible &&
+      (_revealInFlight || _privacyGate.revealCompleted);
+
   @override
   void dispose() {
     _streamStartGeneration++;
     _reconnectTimer?.cancel();
     _overlayTransitionTimer?.cancel();
     _presetSafetyTimer?.cancel();
+    _postReadyFrameTimer?.cancel();
+    unawaited(StreamingPlatformChannel.setVideoVisible(false));
     // Cancel stats subscription FIRST to prevent connectionTerminated events
     // from firing during teardown (which can cause double-pop crashes).
     _statsSubscription?.cancel();
@@ -268,10 +324,12 @@ class _GameStreamScreenState extends State<GameStreamScreen>
     _panZoomCtrl.dispose();
     _hudStats.dispose();
     ImageLoadThrottle.resumeAfterStream();
+    _computerProvider.setStreamingActive(false);
     // Restore ambience eligibility now that stream has ended
     UiSoundService.exitStreamSession();
     SystemChrome.setPreferredOrientations(DeviceOrientation.values);
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    _revealController.dispose();
     super.dispose();
   }
 
@@ -281,6 +339,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
         state == AppLifecycleState.hidden) {
       final pro = context.read<ProService>();
       if (_isConnected &&
+          _privacyGate.revealCompleted &&
           _config.pipEnabled &&
           (pro.isPro || ProService.kDevMode)) {
         StreamingPlatformChannel.enterPiP();
@@ -324,6 +383,16 @@ class _GameStreamScreenState extends State<GameStreamScreen>
     if (!isCurrent()) return;
     _streamStopped = false;
     _stopInFlight = false;
+    _privacyGate.resetTransport();
+    _hostReadinessFailed = false;
+    _revealInFlight = false;
+    _lastLoggedReadinessGeneration = -1;
+    _lastLoggedReadinessPhase = '';
+    _revealController.stop();
+    _revealController.value = 0;
+    _postReadyFrameTimer?.cancel();
+    await StreamingPlatformChannel.setVideoVisible(false);
+    if (!isCurrent()) return;
     setState(() {
       _isConnecting = true;
       _error = null;
@@ -402,11 +471,11 @@ class _GameStreamScreenState extends State<GameStreamScreen>
       debugPrint('Audio Config: $audioStr (enum: ${cfg.audioConfig})');
       debugPrint('Audio Quality: ${cfg.audioQuality.name}');
       debugPrint('Scale Mode: ${cfg.scaleMode}');
-      debugPrint('Server: $address:${widget.computer.httpsPort}');
+      debugPrint('Server: $address:${widget.computer.effectiveHttpsPort}');
       debugPrint('>>> ');
       BetaTelemetryService.event('stream_start_requested', {
         'host': address,
-        'port': widget.computer.httpsPort,
+        'port': widget.computer.effectiveHttpsPort,
         'appId': widget.app.appId,
         'width': cfg.width,
         'height': cfg.height,
@@ -421,7 +490,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
       final success =
           await StreamingPlatformChannel.startStream(
             host: address,
-            httpsPort: widget.computer.httpsPort,
+            httpsPort: widget.computer.effectiveHttpsPort,
             appId: widget.app.appId.toString(),
             width: cfg.width,
             height: cfg.height,
@@ -474,6 +543,15 @@ class _GameStreamScreenState extends State<GameStreamScreen>
             : await StreamingPlatformChannel.getTextureId();
         if (!isCurrent()) return;
 
+        // Apply topology/capability preferences before activating the native
+        // input bridge. Activating performs the authoritative detection and
+        // sends controller arrivals, so configuring afterwards would detect
+        // and announce the same controllers a second time.
+        try {
+          await _applyGamepadConfig();
+        } catch (_) {}
+        if (!isCurrent()) return;
+
         final physicalCount = await GamepadChannel.setStreamingActive(true);
         if (!isCurrent()) return;
         if (physicalCount > 0) {
@@ -481,11 +559,6 @@ class _GameStreamScreenState extends State<GameStreamScreen>
             controllerCount: physicalCount.clamp(1, 4),
           );
         }
-
-        try {
-          await _applyGamepadConfig();
-        } catch (_) {}
-        if (!isCurrent()) return;
 
         if (mounted) {
           context.read<ComputerProvider>().setActiveSession(
@@ -497,10 +570,16 @@ class _GameStreamScreenState extends State<GameStreamScreen>
         setState(() {
           _usingDirectSubmit = useDirectSubmit && directSubmitActive;
           _textureId = textureId;
-          _isConnecting = false;
+          _privacyGate.markTransportConnected();
+          _isConnecting = true;
           _isConnected = true;
           _reconnectMessage = null;
         });
+        if (_privacyGate.required) {
+          unawaited(_monitorHostReadiness(generation));
+        } else {
+          unawaited(_completePrivacyReveal(generation));
+        }
         BetaTelemetryService.event('stream_started', {
           'textureId': textureId ?? -1,
           'directSubmit': _usingDirectSubmit,
@@ -516,8 +595,10 @@ class _GameStreamScreenState extends State<GameStreamScreen>
           StreamingPlatformChannel.startMicCapture();
         }
 
-        // always redetect so the controller is picked up on initial entry AND reconnects
-        GamepadChannel.redetectControllers();
+        // setStreamingActive(true) above already performed an authoritative
+        // detection. Hot-plug is handled by InputDeviceListener and reconnects
+        // run this startup path again, so another redetection here only emits
+        // duplicate native arrivals.
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) _streamFocusNode.requestFocus();
         });
@@ -617,6 +698,217 @@ class _GameStreamScreenState extends State<GameStreamScreen>
     }
   }
 
+  Future<void> _monitorHostReadiness(
+    int streamGeneration, {
+    bool retryFocus = false,
+  }) async {
+    var consecutiveErrors = 0;
+    var requestRetry = retryFocus;
+    final appProvider = context.read<AppListProvider>();
+
+    while (mounted && streamGeneration == _streamStartGeneration) {
+      final state = await appProvider.getGameLaunchState(
+        widget.readinessToken,
+        retryFocus: requestRetry,
+      );
+      requestRetry = false;
+      if (!mounted || streamGeneration != _streamStartGeneration) return;
+
+      if (state.generation != _lastLoggedReadinessGeneration ||
+          state.phase != _lastLoggedReadinessPhase) {
+        _lastLoggedReadinessGeneration = state.generation;
+        _lastLoggedReadinessPhase = state.phase;
+        debugPrint(
+          '[LaunchPrivacy] host phase=${state.phase} '
+          'generation=${state.generation} attempt=${state.attempt} '
+          'pid=${state.selectedPid} succeeded=${state.requestSucceeded}',
+        );
+      }
+
+      if (!state.requestSucceeded) {
+        consecutiveErrors++;
+        final terminalAuthError =
+            state.statusCode == 401 ||
+            state.statusCode == 403 ||
+            state.statusCode == 404;
+        if (terminalAuthError || consecutiveErrors >= 12) {
+          _failHostReadiness(
+            state.error.isEmpty
+                ? 'No fue posible verificar que el juego está listo.'
+                : state.error,
+          );
+          return;
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 500));
+        continue;
+      }
+
+      consecutiveErrors = 0;
+      if (state.failed) {
+        _failHostReadiness(
+          state.detail.isEmpty
+              ? 'El servidor no encontró una ventana de juego estable.'
+              : '${state.detail}'
+                    '${state.failureCode.isEmpty ? '' : ' (${state.failureCode})'}',
+        );
+        return;
+      }
+
+      if (state.ready) {
+        final freshGeneration = state.generation > 0
+            ? state.generation
+            : widget.readinessGeneration;
+        final needsIdr = _privacyGate.markHostReady(
+          generation: freshGeneration,
+          framesRendered: _latestFramesRendered,
+        );
+        if (!needsIdr) {
+          if (!_privacyGate.hostGameReady) {
+            _failHostReadiness('Respuesta de readiness sin generación válida.');
+          }
+          return;
+        }
+
+        setState(() {
+          _lastReadinessDetail = state.detail;
+          _reconnectMessage = 'Sincronizando primer frame seguro…';
+        });
+        final idrRequested = await StreamingPlatformChannel.requestIdrFrame();
+        debugPrint(
+          '[LaunchPrivacy] IDR requested=$idrRequested '
+          'baseline=$_latestFramesRendered generation=$freshGeneration',
+        );
+        if (!mounted || streamGeneration != _streamStartGeneration) return;
+        if (!idrRequested) {
+          _failHostReadiness('No fue posible solicitar un frame IDR seguro.');
+          return;
+        }
+
+        _postReadyFrameTimer?.cancel();
+        _postReadyFrameTimer = Timer(const Duration(seconds: 12), () {
+          if (!mounted || streamGeneration != _streamStartGeneration) return;
+          if (!_privacyGate.postReadyFrameRendered) {
+            _failHostReadiness(
+              'El decoder no presentó un frame nuevo después de confirmar el juego.',
+            );
+          }
+        });
+        return;
+      }
+
+      final detail = state.detail.trim();
+      if (detail.isNotEmpty && detail != _lastReadinessDetail) {
+        setState(() {
+          _lastReadinessDetail = detail;
+          _reconnectMessage = detail;
+        });
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+    }
+  }
+
+  Future<void> _completePrivacyReveal(int streamGeneration) async {
+    if (_revealInFlight ||
+        !mounted ||
+        streamGeneration != _streamStartGeneration ||
+        !_privacyGate.revealEligible) {
+      return;
+    }
+    final themeProvider = context.read<ThemeProvider>();
+    final motion = MotionPolicy.fromContext(context, themeProvider);
+    final effect = resolveLaunchRevealEffect(
+      _config.launchRevealEffect,
+      reduceMotion: motion.reduceMotion,
+      performanceMode: motion.performanceMode,
+    );
+    _revealController.duration = launchRevealDuration(
+      effect,
+      reduceMotion: motion.reduceMotion,
+      performanceMode: motion.performanceMode,
+    );
+    setState(() {
+      _activeRevealEffect = effect;
+      _revealInFlight = true;
+      _isConnecting = true;
+    });
+    debugPrint(
+      '[LaunchPrivacy] reveal start effect=${effect.name} '
+      'framesRendered=$_latestFramesRendered',
+    );
+    await StreamingPlatformChannel.setVideoVisible(true);
+    if (!mounted || streamGeneration != _streamStartGeneration) {
+      await StreamingPlatformChannel.setVideoVisible(false);
+      return;
+    }
+    try {
+      await _revealController.forward(from: 0).orCancel;
+    } on TickerCanceled {
+      if (!mounted ||
+          streamGeneration != _streamStartGeneration ||
+          !_privacyGate.revealEligible) {
+        return;
+      }
+    } catch (error) {
+      // Animation failures must never strand an eligible safe frame behind
+      // the launch surface. The privacy proof, not visual polish, is decisive.
+      debugPrint('Launch reveal failed; completing safely: $error');
+    }
+    if (!mounted || streamGeneration != _streamStartGeneration) {
+      await StreamingPlatformChannel.setVideoVisible(false);
+      return;
+    }
+    setState(() {
+      _privacyGate.completeReveal();
+      _isConnecting = false;
+      _hostReadinessFailed = false;
+      _error = null;
+      _reconnectMessage = null;
+    });
+    _revealInFlight = false;
+    debugPrint(
+      '[LaunchPrivacy] reveal complete effect=${effect.name} '
+      'framesRendered=$_latestFramesRendered',
+    );
+  }
+
+  void _failHostReadiness(String detail) {
+    debugPrint('[LaunchPrivacy] failed: $detail');
+    unawaited(StreamingPlatformChannel.setVideoVisible(false));
+    _postReadyFrameTimer?.cancel();
+    _revealController.stop();
+    _revealController.value = 0;
+    if (!mounted) return;
+    setState(() {
+      _privacyGate.hideForRetry();
+      _hostReadinessFailed = true;
+      _revealInFlight = false;
+      _isConnecting = false;
+      _showOverlay = false;
+      _error = detail;
+      _reconnectMessage = null;
+    });
+    GamepadChannel.setOverlayVisible(false);
+  }
+
+  Future<void> _retryHostFocus() async {
+    if (!_privacyGate.required || widget.readinessToken.isEmpty) {
+      _failHostReadiness(
+        'Este servidor no soporta verificación privada de lanzamiento.',
+      );
+      return;
+    }
+    await StreamingPlatformChannel.setVideoVisible(false);
+    if (!mounted) return;
+    setState(() {
+      _privacyGate.hideForRetry();
+      _hostReadinessFailed = false;
+      _error = null;
+      _isConnecting = true;
+      _reconnectMessage = 'Reintentando foco del juego…';
+    });
+    unawaited(_monitorHostReadiness(_streamStartGeneration, retryFocus: true));
+  }
+
   void _handleSettingsConfigChanged() {
     if (!mounted || widget.overrideConfig != null) {
       return;
@@ -651,11 +943,15 @@ class _GameStreamScreenState extends State<GameStreamScreen>
     _lastDisconnectTime = DateTime.now();
     final cmp = Completer<void>();
     _pendingStop = cmp;
+    _revealController.stop();
+    _revealController.value = 0;
+    _revealInFlight = false;
     try {
       BetaTelemetryService.event('stream_stop_requested', {
         'clearActiveSession': clearActiveSession,
       });
       await GamepadChannel.setStreamingActive(false);
+      await StreamingPlatformChannel.setVideoVisible(false);
       await StreamingPlatformChannel.stopStream();
 
       if (!clearActiveSession && mounted) {
@@ -668,6 +964,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
         setState(() {
           _usingDirectSubmit = false;
           _textureId = null;
+          _privacyGate.resetTransport();
         });
       }
 
@@ -788,6 +1085,19 @@ class _GameStreamScreenState extends State<GameStreamScreen>
   void _listenToStats() {
     _statsSubscription = StreamingPlatformChannel.statsStream.listen((event) {
       if (!mounted) return;
+      final rendered = event['totalRendered'] ?? event['framesRendered'];
+      if (rendered is num) {
+        _latestFramesRendered = rendered.toInt();
+        if (_privacyGate.observeFramesRendered(_latestFramesRendered)) {
+          _postReadyFrameTimer?.cancel();
+          debugPrint(
+            '[LaunchPrivacy] first safe frame rendered='
+            '$_latestFramesRendered baseline='
+            '${_privacyGate.postReadyFrameBaseline}',
+          );
+          unawaited(_completePrivacyReveal(_streamStartGeneration));
+        }
+      }
       final type = event['type'] as String?;
       switch (type) {
         case 'connectionStarted':
@@ -1196,7 +1506,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
       setState(() => _showGamepad = !_showGamepad);
     } else if (idx == 3 && _config.multiControllerEnabled) {
       setState(() {
-        final max = _config.controllerCount.clamp(1, 4);
+        final max = _config.controllerCount.clamp(1, 8);
         _activeControllerSlot = (_activeControllerSlot + 1) % max;
       });
     } else {
@@ -1291,6 +1601,10 @@ class _GameStreamScreenState extends State<GameStreamScreen>
       canPop: false,
       onPopInvokedWithResult: (didPop, _) {
         if (didPop) return;
+        if (_hostReadinessFailed) {
+          unawaited(_executeQuit());
+          return;
+        }
         _setOverlayVisible(!_showOverlay);
       },
       child: Focus(
@@ -1302,17 +1616,20 @@ class _GameStreamScreenState extends State<GameStreamScreen>
           resizeToAvoidBottomInset: false,
           body: Stack(
             children: [
-              _panZoomActive
-                  ? InteractiveViewer(
-                      transformationController: _panZoomCtrl,
-                      minScale: 1.0,
-                      maxScale: 5.0,
-                      panEnabled: true,
-                      scaleEnabled: true,
-                      child: RepaintBoundary(child: _buildVideoLayer()),
-                    )
-                  : RepaintBoundary(child: _buildVideoLayer()),
-              _buildInputLayer(),
+              Opacity(
+                opacity: _videoPresentationAllowed ? 1 : 0,
+                child: _panZoomActive
+                    ? InteractiveViewer(
+                        transformationController: _panZoomCtrl,
+                        minScale: 1.0,
+                        maxScale: 5.0,
+                        panEnabled: true,
+                        scaleEnabled: true,
+                        child: RepaintBoundary(child: _buildVideoLayer()),
+                      )
+                    : RepaintBoundary(child: _buildVideoLayer()),
+              ),
+              if (_privacyGate.revealCompleted) _buildInputLayer(),
               if (_config.mouseLocalCursor &&
                   _cursorVisible &&
                   _touchMode == MouseMode.directTouch &&
@@ -1321,13 +1638,16 @@ class _GameStreamScreenState extends State<GameStreamScreen>
               if (_isConnecting) _buildConnectingOverlay(),
               if (_error != null) _buildErrorOverlay(),
               if (_showOverlay && _error == null) _buildMenuOverlay(),
-              if (_showGamepad && _isConnected)
+              if (_showGamepad && _isConnected && _privacyGate.revealCompleted)
                 VirtualGamepadOverlay(
                   opacity: _gamepadOpacity,
                   controllerNumber: _activeControllerSlot,
                   activeGamepadMask: _activeGamepadMask,
                 ),
-              if (_showPerfStats && _isConnected) _buildPerfOverlay(),
+              if (_showPerfStats &&
+                  _isConnected &&
+                  _privacyGate.revealCompleted)
+                _buildPerfOverlay(),
               if (_showQuickFavPanel && _isConnected && !_showOverlay)
                 _buildQuickFavPanel(),
               if (_keyboardVisible) _buildHiddenKeyboardField(),
@@ -1480,16 +1800,28 @@ class _GameStreamScreenState extends State<GameStreamScreen>
       if (k == LogicalKeyboardKey.gameButtonB ||
           k == LogicalKeyboardKey.escape ||
           k == LogicalKeyboardKey.goBack) {
-        Navigator.pop(context);
+        if (_hostReadinessFailed) {
+          unawaited(_executeQuit());
+        } else {
+          Navigator.pop(context);
+        }
         return KeyEventResult.handled;
       }
 
       if (k == LogicalKeyboardKey.gameButtonA ||
           k == LogicalKeyboardKey.enter) {
         if (_errorSelectedButton == 0) {
-          _startStreaming();
+          if (_hostReadinessFailed) {
+            unawaited(_retryHostFocus());
+          } else {
+            _startStreaming();
+          }
         } else {
-          Navigator.pop(context);
+          if (_hostReadinessFailed) {
+            unawaited(_executeQuit());
+          } else {
+            Navigator.pop(context);
+          }
         }
         return KeyEventResult.handled;
       }
@@ -1998,39 +2330,48 @@ class _GameStreamScreenState extends State<GameStreamScreen>
     final l = AppLocalizations.of(context);
     final isPro = ProService.kDevMode || context.read<ProService>().isPro;
 
+    final Widget surface;
     if (isPro) {
-      return _ImmersiveLoadingOverlay(
+      surface = _ImmersiveLoadingOverlay(
         app: widget.app,
         computer: widget.computer,
         stageName: _currentStageName,
         stageIndex: _currentStageIndex,
         reconnectMessage: _reconnectMessage,
       );
+    } else {
+      surface = Container(
+        color: Colors.black87,
+        child: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              CircularProgressIndicator(
+                color: context.read<ThemeProvider>().accent,
+              ),
+              const SizedBox(height: 24),
+              Text(
+                _reconnectMessage ?? l.connecting(widget.app.appName),
+                style: const TextStyle(color: Colors.white, fontSize: 18),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                widget.computer.name,
+                style: const TextStyle(color: Colors.white54, fontSize: 14),
+              ),
+            ],
+          ),
+        ),
+      );
     }
 
-    return Container(
-      color: Colors.black87,
-      child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            CircularProgressIndicator(
-              color: context.read<ThemeProvider>().accent,
-            ),
-            const SizedBox(height: 24),
-            Text(
-              _reconnectMessage ?? l.connecting(widget.app.appName),
-              style: const TextStyle(color: Colors.white, fontSize: 18),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              widget.computer.name,
-              style: const TextStyle(color: Colors.white54, fontSize: 14),
-            ),
-          ],
-        ),
-      ),
+    if (!_revealInFlight) return surface;
+    return LaunchRevealTransition(
+      effect: _activeRevealEffect,
+      animation: _revealController,
+      accent: context.read<ThemeProvider>().accent,
+      child: surface,
     );
   }
 
@@ -2098,17 +2439,27 @@ class _GameStreamScreenState extends State<GameStreamScreen>
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 _ErrorButton(
-                  label: AppLocalizations.of(context).retry,
+                  label: _hostReadinessFailed
+                      ? (isSpanish ? 'Reintentar foco' : 'Retry focus')
+                      : AppLocalizations.of(context).retry,
                   icon: Icons.refresh,
                   selected: _errorSelectedButton == 0,
-                  onPressed: _startStreaming,
+                  onPressed: _hostReadinessFailed
+                      ? _retryHostFocus
+                      : _startStreaming,
                 ),
                 const SizedBox(width: 16),
                 _ErrorButton(
-                  label: AppLocalizations.of(context).back,
-                  icon: Icons.arrow_back,
+                  label: _hostReadinessFailed
+                      ? (isSpanish ? 'Cerrar sesión' : 'Close session')
+                      : AppLocalizations.of(context).back,
+                  icon: _hostReadinessFailed
+                      ? Icons.power_settings_new
+                      : Icons.arrow_back,
                   selected: _errorSelectedButton == 1,
-                  onPressed: () => Navigator.pop(context),
+                  onPressed: _hostReadinessFailed
+                      ? _executeQuit
+                      : () => Navigator.pop(context),
                 ),
               ],
             ),
@@ -2648,7 +2999,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
                 'P${_activeControllerSlot + 1}',
                 true,
                 () => setState(() {
-                  final max = _config.controllerCount.clamp(1, 4);
+                  final max = _config.controllerCount.clamp(1, 8);
                   _activeControllerSlot = (_activeControllerSlot + 1) % max;
                 }),
                 focused: _overlayRow == 1 && _overlayCol == 3,
@@ -3086,7 +3437,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
     if (!_config.multiControllerEnabled) {
       return 1;
     }
-    final count = _config.controllerCount.clamp(1, 4);
+    final count = _config.controllerCount.clamp(1, 8);
     return (1 << count) - 1;
   }
 
@@ -3201,81 +3552,13 @@ class _ImmersiveLoadingOverlay extends StatelessWidget {
     final safeStage = stageIndex.clamp(0, totalStages);
     final progress = safeStage / totalStages;
 
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        if (app.posterUrl != null && app.posterUrl!.isNotEmpty)
-          ColorFiltered(
-            colorFilter: ColorFilter.mode(
-              Colors.black.withValues(alpha: 0.65),
-              BlendMode.darken,
-            ),
-            child: Hero(
-              tag: 'game-poster-${app.appId}',
-              child: Image.network(
-                app.posterUrl!,
-                fit: BoxFit.cover,
-                errorBuilder: (_, _, _) =>
-                    const ColoredBox(color: Color(0xFF0D0818)),
-              ),
-            ),
-          )
-        else
-          const ColoredBox(color: Color(0xFF0D0818)),
-
-        const DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: RadialGradient(
-              center: Alignment.center,
-              radius: 1.2,
-              colors: [Colors.transparent, Colors.black87],
-            ),
-          ),
-        ),
-
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 60),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.end,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                app.appName,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 28,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: -0.5,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                computer.name,
-                style: const TextStyle(color: Colors.white54, fontSize: 14),
-              ),
-              const SizedBox(height: 24),
-
-              Text(
-                reconnectMessage ??
-                    (stageName.isNotEmpty ? stageName : l.starting),
-                style: const TextStyle(color: Colors.white70, fontSize: 13),
-              ),
-              const SizedBox(height: 10),
-
-              ClipRRect(
-                borderRadius: BorderRadius.circular(4),
-                child: LinearProgressIndicator(
-                  value: stageName.isEmpty ? null : progress,
-                  minHeight: 3,
-                  backgroundColor: Colors.white12,
-                  valueColor: const AlwaysStoppedAnimation(Color(0xFF9B72CF)),
-                ),
-              ),
-              const SizedBox(height: 50),
-            ],
-          ),
-        ),
-      ],
+    return LaunchExperience(
+      app: app,
+      computerName: computer.name,
+      message:
+          reconnectMessage ?? (stageName.isNotEmpty ? stageName : l.starting),
+      accent: const Color(0xFF9B72CF),
+      progress: stageName.isEmpty ? null : progress,
     );
   }
 }

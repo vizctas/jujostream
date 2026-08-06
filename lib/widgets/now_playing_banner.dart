@@ -54,8 +54,10 @@ class _NowPlayingBannerState extends State<NowPlayingBanner> {
 
     final tp = context.read<ThemeProvider>().colors;
 
-    return GestureDetector(
-      onTap: widget.onTap,
+    // Tap-only left this unreachable by D-pad, on a screen that is the default
+    // home on TV — the remote skipped straight past the resume affordance.
+    return _FocusableBanner(
+      onActivate: widget.onTap,
       child: Material(
         color: Colors.transparent,
         child: Container(
@@ -147,6 +149,53 @@ class _PulsingDotState extends State<_PulsingDot>
         decoration: const BoxDecoration(
           color: Color(0xFF4CAF50),
           shape: BoxShape.circle,
+        ),
+      ),
+    );
+  }
+}
+
+/// Wraps the banner so a D-pad or keyboard can reach and activate it, and
+/// shows a visible focus ring — a tap target with no focus node is invisible
+/// to a TV remote.
+class _FocusableBanner extends StatefulWidget {
+  const _FocusableBanner({required this.child, this.onActivate});
+
+  final Widget child;
+  final VoidCallback? onActivate;
+
+  @override
+  State<_FocusableBanner> createState() => _FocusableBannerState();
+}
+
+class _FocusableBannerState extends State<_FocusableBanner> {
+  bool _focused = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = context.read<ThemeProvider>().colors.accent;
+    return FocusableActionDetector(
+      onShowFocusHighlight: (v) {
+        if (v != _focused) setState(() => _focused = v);
+      },
+      actions: <Type, Action<Intent>>{
+        ActivateIntent: CallbackAction<ActivateIntent>(
+          onInvoke: (_) {
+            widget.onActivate?.call();
+            return null;
+          },
+        ),
+      },
+      child: GestureDetector(
+        onTap: widget.onActivate,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            border: Border.all(
+              color: _focused ? accent : Colors.transparent,
+              width: 2,
+            ),
+          ),
+          child: widget.child,
         ),
       ),
     );
