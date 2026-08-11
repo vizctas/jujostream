@@ -18,7 +18,9 @@ import '../pro/pro_service.dart';
 import '../stream/host_preset_profiles.dart';
 import '../../models/mirrored_notification.dart';
 import '../notifications/notification_mirror_controller.dart';
+import '../notifications/notification_mirror_envelope.dart';
 import '../crypto/client_identity.dart';
+import 'companion_access_session.dart';
 
 class CompanionServer {
   CompanionServer._();
@@ -32,6 +34,11 @@ class CompanionServer {
   LauncherPreferences? _launcherPreferences;
   ComputerProvider? _computerProvider;
   NotificationMirrorController? _notificationMirror;
+  CompanionAccessSession? _accessSession;
+  InternetAddress? _boundAddress;
+  Timer? _expiryTimer;
+  final NotificationMirrorEnvelope _notificationEnvelope =
+      NotificationMirrorEnvelope();
 
   // Pairing state (ephemeral, lives only while a pairing attempt is active)
   String? _pairingPin;
@@ -41,6 +48,10 @@ class CompanionServer {
   static const int port = 9876;
 
   bool get isRunning => _server != null;
+
+  void configureNotificationMirror(NotificationMirrorController controller) {
+    _notificationMirror = controller;
+  }
 
   void setComputerProvider(ComputerProvider provider) {
     _computerProvider = provider;
@@ -62,9 +73,17 @@ class CompanionServer {
     _launcherPreferences = launcherPreferences ?? _launcherPreferences;
     _computerProvider = computerProvider ?? _computerProvider;
     _notificationMirror = notificationMirror ?? _notificationMirror;
+    _accessSession = CompanionAccessSession.create();
+    _expiryTimer?.cancel();
+    _expiryTimer = Timer(const Duration(minutes: 10), stop);
     if (_server != null) return;
     try {
-      _server = await HttpServer.bind(InternetAddress.anyIPv4, port);
+      final address = await _selectPrivateAddress();
+      if (address == null) {
+        throw StateError('No private LAN interface available');
+      }
+      _boundAddress = address;
+      _server = await HttpServer.bind(address, port);
       _server!.listen(_handleRequest);
       debugPrint('[CompanionServer] listening on port $port');
     } catch (e) {
@@ -75,9 +94,15 @@ class CompanionServer {
   Future<void> stop() async {
     await _server?.close(force: true);
     _server = null;
+    _boundAddress = null;
+    _accessSession = null;
+    _expiryTimer?.cancel();
+    _expiryTimer = null;
   }
 
   Future<String?> get lanUrl async {
+    final boundAddress = _boundAddress;
+    if (boundAddress != null) return _sessionUrl(boundAddress);
     final interfaces = await NetworkInterface.list();
 
     for (final iface in interfaces) {
@@ -89,7 +114,7 @@ class CompanionServer {
             (addr.address.startsWith('192.168.') ||
                 _isPrivate172(addr.address))) {
           debugPrint('[CompanionServer] using ${iface.name} → ${addr.address}');
-          return 'http://${addr.address}:$port';
+          return _sessionUrl(addr);
         }
       }
     }
@@ -101,7 +126,7 @@ class CompanionServer {
             (addr.address.startsWith('192.168.') ||
                 _isPrivate172(addr.address))) {
           debugPrint('[CompanionServer] using ${iface.name} → ${addr.address}');
-          return 'http://${addr.address}:$port';
+          return _sessionUrl(addr);
         }
       }
     }
@@ -109,16 +134,51 @@ class CompanionServer {
     for (final iface in interfaces) {
       if (_isMobileDataInterface(iface.name)) continue;
       for (final addr in iface.addresses) {
-        if (addr.type == InternetAddressType.IPv4 && !addr.isLoopback) {
+        if (addr.type == InternetAddressType.IPv4 &&
+            !addr.isLoopback &&
+            _isPrivateIpv4(addr.address)) {
           debugPrint(
             '[CompanionServer] fallback ${iface.name} → ${addr.address}',
           );
-          return 'http://${addr.address}:$port';
+          return _sessionUrl(addr);
         }
       }
     }
     return null;
   }
+
+  String? _sessionUrl(InternetAddress address) {
+    final session = _accessSession;
+    if (session == null || session.isExpired) return null;
+    return Uri(
+      scheme: 'http',
+      host: address.address,
+      port: port,
+      queryParameters: {'access_token': session.token},
+    ).toString();
+  }
+
+  Future<InternetAddress?> _selectPrivateAddress() async {
+    final interfaces = await NetworkInterface.list(
+      type: InternetAddressType.IPv4,
+      includeLoopback: false,
+    );
+    for (final iface in interfaces) {
+      if (_isMobileDataInterface(iface.name) ||
+          iface.name.toLowerCase().contains('vpn')) {
+        continue;
+      }
+      for (final address in iface.addresses) {
+        if (_isPrivateIpv4(address.address)) return address;
+      }
+    }
+    return null;
+  }
+
+  static bool _isPrivateIpv4(String address) =>
+      address.startsWith('10.') ||
+      address.startsWith('192.168.') ||
+      _isPrivate172(address);
 
   static bool _isMobileDataInterface(String name) {
     final n = name.toLowerCase();
@@ -145,16 +205,8 @@ class CompanionServer {
   }
 
   void _handleRequest(HttpRequest req) async {
-    req.response.headers
-      ..set('Access-Control-Allow-Origin', '*')
-      ..set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-      ..set(
-        'Access-Control-Allow-Headers',
-        'Content-Type, X-Jujo-Notification-Token',
-      );
-
     if (req.method == 'OPTIONS') {
-      req.response.statusCode = 204;
+      req.response.statusCode = HttpStatus.forbidden;
       await req.response.close();
       return;
     }
@@ -162,7 +214,17 @@ class CompanionServer {
     final path = req.uri.path;
 
     if (path == '/' || path == '/index.html') {
+      if (!_authorizeLanding(req)) return;
       _serveWebUI(req);
+      return;
+    }
+
+    if (!path.startsWith('/api/notifications/') && !_isAuthorized(req)) {
+      req.response
+        ..statusCode = HttpStatus.unauthorized
+        ..headers.contentType = ContentType.json
+        ..write(jsonEncode({'ok': false, 'error': 'unauthorized'}));
+      await req.response.close();
       return;
     }
 
@@ -215,6 +277,40 @@ class CompanionServer {
       ..statusCode = 404
       ..write('Not Found');
     await req.response.close();
+  }
+
+  bool _authorizeLanding(HttpRequest request) {
+    final candidate = request.uri.queryParameters['access_token'] ?? '';
+    final session = _accessSession;
+    if (session == null || !session.accepts(candidate)) {
+      request.response.statusCode = HttpStatus.unauthorized;
+      unawaited(request.response.close());
+      return false;
+    }
+    request.response.cookies.add(
+      Cookie('jujo_companion_access', session.token)
+        ..httpOnly = true
+        ..sameSite = SameSite.strict
+        ..path = '/'
+        ..maxAge = session.expiresAt
+            .difference(DateTime.now().toUtc())
+            .inSeconds,
+    );
+    return true;
+  }
+
+  bool _isAuthorized(HttpRequest request) {
+    final session = _accessSession;
+    if (session == null) return false;
+    final header = request.headers.value('X-Jujo-Companion-Token') ?? '';
+    if (session.accepts(header)) return true;
+    for (final cookie in request.cookies) {
+      if (cookie.name == 'jujo_companion_access' &&
+          session.accepts(cookie.value)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   Future<void> _handleNotificationHello(HttpRequest req) async {
@@ -299,19 +395,9 @@ class CompanionServer {
 
   Future<void> _handleNotificationMirror(HttpRequest req) async {
     final mirror = _notificationMirror ?? NotificationMirrorController.instance;
-    final token = req.headers.value('X-Jujo-Notification-Token') ?? '';
-    if (!mirror.acceptsToken(token)) {
-      req.response
-        ..statusCode = 401
-        ..headers.contentType = ContentType.json
-        ..write(jsonEncode({'ok': false, 'error': 'invalid_token'}));
-      await req.response.close();
-      return;
-    }
-
     try {
       final body = await utf8.decoder.bind(req).join();
-      final data = jsonDecode(body) as Map<String, dynamic>;
+      final data = await _notificationEnvelope.open(body, mirror.receiverToken);
       mirror.handleRemotePosted(MirroredNotification.fromJson(data));
       req.response
         ..statusCode = 202
@@ -366,10 +452,10 @@ class CompanionServer {
       'discovery_boost_enabled': plugins.isEnabled('discovery_boost'),
       'achievements_overlay_enabled': plugins.isEnabled('steam_connect'),
 
-      'steam_api_key': steamApiKey,
+      'steam_api_key_configured': steamApiKey.isNotEmpty,
       'steam_id': steamId,
       'steam_persona': steamPersona,
-      'rawg_api_key': rawgApiKey,
+      'rawg_api_key_configured': rawgApiKey.isNotEmpty,
 
       'microtrailer_muted': prefs.getBool('microtrailer_muted') ?? false,
       'microtrailer_delay_secs': prefs.getInt('microtrailer_delay_secs') ?? 3,
@@ -563,13 +649,13 @@ class CompanionServer {
         }
       }
 
-      if (data.containsKey('steam_api_key')) {
+      if ((data['steam_api_key'] as String?)?.trim().isNotEmpty ?? false) {
         await plugins.setApiKey(
           'steam_connect',
           (data['steam_api_key'] as String).trim(),
         );
       }
-      if (data.containsKey('rawg_api_key')) {
+      if ((data['rawg_api_key'] as String?)?.trim().isNotEmpty ?? false) {
         await plugins.setApiKey(
           'metadata',
           (data['rawg_api_key'] as String).trim(),

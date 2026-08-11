@@ -27,6 +27,7 @@ import '../../services/notifications/notification_mirror_discovery_service.dart'
 import '../../services/notifications/notification_mirror_pairing_client.dart';
 import '../../services/notifications/notification_mirror_platform.dart';
 import '../../services/tv/tv_detector.dart';
+import '../../widgets/notification_access_disclosure.dart';
 import '../../services/window/fullscreen_service.dart';
 import '../../services/preferences/launcher_preferences.dart';
 import '../../services/startup/startup_animation_preferences.dart';
@@ -1639,6 +1640,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                   'Abrir acceso a notificaciones de Android',
                 ),
           () async {
+            if (!await showNotificationAccessDisclosure(context)) return;
             await mirror.openNotificationAccessSettings();
             await mirror.refreshNotificationAccess();
             await mirror.refreshInstalledApps();

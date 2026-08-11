@@ -138,8 +138,10 @@ Future<void> runJujostream({required UpdateProvider updateProvider}) async {
 
   final computerProvider = ComputerProvider();
 
-  if (TvDetector.instance.isTV ||
-      notificationMirrorController.mode != NotificationMirrorMode.off) {
+  CompanionServer.instance.configureNotificationMirror(
+    notificationMirrorController,
+  );
+  if (notificationMirrorController.mode != NotificationMirrorMode.off) {
     unawaited(
       CompanionServer.instance.start(
         pluginsProvider,
