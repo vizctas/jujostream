@@ -4,6 +4,9 @@ import 'dart:io' as io;
 import 'package:crypto/crypto.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../secure/flutter_secure_secret_store.dart';
+import 'client_identity_migrator.dart';
+import 'client_identity_store.dart';
 import 'identity_generator.dart';
 
 // Per-device client identity: uniqueId + RSA cert/key.
@@ -13,10 +16,6 @@ import 'identity_generator.dart';
 class ClientIdentity {
   ClientIdentity._();
 
-  static const _kUid = '_ci_uid';
-  static const _kCert = '_ci_cert';
-  static const _kKey = '_ci_key';
-
   /// All three parts in one value, written in a single operation.
   ///
   /// The identity used to be three separate setString calls. A process kill
@@ -24,8 +23,6 @@ class ClientIdentity {
   /// the next init() treated that as "no identity" and generated a fresh one —
   /// silently invalidating every server this device had ever paired with. One
   /// key cannot be torn.
-  static const _kBundle = '_ci_bundle';
-
   // Fallback identity (legacy — used only before init() completes)
   static const _fallbackUid = '0123456789ABCDEF';
 
@@ -45,11 +42,10 @@ class ClientIdentity {
   static Future<void> init() async {
     if (_ready) return;
     final prefs = await SharedPreferences.getInstance();
-
-    if (_adopt(_readBundle(prefs)) || _adopt(_readLegacyTriple(prefs))) {
-      // Re-save so installs created before the single-key format stop being
-      // exposed to a torn write.
-      await _persist(prefs);
+    final store = ClientIdentityStore(FlutterSecureSecretStore(), prefs);
+    final migrated = await ClientIdentityMigrator(store).loadOrMigrate();
+    if (migrated != null) {
+      _adopt(migrated);
       _ready = true;
       return;
     }
@@ -59,52 +55,21 @@ class ClientIdentity {
     _uid = id.uniqueId;
     _cert = id.certPem;
     _key = id.keyPem;
-    await _persist(prefs);
+    final identity = StoredClientIdentity(
+      uniqueId: _uid,
+      certificatePem: _cert,
+      privateKeyPem: _key,
+    );
+    ClientIdentityMigrator.validate(identity);
+    await store.writeAndVerify(identity);
+    await store.markMigrated(identity);
     _ready = true;
   }
 
-  static Map<String, String>? _readBundle(SharedPreferences prefs) {
-    final raw = prefs.getString(_kBundle);
-    if (raw == null || raw.isEmpty) return null;
-    try {
-      final decoded = jsonDecode(raw);
-      if (decoded is! Map) return null;
-      return decoded.map((k, v) => MapEntry(k.toString(), v.toString()));
-    } catch (_) {
-      return null;
-    }
-  }
-
-  static Map<String, String>? _readLegacyTriple(SharedPreferences prefs) {
-    final uid = prefs.getString(_kUid);
-    final cert = prefs.getString(_kCert);
-    final key = prefs.getString(_kKey);
-    if (uid == null || cert == null || key == null) return null;
-    return {'uid': uid, 'cert': cert, 'key': key};
-  }
-
-  /// Takes the identity only if all three parts are present and non-empty.
-  static bool _adopt(Map<String, String>? parts) {
-    if (parts == null) return false;
-    final uid = parts['uid'] ?? '';
-    final cert = parts['cert'] ?? '';
-    final key = parts['key'] ?? '';
-    if (uid.isEmpty || cert.isEmpty || key.isEmpty) return false;
-    _uid = uid;
-    _cert = cert;
-    _key = key;
-    return true;
-  }
-
-  static Future<void> _persist(SharedPreferences prefs) async {
-    await prefs.setString(
-      _kBundle,
-      jsonEncode({'uid': _uid, 'cert': _cert, 'key': _key}),
-    );
-    // Keep the legacy keys in step so a downgrade still finds the identity.
-    await prefs.setString(_kUid, _uid);
-    await prefs.setString(_kCert, _cert);
-    await prefs.setString(_kKey, _key);
+  static void _adopt(StoredClientIdentity identity) {
+    _uid = identity.uniqueId;
+    _cert = identity.certificatePem;
+    _key = identity.privateKeyPem;
   }
 
   static io.SecurityContext buildSecurityContext({
