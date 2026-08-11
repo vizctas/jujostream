@@ -22,14 +22,12 @@ import android.view.View
 import android.view.ViewGroup
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
-import androidx.core.content.FileProvider
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
 import com.limelight.jujostream.native_bridge.GamepadHandler
 import com.limelight.jujostream.native_bridge.StreamingPlugin
-import java.io.File
 
 class MainActivity : FlutterActivity() {
     private var gamepadHandler: GamepadHandler? = null
@@ -153,75 +151,7 @@ class MainActivity : FlutterActivity() {
                 }
             }
 
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.jujostream/app_updater")
-            .setMethodCallHandler { call, result ->
-                when (call.method) {
-                    "canInstallPackages" -> {
-                        result.success(
-                            Build.VERSION.SDK_INT < Build.VERSION_CODES.O ||
-                                packageManager.canRequestPackageInstalls()
-                        )
-                    }
-                    "openInstallPermission" -> {
-                        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
-                            result.success(true)
-                        } else {
-                            try {
-                                startActivity(
-                                    Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
-                                        data = Uri.parse("package:$packageName")
-                                    }
-                                )
-                                result.success(true)
-                            } catch (e: Exception) {
-                                result.success(false)
-                            }
-                        }
-                    }
-                    "installApk" -> {
-                        val path = call.argument<String>("path")
-                        if (path.isNullOrBlank()) {
-                            result.error("invalid_path", "APK path is missing", null)
-                        } else if (
-                            Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
-                            !packageManager.canRequestPackageInstalls()
-                        ) {
-                            result.error(
-                                "permission_required",
-                                "Install unknown apps permission is required",
-                                null
-                            )
-                        } else {
-                            try {
-                                val apk = File(path)
-                                if (!apk.isFile || apk.extension.lowercase() != "apk") {
-                                    result.error("invalid_apk", "APK file does not exist", null)
-                                } else {
-                                    val uri = FileProvider.getUriForFile(
-                                        this,
-                                        "$packageName.update_provider",
-                                        apk
-                                    )
-                                    startActivity(
-                                        Intent(Intent.ACTION_VIEW).apply {
-                                            setDataAndType(
-                                                uri,
-                                                "application/vnd.android.package-archive"
-                                            )
-                                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                        }
-                                    )
-                                    result.success(true)
-                                }
-                            } catch (e: Exception) {
-                                result.error("install_failed", e.message, null)
-                            }
-                        }
-                    }
-                    else -> result.notImplemented()
-                }
-            }
+        AppUpdaterBridge.register(this, flutterEngine)
 
         EventChannel(flutterEngine.dartExecutor.binaryMessenger, "com.jujostream/notification_mirror_events")
             .setStreamHandler(object : EventChannel.StreamHandler {

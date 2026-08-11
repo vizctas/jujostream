@@ -5,8 +5,9 @@ void main() {
   group('ClientVersion', () {
     test('orders semantic versions numerically', () {
       expect(
-        ClientVersion.parse('client-1.10.0')
-            .compareTo(ClientVersion.parse('1.9.9')),
+        ClientVersion.parse(
+          'client-1.10.0',
+        ).compareTo(ClientVersion.parse('1.9.9')),
         greaterThan(0),
       );
     });
@@ -23,11 +24,13 @@ void main() {
         'tag_name': tag,
         'draft': draft,
         'prerelease': prerelease,
-        'html_url': 'https://github.com/releases/$tag',
+        'html_url':
+            'https://github.com/vizctas/Jujo.StreamServer.Releases/releases/tag/$tag',
         'assets': [
           {
             'name': asset,
-            'browser_download_url': 'https://github.com/download/$asset',
+            'browser_download_url':
+                'https://github.com/vizctas/Jujo.StreamServer.Releases/releases/download/$tag/$asset',
             'size': 123,
             'digest':
                 'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
@@ -38,31 +41,37 @@ void main() {
     }
 
     test('selects newest stable production Android release', () {
-      final result = ClientUpdateService.selectLatestRelease(
-        [
-          release('client-1.2.0'),
-          release('client-2.0.0', prerelease: true),
-          release('admin-9.0.0'),
-          release('client-1.10.0'),
-        ],
-        ClientVersion.parse('1.1.18'),
-      );
+      final result = ClientUpdateService.selectLatestRelease([
+        release('client-1.2.0'),
+        release('client-2.0.0', prerelease: true),
+        release('admin-9.0.0'),
+        release('client-1.10.0'),
+      ], ClientVersion.parse('1.1.18'));
 
       expect(result?.version.toString(), '1.10.0');
       expect(result?.apk.sha256, 'a' * 64);
     });
 
     test('ignores debug APKs and releases that are not newer', () {
-      final result = ClientUpdateService.selectLatestRelease(
-        [
-          release(
-            'client-2.0.0',
-            asset: 'JujoStream-client-2.0.0-android-debug.apk',
-          ),
-          release('client-1.1.18'),
-        ],
-        ClientVersion.parse('1.1.18'),
-      );
+      final result = ClientUpdateService.selectLatestRelease([
+        release(
+          'client-2.0.0',
+          asset: 'JujoStream-client-2.0.0-android-debug.apk',
+        ),
+        release('client-1.1.18'),
+      ], ClientVersion.parse('1.1.18'));
+
+      expect(result, isNull);
+    });
+
+    test('rejects release metadata that redirects trust to another host', () {
+      final entry = release('client-2.0.0');
+      final assets = entry['assets']! as List<Map<String, Object>>;
+      assets.first['browser_download_url'] = 'https://example.com/update.apk';
+
+      final result = ClientUpdateService.selectLatestRelease([
+        entry,
+      ], ClientVersion.parse('1.1.18'));
 
       expect(result, isNull);
     });

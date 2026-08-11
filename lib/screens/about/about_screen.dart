@@ -8,7 +8,8 @@ import '../../l10n/app_localizations.dart';
 import '../../utils/app_version.dart';
 import '../../providers/locale_provider.dart';
 import '../../providers/theme_provider.dart';
-import '../../services/update/client_update_service.dart';
+import '../../services/update/update_models.dart';
+import '../../services/update/update_provider.dart';
 
 String _tr(BuildContext context, String en, String es) {
   return AppLocalizations.of(context).locale.languageCode == 'es' ? es : en;
@@ -31,7 +32,7 @@ class AboutScreen extends StatefulWidget {
 
 class _AboutScreenState extends State<AboutScreen> {
   final ScrollController _scrollController = ScrollController();
-  late final ClientUpdateService _updateService;
+  late UpdateProvider _updateService;
   _UpdateStatus _updateStatus = _UpdateStatus.idle;
   ClientUpdateRelease? _availableUpdate;
   io.File? _downloadedApk;
@@ -41,22 +42,26 @@ class _AboutScreenState extends State<AboutScreen> {
   @override
   void initState() {
     super.initState();
-    _updateService = ClientUpdateService(
-      currentVersion: ClientVersion.parse(kAppVersion),
-    );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_scrollController.hasClients) {
         _scrollController.jumpTo(0);
       }
-      if (io.Platform.isAndroid) {
+      if (io.Platform.isAndroid && _updateService.supportsDirectInstall) {
         _checkForUpdate();
+      } else if (io.Platform.isAndroid) {
+        setState(() => _updateStatus = _UpdateStatus.playManaged);
       }
     });
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _updateService = context.read<UpdateProvider>();
+  }
+
+  @override
   void dispose() {
-    _updateService.dispose();
     _scrollController.dispose();
     super.dispose();
   }
@@ -311,6 +316,20 @@ class _AboutScreenState extends State<AboutScreen> {
         );
         action = _tr(context, 'Check again', 'Buscar de nuevo');
         onPressed = _checkForUpdate;
+        break;
+      case _UpdateStatus.playManaged:
+        title = _tr(
+          context,
+          'Updates by Google Play',
+          'Actualizaciones por Google Play',
+        );
+        detail = _tr(
+          context,
+          'Google Play installs signed updates for this TV.',
+          'Google Play instala las actualizaciones firmadas para este TV.',
+        );
+        action = _tr(context, 'Open Play Store', 'Abrir Play Store');
+        onPressed = _updateService.openStoreListing;
         break;
       case _UpdateStatus.available:
         title = _tr(context, 'Update available', 'Actualización disponible');
@@ -694,6 +713,7 @@ enum _UpdateStatus {
   idle,
   checking,
   upToDate,
+  playManaged,
   available,
   downloading,
   permissionRequired,

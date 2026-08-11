@@ -6,87 +6,25 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 
-class ClientVersion implements Comparable<ClientVersion> {
-  final int major;
-  final int minor;
-  final int patch;
-
-  const ClientVersion(this.major, this.minor, this.patch);
-
-  factory ClientVersion.parse(String value) {
-    final match = RegExp(r'(\d+)\.(\d+)\.(\d+)').firstMatch(value);
-    if (match == null) {
-      throw FormatException('Invalid client version: $value');
-    }
-    return ClientVersion(
-      int.parse(match.group(1)!),
-      int.parse(match.group(2)!),
-      int.parse(match.group(3)!),
-    );
-  }
-
-  @override
-  int compareTo(ClientVersion other) {
-    final majorResult = major.compareTo(other.major);
-    if (majorResult != 0) return majorResult;
-    final minorResult = minor.compareTo(other.minor);
-    if (minorResult != 0) return minorResult;
-    return patch.compareTo(other.patch);
-  }
-
-  @override
-  String toString() => '$major.$minor.$patch';
-}
-
-class ClientUpdateAsset {
-  final String name;
-  final Uri downloadUrl;
-  final int size;
-  final String? sha256;
-
-  const ClientUpdateAsset({
-    required this.name,
-    required this.downloadUrl,
-    required this.size,
-    this.sha256,
-  });
-}
-
-class ClientUpdateRelease {
-  final ClientVersion version;
-  final String tag;
-  final ClientUpdateAsset apk;
-  final Uri releasePage;
-
-  const ClientUpdateRelease({
-    required this.version,
-    required this.tag,
-    required this.apk,
-    required this.releasePage,
-  });
-}
-
-typedef DownloadProgress = void Function(int received, int total);
+import 'update_models.dart';
+export 'update_models.dart';
 
 class ClientUpdateService {
   static const _repository = 'vizctas/Jujo.StreamServer.Releases';
+  static const _maxApkBytes = 250 * 1024 * 1024;
   static const _channel = MethodChannel('com.jujostream/app_updater');
   static final _sha256Pattern = RegExp(r'^[a-fA-F0-9]{64}$');
 
   final ClientVersion currentVersion;
   final http.Client _client;
 
-  ClientUpdateService({
-    required this.currentVersion,
-    http.Client? client,
-  }) : _client = client ?? http.Client();
+  ClientUpdateService({required this.currentVersion, http.Client? client})
+    : _client = client ?? http.Client();
 
   Future<ClientUpdateRelease?> checkForUpdate() async {
-    final uri = Uri.https(
-      'api.github.com',
-      '/repos/$_repository/releases',
-      {'per_page': '50'},
-    );
+    final uri = Uri.https('api.github.com', '/repos/$_repository/releases', {
+      'per_page': '50',
+    });
     final response = await _client
         .get(
           uri,
@@ -147,6 +85,10 @@ class ClientUpdateService {
       );
       final releasePage = Uri.tryParse(entry['html_url']?.toString() ?? '');
       if (downloadUrl == null || releasePage == null) continue;
+      if (!_isAllowedReleasePage(releasePage) ||
+          !_isAllowedDownloadUri(downloadUrl)) {
+        continue;
+      }
 
       final digest = apkJson['digest']?.toString();
       final digestHash = digest?.startsWith('sha256:') == true
@@ -163,8 +105,7 @@ class ClientUpdateService {
           sha256: _isValidSha256(digestHash) ? digestHash!.toLowerCase() : null,
         ),
       );
-      if (selected == null ||
-          release.version.compareTo(selected.version) > 0) {
+      if (selected == null || release.version.compareTo(selected.version) > 0) {
         selected = release;
       }
     }
@@ -186,6 +127,10 @@ class ClientUpdateService {
     final response = await _client
         .send(request)
         .timeout(const Duration(seconds: 20));
+    final finalUri = response.request?.url ?? release.apk.downloadUrl;
+    if (!_isAllowedDownloadUri(finalUri)) {
+      throw FormatException('APK download redirected to an untrusted host');
+    }
     if (response.statusCode != HttpStatus.ok) {
       throw HttpException(
         'APK download returned HTTP ${response.statusCode}',
@@ -200,6 +145,10 @@ class ClientUpdateService {
     try {
       await for (final chunk in response.stream) {
         received += chunk.length;
+        if (received > _maxApkBytes ||
+            (release.apk.size > 0 && received > release.apk.size)) {
+          throw const FormatException('APK download exceeded expected size');
+        }
         sink.add(chunk);
         onProgress?.call(received, response.contentLength ?? release.apk.size);
       }
@@ -213,8 +162,16 @@ class ClientUpdateService {
       rethrow;
     }
 
-    final actualHash =
-        (await sha256.bind(destination.openRead()).first).toString().toLowerCase();
+    if (release.apk.size > 0 && received != release.apk.size) {
+      try {
+        await destination.delete();
+      } catch (_) {}
+      throw const FormatException('APK download size does not match release');
+    }
+
+    final actualHash = (await sha256.bind(destination.openRead()).first)
+        .toString()
+        .toLowerCase();
     if (actualHash != expectedHash!.toLowerCase()) {
       try {
         await destination.delete();
@@ -254,15 +211,28 @@ class ClientUpdateService {
   }
 
   Future<bool> installApk(File apk) async {
-    return await _channel.invokeMethod<bool>(
-          'installApk',
-          {'path': apk.path},
-        ) ??
+    return await _channel.invokeMethod<bool>('installApk', {
+          'path': apk.path,
+        }) ??
         false;
   }
 
   static bool _isValidSha256(String? value) {
     return value != null && _sha256Pattern.hasMatch(value);
+  }
+
+  static bool _isAllowedReleasePage(Uri uri) =>
+      uri.scheme == 'https' &&
+      uri.host == 'github.com' &&
+      uri.path.startsWith('/$_repository/releases/');
+
+  static bool _isAllowedDownloadUri(Uri uri) {
+    if (uri.scheme != 'https' || uri.userInfo.isNotEmpty) return false;
+    if (uri.host == 'github.com') {
+      return uri.path.startsWith('/$_repository/releases/download/');
+    }
+    return uri.host == 'objects.githubusercontent.com' ||
+        uri.host.endsWith('.githubusercontent.com');
   }
 
   void dispose() => _client.close();

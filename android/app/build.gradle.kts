@@ -98,6 +98,16 @@ android {
         }
     }
 
+    flavorDimensions += "distribution"
+    productFlavors {
+        create("play") {
+            dimension = "distribution"
+        }
+        create("directFire") {
+            dimension = "distribution"
+        }
+    }
+
     // Point to CMakeLists.txt for native build
     externalNativeBuild {
         cmake {

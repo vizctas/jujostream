@@ -40,12 +40,17 @@ import 'services/notifications/notification_mirror_platform.dart';
 import 'services/pro/pro_service.dart';
 import 'services/crash/crash_service.dart';
 import 'services/telemetry/beta_telemetry_service.dart';
+import 'services/update/unsupported_update_provider.dart';
+import 'services/update/update_provider.dart';
 import 'ui/motion_policy.dart';
 
 /// Why cloud sign-in is unavailable, if it is. Reported to telemetry at boot.
 String? supabaseInitError;
 
-void main() async {
+Future<void> main() =>
+    runJujostream(updateProvider: UnsupportedUpdateProvider());
+
+Future<void> runJujostream({required UpdateProvider updateProvider}) async {
   WidgetsFlutterBinding.ensureInitialized();
 
   if (SupabaseConfig.current.isConfigured) {
@@ -168,6 +173,7 @@ void main() async {
         ChangeNotifierProvider.value(value: authProvider),
         ChangeNotifierProvider.value(value: notificationMirrorController),
         ChangeNotifierProvider(create: (_) => ProService()),
+        Provider<UpdateProvider>.value(value: updateProvider),
       ],
       child: const JujostreamApp(),
     ),
@@ -229,8 +235,7 @@ class StartupGate extends StatefulWidget {
   State<StartupGate> createState() => _StartupGateState();
 }
 
-class _StartupGateState extends State<StartupGate>
-    with WidgetsBindingObserver {
+class _StartupGateState extends State<StartupGate> with WidgetsBindingObserver {
   bool _checked = false;
   bool _showStartupAnimation = false;
   bool _focusModeEnabled = false;

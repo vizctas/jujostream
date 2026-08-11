@@ -29,8 +29,6 @@
     <!-- Battery-optimization exemption: optional, keeps the pairing/notification-mirror
          connection alive in the background when the user opts in. -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
-    <!-- User-approved APK updates distributed through the official GitHub releases. -->
-    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <application
         android:label="JUJO.Stream"
@@ -86,15 +84,6 @@
                 <action android:name="android.service.notification.NotificationListenerService" />
             </intent-filter>
         </service>
-        <provider
-            android:name="androidx.core.content.FileProvider"
-            android:authorities="${applicationId}.update_provider"
-            android:exported="false"
-            android:grantUriPermissions="true">
-            <meta-data
-                android:name="android.support.FILE_PROVIDER_PATHS"
-                android:resource="@xml/update_file_paths" />
-        </provider>
     </application>
     <queries>
         <intent>
