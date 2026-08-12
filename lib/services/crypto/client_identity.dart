@@ -5,6 +5,7 @@ import 'package:crypto/crypto.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../secure/flutter_secure_secret_store.dart';
+import '../secure/secure_secret_store.dart';
 import 'client_identity_migrator.dart';
 import 'client_identity_store.dart';
 import 'identity_generator.dart';
@@ -39,10 +40,13 @@ class ClientIdentity {
   static List<int> get keyBytes => utf8.encode(_key);
 
   /// Must be called once at startup (before any networking).
-  static Future<void> init() async {
+  static Future<void> init({SecureSecretStore? secureStore}) async {
     if (_ready) return;
     final prefs = await SharedPreferences.getInstance();
-    final store = ClientIdentityStore(FlutterSecureSecretStore(), prefs);
+    final store = ClientIdentityStore(
+      secureStore ?? FlutterSecureSecretStore(),
+      prefs,
+    );
     final migrated = await ClientIdentityMigrator(store).loadOrMigrate();
     if (migrated != null) {
       _adopt(migrated);

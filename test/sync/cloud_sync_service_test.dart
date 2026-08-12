@@ -9,6 +9,22 @@ import 'package:jujostream/services/sync/cloud_sync_service.dart';
 import 'package:jujostream/models/computer_details.dart';
 import 'package:jujostream/providers/auth_provider.dart';
 import 'package:jujostream/services/crypto/client_identity.dart';
+import 'package:jujostream/services/secure/secure_secret_store.dart';
+
+class _MemorySecretStore implements SecureSecretStore {
+  final Map<String, String> values = {};
+
+  @override
+  Future<void> delete(String key) async => values.remove(key);
+
+  @override
+  Future<String?> read(String key) async => values[key];
+
+  @override
+  Future<void> write(String key, String value) async {
+    values[key] = value;
+  }
+}
 
 class MockCloudPairingHttpClient extends http.BaseClient {
   final Completer<Map<String, dynamic>> requestBody = Completer();
@@ -141,7 +157,7 @@ void main() {
       publishableKey: 'mockKey',
       httpClient: mockHttpClient,
     );
-    await ClientIdentity.init();
+    await ClientIdentity.init(secureStore: _MemorySecretStore());
   });
 
   setUp(() {
