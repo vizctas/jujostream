@@ -223,6 +223,34 @@ void main() {
     },
   );
 
+  test('catalog loading does not present artwork progress', () async {
+    SharedPreferences.setMockInitialValues({});
+    final client = _BlockingAppListClient([
+      NvApp(appId: 20, appName: 'Installed game'),
+    ]);
+    final provider = AppListProvider(
+      await PluginsProvider.load(),
+      httpClient: client,
+    );
+    final computer = ComputerDetails(
+      uuid: 'server-1',
+      localAddress: '192.168.3.6',
+      pairState: PairState.paired,
+    );
+
+    final loading = provider.loadApps(computer);
+    for (var i = 0; i < 20 && client.calls == 0; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+    }
+
+    expect(provider.isLoading, isTrue);
+    expect(provider.showsForegroundProgress, isFalse);
+
+    client.release.complete();
+    await loading;
+    provider.dispose();
+  });
+
   test(
     'stale launcher refresh reconciles in place without an empty frame',
     () async {

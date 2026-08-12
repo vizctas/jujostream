@@ -114,8 +114,10 @@ class AppListProvider extends ChangeNotifier {
   List<PlayniteCategory> get playniteCategories => _playniteCategories;
   bool get isLoading => _isLoading;
   bool get isEnriching => _isEnriching;
-  bool get showsForegroundProgress =>
-      _isLoading || (_isEnriching && _showEnrichmentProgress);
+  // The launcher already owns its cold-load state. This pill is reserved for
+  // explicit, user-requested metadata work; showing it for catalog I/O makes
+  // warm re-entry look like artwork is being downloaded again.
+  bool get showsForegroundProgress => _isEnriching && _showEnrichmentProgress;
   bool get cfgAuthRequired => _cfgAuthRequired;
   bool get playniteActive => _playniteActive;
   String? get error => _error;
