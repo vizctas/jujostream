@@ -24,7 +24,7 @@ jobs:
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          channel: 'beta'
+          channel: 'stable'
 
       - name: Install Flutter dependencies
         run: flutter pub get
@@ -65,18 +65,43 @@ jobs:
             > android/key.properties
 
       # ── Build APK ──────────────────────────────────────────────
-      - name: Build Android APK (release)
+      - name: Run Flutter tests
+        run: flutter test
+
+      - name: Build Play APK and AAB
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL || 'https://faadppubtdxjnnvubnsi.supabase.co' }}
           SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY || 'sb_publishable_xSfpJSBypMPXXCWeeYBgVQ_U6gu57NH' }}
         run: |
-          flutter build apk --release \
+          flutter build apk --release --flavor play -t lib/main_play.dart \
+            --dart-define=SUPABASE_URL=$SUPABASE_URL \
+            --dart-define=SUPABASE_PUBLISHABLE_KEY=$SUPABASE_PUBLISHABLE_KEY
+          flutter build appbundle --release --flavor play -t lib/main_play.dart \
             --dart-define=SUPABASE_URL=$SUPABASE_URL \
             --dart-define=SUPABASE_PUBLISHABLE_KEY=$SUPABASE_PUBLISHABLE_KEY
 
+      - name: Build Fire TV APK
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL || 'https://faadppubtdxjnnvubnsi.supabase.co' }}
+          SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY || 'sb_publishable_xSfpJSBypMPXXCWeeYBgVQ_U6gu57NH' }}
+        run: |
+          flutter build apk --release --flavor directFire -t lib/main_direct_fire.dart \
+            --dart-define=SUPABASE_URL=$SUPABASE_URL \
+            --dart-define=SUPABASE_PUBLISHABLE_KEY=$SUPABASE_PUBLISHABLE_KEY
+
+      - name: Verify distribution contracts
+        shell: pwsh
+        run: |
+          ./scripts/verify_android_release_artifacts.ps1 `
+            -PlayApk build/app/outputs/flutter-apk/app-play-release.apk `
+            -FireApk build/app/outputs/flutter-apk/app-directfire-release.apk
+
       # ── Upload artifact ─────────────────────────────────────────
-      - name: Upload APK artifact
+      - name: Upload Android release artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: android-apk
-          path: build/app/outputs/flutter-apk/app-release.apk
+          name: android-release-artifacts
+          path: |
+            build/app/outputs/flutter-apk/app-play-release.apk
+            build/app/outputs/bundle/playRelease/app-play-release.aab
+            build/app/outputs/flutter-apk/app-directfire-release.apk
