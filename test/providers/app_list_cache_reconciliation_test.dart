@@ -158,6 +158,35 @@ void main() {
   );
 
   test(
+    'automatic refresh respects TTL while forced refresh reconciles',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final client = _SequencedAppListClient([
+        [NvApp(appId: 20, appName: 'Installed game')],
+        [NvApp(appId: 20, appName: 'Installed game', isRunning: true)],
+      ]);
+      final provider = AppListProvider(
+        await PluginsProvider.load(),
+        httpClient: client,
+      );
+      final computer = ComputerDetails(
+        uuid: 'server-1',
+        localAddress: '192.168.3.6',
+        pairState: PairState.paired,
+      );
+
+      await provider.loadApps(computer);
+      await provider.refresh();
+      expect(client.calls, 1);
+
+      await provider.refresh(force: true);
+      expect(client.calls, 2);
+      expect(provider.apps.single.isRunning, isTrue);
+      provider.dispose();
+    },
+  );
+
+  test(
     'cold provider exposes persisted apps before network completes',
     () async {
       SharedPreferences.setMockInitialValues({

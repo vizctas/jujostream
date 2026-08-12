@@ -246,9 +246,8 @@ mixin _AppViewGridMixin on _AppViewScreenBase {
         child: GridView.builder(
           controller: _gridScrollController,
           clipBehavior: Clip.none,
-          // Same reason as the carousel: keep rows just off-screen built so
-          // their posters are decoded before the D-pad reaches them.
-          cacheExtent: 1200,
+          // Keep nearby rows ready; the prefetch scheduler owns farther work.
+          scrollCacheExtent: const ScrollCacheExtent.pixels(600),
           gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: crossAxisCount,
             childAspectRatio: lp.cardWidth / lp.cardHeight,

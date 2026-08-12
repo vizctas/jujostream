@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../../l10n/app_localizations.dart';
@@ -769,7 +770,7 @@ class _Ps5BodyState extends State<_Ps5Body> {
             scrollDirection: Axis.horizontal,
             // Keep off-screen cards built so their posters are already
             // decoded when fast D-pad movement arrives.
-            cacheExtent: 1600,
+            scrollCacheExtent: const ScrollCacheExtent.pixels(800),
             padding: const EdgeInsets.symmetric(horizontal: 36),
             itemCount: widget.apps.length,
             itemBuilder: (_, i) {
@@ -813,6 +814,7 @@ class _Ps5BodyState extends State<_Ps5Body> {
                         if (a.posterUrl != null && a.posterUrl!.isNotEmpty)
                           PosterImage(
                             url: a.posterUrl!,
+                            cacheKey: a.artCacheKey('poster'),
                             fit: BoxFit.cover,
                             memCacheWidth: 240,
                             fadeInDuration: const Duration(milliseconds: 100),

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../../l10n/app_localizations.dart';
@@ -714,7 +715,7 @@ class _BodyState extends State<_Body> {
               scrollDirection: Axis.horizontal,
               // Keep off-screen cards built so their posters are already
               // decoded when fast D-pad movement arrives.
-              cacheExtent: 1600,
+              scrollCacheExtent: const ScrollCacheExtent.pixels(800),
               padding: const EdgeInsets.only(left: 24, right: 24),
               itemCount: widget.apps.length,
               itemBuilder: (_, i) {
@@ -755,6 +756,7 @@ class _BodyState extends State<_Body> {
                           if (a.posterUrl != null && a.posterUrl!.isNotEmpty)
                             PosterImage(
                               url: a.posterUrl!,
+                              cacheKey: a.artCacheKey('poster'),
                               fit: BoxFit.cover,
                               memCacheWidth: 340,
                               fadeInDuration: const Duration(milliseconds: 120),
@@ -950,6 +952,7 @@ class _BodyState extends State<_Body> {
                       child: s.posterUrl != null && s.posterUrl!.isNotEmpty
                           ? PosterImage(
                               url: s.posterUrl!,
+                              cacheKey: s.artCacheKey('poster'),
                               fit: BoxFit.cover,
                               memCacheWidth: 160,
                               errorWidget: (_, _, _) => Container(

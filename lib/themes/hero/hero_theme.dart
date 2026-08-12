@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../../l10n/app_localizations.dart';
@@ -752,7 +753,7 @@ class _HeroBodyState extends State<_HeroBody>
               scrollDirection: Axis.horizontal,
               // Keep off-screen cards built so their posters are already
               // decoded when fast D-pad movement arrives.
-              cacheExtent: 1600,
+              scrollCacheExtent: const ScrollCacheExtent.pixels(800),
               padding: const EdgeInsets.symmetric(horizontal: 24),
               itemCount: widget.apps.length,
               itemBuilder: (_, i) {
@@ -796,6 +797,7 @@ class _HeroBodyState extends State<_HeroBody>
                           if (a.posterUrl != null && a.posterUrl!.isNotEmpty)
                             PosterImage(
                               url: a.posterUrl!,
+                              cacheKey: a.artCacheKey('poster'),
                               fit: BoxFit.cover,
                               memCacheWidth: 200,
                               fadeInDuration: const Duration(milliseconds: 100),
@@ -957,7 +959,7 @@ class _HeroBodyState extends State<_HeroBody>
             scrollDirection: Axis.horizontal,
             // Keep off-screen cards built so their posters are already
             // decoded when fast D-pad movement arrives.
-            cacheExtent: 1600,
+            scrollCacheExtent: const ScrollCacheExtent.pixels(800),
             padding: const EdgeInsets.symmetric(horizontal: 24),
             itemCount: widget.apps.length,
             itemBuilder: (_, i) {
@@ -980,6 +982,7 @@ class _HeroBodyState extends State<_HeroBody>
                   child: a.posterUrl != null && a.posterUrl!.isNotEmpty
                       ? PosterImage(
                           url: a.posterUrl!,
+                          cacheKey: a.artCacheKey('poster'),
                           fit: BoxFit.cover,
                           memCacheWidth: 100,
                           errorWidget: (_, _, _) =>
@@ -1010,6 +1013,7 @@ class _HeroBodyState extends State<_HeroBody>
                       child: s.posterUrl != null && s.posterUrl!.isNotEmpty
                           ? PosterImage(
                               url: s.posterUrl!,
+                              cacheKey: s.artCacheKey('poster'),
                               fit: BoxFit.cover,
                               memCacheWidth: 160,
                               errorWidget: (_, _, _) => Container(

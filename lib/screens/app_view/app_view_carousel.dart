@@ -90,11 +90,9 @@ mixin _AppViewCarouselMixin on _AppViewScreenBase {
           padding: const EdgeInsets.symmetric(horizontal: 16),
           scrollDirection: Axis.horizontal,
           clipBehavior: Clip.none,
-          // Flutter's default is 250px — barely one card past the edge — so a
-          // fast D-pad run kept meeting cards that had never been built and
-          // whose posters had never started decoding. Keeping a few screens'
-          // worth alive is what makes the art already be there on arrival.
-          cacheExtent: 1600,
+          // One bounded off-screen window complements the decode scheduler
+          // without constructing most of a large library at once.
+          scrollCacheExtent: const ScrollCacheExtent.pixels(800),
           itemCount: apps.length,
           separatorBuilder: (_, _) => SizedBox(width: lp.cardSpacing),
           itemBuilder: (context, index) {

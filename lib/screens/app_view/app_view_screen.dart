@@ -2,10 +2,10 @@ import 'dart:async';
 import 'dart:ui' show ImageByteFormat, PlatformDispatcher;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:video_player/video_player.dart';
 import '../../l10n/app_localizations.dart';
@@ -36,6 +36,8 @@ import '../../services/database/app_override_service.dart';
 import '../../services/database/collections_service.dart';
 import '../../services/database/session_history_service.dart';
 import '../../services/http_api/nv_http_client.dart';
+import '../../services/library/launcher_artwork_budget.dart';
+import '../../services/library/latest_window_scheduler.dart';
 import '../../services/network/smart_bitrate_service.dart';
 import '../../services/stream/image_load_throttle.dart';
 import '../../services/tv/tv_detector.dart';
@@ -113,6 +115,7 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
   Future<void> _openFilterPicker();
   Future<void> _openSmartGenreFilters();
   Widget _buildDiscoveryBoostSection(NvApp selected, List<NvApp> allApps);
+  Future<void> _precacheArtwork(_LauncherArtRequest request);
   void _queueAccentColorExtraction(NvApp app);
   void _scheduleVideoPreview(NvApp app);
   String? _previewUrlFor(NvApp app);
@@ -120,7 +123,6 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
   KeyEventResult _onKeyEvent(KeyEvent event, List<NvApp> apps, NvApp selected);
   void _moveSelection(List<NvApp> apps, int delta);
   Timer? _refreshTimer;
-  DateTime _lastLibraryRefresh = DateTime.fromMillisecondsSinceEpoch(0);
   DateTime _lastLibraryInteraction = DateTime.fromMillisecondsSinceEpoch(0);
   static const _libraryRefreshInterval = Duration(seconds: 30);
   static const _libraryInteractionQuietPeriod = Duration(seconds: 3);
@@ -162,6 +164,11 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
   int? _accentAppId;
   Timer? _accentDebounce;
   int _accentRequestId = 0;
+  late final LatestWindowScheduler<_LauncherArtRequest>
+  _posterPrefetchScheduler;
+  late final LatestWindowScheduler<_LauncherArtRequest>
+  _backdropPrefetchScheduler;
+  int? _lastPosterPrefetchIndex;
 
   VideoPlayerController? _videoController;
   Timer? _videoDelayTimer;
@@ -191,6 +198,15 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
   @override
   void initState() {
     super.initState();
+    _posterPrefetchScheduler = LatestWindowScheduler<_LauncherArtRequest>(
+      keyOf: (request) => request.memoryKey,
+      load: _precacheArtwork,
+    );
+    _backdropPrefetchScheduler = LatestWindowScheduler<_LauncherArtRequest>(
+      maxConcurrent: 1,
+      keyOf: (request) => request.memoryKey,
+      load: _precacheArtwork,
+    );
     WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
@@ -258,15 +274,13 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
   Future<void> _refreshLibraryIfStale() async {
     if (!mounted || _isLaunching) return;
     final now = DateTime.now();
-    if (now.difference(_lastLibraryRefresh) < _libraryRefreshInterval ||
-        now.difference(_lastLibraryInteraction) <
+    if (now.difference(_lastLibraryInteraction) <
             _libraryInteractionQuietPeriod ||
         context.read<ComputerProvider>().isPairing) {
       return;
     }
     final provider = context.read<AppListProvider>();
     if (provider.isLoading || provider.isEnriching) return;
-    _lastLibraryRefresh = now;
     await provider.refresh();
   }
 
@@ -352,6 +366,8 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
     _stopAutoRefreshTimer();
     _accentDebounce?.cancel();
     _bgDebounce?.cancel();
+    _posterPrefetchScheduler.dispose();
+    _backdropPrefetchScheduler.dispose();
     _accentRequestId++;
     _videoRequestId++;
     _videoDelayTimer?.cancel();
@@ -2823,7 +2839,7 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
       await Future.delayed(const Duration(milliseconds: 2000));
       if (!mounted) return;
       // Preserve the warm catalog and only reconcile host state in-place.
-      await context.read<AppListProvider>().refresh();
+      await context.read<AppListProvider>().refresh(force: true);
       _restoreScrollPosition();
     }
   }

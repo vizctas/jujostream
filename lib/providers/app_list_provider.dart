@@ -1071,10 +1071,18 @@ class AppListProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> refresh() async {
-    if (_currentComputer != null) {
-      await loadApps(_currentComputer!, silent: true);
+  Future<void> refresh({bool force = false}) async {
+    final computer = _currentComputer;
+    if (computer == null) return;
+    if (!force && _apps.isNotEmpty) {
+      final refreshedAt = await _readRefreshTimestamp(
+        _libraryRefreshPrefix,
+        computer.uuid,
+        _lastLibraryRefresh,
+      );
+      if (!_freshnessPolicy.isLibraryStale(refreshedAt, _clock())) return;
     }
+    await loadApps(computer, silent: true);
   }
 
   Future<LaunchResult> launchApp(

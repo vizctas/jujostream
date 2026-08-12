@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
@@ -10,6 +11,7 @@ import '../../providers/plugins_provider.dart';
 import '../../providers/theme_provider.dart';
 import '../../services/audio/ui_sound_service.dart';
 import '../../services/input/gamepad_button_helper.dart';
+import '../../services/library/launcher_artwork_budget.dart';
 import '../../services/metadata/steam_video_client.dart';
 import '../../services/news/gaming_news_service.dart';
 import '../../widgets/game_backdrop_art.dart';
@@ -134,6 +136,7 @@ class _BigScreenBodyState extends State<_BigScreenBody> {
   final Map<int, String> _posterOverrides = <int, String>{};
   final Set<int> _posterLookups = <int>{};
   final Set<int> _failedPosterIds = <int>{};
+  Timer? _selectionSyncDebounce;
   _BigScreenArea _area = _BigScreenArea.carousel;
   GamingNewsType? _activeNewsType;
   int _newsIndex = 0;
@@ -180,6 +183,7 @@ class _BigScreenBodyState extends State<_BigScreenBody> {
 
   @override
   void dispose() {
+    _selectionSyncDebounce?.cancel();
     _focusNode.dispose();
     _gameScrollController.dispose();
     _pageScrollController.dispose();
@@ -323,7 +327,10 @@ class _BigScreenBodyState extends State<_BigScreenBody> {
     UiSoundService.playClick();
     HapticFeedback.lightImpact();
     setState(() => _idx = index);
-    widget.onIndexChanged(index);
+    _selectionSyncDebounce?.cancel();
+    _selectionSyncDebounce = Timer(const Duration(milliseconds: 180), () {
+      if (mounted && _idx == index) widget.onIndexChanged(index);
+    });
     _scrollGamesToSelection();
   }
 
@@ -604,7 +611,7 @@ class _BigScreenBodyState extends State<_BigScreenBody> {
               scrollDirection: Axis.horizontal,
               // Keep off-screen cards built so their posters are already
               // decoded when fast D-pad movement arrives.
-              cacheExtent: 1600,
+              scrollCacheExtent: const ScrollCacheExtent.pixels(800),
               padding: const EdgeInsets.only(right: 360),
               itemCount: widget.apps.length,
               separatorBuilder: (_, _) => const SizedBox(width: _cardGap),
@@ -661,7 +668,9 @@ class _BigScreenBodyState extends State<_BigScreenBody> {
                   url: posterUrl,
                   cacheKey: app.artCacheKey('poster'),
                   fit: BoxFit.cover,
-                  memCacheWidth: 960,
+                  memCacheWidth: LauncherArtworkBudget.bigScreenPosterWidth(
+                    selected: selected,
+                  ),
                   errorWidget: (_, _, _) {
                     _handlePosterError(app);
                     return _buildPosterFallback(app);
@@ -831,7 +840,7 @@ class _BigScreenBodyState extends State<_BigScreenBody> {
         scrollDirection: Axis.horizontal,
         // Keep off-screen cards built so their posters are already
         // decoded when fast D-pad movement arrives.
-        cacheExtent: 1600,
+        scrollCacheExtent: const ScrollCacheExtent.pixels(1600),
         padding: const EdgeInsets.fromLTRB(28, 14, 28, 24),
         itemCount: items.length,
         separatorBuilder: (_, _) => const SizedBox(width: 16),
@@ -988,7 +997,7 @@ class _BigScreenBodyState extends State<_BigScreenBody> {
         scrollDirection: Axis.horizontal,
         // Keep off-screen cards built so their posters are already
         // decoded when fast D-pad movement arrives.
-        cacheExtent: 1600,
+        scrollCacheExtent: const ScrollCacheExtent.pixels(1600),
         padding: const EdgeInsets.fromLTRB(28, 14, 28, 24),
         itemCount: 4,
         separatorBuilder: (_, _) => const SizedBox(width: 16),

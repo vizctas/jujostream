@@ -1,6 +1,33 @@
 part of 'app_view_screen.dart';
 
+class _LauncherArtRequest {
+  final String url;
+  final String cacheKey;
+  final int maxWidth;
+
+  const _LauncherArtRequest({
+    required this.url,
+    required this.cacheKey,
+    required this.maxWidth,
+  });
+
+  String get memoryKey => '$cacheKey@$maxWidth';
+}
+
 mixin _AppViewVideoPreviewMixin on _AppViewScreenBase {
+  @override
+  Future<void> _precacheArtwork(_LauncherArtRequest request) {
+    if (!mounted) return Future<void>.value();
+    return precacheImage(
+      PosterImage.providerFor(
+        request.url,
+        cacheKey: request.cacheKey,
+        maxWidth: request.maxWidth,
+      ),
+      context,
+    );
+  }
+
   @override
   void _queueAccentColorExtraction(NvApp app) {
     _accentDebounce?.cancel();
@@ -19,15 +46,15 @@ mixin _AppViewVideoPreviewMixin on _AppViewScreenBase {
     final reduce = context.read<ThemeProvider>().reduceEffects;
     if (TvDetector.instance.isTV || reduce) {
       _accentDebounce = Timer(const Duration(milliseconds: 150), () {
-        // The 480-wide backdrop is the expensive one, so it still waits for the
-        // D-pad to settle.
-        _precacheAdjacentBackgrounds(app);
+        // Full-screen backdrop decode is expensive, so it waits for the D-pad
+        // to settle.
+        _precacheSettledBackdrop(app);
         _scheduleVideoPreview(app);
       });
       return;
     }
 
-    _precacheAdjacentBackgrounds(app);
+    _precacheSettledBackdrop(app);
 
     _accentDebounce = Timer(const Duration(milliseconds: 250), () {
       _extractAccentColor(app);
@@ -35,72 +62,55 @@ mixin _AppViewVideoPreviewMixin on _AppViewScreenBase {
     _scheduleVideoPreview(app);
   }
 
-  /// Decode caps the carousel/grid tiles actually use. Prefetching at any other
-  /// width lands in a different cache entry and does nothing for them.
-  static const _kCarouselPosterWidth = 300;
-  static const _kGridPosterWidth = 400;
-
   /// Keeps a window of posters around the selection warm, at tile size.
   ///
-  /// Only the immediate neighbours were ever prefetched, and at 480 wide — the
-  /// backdrop size, not the tile size — so fast D-pad movement always outran
-  /// the decoder and showed placeholders. A window of 6 covers a fast scroll,
-  /// and already-cached entries make precacheImage a no-op.
+  /// A seven-item directional window covers rapid movement without repeatedly
+  /// submitting thirteen decodes for positions the user already left.
   void _precacheCarouselPosters(NvApp app) {
     final provider = context.read<AppListProvider>();
     final visibleApps = _visibleApps(provider.apps.toList());
     final idx = visibleApps.indexWhere((a) => a.appId == app.appId);
     if (idx < 0) return;
 
-    const window = 6;
-    final width = _viewMode == _ViewMode.grid
-        ? _kGridPosterWidth
-        : _kCarouselPosterWidth;
-
-    for (var offset = -window; offset <= window; offset++) {
-      final neighbor = idx + offset;
+    final themeId = context.read<ThemeProvider>().launcherTheme.id;
+    final width = LauncherArtworkBudget.posterPrefetchWidth(
+      themeId,
+      grid: _viewMode == _ViewMode.grid,
+    );
+    final movingForward =
+        _lastPosterPrefetchIndex == null || idx >= _lastPosterPrefetchIndex!;
+    _lastPosterPrefetchIndex = idx;
+    final first = movingForward ? idx - 2 : idx - 4;
+    final last = movingForward ? idx + 4 : idx + 2;
+    final requests = <_LauncherArtRequest>[];
+    for (var neighbor = first; neighbor <= last; neighbor++) {
       if (neighbor < 0 || neighbor >= visibleApps.length) continue;
       final nApp = visibleApps[neighbor];
       final url = nApp.posterUrl;
       if (url == null || url.isEmpty) continue;
-
-      precacheImage(
-        CachedNetworkImageProvider(
-          url,
-          maxWidth: width,
+      requests.add(
+        _LauncherArtRequest(
+          url: url,
           cacheKey: nApp.artCacheKey('poster'),
-          cacheManager: PosterImage.artCacheManager,
+          maxWidth: width,
         ),
-        context,
       );
     }
+    _posterPrefetchScheduler.schedule(requests);
   }
 
-  void _precacheAdjacentBackgrounds(NvApp app) {
-    final provider = context.read<AppListProvider>();
-    final visibleApps = _visibleApps(provider.apps.toList());
-    final idx = visibleApps.indexWhere((a) => a.appId == app.appId);
-    if (idx < 0) return;
-
-    for (final offset in const [-1, 1]) {
-      final neighbor = idx + offset;
-      if (neighbor < 0 || neighbor >= visibleApps.length) continue;
-      final nApp = visibleApps[neighbor];
-      final url = nApp.posterUrl;
-      if (url == null || url.isEmpty) continue;
-
-      // Same cache manager + stable key as PosterImage so the prefetch and
-      // the widgets share one disk entry.
-      precacheImage(
-        CachedNetworkImageProvider(
-          url,
-          maxWidth: 480,
-          cacheKey: nApp.artCacheKey('poster'),
-          cacheManager: PosterImage.artCacheManager,
-        ),
-        context,
-      );
-    }
+  void _precacheSettledBackdrop(NvApp app) {
+    final selection = GameArtPolicy.selectBackdrop(app);
+    final url = selection.url?.trim();
+    if (url == null || url.isEmpty) return;
+    final width = context.read<ThemeProvider>().backgroundArtCacheWidth;
+    _backdropPrefetchScheduler.schedule([
+      _LauncherArtRequest(
+        url: url,
+        cacheKey: selection.cacheKey ?? app.backgroundCacheKey,
+        maxWidth: width,
+      ),
+    ]);
   }
 
   @override
@@ -324,8 +334,9 @@ mixin _AppViewVideoPreviewMixin on _AppViewScreenBase {
       return;
     }
     try {
-      final imageProvider = CachedNetworkImageProvider(
+      final imageProvider = PosterImage.providerFor(
         app.posterUrl!,
+        cacheKey: app.artCacheKey('poster'),
         maxWidth: 100,
       );
       final color = await _extractPosterAccent(
