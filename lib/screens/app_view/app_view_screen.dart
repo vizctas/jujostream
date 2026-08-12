@@ -194,7 +194,7 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
     WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      context.read<AppListProvider>().loadApps(widget.computer);
+      context.read<AppListProvider>().loadForLauncher(widget.computer);
 
       if (widget.computer.activeAddress.isNotEmpty) {
         Future.delayed(const Duration(milliseconds: 600), () {
@@ -2822,8 +2822,8 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
       // before polling the HTTP API to prevent 'Connection refused' errors.
       await Future.delayed(const Duration(milliseconds: 2000));
       if (!mounted) return;
-      // Refresh app list now that we've returned from the stream screen.
-      context.read<AppListProvider>().loadApps(widget.computer);
+      // Preserve the warm catalog and only reconcile host state in-place.
+      await context.read<AppListProvider>().refresh();
       _restoreScrollPosition();
     }
   }
@@ -3280,7 +3280,7 @@ class _EnrichmentIndicator extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final busy = context.select<AppListProvider, bool>(
-      (p) => p.isEnriching || p.isLoading,
+      (p) => p.showsForegroundProgress,
     );
     if (!busy) return const SizedBox.shrink();
 

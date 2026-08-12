@@ -16,6 +16,7 @@ import '../services/metadata/steam_video_client.dart';
 import '../services/database/app_override_service.dart';
 import '../services/database/metadata_database.dart';
 import '../services/database/session_history_service.dart';
+import '../services/library/library_freshness_policy.dart';
 import '../services/notifications/notification_service.dart';
 import '../services/sync/cloud_sync_service.dart';
 import 'plugins_provider.dart';
@@ -26,6 +27,7 @@ export '../services/http_api/vibepollo_cfg_client.dart'
 
 typedef ServerIdentityRecovery =
     Future<bool> Function(ComputerDetails computer);
+typedef AppListClock = DateTime Function();
 
 @visibleForTesting
 NvApp normalizeHostApp(NvApp app, {required int runningId}) {
@@ -45,12 +47,18 @@ class AppListProvider extends ChangeNotifier {
   final RawgClient _rawgClient = RawgClient();
   final SteamVideoClient _steamClient = SteamVideoClient();
   final PluginsProvider _plugins;
+  final LibraryFreshnessPolicy _freshnessPolicy;
+  final AppListClock _clock;
 
   AppListProvider(
     this._plugins, {
     NvHttpClient? httpClient,
     ServerIdentityRecovery? recoverServerIdentity,
+    LibraryFreshnessPolicy freshnessPolicy = const LibraryFreshnessPolicy(),
+    AppListClock? clock,
   }) : _httpClient = httpClient ?? NvHttpClient(),
+       _freshnessPolicy = freshnessPolicy,
+       _clock = clock ?? DateTime.now,
        _recoverServerIdentity =
            recoverServerIdentity ??
            CloudSyncService
@@ -67,7 +75,7 @@ class AppListProvider extends ChangeNotifier {
   ComputerDetails? _currentComputer;
   bool _disposed = false;
   int _enrichGeneration = 0;
-  bool _enrichedOnce = false;
+  bool _showEnrichmentProgress = false;
   bool _silentRefreshInProgress = false;
   bool _cloudRepairAttempted = false;
 
@@ -78,6 +86,8 @@ class AppListProvider extends ChangeNotifier {
   bool _forceRawgRefreshPending = false;
 
   final Map<int, NvApp> _fullAppCache = {};
+  final Map<String, DateTime> _lastLibraryRefresh = {};
+  final Map<String, DateTime> _lastMetadataRefresh = {};
 
   String? _cfgUsername;
   String? _cfgPassword;
@@ -104,6 +114,8 @@ class AppListProvider extends ChangeNotifier {
   List<PlayniteCategory> get playniteCategories => _playniteCategories;
   bool get isLoading => _isLoading;
   bool get isEnriching => _isEnriching;
+  bool get showsForegroundProgress =>
+      _isLoading || (_isEnriching && _showEnrichmentProgress);
   bool get cfgAuthRequired => _cfgAuthRequired;
   bool get playniteActive => _playniteActive;
   String? get error => _error;
@@ -136,6 +148,33 @@ class AppListProvider extends ChangeNotifier {
   }
 
   static const _cachePrefix = 'appCacheV1_';
+  static const _libraryRefreshPrefix = 'libraryRefreshV1_';
+  static const _metadataRefreshPrefix = 'metadataRefreshV1_';
+
+  Future<DateTime?> _readRefreshTimestamp(
+    String prefix,
+    String serverUuid,
+    Map<String, DateTime> memory,
+  ) async {
+    final cached = memory[serverUuid];
+    if (cached != null) return cached;
+    final prefs = await SharedPreferences.getInstance();
+    final millis = prefs.getInt('$prefix$serverUuid');
+    if (millis == null) return null;
+    return memory[serverUuid] = DateTime.fromMillisecondsSinceEpoch(millis);
+  }
+
+  Future<void> _writeRefreshTimestamp(
+    String prefix,
+    String serverUuid,
+    Map<String, DateTime> memory,
+  ) async {
+    if (serverUuid.isEmpty) return;
+    final value = _clock();
+    memory[serverUuid] = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt('$prefix$serverUuid', value.millisecondsSinceEpoch);
+  }
 
   Future<void> _persistAppCache(String serverUuid) async {
     if (serverUuid.isEmpty || _fullAppCache.isEmpty) return;
@@ -208,18 +247,94 @@ class AppListProvider extends ChangeNotifier {
     await loadApps(computer);
   }
 
-  Future<void> loadApps(ComputerDetails computer, {bool silent = false}) async {
-    if (silent && _silentRefreshInProgress) return;
+  /// Opens a launcher using stale-while-revalidate semantics.
+  ///
+  /// A valid catalog is never removed from the screen. Persisted data is
+  /// restored before the host request and same-server re-entry avoids even a
+  /// silent request while the catalog is fresh.
+  Future<void> loadForLauncher(
+    ComputerDetails computer, {
+    bool force = false,
+  }) async {
+    if (force) {
+      await loadApps(computer);
+      return;
+    }
+
     final isNewServer = _currentComputer?.uuid != computer.uuid;
+    if (isNewServer) {
+      _enrichGeneration++;
+      _isEnriching = false;
+      _showEnrichmentProgress = false;
+      _error = null;
+      _fullAppCache.clear();
+      _apps = [];
+      _currentComputer = computer;
+      _cfgClient.expectedServerCert = computer.serverCert;
+      await _restoreAppCache(computer.uuid);
+      if (_fullAppCache.isNotEmpty) {
+        _apps = await MetadataDatabase.mergeInto(
+          _fullAppCache.values.toList(growable: false),
+        );
+        _applyUserOverrides();
+        if (!_disposed) notifyListeners();
+      }
+    }
+
+    if (_apps.isEmpty) {
+      await _loadApps(
+        computer,
+        silent: false,
+        isNewServer: isNewServer,
+        cachePrepared: isNewServer,
+      );
+      return;
+    }
+
+    final refreshedAt = await _readRefreshTimestamp(
+      _libraryRefreshPrefix,
+      computer.uuid,
+      _lastLibraryRefresh,
+    );
+    if (_freshnessPolicy.isLibraryStale(refreshedAt, _clock())) {
+      await _loadApps(
+        computer,
+        silent: true,
+        isNewServer: isNewServer,
+        cachePrepared: isNewServer,
+      );
+    } else {
+      unawaited(_startAutomaticEnrichmentIfNeeded(computer));
+    }
+  }
+
+  Future<void> loadApps(ComputerDetails computer, {bool silent = false}) {
+    return _loadApps(
+      computer,
+      silent: silent,
+      isNewServer: _currentComputer?.uuid != computer.uuid,
+    );
+  }
+
+  Future<void> _loadApps(
+    ComputerDetails computer, {
+    required bool silent,
+    required bool isNewServer,
+    bool cachePrepared = false,
+  }) async {
+    if (silent && _silentRefreshInProgress) return;
+    final appsBeforeRefresh = _apps;
+    final errorBeforeRefresh = _error;
     _currentComputer = computer;
     _cfgClient.expectedServerCert = computer.serverCert;
     if (!silent) {
       _isLoading = true;
-      _isEnriching = false;
-      _enrichedOnce = false;
       _error = null;
-      _apps = [];
-      if (isNewServer) {
+      if (isNewServer && !cachePrepared) {
+        _enrichGeneration++;
+        _isEnriching = false;
+        _showEnrichmentProgress = false;
+        _apps = [];
         _fullAppCache.clear();
         _cloudRepairAttempted = false;
         // reload persisted cache so we don't lose apps after crash/restart
@@ -282,9 +397,7 @@ class AppListProvider extends ChangeNotifier {
           .catchError((_) {});
       final runningId = computer.runningGameId;
 
-      final prevById = silent
-          ? <int, NvApp>{for (final a in _apps) a.appId: a}
-          : const <int, NvApp>{};
+      final prevById = <int, NvApp>{for (final a in _apps) a.appId: a};
       final freshApps = result
           .map((app) => normalizeHostApp(app, runningId: runningId))
           .toList(growable: false);
@@ -425,6 +538,13 @@ class AppListProvider extends ChangeNotifier {
       } else {
         _error = null;
         lastFailureWasCertRejected = false;
+        unawaited(
+          _writeRefreshTimestamp(
+            _libraryRefreshPrefix,
+            computer.uuid,
+            _lastLibraryRefresh,
+          ),
+        );
       }
 
       if (_cfgUsername == null && computer.uuid.isNotEmpty) {
@@ -439,23 +559,22 @@ class AppListProvider extends ChangeNotifier {
 
       _isLoading = false;
       _silentRefreshInProgress = false;
-      if (!_disposed) notifyListeners();
-
-      if (!_enrichedOnce) {
-        _enrichGeneration++;
-        final myGeneration = _enrichGeneration;
-        _isEnriching = true;
-        _enrichedOnce = true;
-        unawaited(_runEnrichmentBackground(computer, myGeneration));
-      }
+      final visibleStateChanged =
+          !_appsContentEqual(appsBeforeRefresh, _apps) ||
+          errorBeforeRefresh != _error;
+      if (!_disposed && (!silent || visibleStateChanged)) notifyListeners();
+      unawaited(_startAutomaticEnrichmentIfNeeded(computer));
     } catch (e) {
       if (!silent) {
         _error = 'Failed to load apps: $e';
       }
       _isLoading = false;
-      _isEnriching = false;
+      if (!silent) {
+        _isEnriching = false;
+        _showEnrichmentProgress = false;
+      }
       _silentRefreshInProgress = false;
-      if (!_disposed) notifyListeners();
+      if (!_disposed && !silent) notifyListeners();
 
       if (!silent && !_disposed) {
         Future.delayed(const Duration(seconds: 2), () {
@@ -465,6 +584,34 @@ class AppListProvider extends ChangeNotifier {
         });
       }
     }
+  }
+
+  Future<void> _startAutomaticEnrichmentIfNeeded(
+    ComputerDetails computer,
+  ) async {
+    if (_disposed ||
+        _isEnriching ||
+        _apps.isEmpty ||
+        _currentComputer?.uuid != computer.uuid) {
+      return;
+    }
+    final refreshedAt = await _readRefreshTimestamp(
+      _metadataRefreshPrefix,
+      computer.uuid,
+      _lastMetadataRefresh,
+    );
+    if (_disposed ||
+        _isEnriching ||
+        _currentComputer?.uuid != computer.uuid ||
+        !_freshnessPolicy.isMetadataStale(refreshedAt, _clock())) {
+      return;
+    }
+
+    _enrichGeneration++;
+    final generation = _enrichGeneration;
+    _isEnriching = true;
+    _showEnrichmentProgress = false;
+    unawaited(_runEnrichmentBackground(computer, generation));
   }
 
   Future<void> _runEnrichmentBackground(
@@ -497,11 +644,6 @@ class AppListProvider extends ChangeNotifier {
       try {
         final apiKey = await _plugins.getApiKey('metadata');
         if (apiKey != null && apiKey.isNotEmpty) {
-          unawaited(
-            NotificationService.showEnrichment(
-              'Obteniendo metadata de juegos…',
-            ),
-          );
           final preRawg = _apps;
           if (_forceRawgRefreshPending) {
             _forceRawgRefreshPending = false;
@@ -523,9 +665,6 @@ class AppListProvider extends ChangeNotifier {
 
     if (!_disposed && _enrichGeneration == generation) {
       try {
-        unawaited(
-          NotificationService.showEnrichment('Obteniendo datos de Steam…'),
-        );
         final preSteam = _apps;
         await _enrichWithSteamStore();
         unawaited(MetadataDatabase.saveAll(_apps));
@@ -549,7 +688,14 @@ class AppListProvider extends ChangeNotifier {
     if (!_disposed && _enrichGeneration == generation) {
       _applyUserOverrides();
       _isEnriching = false;
-      unawaited(NotificationService.dismissEnrichment());
+      _showEnrichmentProgress = false;
+      unawaited(
+        _writeRefreshTimestamp(
+          _metadataRefreshPrefix,
+          computer.uuid,
+          _lastMetadataRefresh,
+        ),
+      );
       notifyListeners();
     }
   }
@@ -761,6 +907,7 @@ class AppListProvider extends ChangeNotifier {
     _enrichGeneration++;
     final myGeneration = _enrichGeneration;
     _isEnriching = true;
+    _showEnrichmentProgress = true;
     if (!_disposed) notifyListeners();
 
     if (_plugins.isEnabled('metadata')) {
@@ -801,7 +948,18 @@ class AppListProvider extends ChangeNotifier {
     }
     if (!_disposed && _enrichGeneration == myGeneration) {
       _isEnriching = false;
+      _showEnrichmentProgress = false;
       unawaited(NotificationService.dismissEnrichment());
+      final computer = _currentComputer;
+      if (computer != null) {
+        unawaited(
+          _writeRefreshTimestamp(
+            _metadataRefreshPrefix,
+            computer.uuid,
+            _lastMetadataRefresh,
+          ),
+        );
+      }
       notifyListeners();
     }
   }
@@ -817,6 +975,7 @@ class AppListProvider extends ChangeNotifier {
     _enrichGeneration++;
     final myGeneration = _enrichGeneration;
     _isEnriching = true;
+    _showEnrichmentProgress = true;
     if (!_disposed) notifyListeners();
 
     unawaited(NotificationService.showEnrichment('Actualizando arte RAWG...'));
@@ -838,6 +997,7 @@ class AppListProvider extends ChangeNotifier {
       if (!_disposed && _enrichGeneration == generation) {
         _applyUserOverrides();
         _isEnriching = false;
+        _showEnrichmentProgress = false;
         unawaited(NotificationService.dismissEnrichment());
         notifyListeners();
       }
