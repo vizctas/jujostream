@@ -20,7 +20,6 @@ import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.PluginRegistry
-import java.util.concurrent.atomic.AtomicBoolean
 import io.flutter.view.TextureRegistry
 import java.util.Timer
 import java.util.TimerTask
@@ -101,6 +100,15 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
     private var activeCodecName = "unknown"
 
     private val mainHandler = Handler(Looper.getMainLooper())
+    private val stopResultLock = Any()
+    private val pendingStopResults = mutableListOf<MethodChannel.Result>()
+    private val nativeCoordinator by lazy {
+        NativeStreamCoordinator(
+            nativeInterrupt = { StreamingBridge.nativeInterruptConnection() },
+            nativeStop = { StreamingBridge.nativeStopConnection() },
+            onIdle = { mainHandler.post { handleNativeIdle() } },
+        )
+    }
 
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         Log.i(TAG, "Plugin attached to engine")
@@ -134,7 +142,9 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
         instance = null
         methodChannel?.setMethodCallHandler(null)
         eventChannel?.setStreamHandler(null)
-        cleanup()
+        if (nativeCoordinator.stop() == NativeStreamLifecycle.StopDirective.NONE) {
+            cleanup()
+        }
     }
 
     override fun onAttachedToActivity(binding: ActivityPluginBinding) {
@@ -222,6 +232,14 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
     }
 
     private fun handleStartStream(call: MethodCall, result: MethodChannel.Result) {
+        if (nativeCoordinator.phase() != NativeStreamLifecycle.Phase.IDLE) {
+            result.error(
+                "STREAM_BUSY",
+                "Native stream is ${nativeCoordinator.phase().name.lowercase()}",
+                null,
+            )
+            return
+        }
         val host = call.argument<String>("host") ?: ""
         val width = call.argument<Int>("width") ?: 1920
         val height = call.argument<Int>("height") ?: 1080
@@ -450,14 +468,12 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
         riAesIv[2] = (riKeyId shr 8).toByte()
         riAesIv[3] = riKeyId.toByte()
 
-        val replied = AtomicBoolean(false)
-
         isStreamingActive = true
-        Thread {
-            try {
+        val started = nativeCoordinator.start(
+            nativeStart = {
                 val packetDuration = if (weakDevice) 20 else 5
 
-                val status = StreamingBridge.nativeStartConnection(
+                StreamingBridge.nativeStartConnection(
                     address = host,
                     appVersion = appVersion,
                     gfeVersion = if (gfeVersion.isEmpty()) null else gfeVersion,
@@ -480,33 +496,29 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
                     slowOpusDecoder = (audioQuality != "high"),
                     audioPacketDuration = packetDuration
                 )
+            },
+            onComplete = { completion ->
                 mainHandler.post {
-                    if (!replied.compareAndSet(false, true)) {
-                        Log.w(TAG, "startStream result already replied — Dart timeout likely fired")
-                        if (status != 0) cleanup()
-                        return@post
-                    }
-                    if (status == 0) {
+                    if (completion.accepted) {
                         result.success(true)
+                    } else if (completion.error != null) {
+                        Log.e(TAG, "Exception in nativeStartConnection", completion.error)
+                        result.error("STREAM_EXCEPTION", completion.error.message, null)
                     } else {
-                        Log.e(TAG, "nativeStartConnection failed: $status")
-                        cleanup()
-                        result.error("STREAM_FAILED", "Connection failed with code $status", status)
+                        Log.e(TAG, "nativeStartConnection not accepted: ${completion.status}")
+                        result.error(
+                            "STREAM_FAILED",
+                            "Connection failed or was interrupted with code ${completion.status}",
+                            completion.status,
+                        )
                     }
                 }
-            } catch (e: Exception) {
-                Log.e(TAG, "Exception in nativeStartConnection", e)
-                mainHandler.post {
-                    if (!replied.compareAndSet(false, true)) {
-                        Log.w(TAG, "startStream result already replied on exception path")
-                        cleanup()
-                        return@post
-                    }
-                    cleanup()
-                    result.error("STREAM_EXCEPTION", e.message, null)
-                }
-            }
-        }.also { it.name = "StreamingThread"; it.isDaemon = true }.start()
+            },
+        )
+        if (!started) {
+            isStreamingActive = false
+            result.error("STREAM_BUSY", "Native stream start was rejected", null)
+        }
     }
 
     private fun detectWeakDevice(): Boolean {
@@ -553,15 +565,10 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
     private fun handleStopStream(result: MethodChannel.Result) {
         Log.i(TAG, "Stopping stream")
         stopStatsPolling()
-
-        try {
-            StreamingBridge.nativeStopConnection()
-        } catch (e: Exception) {
-            Log.e(TAG, "Error stopping native connection", e)
+        synchronized(stopResultLock) { pendingStopResults += result }
+        if (nativeCoordinator.stop() == NativeStreamLifecycle.StopDirective.NONE) {
+            handleNativeIdle()
         }
-
-        cleanup()
-        result.success(null)
     }
 
     // Starts native mic capture if RECORD_AUDIO is granted. If not, requests it
@@ -928,14 +935,13 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
         stopStatsPolling()
         if (isPipMode) {
             Log.i(TAG, "onConnectionTerminated during PiP — deferring to PiP exit (errorCode=$errorCode)")
-            cleanup()
             reconnectAfterPip = true
+            nativeCoordinator.stop()
             return
         }
 
-        stopNativeConnection()
         sendEvent(mapOf("type" to "connectionTerminated", "errorCode" to errorCode))
-        cleanup()
+        nativeCoordinator.stop()
     }
 
     override fun onStageStarting(stage: Int) {
@@ -1018,13 +1024,12 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
         surfaceProducer = null
     }
 
-    private fun stopNativeConnection() {
-        stopStatsPolling()
-        try {
-            StreamingBridge.nativeStopConnection()
-        } catch (e: Exception) {
-            Log.w(TAG, "stopNativeConnection: ignored — $e")
+    private fun handleNativeIdle() {
+        cleanup()
+        val results = synchronized(stopResultLock) {
+            pendingStopResults.toList().also { pendingStopResults.clear() }
         }
+        results.forEach { it.success(null) }
     }
 
     private fun stopStatsPolling() {
