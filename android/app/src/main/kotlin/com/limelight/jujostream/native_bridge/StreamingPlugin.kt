@@ -300,69 +300,33 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
         // What stays off is the auto-DirectSubmit that arrived later: on Amlogic
         // the SurfaceControl path presented 398 of 10500 frames.
         val weakDevice = detectWeakDevice()
-        val effectiveCodec = when {
-            weakDevice && videoCodec == "auto" -> {
-                Log.w(TAG, "Weak TV device — advertising H264 (was $resolvedCodec)")
-                "H264"
-            }
-            else -> resolvedCodec
-        }
+        val codecDecision = CodecAdvertisementPolicy.decide(
+            requestedCodec = videoCodec,
+            autoSelectedCodec = resolvedCodec,
+            weakDevice = weakDevice,
+            enableHdr = enableHdr,
+            candidates = allSupported.mapNotNull { codec ->
+                val mime = when (codec.codec) {
+                    "H264" -> "video/avc"
+                    "H265" -> "video/hevc"
+                    "AV1" -> "video/av01"
+                    else -> return@mapNotNull null
+                }
+                CodecAdvertisementPolicy.DecoderCandidate(codec.codec, mime, codec.decoderName)
+            },
+        )
+        val effectiveCodec = codecDecision.effectiveCodec
+        val decodersByMime = codecDecision.decodersByMime
+        val supportedVideoFormats = codecDecision.supportedVideoFormats
         activeCodecName = effectiveCodec
-
-        val decodersByMime = mutableMapOf<String, String>()
-        for (cs in allSupported) {
-            val mime = when (cs.codec) {
-                "H264" -> "video/avc"
-                "H265" -> "video/hevc"
-                "AV1"  -> "video/av01"
-                else -> continue
-            }
-            if (mime !in decodersByMime) {
-                decodersByMime[mime] = cs.decoderName
-            }
+        codecDecision.fallbackReason?.let { reason ->
+            Log.w(TAG, "Codec policy fallback=$reason requested=$videoCodec selected=$effectiveCodec")
         }
-        Log.i(TAG, "Decoder map: $decodersByMime (weakDevice=$weakDevice, preferred=$effectiveCodec)")
-
-        if (weakDevice && effectiveCodec == "H264") {
-            decodersByMime.keys.retainAll(setOf("video/avc"))
-            Log.i(TAG, "Weak device: stripped codec map to avc-only -> $decodersByMime")
-        }
-
-
-
-        // Never advertise a codec that has no safe clear-playback decoder on this device.
-        // This prevents the server from negotiating a codec we'd then fail to decode.
-        val safeEffective = when {
-            effectiveCodec == "H265" && "video/hevc" !in decodersByMime -> {
-                Log.w(TAG, "No safe HEVC decoder available — downgrading advertised codec to H264")
-                "H264"
-            }
-            effectiveCodec == "AV1" && "video/av01" !in decodersByMime -> {
-                Log.w(TAG, "No safe AV1 decoder available — downgrading advertised codec to H264")
-                "H264"
-            }
-            else -> effectiveCodec
-        }
-        if (safeEffective != effectiveCodec) activeCodecName = safeEffective
-
-        // Advertise only codecs that remain in decodersByMime. The server picks the
-        // best codec from this mask, so advertising a codec we stripped (e.g. HEVC on
-        // a weak device) makes the server negotiate a format the decoder map can't
-        // serve — the safe-probe fallback then lands on a decoder that fails start()
-        // (Amlogic HEVC: "newBufferCount 31 > 24") and aborts the whole connection.
-        var supportedVideoFormats = StreamConstants.videoFormatFor(safeEffective, enableHdr)
-        for (codec in allSupported) {
-            val mime = when (codec.codec) {
-                "H264" -> "video/avc"
-                "H265" -> "video/hevc"
-                "AV1"  -> "video/av01"
-                else -> continue
-            }
-            if (mime in decodersByMime) {
-                supportedVideoFormats = supportedVideoFormats or
-                    StreamConstants.videoFormatFor(codec.codec, enableHdr)
-            }
-        }
+        Log.i(
+            TAG,
+            "Codec contract: requested=$videoCodec selected=$effectiveCodec " +
+                "formats=0x${supportedVideoFormats.toString(16)} decoders=$decodersByMime",
+        )
 
         val effectiveFramePacingMode = if (weakDevice && framePacingMode != VideoDecoderRenderer.FRAME_PACING_LATENCY) {
             Log.w(TAG, "Weak device — overriding frame pacing to LATENCY (was $framePacingMode)")
@@ -794,6 +758,8 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
     }
 
     override fun onVideoSetup(videoFormat: Int, width: Int, height: Int, redrawRate: Int): Int {
+        activeCodecName = StreamConstants.codecNameForFormat(videoFormat)
+        Log.i(TAG, "Negotiated codec=$activeCodecName format=0x${videoFormat.toString(16)}")
         return videoRenderer?.setup(videoFormat, width, height, redrawRate) ?: -1
     }
 

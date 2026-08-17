@@ -28,6 +28,13 @@ object StreamConstants {
         else -> null
     }
 
+    fun codecNameForFormat(videoFormat: Int): String = when {
+        videoFormat and (VIDEO_FORMAT_AV1 or VIDEO_FORMAT_AV1_HDR) != 0 -> "AV1"
+        videoFormat and (VIDEO_FORMAT_H265 or VIDEO_FORMAT_H265_HDR) != 0 -> "H265"
+        videoFormat and VIDEO_FORMAT_H264 != 0 -> "H264"
+        else -> "unknown"
+    }
+
 
     const val AUDIO_CONFIG_STEREO     = 0x000302CA
     const val AUDIO_CONFIG_SURROUND51 = 0x003F06CA
