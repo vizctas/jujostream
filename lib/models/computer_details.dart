@@ -19,6 +19,7 @@ class ComputerDetails {
   int serverCodecModeSupport;
   String gpuName;
   String encoderName;
+  bool serverAbrActive;
   bool pairStatusFromHttps = false;
   bool isCloud = false;
 
@@ -43,31 +44,33 @@ class ComputerDetails {
     this.serverCodecModeSupport = 15,
     this.gpuName = '',
     this.encoderName = '',
+    this.serverAbrActive = false,
     this.isCloud = false,
   });
 
   Map<String, dynamic> toJson() => {
-        'uuid': uuid,
-        'name': name,
-        'localAddress': localAddress,
-        'remoteAddress': remoteAddress,
-        'manualAddress': manualAddress,
-        'macAddress': macAddress,
-        'httpsPort': httpsPort,
-        'configHttpsPort': configHttpsPort,
-        'externalPort': externalPort,
-        'serverCert': serverCert,
-        'state': state.index,
-        'pairState': pairState.index,
-        'runningGameId': runningGameId,
-        'activeAddress': activeAddress,
-        'serverVersion': serverVersion,
-        'gfeVersion': gfeVersion,
-        'serverCodecModeSupport': serverCodecModeSupport,
-        'gpuName': gpuName,
-        'encoderName': encoderName,
-        'isCloud': isCloud,
-      };
+    'uuid': uuid,
+    'name': name,
+    'localAddress': localAddress,
+    'remoteAddress': remoteAddress,
+    'manualAddress': manualAddress,
+    'macAddress': macAddress,
+    'httpsPort': httpsPort,
+    'configHttpsPort': configHttpsPort,
+    'externalPort': externalPort,
+    'serverCert': serverCert,
+    'state': state.index,
+    'pairState': pairState.index,
+    'runningGameId': runningGameId,
+    'activeAddress': activeAddress,
+    'serverVersion': serverVersion,
+    'gfeVersion': gfeVersion,
+    'serverCodecModeSupport': serverCodecModeSupport,
+    'gpuName': gpuName,
+    'encoderName': encoderName,
+    'serverAbrActive': serverAbrActive,
+    'isCloud': isCloud,
+  };
 
   /// Reads an enum by index without throwing on an out-of-range value.
   /// A stale index from an older build must not take a saved server down.
@@ -105,6 +108,7 @@ class ComputerDetails {
       serverCodecModeSupport: json['serverCodecModeSupport'] ?? 15,
       gpuName: json['gpuName'] ?? '',
       encoderName: json['encoderName'] ?? '',
+      serverAbrActive: json['serverAbrActive'] ?? false,
       isCloud: json['isCloud'] ?? false,
     );
   }

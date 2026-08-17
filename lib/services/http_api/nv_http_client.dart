@@ -259,6 +259,11 @@ class NvHttpClient {
     // Absent on older server versions — optional, defaults to empty.
     computer.gpuName = extractXmlValue(xmlBody, 'GpuName') ?? '';
     computer.encoderName = extractXmlValue(xmlBody, 'EncoderName') ?? '';
+    final serverAbr = extractXmlValue(
+      xmlBody,
+      'ServerAbrActive',
+    )?.toLowerCase();
+    computer.serverAbrActive = serverAbr == 'true' || serverAbr == '1';
     final codecValue =
         extractXmlValue(xmlBody, 'ServerCodecModeSupport') ??
         extractXmlValue(xmlBody, 'serverCodecModeSupport') ??

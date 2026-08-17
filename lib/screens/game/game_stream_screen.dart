@@ -1163,7 +1163,9 @@ class _GameStreamScreenState extends State<GameStreamScreen>
           _recordSessionMetrics(event);
           _recordStatsTelemetry(event);
           _dynBitrate.evaluate(
-            enabled: _config.dynamicBitrateEnabled,
+            enabled:
+                _config.dynamicBitrateEnabled &&
+                !widget.computer.serverAbrActive,
             connected: _isConnected,
             baseBitrate: _config.bitrate,
             fps: _config.fps,
