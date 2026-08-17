@@ -88,6 +88,7 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
     private var audioRenderer: AudioRenderer? = null
     private var surfaceProducer: TextureRegistry.SurfaceProducer? = null
     private var directSubmitActive = false
+    private var networkLock: StreamingNetworkLock? = null
 
     private var statsTimer: Timer? = null
     private val statsGuard = StreamStatsGuard()
@@ -115,6 +116,7 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
         instance = this
 
         textureRegistry = binding.textureRegistry
+        networkLock = StreamingNetworkLock(binding.applicationContext)
 
         binding.platformViewRegistry.registerViewFactory(
             DirectSubmitViewFactory.VIEW_TYPE,
@@ -149,6 +151,8 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         Log.i(TAG, "Plugin detached from engine")
         instance = null
+        networkLock?.release()
+        networkLock = null
         DirectSubmitViewFactory.setLifecycleListener(null)
         methodChannel?.setMethodCallHandler(null)
         eventChannel?.setStreamHandler(null)
@@ -735,13 +739,15 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
     }
 
     private fun handleGetStats(result: MethodChannel.Result) {
-        val stats = videoRenderer?.getStats() ?: mapOf(
+        val stats = (videoRenderer?.getStats() ?: mapOf(
             "framesReceived"  to 0L,
             "framesRendered"  to 0L,
             "framesDropped"   to 0L,
             "decodeLatencyMs" to 0.0,
-            "framePacingMode" to 0
-        )
+            "framePacingMode" to 0,
+        )) + ("nativeVideoQueueFrames" to runCatching {
+            StreamingBridge.nativeGetPendingVideoFrames().coerceAtLeast(0)
+        }.getOrDefault(0))
         result.success(stats)
     }
 
@@ -781,6 +787,9 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
             "framesPresented" to (renderer?.totalFramesPresented ?: 0L),
             "framesDropped" to (renderer?.totalFramesDropped ?: 0L),
             "queueDepth" to (stats["queueDepth"] ?: 0),
+            "nativeVideoQueueFrames" to runCatching {
+                StreamingBridge.nativeGetPendingVideoFrames().coerceAtLeast(0)
+            }.getOrDefault(0),
             "decoderName" to (stats["decoderName"] ?: "unknown"),
             "renderPath" to (stats["renderPath"] ?: "unknown"),
             "directSubmit" to directSubmitActive,
@@ -821,6 +830,7 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
 
     override fun onConnectionStarted() {
         isConnectionEstablished = true
+        networkLock?.acquire()
         videoRenderer?.resetStats()
         videoRenderer?.start()
         audioRenderer?.start()
@@ -864,6 +874,7 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
                             audioMetrics.getOrElse(0) { 0L },
                             audioMetrics.getOrElse(1) { 0L },
                             audioMetrics.getOrElse(2) { 0L },
+                            StreamingBridge.nativeGetPendingVideoFrames().coerceAtLeast(0).toLong(),
                         )
                     } ?: return
                     val pendingAudioMs = nativeStats[0]
@@ -872,6 +883,7 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
                     val audioOutputQueueMs = nativeStats[3]
                     val audioOverflowPackets = nativeStats[4]
                     val audioUnderrunCallbacks = nativeStats[5]
+                    val nativeVideoQueueFrames = nativeStats[6]
 
                     val statsMap = renderer.getStats()
                     val queueDepth = statsMap["queueDepth"] as? Int ?: 0
@@ -909,6 +921,7 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
                         "resolution" to resolution,
                         "codec"      to activeCodecName,
                         "queueDepth" to queueDepth,
+                        "nativeVideoQueueFrames" to nativeVideoQueueFrames,
                         "pendingAudioMs" to pendingAudioMs,
                         "audioOutputQueueMs" to audioOutputQueueMs,
                         "audioOverflowPackets" to audioOverflowPackets,
@@ -928,6 +941,7 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
 
     override fun onConnectionTerminated(errorCode: Int) {
         stopStatsPolling()
+        networkLock?.release()
         if (isPipMode) {
             Log.i(TAG, "onConnectionTerminated during PiP — deferring to PiP exit (errorCode=$errorCode)")
             reconnectAfterPip = true
@@ -996,6 +1010,7 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
 
     private fun cleanup() {
         stopStatsPolling()
+        networkLock?.release()
         GamepadHandler.instance?.releaseControllerFeedbackResources("native stream cleanup")
         isStreamingActive = false
         isConnectionEstablished = false
