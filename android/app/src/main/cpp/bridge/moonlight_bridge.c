@@ -21,6 +21,9 @@
 
 // Oboe renderer instance
 void* g_oboeRenderer = NULL;
+extern int OboeRenderer_GetQueuedDurationMs(void* renderer);
+extern uint64_t OboeRenderer_GetOverflowPackets(void* renderer);
+extern uint64_t OboeRenderer_GetUnderrunCallbacks(void* renderer);
 
 JavaVM* g_jvm = NULL;
 jclass g_bridgeClass = NULL;
@@ -436,6 +439,21 @@ JNIEXPORT jint JNICALL
 Java_com_limelight_jujostream_native_1bridge_StreamingBridge_nativeGetPendingAudioDuration(
         JNIEnv* env, jclass clazz) {
     return LiGetPendingAudioDuration();
+}
+
+JNIEXPORT jlongArray JNICALL
+Java_com_limelight_jujostream_native_1bridge_StreamingBridge_nativeGetAudioRendererMetrics(
+        JNIEnv* env, jclass clazz) {
+    jlong values[3] = {0, 0, 0};
+    // These access process-wide atomics, so renderer destruction cannot race metrics reads.
+    values[0] = OboeRenderer_GetQueuedDurationMs(NULL);
+    values[1] = (jlong)OboeRenderer_GetOverflowPackets(NULL);
+    values[2] = (jlong)OboeRenderer_GetUnderrunCallbacks(NULL);
+    jlongArray result = (*env)->NewLongArray(env, 3);
+    if (result != NULL) {
+        (*env)->SetLongArrayRegion(env, result, 0, 3, values);
+    }
+    return result;
 }
 
 JNIEXPORT jstring JNICALL

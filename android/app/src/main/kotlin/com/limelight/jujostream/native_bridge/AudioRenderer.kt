@@ -128,8 +128,8 @@ class AudioRenderer(
     fun playSample(pcmData: ByteArray, length: Int) {
         try {
             val track = audioTrack ?: return
-            val written = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                track.write(pcmData, 0, length, AudioTrack.WRITE_NON_BLOCKING)
+            val written = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                track.write(pcmData, 0, length, AudioTrack.WRITE_BLOCKING)
             } else {
                 @Suppress("DEPRECATION")
                 track.write(pcmData, 0, length)
@@ -143,20 +143,20 @@ class AudioRenderer(
     fun playSample(pcmData: ShortArray) {
         try {
             val track = audioTrack ?: return
-            val written = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                track.write(pcmData, 0, pcmData.size, AudioTrack.WRITE_NON_BLOCKING)
+            val written = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                track.write(pcmData, 0, pcmData.size, AudioTrack.WRITE_BLOCKING)
             } else {
                 @Suppress("DEPRECATION")
                 track.write(pcmData, 0, pcmData.size)
             }
-            adaptBuffer(written, pcmData.size * 2)
+            adaptBuffer(written, pcmData.size)
         } catch (e: Exception) {
             Log.e(TAG, "Error writing audio sample", e)
         }
     }
 
     private fun adaptBuffer(written: Int, expected: Int) {
-        if (written == 0) {
+        if (written < expected) {
             underrunCount++
             if (underrunCount >= UNDERRUN_THRESHOLD && bufferFrames < MAX_BUF_FRAMES) {
                 bufferFrames++

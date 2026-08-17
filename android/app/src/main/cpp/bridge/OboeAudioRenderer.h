@@ -3,6 +3,9 @@
 
 #pragma once
 
+#include <atomic>
+#include <cstdint>
+#include <mutex>
 #include <oboe/Oboe.h>
 #include "LockFreeRingBuffer.h"
 
@@ -16,11 +19,16 @@ public:
     OboeAudioRenderer(const OboeAudioRenderer&) = delete;
     OboeAudioRenderer& operator=(const OboeAudioRenderer&) = delete;
 
-        int start(int channelCount, int sampleRate, int samplesPerFrame);
+    int start(int channelCount, int sampleRate, int samplesPerFrame);
 
-        void stop();
+    void stop();
 
-        void submitSamples(const int16_t* pcm, int sampleCount);
+    void submitSamples(const int16_t* pcm, int sampleCount);
+
+    int queuedSamples() const;
+    int queuedDurationMs() const;
+    uint64_t overflowPackets() const;
+    uint64_t underrunCallbacks() const;
 
     // oboe::AudioStreamDataCallback
     oboe::DataCallbackResult onAudioReady(
@@ -32,17 +40,20 @@ public:
                            oboe::Result error) override;
 
 private:
-    void openStream();
+    void openStreamLocked();
 
     std::shared_ptr<oboe::AudioStream> mStream;
     LockFreeRingBuffer mRingBuffer;
+    mutable std::mutex mStreamMutex;
 
     int mChannelCount    = 2;
     int mSampleRate      = 48000;
     int mSamplesPerFrame = 240;
 
     // Track whether we were asked to start (for error recovery restart)
-    bool mStarted = false;
+    std::atomic<bool> mStarted{false};
+    std::atomic<uint64_t> mOverflowPackets{0};
+    std::atomic<uint64_t> mUnderrunCallbacks{0};
 };
 
 #ifdef __cplusplus
@@ -55,6 +66,10 @@ void OboeRenderer_Destroy(void* renderer);
 int OboeRenderer_Start(void* renderer, int channelCount, int sampleRate, int samplesPerFrame);
 void OboeRenderer_Stop(void* renderer);
 void OboeRenderer_SubmitSamples(void* renderer, const int16_t* pcm, int sampleCount);
+int OboeRenderer_GetQueuedSamples(void* renderer);
+int OboeRenderer_GetQueuedDurationMs(void* renderer);
+uint64_t OboeRenderer_GetOverflowPackets(void* renderer);
+uint64_t OboeRenderer_GetUnderrunCallbacks(void* renderer);
 
 #ifdef __cplusplus
 }

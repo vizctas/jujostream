@@ -74,6 +74,7 @@ object StreamingBridge {
     @JvmStatic external fun nativeStopMicCapture()
     @JvmStatic external fun nativeGetPendingVideoFrames(): Int
     @JvmStatic external fun nativeGetPendingAudioDuration(): Int
+    @JvmStatic external fun nativeGetAudioRendererMetrics(): LongArray
     @JvmStatic external fun nativeGetStageName(stage: Int): String
     @JvmStatic external fun nativeGetEstimatedRttInfo(): Long
 

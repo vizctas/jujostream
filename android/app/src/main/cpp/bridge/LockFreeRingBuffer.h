@@ -22,7 +22,7 @@ public:
     LockFreeRingBuffer(const LockFreeRingBuffer&) = delete;
     LockFreeRingBuffer& operator=(const LockFreeRingBuffer&) = delete;
 
-        void resize(int minSamples) {
+    void resize(int minSamples) {
         delete[] mBuffer;
         mCapacity = nextPow2(minSamples);
         mMask     = mCapacity - 1;
@@ -31,21 +31,17 @@ public:
         mReadPos.store(0, std::memory_order_relaxed);
     }
 
-        int write(const int16_t* src, int count) {
-        if (count <= 0) return 0;
-        
-        uint32_t w = mWritePos.load(std::memory_order_relaxed);
-        uint32_t r = mReadPos.load(std::memory_order_acquire);
-        
-        // Full buffer: drop oldest samples to stay current
-        int available = mCapacity - (int)(w - r);
-        if (count > available) {
-            int overflow = count - available;
-            mReadPos.store(r + overflow, std::memory_order_release);
-            // Re-read after advancing
-            r = mReadPos.load(std::memory_order_acquire);
-        }
-        
+    int write(const int16_t* src, int count) {
+        if (src == nullptr || count <= 0 || mCapacity == 0) return 0;
+
+        const uint32_t w = mWritePos.load(std::memory_order_relaxed);
+        const uint32_t r = mReadPos.load(std::memory_order_acquire);
+        const int available = static_cast<int>(mCapacity - (w - r));
+
+        // Packets are atomic. In an SPSC queue only the consumer may advance
+        // mReadPos; producer-side cursor writes can race an in-progress memcpy.
+        if (count > available) return 0;
+
         const uint32_t startIdx = w & mMask;
         const int firstChunk = std::min(count, (int)(mCapacity - startIdx));
         std::memcpy(mBuffer + startIdx, src, firstChunk * sizeof(int16_t));
@@ -58,7 +54,8 @@ public:
         return count;
     }
 
-        int read(int16_t* dst, int count) {
+    int read(int16_t* dst, int count) {
+        if (dst == nullptr || count <= 0 || mCapacity == 0) return 0;
         const uint32_t r = mReadPos.load(std::memory_order_relaxed);
         const uint32_t w = mWritePos.load(std::memory_order_acquire);
         const int available = (int)(w - r);

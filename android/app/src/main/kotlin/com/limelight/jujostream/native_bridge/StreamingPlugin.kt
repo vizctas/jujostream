@@ -856,15 +856,22 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
                     val resolution = "${renderer.initialWidth}x${renderer.initialHeight}"
                     val nativeStats = statsGuard.runIfActive {
                         val rttInfo = StreamingBridge.getEstimatedRtt()
-                        Triple(
-                            StreamingBridge.nativeGetPendingAudioDuration().coerceAtLeast(0),
-                            rttInfo?.first ?: -1,
-                            rttInfo?.second ?: -1,
+                        val audioMetrics = StreamingBridge.nativeGetAudioRendererMetrics()
+                        longArrayOf(
+                            StreamingBridge.nativeGetPendingAudioDuration().coerceAtLeast(0).toLong(),
+                            (rttInfo?.first ?: -1).toLong(),
+                            (rttInfo?.second ?: -1).toLong(),
+                            audioMetrics.getOrElse(0) { 0L },
+                            audioMetrics.getOrElse(1) { 0L },
+                            audioMetrics.getOrElse(2) { 0L },
                         )
                     } ?: return
-                    val pendingAudioMs = nativeStats.first
-                    val rttMs = nativeStats.second
-                    val rttVarianceMs = nativeStats.third
+                    val pendingAudioMs = nativeStats[0]
+                    val rttMs = nativeStats[1]
+                    val rttVarianceMs = nativeStats[2]
+                    val audioOutputQueueMs = nativeStats[3]
+                    val audioOverflowPackets = nativeStats[4]
+                    val audioUnderrunCallbacks = nativeStats[5]
 
                     val statsMap = renderer.getStats()
                     val queueDepth = statsMap["queueDepth"] as? Int ?: 0
@@ -903,6 +910,9 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
                         "codec"      to activeCodecName,
                         "queueDepth" to queueDepth,
                         "pendingAudioMs" to pendingAudioMs,
+                        "audioOutputQueueMs" to audioOutputQueueMs,
+                        "audioOverflowPackets" to audioOverflowPackets,
+                        "audioUnderrunCallbacks" to audioUnderrunCallbacks,
                         "decoderName" to decoderName,
                         "renderPath" to renderPath,
                         "rttMs" to rttMs,
