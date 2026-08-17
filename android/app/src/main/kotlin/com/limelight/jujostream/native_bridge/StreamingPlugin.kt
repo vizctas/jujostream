@@ -93,9 +93,9 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
     private val statsGuard = StreamStatsGuard()
     private var lastFramesReceived = 0L
     private var lastFramesRendered = 0L
+    private var lastFramesPresented = 0L
     private var lastFramesDropped = 0L
-    private var stagnantRenderTicks = 0
-    private var renderStallNotified = false
+    private val renderWatchdog = RenderProgressWatchdog(stallThresholdSamples = 15)
     private var configuredBitrateKbps = 20000
     private var activeCodecName = "unknown"
 
@@ -120,6 +120,15 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
             DirectSubmitViewFactory.VIEW_TYPE,
             DirectSubmitViewFactory()
         )
+        DirectSubmitViewFactory.setLifecycleListener { generation ->
+            if (directSubmitActive && isConnectionEstablished) {
+                emitRenderStalled(
+                    renderer = videoRenderer,
+                    reason = "surface_destroyed",
+                    surfaceGeneration = generation,
+                )
+            }
+        }
 
         methodChannel = MethodChannel(binding.binaryMessenger, METHOD_CHANNEL).also {
             it.setMethodCallHandler(this)
@@ -140,6 +149,7 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         Log.i(TAG, "Plugin detached from engine")
         instance = null
+        DirectSubmitViewFactory.setLifecycleListener(null)
         methodChannel?.setMethodCallHandler(null)
         eventChannel?.setStreamHandler(null)
         if (nativeCoordinator.stop() == NativeStreamLifecycle.StopDirective.NONE) {
@@ -757,6 +767,29 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
         }
     }
 
+    private fun emitRenderStalled(
+        renderer: VideoDecoderRenderer?,
+        reason: String,
+        surfaceGeneration: Long = DirectSubmitViewFactory.currentGeneration,
+    ) {
+        val stats = renderer?.getStats().orEmpty()
+        val event = mapOf(
+            "type" to "renderStalled",
+            "reason" to reason,
+            "framesReceived" to (renderer?.totalFramesReceived ?: 0L),
+            "framesRendered" to (renderer?.totalFramesRendered ?: 0L),
+            "framesPresented" to (renderer?.totalFramesPresented ?: 0L),
+            "framesDropped" to (renderer?.totalFramesDropped ?: 0L),
+            "queueDepth" to (stats["queueDepth"] ?: 0),
+            "decoderName" to (stats["decoderName"] ?: "unknown"),
+            "renderPath" to (stats["renderPath"] ?: "unknown"),
+            "directSubmit" to directSubmitActive,
+            "surfaceGeneration" to surfaceGeneration,
+        )
+        Log.e(TAG, "Render pipeline stalled: $event")
+        sendEvent(event)
+    }
+
     override fun onVideoSetup(videoFormat: Int, width: Int, height: Int, redrawRate: Int): Int {
         activeCodecName = StreamConstants.codecNameForFormat(videoFormat)
         Log.i(TAG, "Negotiated codec=$activeCodecName format=0x${videoFormat.toString(16)}")
@@ -794,10 +827,10 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
         sendEvent(mapOf("type" to "connectionStarted"))
 
         lastFramesRendered = 0L
+        lastFramesPresented = 0L
         lastFramesDropped = 0L
         lastFramesReceived = 0L
-        stagnantRenderTicks = 0
-        renderStallNotified = false
+        renderWatchdog.reset()
         stopStatsPolling()
         statsGuard.startSession()
         statsTimer = Timer("StreamStats", true).also { timer ->
@@ -806,11 +839,14 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
                     val renderer = videoRenderer ?: return
                     val currentReceived = renderer.totalFramesReceived
                     val currentFrames = renderer.totalFramesRendered
+                    val currentPresented = renderer.totalFramesPresented
                     val currentDropped = renderer.totalFramesDropped
                     val receivedDelta = (currentReceived - lastFramesReceived).coerceAtLeast(0)
                     val renderedDelta = (currentFrames - lastFramesRendered).coerceAtLeast(0)
+                    val presentedDelta = (currentPresented - lastFramesPresented).coerceAtLeast(0)
                     val droppedDelta = (currentDropped - lastFramesDropped).coerceAtLeast(0)
-                    val fps = (renderedDelta * 5).toInt()
+                    val progressDelta = if (renderer.presentationTrackingEnabled) presentedDelta else renderedDelta
+                    val fps = (progressDelta * 5).toInt()
                     val totalDelta = renderedDelta + droppedDelta
                     val dropRate = if (totalDelta > 0)
                         ((droppedDelta.toFloat() / totalDelta.toFloat()) * 100).toInt().coerceIn(0, 100)
@@ -836,44 +872,26 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
                     val renderPath = statsMap["renderPath"] as? String
                         ?: if (directSubmitActive) "direct-submit" else "texture"
 
-                    if (receivedDelta > 0L && renderedDelta == 0L && currentFrames > 0L) {
-                        stagnantRenderTicks++
-                    } else {
-                        stagnantRenderTicks = 0
-                    }
-
-                    if (!renderStallNotified && stagnantRenderTicks >= 15) {
-                        if (renderer.requestCodecRecoveryForRenderStall()) {
+                    when (renderWatchdog.observe(receivedDelta, progressDelta)) {
+                        RenderProgressWatchdog.Action.RECOVER -> {
+                            if (renderer.requestCodecRecoveryForRenderStall()) {
                             Log.w(
                                 TAG,
                                 "Render stall recovery requested: recv=$currentReceived rendered=$currentFrames " +
-                                    "decoder=$decoderName path=$renderPath"
+                                    "presented=$currentPresented decoder=$decoderName path=$renderPath"
                             )
-                            stagnantRenderTicks = 0
-                            return
+                            } else {
+                                emitRenderStalled(renderer, "recovery_unavailable")
+                            }
                         }
-
-                        renderStallNotified = true
-                        Log.e(
-                            TAG,
-                            "Render stall detected: recv=$currentReceived rendered=$currentFrames " +
-                                "dropped=$currentDropped queue=$queueDepth path=$renderPath " +
-                                "decoder=$decoderName directSubmit=$directSubmitActive"
-                        )
-                        sendEvent(mapOf(
-                            "type" to "renderStalled",
-                            "framesReceived" to currentReceived,
-                            "framesRendered" to currentFrames,
-                            "framesDropped" to currentDropped,
-                            "queueDepth" to queueDepth,
-                            "decoderName" to decoderName,
-                            "renderPath" to renderPath,
-                            "directSubmit" to directSubmitActive
-                        ))
+                        RenderProgressWatchdog.Action.RECONNECT ->
+                            emitRenderStalled(renderer, "recovery_no_progress")
+                        RenderProgressWatchdog.Action.NONE -> Unit
                     }
 
                     lastFramesReceived = currentReceived
                     lastFramesRendered = currentFrames
+                    lastFramesPresented = currentPresented
                     lastFramesDropped = currentDropped
 
                     sendEvent(mapOf(
@@ -890,6 +908,7 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
                         "rttMs" to rttMs,
                         "rttVarianceMs" to rttVarianceMs,
                         "totalRendered" to currentFrames,
+                        "totalPresented" to currentPresented,
                         "totalDropped"  to currentDropped,
                     ))
                 }
@@ -973,9 +992,9 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
         directSubmitActive = false
         lastFramesReceived = 0L
         lastFramesRendered = 0L
+        lastFramesPresented = 0L
         lastFramesDropped = 0L
-        stagnantRenderTicks = 0
-        renderStallNotified = false
+        renderWatchdog.reset()
         DisplayModeHelper.restore(activity)
         DirectSubmitViewFactory.reset()
         videoRenderer?.stop()

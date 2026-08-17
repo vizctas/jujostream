@@ -372,12 +372,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
     // wait for any in-flight stop to finish so native doesn't overlap
     if (_pendingStop != null) {
       debugPrint('_startStreaming: waiting for pending stopStream…');
-      await _pendingStop!.future.timeout(
-        const Duration(seconds: 5),
-        onTimeout: () {
-          debugPrint('_startStreaming: pendingStop timed out — forcing ahead');
-        },
-      );
+      await _pendingStop!.future;
       _pendingStop = null;
     }
     if (!isCurrent()) return;
@@ -1144,13 +1139,16 @@ class _GameStreamScreenState extends State<GameStreamScreen>
           }
         case 'renderStalled':
           BetaTelemetryService.event('native_render_stalled', {
+            'reason': event['reason'] ?? 'unknown',
             'framesReceived': event['framesReceived'] ?? 0,
             'framesRendered': event['framesRendered'] ?? 0,
+            'framesPresented': event['framesPresented'] ?? 0,
             'framesDropped': event['framesDropped'] ?? 0,
             'queueDepth': event['queueDepth'] ?? 0,
             'decoderName': event['decoderName'] ?? '',
             'renderPath': event['renderPath'] ?? '',
             'directSubmit': event['directSubmit'] ?? false,
+            'surfaceGeneration': event['surfaceGeneration'] ?? 0,
           });
           unawaited(_onConnectionTerminated(-9001));
         default:

@@ -12,6 +12,7 @@ import io.flutter.plugin.platform.PlatformView
 import io.flutter.plugin.platform.PlatformViewFactory
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Provides a native SurfaceView to Flutter via Hybrid Composition.
@@ -20,6 +21,10 @@ import java.util.concurrent.TimeUnit
  * Android compositor handles composition via SurfaceControl.
  */
 class DirectSubmitViewFactory : PlatformViewFactory(StandardMessageCodec.INSTANCE) {
+
+    fun interface SurfaceLifecycleListener {
+        fun onSurfaceDestroyed(generation: Long)
+    }
 
     companion object {
         private const val TAG = "DirectSubmit"
@@ -37,6 +42,18 @@ class DirectSubmitViewFactory : PlatformViewFactory(StandardMessageCodec.INSTANC
 
         @Volatile
         private var videoVisible = false
+
+        private val surfaceGeneration = AtomicLong(0)
+
+        @Volatile
+        private var lifecycleListener: SurfaceLifecycleListener? = null
+
+        val currentGeneration: Long
+            get() = surfaceGeneration.get()
+
+        fun setLifecycleListener(listener: SurfaceLifecycleListener?) {
+            lifecycleListener = listener
+        }
 
         fun setVideoVisible(visible: Boolean) {
             videoVisible = visible
@@ -88,9 +105,10 @@ class DirectSubmitViewFactory : PlatformViewFactory(StandardMessageCodec.INSTANC
             surfaceView.holder.addCallback(object : SurfaceHolder.Callback {
                 override fun surfaceCreated(holder: SurfaceHolder) {
                     activeSurface = holder.surface
+                    val generation = surfaceGeneration.incrementAndGet()
                     surfaceLatch.countDown()
                     Log.i(TAG, "Direct submit surface ready " +
-                        "(api=${Build.VERSION.SDK_INT}, " +
+                        "(generation=$generation, api=${Build.VERSION.SDK_INT}, " +
                         "hw=${Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q})")
                 }
 
@@ -99,9 +117,11 @@ class DirectSubmitViewFactory : PlatformViewFactory(StandardMessageCodec.INSTANC
                 }
 
                 override fun surfaceDestroyed(holder: SurfaceHolder) {
-                    Log.i(TAG, "Direct submit surface destroyed")
+                    val generation = surfaceGeneration.incrementAndGet()
+                    Log.i(TAG, "Direct submit surface destroyed (generation=$generation)")
                     activeSurface = null
                     surfaceLatch = CountDownLatch(1)
+                    lifecycleListener?.onSurfaceDestroyed(generation)
                 }
             })
         }

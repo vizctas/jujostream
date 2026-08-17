@@ -4,6 +4,7 @@ import android.media.MediaCodec
 import android.media.MediaCodecInfo
 import android.media.MediaFormat
 import android.os.Build
+import android.os.Looper
 import android.util.Log
 import android.view.Choreographer
 import android.view.Surface
@@ -77,6 +78,8 @@ class VideoDecoderRenderer(
         private set
     @Volatile var totalFramesRendered = 0L
         private set
+    @Volatile var totalFramesPresented = 0L
+        private set
     @Volatile var totalFramesDropped = 0L
         private set
     @Volatile var avgDecodeLatencyMs = 0f
@@ -89,6 +92,7 @@ class VideoDecoderRenderer(
     private var interFrameIndex = 0
     private var interFrameCount = 0
     @Volatile private var lastRenderNs = 0L
+    @Volatile private var lastPresentationNs = 0L
 
     private var decoderName = "unknown"
     private var activeRenderPath = "texture"
@@ -104,6 +108,10 @@ class VideoDecoderRenderer(
     private data class PendingFrame(val bufferIndex: Int, val ptsUs: Long)
     private val pendingFrames = LinkedBlockingDeque<PendingFrame>(8)
     @Volatile private var vsyncPresenterThread: Thread? = null
+    @Volatile private var vsyncLooper: Looper? = null
+
+    val presentationTrackingEnabled: Boolean
+        get() = Build.VERSION.SDK_INT >= Build.VERSION_CODES.M
 
     private fun requiresCodecConfigSubmission(): Boolean {
         return when (StreamConstants.mimeTypeForFormat(videoFormat)) {
@@ -257,6 +265,7 @@ class VideoDecoderRenderer(
                 // buffers than the OMX component allows ("newBufferCount 31 > 24").
                 // Stripping vendor/adaptive keys on later tries lowers the buffer demand.
                 decoder.start()
+                installPresentationListener(decoder)
                 Log.i(TAG, "configure()+start() succeeded on attempt $tryNumber")
                 return 0
             } catch (e: Exception) {
@@ -270,6 +279,17 @@ class VideoDecoderRenderer(
             }
         }
         return -1
+    }
+
+    private fun installPresentationListener(decoder: MediaCodec) {
+        if (!presentationTrackingEnabled) return
+        decoder.setOnFrameRenderedListener(
+            { _, _, renderTimeNs ->
+                totalFramesPresented++
+                lastPresentationNs = renderTimeNs
+            },
+            null,
+        )
     }
 
     /**
@@ -412,11 +432,13 @@ class VideoDecoderRenderer(
     fun resetStats() {
         totalFramesReceived = 0L
         totalFramesRendered = 0L
+        totalFramesPresented = 0L
         totalFramesDropped = 0L
         avgDecodeLatencyMs = 0f
         frameTimingIndex = 0; frameTimingCount = 0
         interFrameIndex = 0; interFrameCount = 0
         lastRenderNs = 0L
+        lastPresentationNs = 0L
         startTimeNs = System.nanoTime()
         zeroOutputWarningEmitted = false
         synchronized(queueTimestampNs) { queueTimestampNs.clear() }
@@ -443,7 +465,14 @@ class VideoDecoderRenderer(
                 val prio = if (isWeakDevice) android.os.Process.THREAD_PRIORITY_DISPLAY
                            else android.os.Process.THREAD_PRIORITY_URGENT_DISPLAY
                 android.os.Process.setThreadPriority(prio)
-                android.os.Looper.prepare()
+                Looper.prepare()
+                val looper = Looper.myLooper() ?: return@Thread
+                vsyncLooper = looper
+                if (stopping || decoderRestarting) {
+                    looper.quitSafely()
+                    vsyncLooper = null
+                    return@Thread
+                }
                 val choreographer = Choreographer.getInstance()
                 val vsyncCallback = object : Choreographer.FrameCallback {
                     override fun doFrame(frameTimeNanos: Long) {
@@ -453,7 +482,12 @@ class VideoDecoderRenderer(
                     }
                 }
                 choreographer.postFrameCallback(vsyncCallback)
-                android.os.Looper.loop()
+                try {
+                    Looper.loop()
+                } finally {
+                    choreographer.removeFrameCallback(vsyncCallback)
+                    if (vsyncLooper === looper) vsyncLooper = null
+                }
             }, "Video-Vsync-Presenter").apply { start() }
         } else {
             rendererThread = Thread({
@@ -938,7 +972,8 @@ class VideoDecoderRenderer(
         if (!isWeakDevice || !isAmlogicDecoder || useChoreographerVsync || stopping) return false
 
         val nowNs = System.nanoTime()
-        val outputStalledNs = if (lastRenderNs > 0L) nowNs - lastRenderNs else 0L
+        val lastProgressNs = if (presentationTrackingEnabled) lastPresentationNs else lastRenderNs
+        val outputStalledNs = if (lastProgressNs > 0L) nowNs - lastProgressNs else 0L
         if ((!force && outputStalledNs < 250_000_000L) ||
             nowNs - lastCodecRecoveryNs < 10_000_000_000L) {
             return false
@@ -1051,11 +1086,12 @@ class VideoDecoderRenderer(
         codecRecoveryRequested = false
         rendererThread?.interrupt()
         try { rendererThread?.join(1000) } catch (_: InterruptedException) { }
+        vsyncLooper?.quitSafely()
         vsyncPresenterThread?.let { t ->
-            t.interrupt()
             try { t.join(500) } catch (_: InterruptedException) { }
         }
         vsyncPresenterThread = null
+        vsyncLooper = null
     }
 
     fun cleanup() {
@@ -1066,7 +1102,6 @@ class VideoDecoderRenderer(
         } catch (e: Exception) {
             Log.e(TAG, "Error cleaning up decoder", e)
         }
-        videoDecoder = null
         videoDecoder = null
         // Do not release flutterSurface here; managed by StreamingPlugin
         renderSurface = null
@@ -1095,6 +1130,7 @@ class VideoDecoderRenderer(
         return mapOf(
             "framesReceived"  to totalFramesReceived,
             "framesRendered"  to totalFramesRendered,
+            "framesPresented" to totalFramesPresented,
             "framesDropped"   to totalFramesDropped,
             "decodeLatencyMs" to avgDecodeLatencyMs,
             "framePacingMode" to framePacingMode,
