@@ -70,7 +70,7 @@ No se uso `reset --hard`, no se reescribio historia y cada bloque funcional qued
 ### Audio de baja latencia
 
 - `LockFreeRingBuffer` conserva el contrato SPSC: el productor rechaza el paquete completo al llenarse y nunca adelanta el read cursor.
-- Cola Oboe acotada aproximadamente a 40 ms, frente a 100 ms anteriores.
+- Cola Oboe dimensionada por el burst real: objetivo de 40 ms en salidas low-latency y minimo de dos bursts completos en salidas con bloques grandes.
 - Metricas nativas: ocupacion de salida, paquetes rechazados y callbacks con underrun.
 - Estado global de metricas atomico para evitar carreras JNI durante destruccion del renderer.
 - Reapertura Oboe protegida y segura ante error de stream.
@@ -170,7 +170,7 @@ Warnings no bloqueantes observados: APIs Android previamente deprecadas (`Virtua
 ```text
 C:\Users\Jozh\repos\Jujo.StreamClient\build\app\outputs\apk\directFire\release\app-directFire-release.apk
 Size: 103041178 bytes
-SHA-256: 4445CECA102A4938BDF2CB9F7805C015847FCB83E6128C4DBA1EB7BBB3AD3C26
+SHA-256: 0D7171F3B8B3B4A208DF9D830C5FC55EDCFDBD0020411F8994C425ED3C43B3CE
 ```
 
 ### Play / Google TV
@@ -199,3 +199,31 @@ Cuando ADB vuelva a estar disponible, ejecutar sin modificar codigo:
 5. Perdida y jitter controlados, observando `nativeVideoQueueFrames`, `queueDepth`, FEC loss, audio overflow/underrun y eventos `renderStalled`.
 
 La ausencia de ADB impide afirmar resultados termicos, RF, vendor MediaCodec o estabilidad prolongada sobre hardware real; no impide confirmar los contratos, pruebas, compilaciones y artefactos entregados aqui.
+
+## Correccion Chromecast audio burst (2026-08-25)
+
+Despues de la primera instalacion se reporto video excelente pero audio gravemente afectado. La inspeccion ADB de `media.audio_flinger` en Chromecast HD/Amlogic mostro:
+
+```text
+Sample rate: 48000 Hz
+HAL frame count: 2048
+Normal frame count: 2048
+No FastMixer
+```
+
+Un burst de 2048 frames dura 42.67 ms. La FIFO fija anterior contenia 40 ms, por lo que un callback de burst completo podia pedir mas PCM del que la cola era capaz de almacenar y Oboe rellenaba el faltante con silencio.
+
+La correccion:
+
+- solicita callbacks Oboe del tamano exacto de `samplesPerFrame`;
+- calcula la FIFO con `max(40 ms, 2 * framesPerBurst)`;
+- conserva 40 ms en hardware low-latency;
+- usa 4096 frames (85.33 ms) para el burst de 2048 del Chromecast;
+- mantiene rechazo atomico SPSC, metricas y recuperacion del stream;
+- agrega una prueba C++ que fija los contratos Chromecast, low-latency y burst desconocido.
+
+Checkpoint adicional:
+
+```text
+checkpoint/pre-chromecast-audio-burst-fix-20260825
+```

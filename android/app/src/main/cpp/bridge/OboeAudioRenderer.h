@@ -40,7 +40,7 @@ public:
                            oboe::Result error) override;
 
 private:
-    void openStreamLocked();
+    void openStreamLocked(bool configureRingBuffer);
 
     std::shared_ptr<oboe::AudioStream> mStream;
     LockFreeRingBuffer mRingBuffer;
@@ -49,6 +49,9 @@ private:
     int mChannelCount    = 2;
     int mSampleRate      = 48000;
     int mSamplesPerFrame = 240;
+    int mOutputBurstFrames = 0;
+    int mCallbackFrames = 0;
+    int mRingCapacityFrames = 0;
 
     // Track whether we were asked to start (for error recovery restart)
     std::atomic<bool> mStarted{false};

@@ -1,6 +1,7 @@
 // Pull-model audio renderer using Google Oboe.
 
 #include "OboeAudioRenderer.h"
+#include "AudioBufferPolicy.h"
 #include <android/log.h>
 #include <cstring>
 #include <sys/system_properties.h>
@@ -28,10 +29,6 @@ int OboeAudioRenderer::start(int channelCount, int sampleRate, int samplesPerFra
     mSampleRate      = sampleRate;
     mSamplesPerFrame = samplesPerFrame;
 
-    // Bound queued PCM to roughly 40 ms. Extra packets are dropped atomically;
-    // latency can never grow into the hundreds of milliseconds.
-    int ringCapacity = channelCount * samplesPerFrame * 8;
-    mRingBuffer.resize(ringCapacity);
     mOverflowPackets.store(0, std::memory_order_relaxed);
     mUnderrunCallbacks.store(0, std::memory_order_relaxed);
     gQueuedDurationMs.store(0, std::memory_order_relaxed);
@@ -39,7 +36,7 @@ int OboeAudioRenderer::start(int channelCount, int sampleRate, int samplesPerFra
     gUnderrunCallbacks.store(0, std::memory_order_relaxed);
 
     mStarted.store(true, std::memory_order_release);
-    openStreamLocked();
+    openStreamLocked(true);
 
     if (!mStream) {
         mStarted.store(false, std::memory_order_release);
@@ -47,15 +44,17 @@ int OboeAudioRenderer::start(int channelCount, int sampleRate, int samplesPerFra
         return -1;
     }
 
-    LOGI("Oboe started: ch=%d rate=%d spf=%d ringCap=%d sharing=%s perf=%s",
-         channelCount, sampleRate, samplesPerFrame, ringCapacity,
+    LOGI("Oboe started: ch=%d rate=%d spf=%d burst=%d callback=%d ringFrames=%d ringMs=%d sharing=%s perf=%s",
+         channelCount, sampleRate, samplesPerFrame, mOutputBurstFrames,
+         mCallbackFrames, mRingCapacityFrames,
+         (mRingCapacityFrames * 1000) / mSampleRate,
          mStream->getSharingMode() == oboe::SharingMode::Exclusive ? "Exclusive" : "Shared",
          mStream->getPerformanceMode() == oboe::PerformanceMode::LowLatency ? "LowLatency" : "None");
 
     return 0;
 }
 
-void OboeAudioRenderer::openStreamLocked() {
+void OboeAudioRenderer::openStreamLocked(bool configureRingBuffer) {
     bool amlogic = false;
     char hardware[PROP_VALUE_MAX] = {0};
     if (__system_property_get("ro.hardware", hardware) > 0) {
@@ -71,6 +70,7 @@ void OboeAudioRenderer::openStreamLocked() {
            ->setFormat(oboe::AudioFormat::I16)
            ->setChannelCount(mChannelCount)
            ->setSampleRate(mSampleRate)
+           ->setFramesPerDataCallback(mSamplesPerFrame)
            ->setDataCallback(this)
            ->setErrorCallback(this)
            ->setUsage(oboe::Usage::Media)
@@ -82,6 +82,17 @@ void OboeAudioRenderer::openStreamLocked() {
         LOGE("openStream failed: %s", oboe::convertToText(result));
         mStream = nullptr;
         return;
+    }
+
+    const auto plan = AudioBufferPolicy::plan(
+        mSampleRate,
+        mSamplesPerFrame,
+        mStream->getFramesPerBurst());
+    mOutputBurstFrames = plan.outputBurstFrames;
+    mCallbackFrames = plan.callbackFrames;
+    if (configureRingBuffer) {
+        mRingCapacityFrames = plan.ringCapacityFrames;
+        mRingBuffer.resize(mRingCapacityFrames * mChannelCount);
     }
 
     result = mStream->requestStart();
@@ -102,6 +113,7 @@ void OboeAudioRenderer::stop() {
     }
     const int queuedBeforeReset = mRingBuffer.availableToRead();
     mRingBuffer.reset();
+    mRingCapacityFrames = 0;
     gQueuedDurationMs.store(0, std::memory_order_relaxed);
     if (wasStarted) {
         LOGI("Oboe stopped: queued=%d overflowPackets=%llu underrunCallbacks=%llu",
@@ -152,7 +164,10 @@ void OboeAudioRenderer::onErrorAfterClose(oboe::AudioStream* stream,
 
     mStream.reset();
     mRingBuffer.reset();
-    openStreamLocked();
+    // The stream error callback runs after close. Keep the existing FIFO
+    // allocation because the network producer may still be submitting PCM.
+    // Packet-sized callbacks remain valid even if the reopened burst changes.
+    openStreamLocked(false);
     if (mStream) {
         LOGI("Oboe stream restarted successfully");
     } else {
