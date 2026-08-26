@@ -18,8 +18,7 @@ class GameArtPolicy {
   static GameBackdropSelection selectBackdrop(NvApp app) {
     final candidates = heroCandidates(app);
     if (candidates.isNotEmpty) return candidates.first;
-
-    return posterFallback(app);
+    return const GameBackdropSelection(role: GameBackdropRole.none);
   }
 
   static List<GameBackdropSelection> heroCandidates(NvApp app) {
@@ -84,8 +83,9 @@ class GameArtPolicy {
   }
 
   static bool isEligibleHero({required int width, required int height}) {
-    if (width < 1280 || height < 720) return false;
-    return width / height >= 1.4;
+    if (width < 960 || height < 360) return false;
+    final aspect = width / height;
+    return aspect >= 1.4 && aspect <= 4.2;
   }
 
   /// Fraction of source content retained when rendered with [BoxFit.cover].
@@ -121,7 +121,7 @@ class GameArtPolicy {
           viewportWidth: viewportWidth,
           viewportHeight: viewportHeight,
         ) >=
-        0.72;
+        0.52;
   }
 
   static String? _usable(String? value) {

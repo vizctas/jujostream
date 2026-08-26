@@ -31,7 +31,6 @@ class LaunchExperience extends StatelessWidget {
           GameBackdropArt(
             key: const Key('launch-experience-art'),
             app: app,
-            validateHeroDimensions: false,
             heroCacheWidth: 1920,
           ),
           const ColoredBox(color: Color(0x94000000)),

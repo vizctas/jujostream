@@ -290,4 +290,39 @@ void main() {
       provider.dispose();
     },
   );
+
+  test('refresh adopts the current transport poster URL', () async {
+    SharedPreferences.setMockInitialValues({});
+    final client = _SequencedAppListClient([
+      [
+        NvApp(
+          appId: 20,
+          appName: 'Installed game',
+          posterUrl: 'https://192.168.3.6/old-poster',
+        ),
+      ],
+      [
+        NvApp(
+          appId: 20,
+          appName: 'Installed game',
+          posterUrl: 'https://192.168.3.9/new-poster',
+        ),
+      ],
+    ]);
+    final provider = AppListProvider(
+      await PluginsProvider.load(),
+      httpClient: client,
+    );
+    final computer = ComputerDetails(
+      uuid: 'server-1',
+      localAddress: '192.168.3.9',
+      pairState: PairState.paired,
+    );
+
+    await provider.loadApps(computer);
+    await provider.loadApps(computer, silent: true);
+
+    expect(provider.apps.single.posterUrl, 'https://192.168.3.9/new-poster');
+    provider.dispose();
+  });
 }

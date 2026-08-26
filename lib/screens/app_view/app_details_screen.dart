@@ -18,7 +18,6 @@ import '../../providers/plugins_provider.dart';
 import '../../providers/theme_provider.dart';
 import '../../models/theme_config.dart';
 import '../../services/metadata/steam_achievement_service.dart';
-import '../../services/metadata/game_art_policy.dart';
 import '../../services/metadata/steam_library_service.dart';
 import '../../services/metadata/steam_video_client.dart';
 import '../../services/preferences/game_preferences_store.dart';
@@ -421,19 +420,6 @@ class _AppDetailsScreenState extends State<AppDetailsScreen> {
   }
 
   Widget _buildBackdrop() {
-    final selection = GameArtPolicy.selectBackdrop(widget.app);
-    if (!selection.hasArt) {
-      return Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [Color(0xFF0B1624), Color(0xFF111827), Color(0xFF230B0B)],
-          ),
-        ),
-      );
-    }
-
     // A sigma-36 full-width Gaussian blur is one of the most expensive single
     // draws in Flutter, and this screen opens on every "details" press. It was
     // gated on performanceMode alone, which defaults to false, so every TV box
@@ -449,7 +435,7 @@ class _AppDetailsScreenState extends State<AppDetailsScreen> {
           app: widget.app,
           heroCacheWidth: context.read<ThemeProvider>().backgroundArtCacheWidth,
           fallbackColor: const Color(0xFF0B1624),
-          heroBuilder: (context, hero) => Stack(
+          heroBuilder: (context, selection, hero) => Stack(
             fit: StackFit.expand,
             children: [
               hero,
@@ -463,8 +449,6 @@ class _AppDetailsScreenState extends State<AppDetailsScreen> {
             ],
           ),
         ),
-        if (selection.role == GameBackdropRole.poster)
-          Container(color: Colors.black.withValues(alpha: 0.42)),
         Container(
           decoration: const BoxDecoration(
             gradient: LinearGradient(

@@ -7,10 +7,11 @@ import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:provider/provider.dart';
 
 import '../providers/theme_provider.dart';
+import '../services/metadata/artwork_cache_recovery.dart';
 import '../services/tv/tv_detector.dart';
 import '../services/http_api/game_art_file_service.dart';
 
-class PosterImage extends StatelessWidget {
+class PosterImage extends StatefulWidget {
   final String url;
   final BoxFit fit;
   final Alignment alignment;
@@ -80,7 +81,7 @@ class PosterImage extends StatelessWidget {
   /// artQualityCacheWidth, so the setting did nothing at all. Applying it here
   /// covers all of them at once. It only ever lowers the width — a caller that
   /// already asks for less than the cap keeps its own value.
-  int? _effectiveCacheWidth(BuildContext context) {
+  int? effectiveCacheWidth(BuildContext context) {
     // PosterImage is a leaf widget used all over the app, including in trees
     // that do not carry a ThemeProvider (tests, isolated previews). Reading it
     // unconditionally turned a missing provider into a build-time throw, so a
@@ -97,42 +98,100 @@ class PosterImage extends StatelessWidget {
   }
 
   @override
+  State<PosterImage> createState() => _PosterImageState();
+}
+
+class _PosterImageState extends State<PosterImage> {
+  var _reloadGeneration = 0;
+  var _recoveryScheduled = false;
+
+  @override
+  void didUpdateWidget(covariant PosterImage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.url != widget.url || oldWidget.cacheKey != widget.cacheKey) {
+      _recoveryScheduled = false;
+      _reloadGeneration = 0;
+    }
+  }
+
+  void _scheduleNetworkRecovery(int? cacheWidth) {
+    if (_recoveryScheduled) return;
+    _recoveryScheduled = true;
+    final requestedUrl = widget.url;
+    final requestedKey = widget.cacheKey;
+    final provider = PosterImage.providerFor(
+      requestedUrl,
+      cacheKey: requestedKey,
+      maxWidth: cacheWidth,
+      maxHeight: widget.memCacheHeight,
+    );
+    ArtworkCacheRecovery.instance
+        .recoverOnce(
+          identity: requestedKey ?? requestedUrl,
+          evict: () async {
+            await PosterImage.artCacheManager.removeFile(
+              requestedKey ?? requestedUrl,
+            );
+            await provider.evict();
+          },
+        )
+        .then((recovered) {
+          if (!mounted ||
+              !recovered ||
+              widget.url != requestedUrl ||
+              widget.cacheKey != requestedKey) {
+            return;
+          }
+          setState(() => _reloadGeneration++);
+        })
+        .whenComplete(() => _recoveryScheduled = false);
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final cacheWidth = _effectiveCacheWidth(context);
+    final cacheWidth = widget.effectiveCacheWidth(context);
     // A fade runs even when the image is already decoded in memory, so every
     // poster the D-pad passes over looks like it is still loading. On a TV the
     // grid should just be there.
-    final fade = TvDetector.instance.isTV ? Duration.zero : fadeInDuration;
+    final fade = TvDetector.instance.isTV
+        ? Duration.zero
+        : widget.fadeInDuration;
 
-    if (isLocalFile(url)) {
-      final path = url.replaceFirst('file://', '');
+    if (PosterImage.isLocalFile(widget.url)) {
+      final path = widget.url.replaceFirst('file://', '');
       return Image.file(
         File(path),
-        fit: fit,
-        alignment: alignment,
-        width: width,
-        height: height,
+        fit: widget.fit,
+        alignment: widget.alignment,
+        width: widget.width,
+        height: widget.height,
         cacheWidth: cacheWidth,
-        cacheHeight: memCacheHeight,
+        cacheHeight: widget.memCacheHeight,
         errorBuilder: (ctx, err, stack) =>
-            errorWidget?.call(ctx, url, err) ?? const SizedBox.shrink(),
+            widget.errorWidget?.call(ctx, widget.url, err) ??
+            const SizedBox.shrink(),
       );
     }
 
     return CachedNetworkImage(
-      imageUrl: url,
-      cacheKey: cacheKey,
-      cacheManager: artCacheManager,
-      fit: fit,
-      alignment: alignment,
-      width: width,
-      height: height,
+      key: ValueKey('${widget.cacheKey ?? widget.url}:$_reloadGeneration'),
+      imageUrl: widget.url,
+      cacheKey: widget.cacheKey,
+      cacheManager: PosterImage.artCacheManager,
+      fit: widget.fit,
+      alignment: widget.alignment,
+      width: widget.width,
+      height: widget.height,
       memCacheWidth: cacheWidth,
-      memCacheHeight: memCacheHeight,
+      memCacheHeight: widget.memCacheHeight,
       fadeInDuration: fade,
       placeholderFadeInDuration: fade,
-      errorWidget: errorWidget,
-      placeholder: placeholder,
+      errorWidget: (ctx, url, error) {
+        _scheduleNetworkRecovery(cacheWidth);
+        return widget.errorWidget?.call(ctx, url, error) ??
+            const SizedBox.shrink();
+      },
+      placeholder: widget.placeholder,
     );
   }
 }

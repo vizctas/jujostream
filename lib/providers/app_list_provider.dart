@@ -419,7 +419,6 @@ class AppListProvider extends ChangeNotifier {
         _fullAppCache[app.appId] = previous == null
             ? app
             : app.copyWith(
-                posterUrl: previous.posterUrl,
                 playniteId: previous.playniteId,
                 playtimeMinutes: previous.playtimeMinutes,
                 lastPlayed: previous.lastPlayed,
@@ -467,7 +466,6 @@ class AppListProvider extends ChangeNotifier {
               final prev = prevById[app.appId];
               if (prev == null) return app;
               return app.copyWith(
-                posterUrl: prev.posterUrl,
                 playniteId: prev.playniteId,
                 playtimeMinutes: prev.playtimeMinutes,
                 lastPlayed: prev.lastPlayed,

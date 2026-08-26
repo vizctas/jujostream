@@ -68,11 +68,12 @@ void main() {
     expect(gallery.toSet(), hasLength(8));
   });
 
-  test('full-screen hero requires landscape 720p minimum', () {
+  test('full-screen hero accepts dedicated landscape and panoramic art', () {
     expect(GameArtPolicy.isEligibleHero(width: 1920, height: 1080), isTrue);
     expect(GameArtPolicy.isEligibleHero(width: 1280, height: 720), isTrue);
-    expect(GameArtPolicy.isEligibleHero(width: 1920, height: 620), isFalse);
-    expect(GameArtPolicy.isEligibleHero(width: 1024, height: 576), isFalse);
+    expect(GameArtPolicy.isEligibleHero(width: 1920, height: 620), isTrue);
+    expect(GameArtPolicy.isEligibleHero(width: 3840, height: 1240), isTrue);
+    expect(GameArtPolicy.isEligibleHero(width: 900, height: 600), isFalse);
     expect(GameArtPolicy.isEligibleHero(width: 1080, height: 1920), isFalse);
   });
 
@@ -88,8 +89,8 @@ void main() {
     );
     expect(
       GameArtPolicy.isEligibleHeroForViewport(
-        width: 1920,
-        height: 720,
+        width: 1600,
+        height: 400,
         viewportWidth: 1280,
         viewportHeight: 800,
       ),
@@ -121,5 +122,14 @@ void main() {
       ['host', 'rawg', 'steam'],
     );
     expect(GameArtPolicy.posterFallback(app).url, 'poster');
+  });
+
+  test('poster-only app selects premium fallback, not portrait art', () {
+    final selected = GameArtPolicy.selectBackdrop(
+      NvApp(appId: 1, appName: 'Hades', posterUrl: 'poster'),
+    );
+
+    expect(selected.role, GameBackdropRole.none);
+    expect(selected.url, isNull);
   });
 }

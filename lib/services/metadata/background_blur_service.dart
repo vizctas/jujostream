@@ -3,7 +3,8 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
-import 'package:cached_network_image/cached_network_image.dart';
+
+import '../../widgets/poster_image.dart';
 
 class BackgroundBlurService {
   BackgroundBlurService._();
@@ -19,37 +20,51 @@ class BackgroundBlurService {
 
   static const double _blurSigma = 20.0;
 
-  ui.Image? getCached(String url) => _cache[url];
+  ui.Image? getCached(String key) => _cache[key];
 
-  bool isAvailable(String url) => _cache.containsKey(url);
-  bool isPending(String url) => _inFlight.containsKey(url);
+  bool isAvailable(String key) => _cache.containsKey(key);
+  bool isPending(String key) => _inFlight.containsKey(key);
 
-  Future<ui.Image?> preBlur(String url) {
-    if (_cache.containsKey(url)) return Future.value(_cache[url]);
-    return _inFlight.putIfAbsent(url, () => _processAndCache(url));
+  Future<ui.Image?> preBlur(String url, {String? cacheKey}) {
+    final key = cacheKey ?? url;
+    if (_cache.containsKey(key)) return Future.value(_cache[key]);
+    return _inFlight.putIfAbsent(
+      key,
+      () => _processAndCache(url, key, cacheKey),
+    );
   }
 
-  Future<ui.Image?> _processAndCache(String url) async {
+  Future<ui.Image?> _processAndCache(
+    String url,
+    String key,
+    String? cacheKey,
+  ) async {
     try {
-      final image = await _processBlur(url);
+      final image = await _processBlur(
+        PosterImage.providerFor(
+          url,
+          cacheKey: cacheKey,
+          maxWidth: _targetWidth,
+        ),
+      );
       if (image != null) {
         _evictIfNeeded();
-        _cache[url] = image;
+        _cache[key] = image;
       }
       return image;
     } finally {
-      _inFlight.remove(url);
+      _inFlight.remove(key);
     }
   }
 
-  void preBlurAsync(String url) {
-    if (_cache.containsKey(url) || _inFlight.containsKey(url)) return;
-    unawaited(preBlur(url));
+  void preBlurAsync(String url, {String? cacheKey}) {
+    final key = cacheKey ?? url;
+    if (_cache.containsKey(key) || _inFlight.containsKey(key)) return;
+    unawaited(preBlur(url, cacheKey: cacheKey));
   }
 
-  Future<ui.Image?> _processBlur(String url) async {
+  Future<ui.Image?> _processBlur(ImageProvider<Object> provider) async {
     try {
-      final provider = CachedNetworkImageProvider(url, maxWidth: _targetWidth);
       final completer = Completer<ImageInfo>();
       final stream = provider.resolve(ImageConfiguration.empty);
       late ImageStreamListener listener;
@@ -101,6 +116,8 @@ class BackgroundBlurService {
 
       final picture = recorder.endRecording();
       final blurredImage = await picture.toImage(_targetWidth, targetHeight);
+      picture.dispose();
+      imageInfo.dispose();
 
       return blurredImage;
     } catch (e) {

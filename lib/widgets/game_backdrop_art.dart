@@ -1,5 +1,3 @@
-import 'dart:ui' show ImageFilter;
-
 import 'package:flutter/material.dart';
 
 import '../models/nv_app.dart';
@@ -7,6 +5,7 @@ import '../services/metadata/game_art_policy.dart';
 import '../services/metadata/game_art_validator.dart';
 import '../services/tv/tv_detector.dart';
 import 'poster_image.dart';
+import 'premium_game_backdrop.dart';
 
 class GameBackdropArt extends StatefulWidget {
   const GameBackdropArt({
@@ -32,7 +31,12 @@ class GameBackdropArt extends StatefulWidget {
   /// already gates its own background motion on `!isTV`; this applies the same
   /// rule for every theme at once, instead of at each of the four call sites.
   bool get _kenBurnsAllowed => enableKenBurns && !TvDetector.instance.isTV;
-  final Widget Function(BuildContext context, Widget hero)? heroBuilder;
+  final Widget Function(
+    BuildContext context,
+    GameBackdropSelection selection,
+    Widget hero,
+  )?
+  heroBuilder;
 
   @override
   State<GameBackdropArt> createState() => _GameBackdropArtState();
@@ -72,13 +76,15 @@ class _GameBackdropArtState extends State<GameBackdropArt>
   @override
   void didUpdateWidget(covariant GameBackdropArt oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.app.heroImageUrl != widget.app.heroImageUrl ||
+    if (oldWidget.app.appId != widget.app.appId ||
+        oldWidget.app.appName != widget.app.appName ||
+        oldWidget.app.heroImageUrl != widget.app.heroImageUrl ||
         oldWidget.app.steamBackgroundUrl != widget.app.steamBackgroundUrl ||
         oldWidget.app.rawgBackgroundUrl != widget.app.rawgBackgroundUrl ||
         oldWidget.validateHeroDimensions != widget.validateHeroDimensions) {
       _requestedViewport = Size.zero;
-      _resolvedHero = null;
-      _heroProbe = null;
+      // Keep the last accepted layer visible while the replacement is probed.
+      // This avoids the empty/poster flash seen during fast D-pad navigation.
       _primeUnvalidatedHero();
       _scheduleValidationForViewport(
         MediaQuery.maybeSizeOf(context) ?? Size.zero,
@@ -108,7 +114,11 @@ class _GameBackdropArtState extends State<GameBackdropArt>
   void _primeUnvalidatedHero() {
     if (widget.validateHeroDimensions) return;
     final candidates = GameArtPolicy.heroCandidates(widget.app);
-    if (candidates.isEmpty) return;
+    if (candidates.isEmpty) {
+      _resolvedHero = null;
+      _heroProbe = null;
+      return;
+    }
     _resolvedHero = candidates.first;
     _heroProbe = const GameHeroProbe(width: 1920, height: 1080);
   }
@@ -131,9 +141,13 @@ class _GameBackdropArtState extends State<GameBackdropArt>
   void _validateHero(Size viewport) {
     final generation = ++_validationGeneration;
     final candidates = GameArtPolicy.heroCandidates(widget.app);
-    _resolvedHero = null;
     if (candidates.isEmpty) {
-      _heroProbe = null;
+      if (mounted) {
+        setState(() {
+          _resolvedHero = null;
+          _heroProbe = null;
+        });
+      }
       return;
     }
     if (!widget.validateHeroDimensions) {
@@ -141,7 +155,6 @@ class _GameBackdropArtState extends State<GameBackdropArt>
       _heroProbe = const GameHeroProbe(width: 1920, height: 1080);
       return;
     }
-    _heroProbe = null;
     () async {
       GameBackdropSelection? bestCandidate;
       GameHeroProbe? bestProbe;
@@ -194,30 +207,22 @@ class _GameBackdropArtState extends State<GameBackdropArt>
   }
 
   Widget _buildBackdrop() {
-    final selection = _resolvedHero ?? GameArtPolicy.posterFallback(widget.app);
+    final selection =
+        _resolvedHero ??
+        const GameBackdropSelection(role: GameBackdropRole.none);
     final child = switch (selection.role) {
       GameBackdropRole.hero when _heroProbe?.isEligible == true => _buildHero(
         selection,
       ),
-      GameBackdropRole.hero => _posterOrEmpty(),
-      GameBackdropRole.poster => _buildFullBleed(
-        selection.url!,
-        selection.cacheKey,
-        key: const Key('game-backdrop-poster'),
-      ),
-      GameBackdropRole.none => ColoredBox(
-        key: const Key('game-backdrop-empty'),
-        color: widget.fallbackColor,
-      ),
+      GameBackdropRole.hero => _premiumFallback(),
+      GameBackdropRole.poster => _premiumFallback(),
+      GameBackdropRole.none => _premiumFallback(),
     };
     final backdrop = AnimatedSwitcher(
       duration: const Duration(milliseconds: 220),
       child: child,
     );
-    final animateHero =
-        widget._kenBurnsAllowed &&
-        (selection.hasArt ||
-            (widget.app.posterUrl?.trim().isNotEmpty ?? false));
+    final animateHero = widget._kenBurnsAllowed && selection.hasArt;
     if (!animateHero) return backdrop;
     return AnimatedBuilder(
       key: const Key('game-backdrop-ken-burns'),
@@ -240,89 +245,23 @@ class _GameBackdropArtState extends State<GameBackdropArt>
       width: double.infinity,
       height: double.infinity,
       memCacheWidth: widget.heroCacheWidth,
-      errorWidget: (_, _, _) => _posterOrEmpty(),
+      errorWidget: (_, _, _) => _premiumFallback(),
     );
-    return widget.heroBuilder?.call(context, hero) ?? hero;
-  }
-
-  Widget _posterOrEmpty() {
-    final poster = widget.app.posterUrl?.trim();
-    if (poster == null || poster.isEmpty) {
-      return ColoredBox(
-        key: const Key('game-backdrop-empty'),
-        color: widget.fallbackColor,
-      );
-    }
-    return _buildFullBleed(
-      poster,
-      widget.app.artCacheKey('poster'),
-      key: const Key('game-backdrop-poster'),
+    final decorated =
+        widget.heroBuilder?.call(context, selection, hero) ?? hero;
+    return KeyedSubtree(
+      key: ValueKey('hero-layer-${selection.cacheKey ?? selection.url}'),
+      child: decorated,
     );
   }
 
-  Widget _buildFullBleed(String url, String? cacheKey, {required Key key}) {
-    final composition = ColoredBox(
-      color: widget.fallbackColor,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          ClipRect(
-            child: ImageFiltered(
-              imageFilter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
-              child: Transform.scale(
-                scale: 1.08,
-                child: ColorFiltered(
-                  colorFilter: ColorFilter.mode(
-                    Colors.black.withValues(alpha: 0.58),
-                    BlendMode.darken,
-                  ),
-                  child: PosterImage(
-                    key: const Key('game-backdrop-poster-blur'),
-                    url: url,
-                    cacheKey: cacheKey,
-                    fit: BoxFit.cover,
-                    width: double.infinity,
-                    height: double.infinity,
-                    memCacheWidth: widget.heroCacheWidth,
-                    errorWidget: (_, _, _) =>
-                        ColoredBox(color: widget.fallbackColor),
-                  ),
-                ),
-              ),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 72, vertical: 48),
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(12),
-                boxShadow: const [
-                  BoxShadow(
-                    color: Color(0x99000000),
-                    blurRadius: 30,
-                    spreadRadius: 2,
-                  ),
-                ],
-              ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: PosterImage(
-                  key: key,
-                  url: url,
-                  cacheKey: cacheKey,
-                  fit: BoxFit.contain,
-                  alignment: Alignment.center,
-                  width: double.infinity,
-                  height: double.infinity,
-                  memCacheWidth: widget.heroCacheWidth,
-                  errorWidget: (_, _, _) => const SizedBox.shrink(),
-                ),
-              ),
-            ),
-          ),
-        ],
+  Widget _premiumFallback() {
+    return PremiumGameBackdrop(
+      key: ValueKey(
+        'premium-backdrop-${widget.app.appId}-${widget.app.appName}',
       ),
+      title: widget.app.appName,
+      baseColor: widget.fallbackColor,
     );
-    return widget.heroBuilder?.call(context, composition) ?? composition;
   }
 }

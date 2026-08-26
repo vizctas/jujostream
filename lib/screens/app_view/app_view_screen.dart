@@ -2041,17 +2041,12 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
     final bgApp = bgAppId == selected.appId
         ? selected
         : _findAppById(bgAppId) ?? selected;
-    final key = ValueKey<int>(bgApp.appId);
-
-    final motion = MotionPolicy.fromContext(
-      context,
-      context.read<ThemeProvider>(),
-    );
-    return AnimatedSwitcher(
-      duration: motion.backgroundDuration,
-      switchInCurve: Curves.easeOut,
-      switchOutCurve: Curves.easeIn,
-      child: _buildBackgroundChild(bgApp, key),
+    // GameBackdropArt owns the single background transition and retains the
+    // accepted layer while validating the next one. A second switcher here
+    // caused a sluggish double fade on every fast D-pad move.
+    return _buildBackgroundChild(
+      bgApp,
+      const ValueKey<String>('launcher-dynamic-background'),
     );
   }
 
@@ -2065,20 +2060,6 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
 
   Widget _buildBackgroundChild(NvApp selected, Key key) {
     final lp = context.read<LauncherPreferences>();
-    final selection = GameArtPolicy.selectBackdrop(selected);
-    if (!selection.hasArt) {
-      return Container(
-        key: key,
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [_tp.secondary, _tp.background, _tp.surface],
-          ),
-        ),
-      );
-    }
-
     final showVideo =
         _videoReady &&
         _videoForAppId == selected.appId &&
@@ -2113,8 +2094,8 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
                   .read<ThemeProvider>()
                   .backgroundArtCacheWidth,
               fallbackColor: _tp.background,
-              heroBuilder: (context, hero) =>
-                  _buildValidatedHeroBackground(hero, selection.url!, lp),
+              heroBuilder: (context, selection, hero) =>
+                  _buildValidatedHeroBackground(hero, selection, lp),
             ),
           )
         else
@@ -2125,8 +2106,8 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
                 .read<ThemeProvider>()
                 .backgroundArtCacheWidth,
             fallbackColor: _tp.background,
-            heroBuilder: (context, hero) =>
-                _buildValidatedHeroBackground(hero, selection.url!, lp),
+            heroBuilder: (context, selection, hero) =>
+                _buildValidatedHeroBackground(hero, selection, lp),
           ),
         Container(
           color: Colors.black.withValues(
@@ -2148,7 +2129,7 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
 
   Widget _buildValidatedHeroBackground(
     Widget hero,
-    String url,
+    GameBackdropSelection selection,
     LauncherPreferences preferences,
   ) {
     if (context.read<ThemeProvider>().performanceMode ||
@@ -2160,7 +2141,10 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
       children: [
         hero,
         FutureBuilder(
-          future: BackgroundBlurService.instance.preBlur(url),
+          future: BackgroundBlurService.instance.preBlur(
+            selection.url!,
+            cacheKey: selection.cacheKey,
+          ),
           builder: (context, snapshot) {
             final image = snapshot.data;
             if (image == null) return const SizedBox.shrink();

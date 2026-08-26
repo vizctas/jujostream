@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:ui' as ui;
 
 import '../../widgets/poster_image.dart';
+import 'artwork_cache_recovery.dart';
 import 'game_art_policy.dart';
 
 class GameHeroProbe {
@@ -49,7 +50,31 @@ class GameArtValidator {
 
   static Future<GameHeroProbe> probeHero(String url, {String? cacheKey}) {
     final key = cacheKey ?? url;
-    return _heroChecks.putIfAbsent(key, () => _probe(url, cacheKey));
+    return _heroChecks.putIfAbsent(
+      key,
+      () => _probeWithRecovery(url, cacheKey),
+    );
+  }
+
+  static Future<GameHeroProbe> _probeWithRecovery(
+    String url,
+    String? cacheKey,
+  ) async {
+    final firstProbe = await _probe(url, cacheKey);
+    if (firstProbe.isEligible || PosterImage.isLocalFile(url)) {
+      return firstProbe;
+    }
+
+    final identity = cacheKey ?? url;
+    final provider = PosterImage.providerFor(url, cacheKey: cacheKey);
+    final recovered = await ArtworkCacheRecovery.instance.recoverOnce(
+      identity: identity,
+      evict: () async {
+        await PosterImage.artCacheManager.removeFile(identity);
+        await provider.evict();
+      },
+    );
+    return recovered ? _probe(url, cacheKey) : firstProbe;
   }
 
   static Future<GameHeroProbe> _probe(String url, String? cacheKey) async {

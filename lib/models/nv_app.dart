@@ -76,7 +76,24 @@ class NvApp {
         screenshotUrls[idx],
       _ => null,
     };
-    return 'nvart_v2_${_stableHash(identity)}_${kind}_${idx}_${_stableHash(source ?? '')}';
+    final sourceFingerprint = _artSourceFingerprint(source);
+    return 'nvart_v3_${_stableHash(identity)}_${kind}_${idx}_${_stableHash(sourceFingerprint)}';
+  }
+
+  static String _artSourceFingerprint(String? source) {
+    if (source == null || source.isEmpty) return '';
+    final uri = Uri.tryParse(source);
+    if (uri != null && uri.path.endsWith('/appasset')) {
+      final query = uri.queryParameters;
+      // Host and uniqueid are transport details. Excluding them keeps the same
+      // decoded art warm across DHCP changes and app restarts. Server UUID,
+      // app id, role and index remain part of the complete cache identity.
+      return 'host-appasset:'
+          '${query['appid'] ?? ''}:'
+          '${query['AssetType'] ?? ''}:'
+          '${query['AssetIdx'] ?? ''}';
+    }
+    return source;
   }
 
   static String _stableHash(String value) {

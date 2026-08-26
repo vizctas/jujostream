@@ -37,7 +37,7 @@ void main() {
             heroImageUrl: 'https://host/hero.jpg',
           ),
           validateHeroDimensions: false,
-          heroBuilder: (_, hero) => Stack(
+          heroBuilder: (_, _, hero) => Stack(
             children: [
               hero,
               const SizedBox(key: Key('hero-decoration')),
@@ -50,47 +50,38 @@ void main() {
     expect(find.byKey(const Key('hero-decoration')), findsOneWidget);
   });
 
-  testWidgets(
-    'poster fallback preserves the full poster over a cinematic backing layer',
-    (tester) async {
-      await tester.pumpWidget(
-        MaterialApp(
-          home: SizedBox(
-            width: 1920,
-            height: 1080,
-            child: GameBackdropArt(
-              app: NvApp(
-                appId: 1,
-                appName: 'Hades',
-                posterUrl: 'https://host/poster.jpg',
-              ),
-              enableKenBurns: true,
-              validateHeroDimensions: false,
-              heroBuilder: (_, background) => Stack(
-                children: [
-                  background,
-                  const SizedBox(key: Key('background-motion-layer')),
-                ],
-              ),
+  testWidgets('poster is never promoted to a full-screen backdrop', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SizedBox(
+          width: 1920,
+          height: 1080,
+          child: GameBackdropArt(
+            app: NvApp(
+              appId: 1,
+              appName: 'Hades',
+              posterUrl: 'https://host/poster.jpg',
+            ),
+            enableKenBurns: true,
+            validateHeroDimensions: false,
+            heroBuilder: (_, _, background) => Stack(
+              children: [
+                background,
+                const SizedBox(key: Key('background-motion-layer')),
+              ],
             ),
           ),
         ),
-      );
+      ),
+    );
 
-      final poster = tester.widget<PosterImage>(
-        find.byKey(const Key('game-backdrop-poster')),
-      );
-      final blurredBacking = tester.widget<PosterImage>(
-        find.byKey(const Key('game-backdrop-poster-blur')),
-      );
-      expect(poster.fit, BoxFit.contain);
-      expect(poster.memCacheWidth, 1920);
-      expect(blurredBacking.fit, BoxFit.cover);
-      expect(blurredBacking.cacheKey, poster.cacheKey);
-      expect(find.byKey(const Key('background-motion-layer')), findsOneWidget);
-      expect(find.byKey(const Key('game-backdrop-ken-burns')), findsOneWidget);
-    },
-  );
+    expect(find.byType(PosterImage), findsNothing);
+    expect(find.byKey(const Key('game-backdrop-premium')), findsOneWidget);
+    expect(find.byKey(const Key('background-motion-layer')), findsNothing);
+    expect(find.byKey(const Key('game-backdrop-ken-burns')), findsNothing);
+  });
 
   testWidgets('eligible landscape hero receives subtle Ken Burns motion', (
     tester,

@@ -498,17 +498,13 @@ class _HeroBodyState extends State<_HeroBody>
               Positioned.fill(child: widget.videoWidget!)
             else if (bgApp != null)
               Positioned.fill(
-                child: AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 500),
-                  child: GameBackdropArt(
-                    key: ValueKey(bgApp.appId),
-                    app: bgApp,
-                    heroCacheWidth: context
-                        .read<ThemeProvider>()
-                        .backgroundArtCacheWidth,
-                    fallbackColor: tp.background,
-                    enableKenBurns: !tp.reduceEffects && !tp.performanceMode,
-                  ),
+                child: GameBackdropArt(
+                  app: bgApp,
+                  heroCacheWidth: context
+                      .read<ThemeProvider>()
+                      .backgroundArtCacheWidth,
+                  fallbackColor: tp.background,
+                  enableKenBurns: !tp.reduceEffects && !tp.performanceMode,
                 ),
               )
             else
