@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import '../../l10n/app_localizations.dart';
 import '../../models/nv_app.dart';
 import '../../providers/theme_provider.dart';
+import '../../ui/motion_scope.dart';
 import '../../services/audio/ui_sound_service.dart';
 import '../../services/input/gamepad_button_helper.dart';
 import '../../widgets/news_carousel/news_carousel_widget.dart';
@@ -205,8 +206,8 @@ class _BodyState extends State<_Body> {
     anim
         ? _sc.animateTo(
             off,
-            duration: const Duration(milliseconds: 180),
-            curve: Curves.easeOutCubic,
+            duration: MotionScope.read(context).focusDuration,
+            curve: MotionScope.read(context).standardCurve,
           )
         : _sc.jumpTo(off);
   }
@@ -461,8 +462,8 @@ class _BodyState extends State<_Body> {
 
             AnimatedOpacity(
               opacity: _isIdle ? 0.15 : 1.0,
-              duration: const Duration(milliseconds: 600),
-              curve: Curves.easeInOut,
+              duration: MotionScope.of(context).backgroundDuration,
+              curve: MotionScope.of(context).tokens.stateCurve,
               child: Stack(
                 fit: StackFit.expand,
                 children: [
@@ -483,7 +484,7 @@ class _BodyState extends State<_Body> {
                     ),
                   ),
                   AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 300),
+                    duration: MotionScope.of(context).backgroundDuration,
                     child: _view == _View.news
                         ? _newsView(tp)
                         : _view == _View.carousel
@@ -728,8 +729,8 @@ class _BodyState extends State<_Body> {
                     }
                   },
                   child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 180),
-                    curve: Curves.easeOutCubic,
+                    duration: MotionScope.of(context).focusDuration,
+                    curve: MotionScope.of(context).standardCurve,
                     width: sel ? _selW : _cw,
                     height: sel ? _selH : _ch,
                     margin: EdgeInsets.only(

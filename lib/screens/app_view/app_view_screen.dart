@@ -48,6 +48,7 @@ import '../../widgets/launch_experience.dart';
 import '../game/game_stream_screen.dart';
 import '../../models/stream_configuration.dart';
 import '../../ui/motion_policy.dart';
+import '../../ui/motion_scope.dart';
 
 part 'app_view_cards.dart';
 part 'app_view_carousel.dart';

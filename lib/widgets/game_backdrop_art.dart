@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/nv_app.dart';
 import '../services/metadata/game_art_policy.dart';
 import '../services/metadata/game_art_validator.dart';
-import '../services/tv/tv_detector.dart';
+import '../ui/motion_scope.dart';
 import 'poster_image.dart';
 import 'premium_game_backdrop.dart';
 
@@ -30,7 +30,6 @@ class GameBackdropArt extends StatefulWidget {
   /// permanently unless the user found the setting. The default Classic view
   /// already gates its own background motion on `!isTV`; this applies the same
   /// rule for every theme at once, instead of at each of the four call sites.
-  bool get _kenBurnsAllowed => enableKenBurns && !TvDetector.instance.isTV;
   final Widget Function(
     BuildContext context,
     GameBackdropSelection selection,
@@ -70,6 +69,11 @@ class _GameBackdropArtState extends State<GameBackdropArt>
       end: const Offset(3, 2),
     ).animate(curve);
     _primeUnvalidatedHero();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
     _syncKenBurns();
   }
 
@@ -102,7 +106,10 @@ class _GameBackdropArtState extends State<GameBackdropArt>
   }
 
   void _syncKenBurns() {
-    if (widget._kenBurnsAllowed) {
+    final allowed =
+        widget.enableKenBurns && MotionScope.read(context).allowBackdropMotion;
+    if (allowed) {
+      if (_kenBurnsController.isAnimating) return;
       _kenBurnsController.repeat(reverse: true);
     } else {
       _kenBurnsController
@@ -222,7 +229,10 @@ class _GameBackdropArtState extends State<GameBackdropArt>
       duration: const Duration(milliseconds: 220),
       child: child,
     );
-    final animateHero = widget._kenBurnsAllowed && selection.hasArt;
+    final animateHero =
+        widget.enableKenBurns &&
+        MotionScope.of(context).allowBackdropMotion &&
+        selection.hasArt;
     if (!animateHero) return backdrop;
     return AnimatedBuilder(
       key: const Key('game-backdrop-ken-burns'),

@@ -9,6 +9,7 @@ import '../providers/auth_provider.dart';
 import '../providers/computer_provider.dart';
 import '../providers/theme_provider.dart';
 import '../ui/computer_connection_status.dart';
+import '../ui/motion_scope.dart';
 import '../widgets/pairing_dialog.dart';
 import '../widgets/server_info_card.dart';
 import '../screens/pc_view/vibeapollo_screen.dart';
@@ -35,10 +36,17 @@ class ComputerOptionsDialog {
       barrierDismissible: true,
       barrierLabel: MaterialLocalizations.of(context).modalBarrierDismissLabel,
       barrierColor: Colors.black.withValues(alpha: 0.55),
-      transitionDuration: const Duration(milliseconds: 280),
+      transitionDuration: MotionScope.read(context).dialogDuration,
       transitionBuilder: (ctx, anim, _, child) {
-        final sc = CurvedAnimation(parent: anim, curve: Curves.easeOutCubic);
-        final fc = CurvedAnimation(parent: anim, curve: Curves.easeOut);
+        final motion = MotionScope.read(ctx);
+        final sc = CurvedAnimation(
+          parent: anim,
+          curve: motion.tokens.enterCurve,
+        );
+        final fc = CurvedAnimation(
+          parent: anim,
+          curve: motion.tokens.enterCurve,
+        );
         return ScaleTransition(
           scale: Tween<double>(begin: 0.92, end: 1).animate(sc),
           child: FadeTransition(opacity: fc, child: child),
@@ -562,8 +570,8 @@ class ComputerOptionsDialog {
               Scrollable.ensureVisible(
                 context,
                 alignment: 0.5,
-                duration: const Duration(milliseconds: 220),
-                curve: Curves.easeOutCubic,
+                duration: MotionScope.read(context).focusDuration,
+                curve: MotionScope.read(context).standardCurve,
               );
             }
           },
@@ -586,7 +594,7 @@ class ComputerOptionsDialog {
                 onTap: onTap,
                 behavior: HitTestBehavior.opaque,
                 child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 140),
+                  duration: MotionScope.of(ctx).microDuration,
                   color: focused
                       ? Colors.white.withValues(alpha: 0.09)
                       : Colors.transparent,

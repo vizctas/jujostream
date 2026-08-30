@@ -36,6 +36,8 @@ import 'server_profile_images.dart';
 import 'server_tile_state.dart';
 import '../auth/cloud_auth_screen.dart';
 import '../../ui/motion_policy.dart';
+import '../../ui/motion_scope.dart';
+import '../../ui/adaptive_motion.dart';
 
 class PcViewScreen extends StatefulWidget {
   const PcViewScreen({super.key});
@@ -1653,9 +1655,11 @@ class _GridFocusableCardState extends State<_GridFocusableCard> {
           builder: (context) {
             final active = _hasFocus || widget.isSelected;
             final accent = context.watch<ThemeProvider>().accent;
-            return AnimatedContainer(
-              duration: const Duration(milliseconds: 150),
-              curve: Curves.easeOutCubic,
+            return AdaptiveFocusSurface(
+              focused: active,
+              child: AnimatedContainer(
+              duration: MotionScope.of(context).focusDuration,
+              curve: MotionScope.of(context).standardCurve,
               // Focus was a 6% white wash and a 1% scale — over card artwork
               // that is effectively nothing, and this grid is driven by a
               // gamepad with no cursor to fall back on. Accent ring plus glow
@@ -1682,11 +1686,8 @@ class _GridFocusableCardState extends State<_GridFocusableCard> {
                     ? Border.all(color: accent, width: 2)
                     : null,
               ),
-              transform: active
-                  ? (Matrix4.identity()..scale(1.035))
-                  : Matrix4.identity(),
-              transformAlignment: Alignment.center,
               child: widget.child,
+              ),
             );
           },
         ),
@@ -2072,8 +2073,8 @@ class _DialogMenuItemTileState extends State<_DialogMenuItemTile> {
             Scrollable.ensureVisible(
               context,
               alignment: 0.5,
-              duration: const Duration(milliseconds: 220),
-              curve: Curves.easeOutCubic,
+              duration: MotionScope.read(context).focusDuration,
+              curve: MotionScope.read(context).standardCurve,
             );
           }
         },
@@ -2091,7 +2092,7 @@ class _DialogMenuItemTileState extends State<_DialogMenuItemTile> {
           onTap: widget.onTap,
           behavior: HitTestBehavior.opaque,
           child: AnimatedContainer(
-            duration: const Duration(milliseconds: 140),
+            duration: MotionScope.of(context).microDuration,
             margin: EdgeInsets.fromLTRB(16, 0, 16, compact ? 6 : 8),
             padding: EdgeInsets.symmetric(
               horizontal: compact ? 12 : 14,
@@ -2210,8 +2211,8 @@ class _GoogleSignInButtonState extends State<_GoogleSignInButton> {
             Scrollable.ensureVisible(
               context,
               alignment: 0.5,
-              duration: const Duration(milliseconds: 220),
-              curve: Curves.easeOutCubic,
+              duration: MotionScope.read(context).focusDuration,
+              curve: MotionScope.read(context).standardCurve,
             );
           }
         },
@@ -2229,7 +2230,7 @@ class _GoogleSignInButtonState extends State<_GoogleSignInButton> {
           onTap: widget.onTap,
           behavior: HitTestBehavior.opaque,
           child: AnimatedContainer(
-            duration: const Duration(milliseconds: 140),
+            duration: MotionScope.of(context).microDuration,
             margin: EdgeInsets.fromLTRB(16, 0, 16, compact ? 6 : 8),
             padding: EdgeInsets.symmetric(
               horizontal: compact ? 12 : 14,
@@ -2303,8 +2304,8 @@ class _AccountPickerBottomSheet extends StatelessWidget {
   Widget build(BuildContext context) {
     final isLight = theme.colors.isLight;
     return AnimatedContainer(
-      duration: const Duration(milliseconds: 350),
-      curve: Curves.easeOutCubic,
+      duration: MotionScope.of(context).dialogDuration,
+      curve: MotionScope.of(context).standardCurve,
       decoration: BoxDecoration(
         color: theme.surface,
         borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),

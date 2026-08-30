@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../ui/motion_scope.dart';
 
 class TourStep {
   const TourStep({
@@ -108,10 +109,15 @@ class _TourOverlayState extends State<TourOverlay>
     // Only tick while a tour is on screen. TourOverlay wraps the whole app, so
     // an unconditional repeat() kept a ticker alive for the entire session
     // driving a ring that is not painted.
-    _syncPulse();
-
     _spotAnim = AlwaysStoppedAnimation(Offset.zero);
     TourController.instance.addListener(_onTourChanged);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _posController.duration = MotionScope.of(context).dialogDuration;
+    _syncPulse();
   }
 
   @override
@@ -123,7 +129,8 @@ class _TourOverlayState extends State<TourOverlay>
   }
 
   void _syncPulse() {
-    if (TourController.instance.isActive) {
+    if (TourController.instance.isActive &&
+        MotionScope.read(context).allowContinuousEffects) {
       if (!_pulseController.isAnimating) _pulseController.repeat(reverse: true);
     } else if (_pulseController.isAnimating) {
       _pulseController.stop();
@@ -151,6 +158,12 @@ class _TourOverlayState extends State<TourOverlay>
     // spotlight teleport to the stale target and only then ease to the new one.
     _currentSpot = _spotAnim.value;
     _targetSpot = next;
+    if (MotionScope.read(context).reduceMotion) {
+      _spotAnim = AlwaysStoppedAnimation(next);
+      _currentSpot = next;
+      setState(() {});
+      return;
+    }
     _spotAnim = _posController.drive(
       Tween<Offset>(begin: _currentSpot, end: _targetSpot).chain(
         CurveTween(curve: Curves.easeInOutCubic),

@@ -26,6 +26,7 @@ import '../app_view/app_view_screen.dart';
 import '../settings/settings_screen.dart';
 import '../settings/profile_screen.dart';
 import '../../ui/motion_policy.dart';
+import '../../ui/motion_scope.dart';
 import '../about/about_screen.dart';
 import 'pc_view_screen.dart';
 import 'cloud_badge.dart';
@@ -1072,11 +1073,6 @@ class _FocusServerCardState extends State<_FocusServerCard>
 
     // Animation start/stop handled in build via didChangeDependencies-like
     // watch on ThemeProvider.reduceEffects so toggling takes effect live.
-    final tp = context.read<ThemeProvider>();
-    if (!tp.reduceEffects) {
-      _floatController.repeat(reverse: true);
-    }
-    _syncGlow();
   }
 
   @override
@@ -1093,21 +1089,22 @@ class _FocusServerCardState extends State<_FocusServerCard>
     // post-frame callback for this on *every* rebuild, allocating a closure per
     // frame to re-check a value that changes about once a year.
     _syncAnimation();
+    _syncGlow();
   }
 
   void _syncAnimation() {
-    final reduce = context.read<ThemeProvider>().reduceEffects;
-    if (!reduce && !_floatController.isAnimating) {
+    final allowed = MotionScope.read(context).allowContinuousEffects;
+    if (allowed && !_floatController.isAnimating) {
       _floatController.repeat(reverse: true);
-    } else if (reduce && _floatController.isAnimating) {
+    } else if (!allowed && _floatController.isAnimating) {
       _floatController.stop();
       _floatController.reset();
     }
   }
 
   void _syncGlow() {
-    final reduce = context.read<ThemeProvider>().reduceEffects;
-    if (widget.isSelected && !reduce) {
+    final allowed = MotionScope.read(context).allowContinuousEffects;
+    if (widget.isSelected && allowed) {
       if (!_glowController.isAnimating) _glowController.repeat(reverse: true);
     } else {
       _glowController.stop();
@@ -1426,11 +1423,6 @@ class _FocusServerCircleState extends State<_FocusServerCircle>
     _glowAnimation = Tween<double>(begin: 0.18, end: 0.40).animate(
       CurvedAnimation(parent: _glowController, curve: Curves.easeInOut),
     );
-    final tp = context.read<ThemeProvider>();
-    if (!tp.reduceEffects) {
-      _floatController.repeat(reverse: true);
-    }
-    _syncGlow();
   }
 
   @override
@@ -1447,21 +1439,22 @@ class _FocusServerCircleState extends State<_FocusServerCircle>
     // post-frame callback for this on *every* rebuild, allocating a closure per
     // frame to re-check a value that changes about once a year.
     _syncAnimation();
+    _syncGlow();
   }
 
   void _syncAnimation() {
-    final reduce = context.read<ThemeProvider>().reduceEffects;
-    if (!reduce && !_floatController.isAnimating) {
+    final allowed = MotionScope.read(context).allowContinuousEffects;
+    if (allowed && !_floatController.isAnimating) {
       _floatController.repeat(reverse: true);
-    } else if (reduce && _floatController.isAnimating) {
+    } else if (!allowed && _floatController.isAnimating) {
       _floatController.stop();
       _floatController.reset();
     }
   }
 
   void _syncGlow() {
-    final reduce = context.read<ThemeProvider>().reduceEffects;
-    if (widget.isSelected && !reduce) {
+    final allowed = MotionScope.read(context).allowContinuousEffects;
+    if (widget.isSelected && allowed) {
       if (!_glowController.isAnimating) _glowController.repeat(reverse: true);
     } else {
       _glowController.stop();
@@ -1478,9 +1471,6 @@ class _FocusServerCircleState extends State<_FocusServerCircle>
   @override
   Widget build(BuildContext context) {
     final tp = context.watch<ThemeProvider>();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _syncAnimation();
-    });
     final isLight = tp.colors.isLight;
     final l = AppLocalizations.of(context);
     final cloudSignedIn = context.watch<AuthProvider>().isSignedIn;
@@ -1836,7 +1826,7 @@ class _ParticleOverlayState extends State<_ParticleOverlay>
       duration: const Duration(
         seconds: 60,
       ), // 60s for extremely smooth slow loop
-    )..repeat();
+    );
 
     // Optimize: Less particles on TV devices
     final particleCount = TvDetector.instance.isTV ? 8 : 22;
@@ -1853,6 +1843,18 @@ class _ParticleOverlayState extends State<_ParticleOverlay>
           opacity: 0.1 + random.nextDouble() * 0.2,
         ),
       );
+    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (MotionScope.of(context).allowContinuousEffects) {
+      if (!_controller.isAnimating) _controller.repeat();
+    } else {
+      _controller
+        ..stop()
+        ..value = 0;
     }
   }
 
@@ -1965,7 +1967,18 @@ class _WaveOverlayState extends State<_WaveOverlay>
 
     _ticker = createTicker((elapsed) {
       _time.value = elapsed.inMicroseconds / 1000000.0;
-    })..start();
+    });
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (MotionScope.of(context).allowContinuousEffects) {
+      if (!_ticker.isActive) _ticker.start();
+    } else if (_ticker.isActive) {
+      _ticker.stop();
+      _time.value = 0;
+    }
   }
 
   @override
@@ -2403,5 +2416,4 @@ class _FocusMenuTileState extends State<_FocusMenuTile> {
     );
   }
 }
-
 

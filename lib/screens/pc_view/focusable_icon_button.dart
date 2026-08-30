@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../../ui/motion_scope.dart';
 
 /// App-bar icon button with a gamepad-visible focus treatment.
 ///
@@ -85,7 +86,7 @@ class _FocusableIconButtonState extends State<FocusableIconButton> {
         onFocusChange: (f) => setState(() => _focused = f),
         onKeyEvent: _handleKey,
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 120),
+          duration: MotionScope.of(context).focusDuration,
           margin: const EdgeInsets.symmetric(horizontal: 2, vertical: 6),
           decoration: BoxDecoration(
             color: _focused

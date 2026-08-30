@@ -9,6 +9,7 @@ import '../../models/gaming_news_item.dart';
 import '../../models/nv_app.dart';
 import '../../providers/plugins_provider.dart';
 import '../../providers/theme_provider.dart';
+import '../../ui/motion_scope.dart';
 import '../../services/audio/ui_sound_service.dart';
 import '../../services/input/gamepad_button_helper.dart';
 import '../../services/library/launcher_artwork_budget.dart';
@@ -200,8 +201,8 @@ class _BigScreenBodyState extends State<_BigScreenBody> {
     if (animate) {
       _gameScrollController.animateTo(
         target,
-        duration: const Duration(milliseconds: 220),
-        curve: Curves.easeOutCubic,
+        duration: MotionScope.read(context).focusDuration,
+        curve: MotionScope.read(context).standardCurve,
       );
     } else {
       _gameScrollController.jumpTo(target);
@@ -355,8 +356,8 @@ class _BigScreenBodyState extends State<_BigScreenBody> {
               .clamp(0.0, pos.maxScrollExtent);
       _newsScrollController.animateTo(
         target,
-        duration: const Duration(milliseconds: 180),
-        curve: Curves.easeOutCubic,
+        duration: MotionScope.read(context).focusDuration,
+        curve: MotionScope.read(context).standardCurve,
       );
     }
   }
@@ -392,8 +393,8 @@ class _BigScreenBodyState extends State<_BigScreenBody> {
       Scrollable.ensureVisible(
         ctx,
         alignment: 0.5,
-        duration: const Duration(milliseconds: 240),
-        curve: Curves.easeOutCubic,
+        duration: MotionScope.read(context).focusDuration,
+        curve: MotionScope.read(context).standardCurve,
       );
     });
   }
@@ -638,8 +639,8 @@ class _BigScreenBodyState extends State<_BigScreenBody> {
         }
       },
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        curve: Curves.easeOutCubic,
+        duration: MotionScope.of(context).focusDuration,
+        curve: MotionScope.of(context).standardCurve,
         width: selected ? _selectedCardWidth : _posterCardWidth,
         height: _cardHeight,
         decoration: BoxDecoration(
@@ -808,7 +809,7 @@ class _BigScreenBodyState extends State<_BigScreenBody> {
         _setArea(_BigScreenArea.tabs);
       },
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 140),
+        duration: MotionScope.of(context).microDuration,
         padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 11),
         decoration: BoxDecoration(
           color: active
@@ -864,7 +865,7 @@ class _BigScreenBodyState extends State<_BigScreenBody> {
 
   Widget _buildNewsCard(GamingNewsItem item, bool focused) {
     return AnimatedContainer(
-      duration: const Duration(milliseconds: 160),
+      duration: MotionScope.of(context).focusDuration,
       width: _newsCardWidth,
       decoration: BoxDecoration(
         color: const Color(0xFF0D1823),

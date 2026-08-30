@@ -11,6 +11,7 @@ import '../../providers/theme_provider.dart';
 import '../../services/audio/ui_sound_service.dart';
 import '../../services/metadata/steam_video_client.dart';
 import '../../services/news/gaming_news_service.dart';
+import '../../ui/motion_scope.dart';
 import 'news_carousel_card.dart';
 
 /// Area within the news carousel that currently has focus.
@@ -203,7 +204,6 @@ class NewsCarouselWidgetState extends State<NewsCarouselWidget> {
     return index < itemCount ? index : null;
   }
 
-  
   // ---------------------------------------------------------------------------
   // Navigation helpers
   // ---------------------------------------------------------------------------
@@ -374,8 +374,7 @@ class NewsCarouselWidgetState extends State<NewsCarouselWidget> {
 
   Widget _tab(ThemeProvider tp, String label, GamingNewsType? type) {
     final active = _activeType == type;
-    final focused =
-        widget.hasFocus && _area == NewsCarouselArea.tabs && active;
+    final focused = widget.hasFocus && _area == NewsCarouselArea.tabs && active;
     return GestureDetector(
       onTap: () {
         setState(() {
@@ -439,8 +438,10 @@ class NewsCarouselWidgetState extends State<NewsCarouselWidget> {
       builder: (context, constraints) {
         // Compute card height from available space: fill the area evenly.
         final available = constraints.maxHeight - 22; // padding top+bottom
-        final cellH = ((available - _rowGap) / _rowCount)
-            .clamp(_cardHeight * 0.6, _cardHeight);
+        final cellH = ((available - _rowGap) / _rowCount).clamp(
+          _cardHeight * 0.6,
+          _cardHeight,
+        );
 
         return ListView.separated(
           controller: _scrollController,
@@ -479,7 +480,8 @@ class NewsCarouselWidgetState extends State<NewsCarouselWidget> {
       return SizedBox(height: cellHeight);
     }
 
-    final isFocused = widget.hasFocus &&
+    final isFocused =
+        widget.hasFocus &&
         _area == NewsCarouselArea.cards &&
         col == _cardCol &&
         row == _cardRow;
@@ -565,6 +567,7 @@ class _ShimmerCard extends StatefulWidget {
 class _ShimmerCardState extends State<_ShimmerCard>
     with SingleTickerProviderStateMixin {
   late final AnimationController _ctrl;
+  Timer? _startTimer;
 
   @override
   void initState() {
@@ -573,14 +576,26 @@ class _ShimmerCardState extends State<_ShimmerCard>
       vsync: this,
       duration: const Duration(milliseconds: 1400),
     );
-    // Stagger start based on delay
-    Future.delayed(widget.delay, () {
-      if (mounted) _ctrl.repeat();
-    });
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _startTimer?.cancel();
+    if (MotionScope.of(context).allowContinuousEffects) {
+      _startTimer = Timer(widget.delay, () {
+        if (mounted && !_ctrl.isAnimating) _ctrl.repeat();
+      });
+    } else {
+      _ctrl
+        ..stop()
+        ..value = 0;
+    }
   }
 
   @override
   void dispose() {
+    _startTimer?.cancel();
     _ctrl.dispose();
     super.dispose();
   }
@@ -598,9 +613,7 @@ class _ShimmerCardState extends State<_ShimmerCard>
           height: widget.height,
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(6),
-            border: Border.all(
-              color: Colors.white.withValues(alpha: 0.06),
-            ),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
             gradient: LinearGradient(
               begin: Alignment(-1.0 + 2.0 * _ctrl.value, 0),
               end: Alignment(-0.4 + 2.0 * _ctrl.value, 0),

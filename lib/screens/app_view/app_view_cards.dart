@@ -28,11 +28,36 @@ class _AppCardState extends State<_AppCard>
     _glowCtrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1500),
-    )..repeat(reverse: true);
+    );
     _glowAnim = Tween<double>(
       begin: 0.35,
       end: 1.0,
     ).animate(CurvedAnimation(parent: _glowCtrl, curve: Curves.easeInOut));
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _syncGlow();
+  }
+
+  @override
+  void didUpdateWidget(covariant _AppCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.app.isRunning != widget.app.isRunning) _syncGlow();
+  }
+
+  void _syncGlow() {
+    final animate =
+        widget.app.isRunning &&
+        MotionScope.read(context).allowContinuousEffects;
+    if (animate) {
+      if (!_glowCtrl.isAnimating) _glowCtrl.repeat(reverse: true);
+    } else {
+      _glowCtrl
+        ..stop()
+        ..value = 0;
+    }
   }
 
   @override
@@ -224,6 +249,7 @@ class _SkeletonCardState extends State<_SkeletonCard>
     with SingleTickerProviderStateMixin {
   late final AnimationController _ctrl;
   late final Animation<double> _pulse;
+  Timer? _startTimer;
 
   @override
   void initState() {
@@ -236,13 +262,26 @@ class _SkeletonCardState extends State<_SkeletonCard>
       begin: 0.04,
       end: 0.10,
     ).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut));
-    Future.delayed(widget.delay, () {
-      if (mounted) _ctrl.repeat(reverse: true);
-    });
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _startTimer?.cancel();
+    if (MotionScope.of(context).allowContinuousEffects) {
+      _startTimer = Timer(widget.delay, () {
+        if (mounted && !_ctrl.isAnimating) _ctrl.repeat(reverse: true);
+      });
+    } else {
+      _ctrl
+        ..stop()
+        ..value = 0;
+    }
   }
 
   @override
   void dispose() {
+    _startTimer?.cancel();
     _ctrl.dispose();
     super.dispose();
   }

@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import '../../l10n/app_localizations.dart';
 import '../../models/nv_app.dart';
 import '../../providers/theme_provider.dart';
+import '../../ui/motion_scope.dart';
 import '../../services/audio/ui_sound_service.dart';
 import '../../services/input/gamepad_button_helper.dart';
 import '../../widgets/news_carousel/news_carousel_widget.dart';
@@ -199,8 +200,8 @@ class _HeroBodyState extends State<_HeroBody>
     anim
         ? _iconSc.animateTo(
             clamped,
-            duration: const Duration(milliseconds: 180),
-            curve: Curves.easeOutCubic,
+            duration: MotionScope.read(context).focusDuration,
+            curve: MotionScope.read(context).standardCurve,
           )
         : _iconSc.jumpTo(clamped);
   }
@@ -526,7 +527,7 @@ class _HeroBodyState extends State<_HeroBody>
             ),
 
             AnimatedSwitcher(
-              duration: const Duration(milliseconds: 300),
+              duration: MotionScope.of(context).backgroundDuration,
               child: _view == _HeroView.news
                   ? _buildNews()
                   : _view == _HeroView.home
@@ -767,8 +768,8 @@ class _HeroBodyState extends State<_HeroBody>
                     }
                   },
                   child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 180),
-                    curve: Curves.easeOutCubic,
+                    duration: MotionScope.of(context).focusDuration,
+                    curve: MotionScope.of(context).standardCurve,
                     width: size,
                     height: size,
                     margin: EdgeInsets.only(
@@ -962,7 +963,7 @@ class _HeroBodyState extends State<_HeroBody>
               final a = widget.apps[i];
               final sel = i == _idx;
               return AnimatedContainer(
-                duration: const Duration(milliseconds: 150),
+                duration: MotionScope.of(context).focusDuration,
                 width: sel ? 48 : 40,
                 height: sel ? 48 : 40,
                 margin: EdgeInsets.only(right: 8, top: sel ? 0 : 8),
@@ -1259,7 +1260,7 @@ class _HeroBodyState extends State<_HeroBody>
     return GestureDetector(
       onTap: onTap,
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
+        duration: MotionScope.of(context).microDuration,
         width: double.infinity,
         padding: EdgeInsets.symmetric(
           vertical: isCta ? 14 : 10,

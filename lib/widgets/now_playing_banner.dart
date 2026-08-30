@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/computer_provider.dart';
 import '../providers/theme_provider.dart';
+import '../ui/motion_scope.dart';
+import '../ui/adaptive_motion.dart';
 
 class NowPlayingBanner extends StatefulWidget {
   final VoidCallback? onTap;
@@ -66,12 +68,14 @@ class _NowPlayingBannerState extends State<NowPlayingBanner> {
           decoration: BoxDecoration(
             color: tp.surface,
             border: Border(
-              top: BorderSide(color: tp.accent.withValues(alpha: 0.4), width: 1),
+              top: BorderSide(
+                color: tp.accent.withValues(alpha: 0.4),
+                width: 1,
+              ),
             ),
           ),
           child: Row(
             children: [
-
               _PulsingDot(),
               const SizedBox(width: 10),
               Expanded(
@@ -98,11 +102,7 @@ class _NowPlayingBannerState extends State<NowPlayingBanner> {
                   ],
                 ),
               ),
-              const Icon(
-                Icons.chevron_right,
-                color: Colors.white38,
-                size: 18,
-              ),
+              const Icon(Icons.chevron_right, color: Colors.white38, size: 18),
             ],
           ),
         ),
@@ -127,10 +127,23 @@ class _PulsingDotState extends State<_PulsingDot>
     _ctrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 900),
-    )..repeat(reverse: true);
-    _anim = Tween<double>(begin: 0.4, end: 1.0).animate(
-      CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut),
     );
+    _anim = Tween<double>(
+      begin: 0.4,
+      end: 1.0,
+    ).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut));
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (MotionScope.of(context).allowContinuousEffects) {
+      if (!_ctrl.isAnimating) _ctrl.repeat(reverse: true);
+    } else {
+      _ctrl
+        ..stop()
+        ..value = 1;
+    }
   }
 
   @override
@@ -186,16 +199,19 @@ class _FocusableBannerState extends State<_FocusableBanner> {
           },
         ),
       },
-      child: GestureDetector(
-        onTap: widget.onActivate,
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            border: Border.all(
-              color: _focused ? accent : Colors.transparent,
-              width: 2,
+      child: AdaptiveFocusSurface(
+        focused: _focused,
+        child: GestureDetector(
+          onTap: widget.onActivate,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              border: Border.all(
+                color: _focused ? accent : Colors.transparent,
+                width: 2,
+              ),
             ),
+            child: widget.child,
           ),
-          child: widget.child,
         ),
       ),
     );

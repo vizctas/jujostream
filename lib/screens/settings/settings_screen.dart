@@ -406,8 +406,8 @@ class _SettingsScreenState extends State<SettingsScreen>
                             _tr(context, 'Reduce Effects', 'Reducir efectos'),
                             _tr(
                               context,
-                              'Disable Ken Burns, palette extraction, video previews',
-                              'Desactiva Ken Burns, extracción de paleta y vistas previas de video',
+                              'Reduce decorative motion without disabling previews',
+                              'Reduce movimiento decorativo sin desactivar vistas previas',
                             ),
                             themeProvider.reduceEffects,
                             (v) => themeProvider.setReduceEffects(v),

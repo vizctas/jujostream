@@ -111,7 +111,8 @@ class _CinematicIntroScreenState extends State<CinematicIntroScreen>
 
     // Generate 60 explosion particles
     final rng = math.Random(42);
-    for (int i = 0; i < 60; i++) {
+    final explosionCount = widget.reducedMotion ? 0 : 60;
+    for (int i = 0; i < explosionCount; i++) {
       final angle = rng.nextDouble() * 2 * math.pi;
       final speed = 80.0 + rng.nextDouble() * 250.0;
       _particles.add(
@@ -125,7 +126,8 @@ class _CinematicIntroScreenState extends State<CinematicIntroScreen>
     }
 
     // Generate 40 ambient background particles
-    for (int i = 0; i < 40; i++) {
+    final ambientCount = widget.reducedMotion ? 0 : 40;
+    for (int i = 0; i < ambientCount; i++) {
       _ambientParticles.add(
         _AmbientParticle(
           baseX: rng.nextDouble(),
@@ -140,7 +142,8 @@ class _CinematicIntroScreenState extends State<CinematicIntroScreen>
     }
 
     // Generate 40 wind lines (varied speeds, positions, lengths)
-    for (int i = 0; i < 40; i++) {
+    final windCount = widget.reducedMotion ? 0 : 40;
+    for (int i = 0; i < windCount; i++) {
       _windLines.add(
         _WindLine(
           x: rng.nextDouble(),
@@ -354,12 +357,13 @@ class _CinematicIntroScreenState extends State<CinematicIntroScreen>
                   fit: StackFit.expand,
                   children: [
                     _buildBackground(p, impactY),
-                    _buildAmbientParticles(),
+                    if (!widget.reducedMotion) _buildAmbientParticles(),
                     if (!_impactTriggered) _buildWindLines(p, windIntensity),
                     _buildLaserLine(p, impactY),
                     if (!_impactTriggered || _explosionProgress.value < 0.2)
                       _buildFallingIcon(iconY, deformFactor),
-                    if (_impactTriggered) _buildExplosion(iconCenterX, impactY),
+                    if (_impactTriggered && !widget.reducedMotion)
+                      _buildExplosion(iconCenterX, impactY),
                     if (_impactTriggered) _buildLogo(size, impactY),
                     if (_showContinue) _buildContinuePrompt(),
                   ],

@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import '../../l10n/app_localizations.dart';
 import '../../models/nv_app.dart';
 import '../../providers/theme_provider.dart';
+import '../../ui/motion_scope.dart';
 import '../../services/audio/ui_sound_service.dart';
 import '../../services/input/gamepad_button_helper.dart';
 import '../../widgets/news_carousel/news_carousel_widget.dart';
@@ -189,8 +190,8 @@ class _Ps5BodyState extends State<_Ps5Body> {
     anim
         ? _iconSc.animateTo(
             clamped,
-            duration: const Duration(milliseconds: 180),
-            curve: Curves.easeOutCubic,
+            duration: MotionScope.read(context).focusDuration,
+            curve: MotionScope.read(context).standardCurve,
           )
         : _iconSc.jumpTo(clamped);
   }
@@ -784,8 +785,8 @@ class _Ps5BodyState extends State<_Ps5Body> {
                   }
                 },
                 child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 180),
-                  curve: Curves.easeOutCubic,
+                  duration: MotionScope.of(context).focusDuration,
+                  curve: MotionScope.of(context).standardCurve,
                   width: size,
                   height: size,
                   margin: EdgeInsets.only(
@@ -972,7 +973,7 @@ class _Ps5BodyState extends State<_Ps5Body> {
                                 widget.onAppSelected(s);
                               },
                               child: AnimatedContainer(
-                                duration: const Duration(milliseconds: 150),
+                                duration: MotionScope.of(context).microDuration,
                                 padding: const EdgeInsets.symmetric(
                                   horizontal: 32,
                                   vertical: 12,
@@ -1026,7 +1027,7 @@ class _Ps5BodyState extends State<_Ps5Body> {
                           GestureDetector(
                             onTap: () => _showMoreMenu(s),
                             child: AnimatedContainer(
-                              duration: const Duration(milliseconds: 150),
+                              duration: MotionScope.of(context).microDuration,
                               width: 44,
                               height: 44,
                               decoration: BoxDecoration(
@@ -1316,7 +1317,7 @@ class _Ps5ContextMenuState extends State<_Ps5ContextMenu> {
     return GestureDetector(
       onTap: item.onTap,
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 120),
+        duration: MotionScope.of(context).microDuration,
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
         color: focused
             ? Colors.white.withValues(alpha: 0.1)
