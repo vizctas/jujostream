@@ -95,7 +95,7 @@ class ThemeProvider extends ChangeNotifier {
     final launcherName = prefs.getString(_keyLauncherTheme);
     return ThemeProvider._(
       themeId: AppThemes.fromName(themeName),
-      reduceEffects: reduce || perf,
+      reduceEffects: reduce,
       performanceMode: perf,
       artQuality: artQuality,
       launcherThemeId: LauncherThemeRegistry.fromName(launcherName),
@@ -205,7 +205,6 @@ class ThemeProvider extends ChangeNotifier {
     if (value == _reduceEffects) return;
     _reduceEffects = value;
 
-    if (!value) _performanceMode = false;
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_keyReduceEffects, _reduceEffects);
@@ -305,7 +304,6 @@ class ThemeProvider extends ChangeNotifier {
     if (value == _performanceMode) return;
     _performanceMode = value;
 
-    if (value) _reduceEffects = true;
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_keyPerformanceMode, _performanceMode);

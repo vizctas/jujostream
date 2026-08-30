@@ -43,6 +43,7 @@ import 'services/telemetry/beta_telemetry_service.dart';
 import 'services/update/unsupported_update_provider.dart';
 import 'services/update/update_provider.dart';
 import 'ui/motion_policy.dart';
+import 'ui/motion_scope.dart';
 
 /// Why cloud sign-in is unavailable, if it is. Reported to telemetry at boot.
 String? supabaseInitError;
@@ -216,10 +217,13 @@ class JujostreamApp extends StatelessWidget {
         final systemScale = MediaQuery.textScalerOf(context).scale(1);
         final tvBoost = TvDetector.instance.isTV ? 1.25 : 1.0;
         final effective = (systemScale * tvBoost).clamp(0.85, 1.4);
-        return MediaQuery.withClampedTextScaling(
-          minScaleFactor: effective,
-          maxScaleFactor: effective,
-          child: child ?? const SizedBox.shrink(),
+        return MotionScope(
+          policy: MotionPolicy.fromContext(context, themeProvider),
+          child: MediaQuery.withClampedTextScaling(
+            minScaleFactor: effective,
+            maxScaleFactor: effective,
+            child: child ?? const SizedBox.shrink(),
+          ),
         );
       },
       home: const TourOverlay(child: StartupGate()),
@@ -313,7 +317,11 @@ class _StartupGateState extends State<StartupGate> with WidgetsBindingObserver {
       if (builder != null) {
         return builder(
           onComplete: _onStartupAnimationComplete,
-          reducedMotion: motion.reduceMotion,
+          // The cinematic remains selected and visible on every tier. Only
+          // premium devices run its particles, wind, shake and parallel
+          // controllers during the already expensive first-frame warm-up.
+          reducedMotion:
+              motion.reduceMotion || motion.tier != MotionTier.premium,
         );
       }
     }
