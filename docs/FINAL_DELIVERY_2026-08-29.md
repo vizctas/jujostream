@@ -248,25 +248,25 @@ d5f82497 fix(artwork): enforce poster and hero contracts
 | Dispositivo | Canal | Estado de este corte |
 |---|---|---|
 | Fire TV AFTKRT `192.168.3.137:5555` | DirectFire | Instalado `1.1.23+24`; MainActivity inicia; smoke log sin fatal, ANR, OOM ni error crítico de arte/codec |
-| Chromecast HD | Play/Google TV | APK listo; instalación pendiente porque el dispositivo no aparece en `adb devices -l` ni `adb mdns services` |
+| Chromecast HD `192.168.3.216:45485` | Play/Google TV | Instalado `1.1.23+24`; MainActivity top-resumed; proceso estable; smoke log sin fatal, ANR, OOM, stall de MediaCodec ni error crítico de arte |
 
-No se afirma validación física del Chromecast mientras ADB no exponga un
-endpoint. El APK exacto, su hash y la orden de instalación ya están listos.
+La separación de distribución también se comprobó sobre los paquetes
+instalados: Chromecast/Play no declara `REQUEST_INSTALL_PACKAGES`; Fire
+TV/DirectFire sí conserva el permiso.
 
-## Instalación pendiente del Chromecast
+## Instalación ejecutada en Chromecast
 
-Cuando Wireless debugging vuelva a publicar el dispositivo:
+Wireless debugging publicó nuevamente el endpoint ADB-TLS y se ejecutó:
 
 ```powershell
-adb devices -l
-adb -s <serial-chromecast> install -r build/app/outputs/flutter-apk/app-play-release.apk
-adb -s <serial-chromecast> shell monkey -p com.vizcorp.moonlight_jujo_stream -c android.intent.category.LAUNCHER 1
+adb -s "adb-27201HFGN1QWGB-S7HBwA._adb-tls-connect._tcp" install -r build/app/outputs/flutter-apk/app-play-release.apk
+adb -s "adb-27201HFGN1QWGB-S7HBwA._adb-tls-connect._tcp" shell monkey -p com.vizcorp.moonlight_jujo_stream -c android.intent.category.LAUNCHER 1
 ```
 
-Después se debe comprobar `versionName=1.1.23`, `versionCode=24`, abrir el
-launcher, navegar rápidamente por posters, iniciar una sesión corta y revisar
-logcat por `FATAL EXCEPTION`, `OutOfMemoryError`, errores de artwork, stalls de
-MediaCodec y underruns de audio.
+Resultado: `Success`, `versionName=1.1.23`, `versionCode=24`, PID vivo y
+`MainActivity` en `topResumedActivity`. La ventana de logcat posterior al
+arranque no contiene `FATAL EXCEPTION`, ANR, `OutOfMemoryError`, fatal signal,
+`renderStalled`, error de MediaCodec ni fallo crítico de artwork.
 
 ## Rollback
 
