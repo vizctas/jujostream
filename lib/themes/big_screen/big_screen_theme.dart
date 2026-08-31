@@ -10,6 +10,7 @@ import '../../models/nv_app.dart';
 import '../../providers/plugins_provider.dart';
 import '../../providers/theme_provider.dart';
 import '../../ui/motion_scope.dart';
+import '../../ui/accessible_action.dart';
 import '../../services/audio/ui_sound_service.dart';
 import '../../services/input/gamepad_button_helper.dart';
 import '../../services/library/launcher_artwork_budget.dart';
@@ -551,9 +552,17 @@ class _BigScreenBodyState extends State<_BigScreenBody> {
               ),
             ),
             const Spacer(),
-            _headerIcon(Icons.search, onTap: widget.onSearch),
+            _headerIcon(
+              Icons.search,
+              label: AppLocalizations.of(context).searchGame,
+              onTap: widget.onSearch,
+            ),
             const SizedBox(width: 18),
-            _headerIcon(Icons.filter_alt_outlined, onTap: widget.onFilter),
+            _headerIcon(
+              Icons.filter_alt_outlined,
+              label: AppLocalizations.of(context).smartFilters,
+              onTap: widget.onFilter,
+            ),
             const SizedBox(width: 18),
             Text(
               time,
@@ -569,10 +578,17 @@ class _BigScreenBodyState extends State<_BigScreenBody> {
     );
   }
 
-  Widget _headerIcon(IconData icon, {VoidCallback? onTap}) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Icon(icon, color: Colors.white, size: 24),
+  Widget _headerIcon(
+    IconData icon, {
+    required String label,
+    VoidCallback? onTap,
+  }) {
+    return AccessibleAction(
+      label: label,
+      tooltip: label,
+      onActivate: onTap ?? () {},
+      enabled: onTap != null,
+      child: Center(child: Icon(icon, color: Colors.white, size: 24)),
     );
   }
 
@@ -630,72 +646,82 @@ class _BigScreenBodyState extends State<_BigScreenBody> {
   Widget _buildGameCard(NvApp app, bool selected, int index) {
     final isFavorite = widget.favoriteIds.contains(app.appId.toString());
     final posterUrl = _posterUrlForApp(app);
-    return GestureDetector(
-      onTap: () {
-        if (index == _idx) {
-          widget.onAppSelected(app);
-        } else {
-          _selectIndex(index);
-        }
-      },
-      child: AnimatedContainer(
-        duration: MotionScope.of(context).focusDuration,
-        curve: MotionScope.of(context).standardCurve,
-        width: selected ? _selectedCardWidth : _posterCardWidth,
-        height: _cardHeight,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(3),
-          border: Border.all(
-            color: selected
-                ? Colors.white.withValues(alpha: 0.62)
-                : Colors.white.withValues(alpha: 0.08),
-            width: selected ? 2 : 1,
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: selected ? 0.58 : 0.34),
-              blurRadius: selected ? 32 : 18,
-              offset: Offset(0, selected ? 18 : 12),
+    void activate() {
+      if (index == _idx) {
+        widget.onAppSelected(app);
+      } else {
+        _selectIndex(index);
+      }
+    }
+
+    return Semantics(
+      button: true,
+      label: app.appName,
+      selected: selected,
+      onTap: activate,
+      child: GestureDetector(
+        onTap: activate,
+        child: AnimatedContainer(
+          duration: MotionScope.of(context).focusDuration,
+          curve: MotionScope.of(context).standardCurve,
+          width: selected ? _selectedCardWidth : _posterCardWidth,
+          height: _cardHeight,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(3),
+            border: Border.all(
+              color: selected
+                  ? Colors.white.withValues(alpha: 0.62)
+                  : Colors.white.withValues(alpha: 0.08),
+              width: selected ? 2 : 1,
             ),
-          ],
-        ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(3),
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              if (posterUrl != null && posterUrl.isNotEmpty)
-                PosterImage(
-                  url: posterUrl,
-                  cacheKey: app.artCacheKey('poster'),
-                  fit: BoxFit.cover,
-                  memCacheWidth: LauncherArtworkBudget.bigScreenPosterWidth(
-                    selected: selected,
+            boxShadow: selected
+                ? [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.48),
+                      blurRadius: 16,
+                      offset: const Offset(0, 8),
+                    ),
+                  ]
+                : null,
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(3),
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                if (posterUrl != null && posterUrl.isNotEmpty)
+                  PosterImage(
+                    url: posterUrl,
+                    cacheKey: app.artCacheKey('poster'),
+                    fit: BoxFit.cover,
+                    memCacheWidth: LauncherArtworkBudget.bigScreenPosterWidth(
+                      selected: selected,
+                    ),
+                    errorWidget: (_, _, _) {
+                      _handlePosterError(app);
+                      return _buildPosterFallback(app);
+                    },
+                  )
+                else
+                  _buildPosterFallback(app),
+                if (app.isRunning)
+                  const Positioned(
+                    top: 10,
+                    left: 10,
+                    child: _StatusDot(color: Colors.greenAccent),
                   ),
-                  errorWidget: (_, _, _) {
-                    _handlePosterError(app);
-                    return _buildPosterFallback(app);
-                  },
-                )
-              else
-                _buildPosterFallback(app),
-              if (app.isRunning)
-                const Positioned(
-                  top: 10,
-                  left: 10,
-                  child: _StatusDot(color: Colors.greenAccent),
-                ),
-              if (isFavorite)
-                Positioned(
-                  top: 10,
-                  right: 10,
-                  child: Icon(
-                    Icons.star,
-                    color: Colors.amberAccent,
-                    size: selected ? 20 : 16,
+                if (isFavorite)
+                  Positioned(
+                    top: 10,
+                    right: 10,
+                    child: Icon(
+                      Icons.star,
+                      color: Colors.amberAccent,
+                      size: selected ? 20 : 16,
+                    ),
                   ),
-                ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -800,32 +826,40 @@ class _BigScreenBodyState extends State<_BigScreenBody> {
   Widget _newsTab(String label, GamingNewsType? type) {
     final active = _activeNewsType == type;
     final focused = _area == _BigScreenArea.tabs && active;
-    return GestureDetector(
-      onTap: () {
-        setState(() {
-          _activeNewsType = type;
-          _newsIndex = 0;
-        });
-        _setArea(_BigScreenArea.tabs);
-      },
-      child: AnimatedContainer(
-        duration: MotionScope.of(context).microDuration,
-        padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 11),
-        decoration: BoxDecoration(
-          color: active
-              ? Colors.white.withValues(alpha: 0.18)
-              : Colors.transparent,
-          borderRadius: BorderRadius.circular(999),
-          border: focused
-              ? Border.all(color: Colors.white.withValues(alpha: 0.22))
-              : null,
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: active ? Colors.white : Colors.white.withValues(alpha: 0.68),
-            fontSize: 13,
-            fontWeight: FontWeight.w900,
+    void activate() {
+      setState(() {
+        _activeNewsType = type;
+        _newsIndex = 0;
+      });
+      _setArea(_BigScreenArea.tabs);
+    }
+
+    return Semantics(
+      button: true,
+      label: label,
+      selected: active,
+      onTap: activate,
+      child: GestureDetector(
+        onTap: activate,
+        child: AnimatedContainer(
+          duration: MotionScope.of(context).microDuration,
+          padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 11),
+          decoration: BoxDecoration(
+            color: active
+                ? Colors.white.withValues(alpha: 0.18)
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(999),
+            border: focused
+                ? Border.all(color: Colors.white.withValues(alpha: 0.72))
+                : null,
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              color: active ? Colors.white : Colors.white54,
+              fontSize: 14,
+              fontWeight: active ? FontWeight.w800 : FontWeight.w600,
+            ),
           ),
         ),
       ),
@@ -846,16 +880,23 @@ class _BigScreenBodyState extends State<_BigScreenBody> {
         itemCount: items.length,
         separatorBuilder: (_, _) => const SizedBox(width: 16),
         itemBuilder: (context, index) {
-          return GestureDetector(
-            onTap: () {
-              setState(() {
-                _newsIndex = index;
-              });
-              _setArea(_BigScreenArea.news);
-            },
-            child: _buildNewsCard(
-              items[index],
-              _area == _BigScreenArea.news && index == _newsIndex,
+          final item = items[index];
+          void activate() {
+            setState(() => _newsIndex = index);
+            _setArea(_BigScreenArea.news);
+          }
+
+          return Semantics(
+            button: true,
+            label: item.title,
+            selected: _area == _BigScreenArea.news && index == _newsIndex,
+            onTap: activate,
+            child: GestureDetector(
+              onTap: activate,
+              child: _buildNewsCard(
+                item,
+                _area == _BigScreenArea.news && index == _newsIndex,
+              ),
             ),
           );
         },
@@ -876,13 +917,15 @@ class _BigScreenBodyState extends State<_BigScreenBody> {
               : Colors.white.withValues(alpha: 0.08),
           width: focused ? 2 : 1,
         ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: focused ? 0.40 : 0.28),
-            blurRadius: focused ? 22 : 14,
-            offset: const Offset(0, 14),
-          ),
-        ],
+        boxShadow: focused
+            ? [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.38),
+                  blurRadius: 14,
+                  offset: const Offset(0, 8),
+                ),
+              ]
+            : null,
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(3),

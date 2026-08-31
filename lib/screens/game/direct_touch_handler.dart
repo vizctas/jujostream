@@ -1,25 +1,31 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 
+// Sequencing state is retained for the native direct-touch contract even when
+// a specific build does not read every diagnostic field.
+// ignore_for_file: unused_field, unused_element
+
 /// Callback to send absolute mouse position to the stream.
-typedef MousePositionCallback = void Function(int x, int y, int width, int height);
+typedef MousePositionCallback =
+    void Function(int x, int y, int width, int height);
 
 /// Callback to send a mouse button press/release.
 typedef MouseButtonCallback = void Function(int button, bool down);
 
 /// Callback to send a raw multi-touch event.
-typedef TouchEventCallback = void Function({
-  required int eventType,
-  required int pointerId,
-  required double x,
-  required double y,
-  required double pressure,
-  required double contactMajor,
-  required double contactMinor,
-  required int orientation,
-  required double refWidth,
-  required double refHeight,
-});
+typedef TouchEventCallback =
+    void Function({
+      required int eventType,
+      required int pointerId,
+      required double x,
+      required double y,
+      required double pressure,
+      required double contactMajor,
+      required double contactMinor,
+      required int orientation,
+      required double refWidth,
+      required double refHeight,
+    });
 
 /// Callback to convert a screen-space touch position to stream coordinates.
 typedef TouchToStreamCoordsCallback = (int x, int y) Function(Offset touchPos);
@@ -111,7 +117,12 @@ class DirectTouchHandler {
 
   /// Sends position then click with a micro-delay to guarantee ordering.
   /// This eliminates the race condition where click arrives before position.
-  void _sendPositionThenClick(int screenX, int screenY, int button, {bool release = false}) {
+  void _sendPositionThenClick(
+    int screenX,
+    int screenY,
+    int button, {
+    bool release = false,
+  }) {
     _sendPosition(screenX, screenY);
     // Use a micro-delay to ensure the position packet is queued before the
     // click packet on the native side. Both go through platform channels
@@ -322,7 +333,8 @@ class DirectTouchHandler {
 
           // Check if this is a double-tap-drag (rapid second touch after a tap)
           final now = DateTime.now().millisecondsSinceEpoch;
-          final isDoubleTapDrag = (now - _touchUpTime) <= _doubleTapTimeThreshold &&
+          final isDoubleTapDrag =
+              (now - _touchUpTime) <= _doubleTapTimeThreshold &&
               !_distanceExceeds(
                 _touchDownX - _touchUpX,
                 _touchDownY - _touchUpY,
@@ -370,7 +382,8 @@ class DirectTouchHandler {
           // Check for double-tap: if this tap is close in time and space to
           // the previous tap, send a double-click instead.
           final now = DateTime.now().millisecondsSinceEpoch;
-          final isDoubleTap = (now - _touchUpTime) <= _doubleTapTimeThreshold &&
+          final isDoubleTap =
+              (now - _touchUpTime) <= _doubleTapTimeThreshold &&
               !_distanceExceeds(
                 x - _touchUpX,
                 y - _touchUpY,
@@ -383,24 +396,30 @@ class DirectTouchHandler {
           if (isDoubleTap) {
             // Double-tap: send a rapid left-click (the first click was already
             // sent by the previous tap's pointer-up)
-            Future.delayed(const Duration(milliseconds: _positionToClickDelayMs), () {
-              if (!isMounted()) return;
-              onMouseButton(btnLeft, true);
-              Future.delayed(const Duration(milliseconds: 30), () {
+            Future.delayed(
+              const Duration(milliseconds: _positionToClickDelayMs),
+              () {
                 if (!isMounted()) return;
-                onMouseButton(btnLeft, false);
-              });
-            });
+                onMouseButton(btnLeft, true);
+                Future.delayed(const Duration(milliseconds: 30), () {
+                  if (!isMounted()) return;
+                  onMouseButton(btnLeft, false);
+                });
+              },
+            );
           } else {
             // Single tap: click at touch point
-            Future.delayed(const Duration(milliseconds: _positionToClickDelayMs), () {
-              if (!isMounted()) return;
-              onMouseButton(btnLeft, true);
-              Future.delayed(const Duration(milliseconds: 60), () {
+            Future.delayed(
+              const Duration(milliseconds: _positionToClickDelayMs),
+              () {
                 if (!isMounted()) return;
-                onMouseButton(btnLeft, false);
-              });
-            });
+                onMouseButton(btnLeft, true);
+                Future.delayed(const Duration(milliseconds: 60), () {
+                  if (!isMounted()) return;
+                  onMouseButton(btnLeft, false);
+                });
+              },
+            );
           }
         }
 

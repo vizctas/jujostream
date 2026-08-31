@@ -630,7 +630,7 @@ class _CinematicIntroScreenState extends State<CinematicIntroScreen>
           final t = _logoRevealController.value;
           // Phase 1: the cube pops out of the blast with overshoot —
           // it was "inside" the falling box and the crash frees it.
-          final iconT = Curves.easeOutBack.transform(
+          final iconT = Curves.easeOutCubic.transform(
             (t / 0.45).clamp(0.0, 1.0),
           );
           // Phase 2: the wordmark slides out from behind the cube.

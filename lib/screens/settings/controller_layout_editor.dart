@@ -1,3 +1,6 @@
+// Controller glyph names intentionally mirror their physical button labels.
+// ignore_for_file: constant_identifier_names
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -5,9 +8,12 @@ import '../../models/stream_configuration.dart';
 import '../../providers/settings_provider.dart';
 import '../../providers/theme_provider.dart';
 
-Color _fg(ThemeProvider tp) => tp.colors.isLight ? Colors.black87 : Colors.white;
-Color _fgMid(ThemeProvider tp) => tp.colors.isLight ? Colors.black54 : Colors.white70;
-Color _fgMuted(ThemeProvider tp) => tp.colors.isLight ? Colors.black38 : Colors.white54;
+Color _fg(ThemeProvider tp) =>
+    tp.colors.isLight ? Colors.black87 : Colors.white;
+Color _fgMid(ThemeProvider tp) =>
+    tp.colors.isLight ? Colors.black54 : Colors.white70;
+Color _fgMuted(ThemeProvider tp) =>
+    tp.colors.isLight ? Colors.black38 : Colors.white54;
 
 /// In-app controller layout editor. Tap a button to select it, then press a
 /// physical gamepad key to remap that position. Tap again to cancel.
@@ -35,11 +41,20 @@ class _ControllerLayoutEditorState extends State<ControllerLayoutEditor> {
   static const int _RIGHT = 0x0008;
 
   static const _buttons = <int, String>{
-    _A: 'A', _B: 'B', _X: 'X', _Y: 'Y',
-    _LB: 'LB', _RB: 'RB',
-    _LS: 'L3', _RS: 'R3',
-    _START: 'Start', _SELECT: 'Select',
-    _UP: 'Up', _DOWN: 'Down', _LEFT: 'Left', _RIGHT: 'Right',
+    _A: 'A',
+    _B: 'B',
+    _X: 'X',
+    _Y: 'Y',
+    _LB: 'LB',
+    _RB: 'RB',
+    _LS: 'L3',
+    _RS: 'R3',
+    _START: 'Start',
+    _SELECT: 'Select',
+    _UP: 'Up',
+    _DOWN: 'Down',
+    _LEFT: 'Left',
+    _RIGHT: 'Right',
   };
 
   // Physical gamepad key â†’ moonlight flag
@@ -71,7 +86,9 @@ class _ControllerLayoutEditorState extends State<ControllerLayoutEditor> {
 
   @override
   void dispose() {
-    if (_listeningFor != null) HardwareKeyboard.instance.removeHandler(_onHardwareKey);
+    if (_listeningFor != null) {
+      HardwareKeyboard.instance.removeHandler(_onHardwareKey);
+    }
     super.dispose();
   }
 
@@ -113,13 +130,18 @@ class _ControllerLayoutEditorState extends State<ControllerLayoutEditor> {
 
   void _save() {
     final settings = context.read<SettingsProvider>();
-    settings.updateConfig(settings.config.copyWith(
-      buttonRemapProfile: ButtonRemapProfile.custom,
-      customRemapTable: Map.unmodifiable(_remap),
-    ));
+    settings.updateConfig(
+      settings.config.copyWith(
+        buttonRemapProfile: ButtonRemapProfile.custom,
+        customRemapTable: Map.unmodifiable(_remap),
+      ),
+    );
     setState(() => _dirty = false);
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Layout saved'), duration: Duration(seconds: 1)),
+      const SnackBar(
+        content: Text('Layout saved'),
+        duration: Duration(seconds: 1),
+      ),
     );
   }
 
@@ -142,7 +164,14 @@ class _ControllerLayoutEditorState extends State<ControllerLayoutEditor> {
     return Scaffold(
       backgroundColor: tp.surface,
       appBar: AppBar(
-        title: Text('Controller Layout', style: TextStyle(color: _fg(tp), fontSize: 17, fontWeight: FontWeight.w700)),
+        title: Text(
+          'Controller Layout',
+          style: TextStyle(
+            color: _fg(tp),
+            fontSize: 17,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
         backgroundColor: Colors.transparent,
         elevation: 0,
         iconTheme: IconThemeData(color: _fgMid(tp)),
@@ -151,7 +180,10 @@ class _ControllerLayoutEditorState extends State<ControllerLayoutEditor> {
             TextButton.icon(
               onPressed: _save,
               icon: Icon(Icons.save_rounded, size: 17, color: accent),
-              label: Text('Save', style: TextStyle(color: accent, fontWeight: FontWeight.w600)),
+              label: Text(
+                'Save',
+                style: TextStyle(color: accent, fontWeight: FontWeight.w600),
+              ),
             ),
           IconButton(
             icon: Icon(Icons.restart_alt_rounded, color: _fgMuted(tp)),
@@ -161,30 +193,32 @@ class _ControllerLayoutEditorState extends State<ControllerLayoutEditor> {
         ],
       ),
       body: SafeArea(
-        child: LayoutBuilder(builder: (ctx, box) {
-          final layoutW = box.maxWidth > box.maxHeight
-              ? box.maxWidth * 0.82
-              : box.maxWidth * 0.94;
-          final layoutH = box.maxWidth > box.maxHeight
-              ? box.maxHeight * 0.82
-              : box.maxWidth * 0.68;
-          return Column(
-            children: [
-              _buildHintBanner(tp, accent),
-              Expanded(
-                child: Center(
-                  child: SizedBox(
-                    width: layoutW,
-                    height: layoutH,
-                    child: _buildLayout(layoutW, layoutH, accent, tp),
+        child: LayoutBuilder(
+          builder: (ctx, box) {
+            final layoutW = box.maxWidth > box.maxHeight
+                ? box.maxWidth * 0.82
+                : box.maxWidth * 0.94;
+            final layoutH = box.maxWidth > box.maxHeight
+                ? box.maxHeight * 0.82
+                : box.maxWidth * 0.68;
+            return Column(
+              children: [
+                _buildHintBanner(tp, accent),
+                Expanded(
+                  child: Center(
+                    child: SizedBox(
+                      width: layoutW,
+                      height: layoutH,
+                      child: _buildLayout(layoutW, layoutH, accent, tp),
+                    ),
                   ),
                 ),
-              ),
-              _buildLegend(tp, accent),
-              const SizedBox(height: 12),
-            ],
-          );
-        }),
+                _buildLegend(tp, accent),
+                const SizedBox(height: 12),
+              ],
+            );
+          },
+        ),
       ),
     );
   }
@@ -199,7 +233,11 @@ class _ControllerLayoutEditorState extends State<ControllerLayoutEditor> {
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.gamepad_outlined, size: 16, color: Color(0xFFFF4081)),
+            const Icon(
+              Icons.gamepad_outlined,
+              size: 16,
+              color: Color(0xFFFF4081),
+            ),
             const SizedBox(width: 7),
             Text(
               'Press a physical button to remap "$sel"  â€¢  Tap again to cancel',
@@ -234,7 +272,10 @@ class _ControllerLayoutEditorState extends State<ControllerLayoutEditor> {
     if (swaps.isEmpty) {
       return Padding(
         padding: const EdgeInsets.only(bottom: 4),
-        child: Text('Default layout', style: TextStyle(color: _fgMuted(tp), fontSize: 13)),
+        child: Text(
+          'Default layout',
+          style: TextStyle(color: _fgMuted(tp), fontSize: 13),
+        ),
       );
     }
     return Padding(
@@ -243,18 +284,29 @@ class _ControllerLayoutEditorState extends State<ControllerLayoutEditor> {
         spacing: 10,
         runSpacing: 4,
         alignment: WrapAlignment.center,
-        children: swaps.map((s) => Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-          decoration: BoxDecoration(
-            color: accent.withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: accent.withValues(alpha: 0.28)),
-          ),
-          child: Text(
-            s,
-            style: TextStyle(color: _fgMid(tp), fontSize: 11, fontWeight: FontWeight.w500),
-          ),
-        )).toList(),
+        children: swaps
+            .map(
+              (s) => Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 4,
+                ),
+                decoration: BoxDecoration(
+                  color: accent.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: accent.withValues(alpha: 0.28)),
+                ),
+                child: Text(
+                  s,
+                  style: TextStyle(
+                    color: _fgMid(tp),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+            )
+            .toList(),
       ),
     );
   }
@@ -280,7 +332,9 @@ class _ControllerLayoutEditorState extends State<ControllerLayoutEditor> {
     return Stack(
       children: [
         Positioned.fill(
-          child: CustomPaint(painter: _ControllerOutlinePainter(tp.surfaceVariant)),
+          child: CustomPaint(
+            painter: _ControllerOutlinePainter(tp.surfaceVariant),
+          ),
         ),
         for (final entry in positions.entries)
           _buildButtonNode(
@@ -294,7 +348,13 @@ class _ControllerLayoutEditorState extends State<ControllerLayoutEditor> {
     );
   }
 
-  Widget _buildButtonNode(int flag, double x, double y, Color accent, ThemeProvider tp) {
+  Widget _buildButtonNode(
+    int flag,
+    double x,
+    double y,
+    Color accent,
+    ThemeProvider tp,
+  ) {
     final isListening = _listeningFor == flag;
     final isRemapped = _remap.containsKey(flag);
     const sz = 50.0;
@@ -303,20 +363,20 @@ class _ControllerLayoutEditorState extends State<ControllerLayoutEditor> {
     final bgColor = isListening
         ? const Color(0xFFFF4081).withValues(alpha: 0.22)
         : isRemapped
-            ? accent.withValues(alpha: 0.18)
-            : tp.background.withValues(alpha: 0.75);
+        ? accent.withValues(alpha: 0.18)
+        : tp.background.withValues(alpha: 0.75);
 
     final borderColor = isListening
         ? const Color(0xFFFF4081)
         : isRemapped
-            ? accent
-            : tp.surfaceVariant.withValues(alpha: 0.6);
+        ? accent
+        : tp.surfaceVariant.withValues(alpha: 0.6);
 
     final labelColor = isListening
         ? const Color(0xFFFF4081)
         : isRemapped
-            ? accent
-            : _fgMid(tp);
+        ? accent
+        : _fgMid(tp);
 
     return Positioned(
       left: x - sz / 2,
@@ -330,12 +390,25 @@ class _ControllerLayoutEditorState extends State<ControllerLayoutEditor> {
           decoration: BoxDecoration(
             shape: BoxShape.circle,
             color: bgColor,
-            border: Border.all(color: borderColor, width: isListening ? 2.0 : 1.4),
+            border: Border.all(
+              color: borderColor,
+              width: isListening ? 2.0 : 1.4,
+            ),
             boxShadow: isListening
-                ? [BoxShadow(color: const Color(0xFFFF4081).withValues(alpha: 0.4), blurRadius: 14)]
+                ? [
+                    BoxShadow(
+                      color: const Color(0xFFFF4081).withValues(alpha: 0.4),
+                      blurRadius: 14,
+                    ),
+                  ]
                 : isRemapped
-                    ? [BoxShadow(color: accent.withValues(alpha: 0.22), blurRadius: 8)]
-                    : null,
+                ? [
+                    BoxShadow(
+                      color: accent.withValues(alpha: 0.22),
+                      blurRadius: 8,
+                    ),
+                  ]
+                : null,
           ),
           alignment: Alignment.center,
           child: Text(
@@ -343,7 +416,9 @@ class _ControllerLayoutEditorState extends State<ControllerLayoutEditor> {
             style: TextStyle(
               color: labelColor,
               fontSize: 11,
-              fontWeight: isListening || isRemapped ? FontWeight.w700 : FontWeight.w500,
+              fontWeight: isListening || isRemapped
+                  ? FontWeight.w700
+                  : FontWeight.w500,
             ),
           ),
         ),
@@ -365,21 +440,36 @@ class _ControllerOutlinePainter extends CustomPainter {
 
     canvas.drawRRect(
       RRect.fromRectAndRadius(
-        Rect.fromLTWH(s.width * 0.12, s.height * 0.10, s.width * 0.76, s.height * 0.55),
+        Rect.fromLTWH(
+          s.width * 0.12,
+          s.height * 0.10,
+          s.width * 0.76,
+          s.height * 0.55,
+        ),
         const Radius.circular(28),
       ),
       paint,
     );
     canvas.drawRRect(
       RRect.fromRectAndRadius(
-        Rect.fromLTWH(s.width * 0.14, s.height * 0.50, s.width * 0.18, s.height * 0.40),
+        Rect.fromLTWH(
+          s.width * 0.14,
+          s.height * 0.50,
+          s.width * 0.18,
+          s.height * 0.40,
+        ),
         const Radius.circular(18),
       ),
       paint,
     );
     canvas.drawRRect(
       RRect.fromRectAndRadius(
-        Rect.fromLTWH(s.width * 0.68, s.height * 0.50, s.width * 0.18, s.height * 0.40),
+        Rect.fromLTWH(
+          s.width * 0.68,
+          s.height * 0.50,
+          s.width * 0.18,
+          s.height * 0.40,
+        ),
         const Radius.circular(18),
       ),
       paint,
@@ -387,5 +477,6 @@ class _ControllerOutlinePainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _ControllerOutlinePainter old) => old.lineColor != lineColor;
+  bool shouldRepaint(covariant _ControllerOutlinePainter old) =>
+      old.lineColor != lineColor;
 }

@@ -55,7 +55,7 @@ class ProService extends ChangeNotifier {
 
   bool _licenseValidated = false;
 
-  bool get isPro => true;
+  bool get isPro => kDevMode || _licenseValidated;
 
   static ProFeatureTier tierOf(ProFeature feature) {
     switch (feature) {

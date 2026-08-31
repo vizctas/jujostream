@@ -133,7 +133,6 @@ class _PcViewScreenState extends State<PcViewScreen>
   final _tourMoreKey = GlobalKey(debugLabel: 'tour-more-btn');
   final _tourServerCardKey = GlobalKey(debugLabel: 'tour-server-card');
 
-
   ServerHealthLoop? _healthLoop;
 
   @override
@@ -143,8 +142,7 @@ class _PcViewScreenState extends State<PcViewScreen>
     _shakeController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 300),
-    )..repeat(reverse: true);
-    _shakeController!.stop();
+    );
 
     if (!TvDetector.instance.isTV) {
       SystemChrome.setPreferredOrientations([]);
@@ -589,10 +587,17 @@ class _PcViewScreenState extends State<PcViewScreen>
   }
 
   void _startRearrangeMode() {
+    final allowMotion = MotionScope.read(context).allowContinuousEffects;
     setState(() {
       _rearrangeMode = true;
       _selectedRearrangeIndex = null;
-      _shakeController?.repeat(reverse: true);
+      if (allowMotion) {
+        _shakeController?.repeat(reverse: true);
+      } else {
+        _shakeController
+          ?..stop()
+          ..value = 0;
+      }
     });
   }
 
@@ -1286,7 +1291,10 @@ class _ComputerCardState extends State<_ComputerCard> {
     );
   }
 
-  Widget _buildCard({required ThemeProvider tp, required ServerTileState state}) {
+  Widget _buildCard({
+    required ThemeProvider tp,
+    required ServerTileState state,
+  }) {
     // Local aliases keep the layout below untouched while the derivation itself
     // lives in one place shared with both focus-mode layouts.
     final isOnline = state.isOnline;
@@ -1658,35 +1666,33 @@ class _GridFocusableCardState extends State<_GridFocusableCard> {
             return AdaptiveFocusSurface(
               focused: active,
               child: AnimatedContainer(
-              duration: MotionScope.of(context).focusDuration,
-              curve: MotionScope.of(context).standardCurve,
-              // Focus was a 6% white wash and a 1% scale — over card artwork
-              // that is effectively nothing, and this grid is driven by a
-              // gamepad with no cursor to fall back on. Accent ring plus glow
-              // plus a real scale step, matching the focus treatment the rest
-              // of the app already uses.
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(12),
-                boxShadow: active
-                    ? [
-                        BoxShadow(
-                          color: accent.withValues(alpha: 0.38),
-                          blurRadius: 20,
-                          spreadRadius: 2,
-                        ),
-                      ]
-                    : null,
-              ),
-              foregroundDecoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(12),
-                color: active
-                    ? Colors.white.withValues(alpha: 0.06)
-                    : Colors.transparent,
-                border: active
-                    ? Border.all(color: accent, width: 2)
-                    : null,
-              ),
-              child: widget.child,
+                duration: MotionScope.of(context).focusDuration,
+                curve: MotionScope.of(context).standardCurve,
+                // Focus was a 6% white wash and a 1% scale — over card artwork
+                // that is effectively nothing, and this grid is driven by a
+                // gamepad with no cursor to fall back on. Accent ring plus glow
+                // plus a real scale step, matching the focus treatment the rest
+                // of the app already uses.
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: active
+                      ? [
+                          BoxShadow(
+                            color: accent.withValues(alpha: 0.38),
+                            blurRadius: 20,
+                            spreadRadius: 2,
+                          ),
+                        ]
+                      : null,
+                ),
+                foregroundDecoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(12),
+                  color: active
+                      ? Colors.white.withValues(alpha: 0.06)
+                      : Colors.transparent,
+                  border: active ? Border.all(color: accent, width: 2) : null,
+                ),
+                child: widget.child,
               ),
             );
           },
@@ -1695,8 +1701,6 @@ class _GridFocusableCardState extends State<_GridFocusableCard> {
     );
   }
 }
-
-
 
 class _MainMenuDialog extends StatefulWidget {
   final BuildContext parentContext;

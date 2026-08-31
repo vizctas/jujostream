@@ -11,64 +11,96 @@ mixin _AppViewCarouselMixin on _AppViewScreenBase {
           mainAxisAlignment: MainAxisAlignment.center,
           mainAxisSize: MainAxisSize.min,
           children: [
-            _hintChip('X', 'Grid', onTap: () {
-              _feedbackAction();
-              setState(() {
-                _viewMode = _viewMode == _ViewMode.carousel
-                    ? _ViewMode.grid
-                    : _ViewMode.carousel;
-              });
-              if (_viewMode == _ViewMode.grid) {
-                _disposeVideoController();
-              }
-            }),
-            _hintChip('START', 'Play', onTap: () {
-              final provider = context.read<AppListProvider>();
-              final visibleApps = _visibleApps(provider.apps.toList());
-              if (visibleApps.isNotEmpty) {
-                _handleAppTap(_selectedApp(visibleApps));
-              }
-            }),
-            _hintChip('SELECT', 'Settings', onTap: () {
-              _feedbackAction();
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => AppViewPresentationSettingsScreen(
-                    preferences: context.read<LauncherPreferences>(),
+            _hintChip(
+              'X',
+              'Grid',
+              onTap: () {
+                _feedbackAction();
+                setState(() {
+                  _viewMode = _viewMode == _ViewMode.carousel
+                      ? _ViewMode.grid
+                      : _ViewMode.carousel;
+                });
+                if (_viewMode == _ViewMode.grid) {
+                  _disposeVideoController();
+                }
+              },
+            ),
+            _hintChip(
+              'START',
+              'Play',
+              onTap: () {
+                final provider = context.read<AppListProvider>();
+                final visibleApps = _visibleApps(provider.apps.toList());
+                if (visibleApps.isNotEmpty) {
+                  _handleAppTap(_selectedApp(visibleApps));
+                }
+              },
+            ),
+            _hintChip(
+              'SELECT',
+              'Settings',
+              onTap: () {
+                _feedbackAction();
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => AppViewPresentationSettingsScreen(
+                      preferences: context.read<LauncherPreferences>(),
+                    ),
                   ),
-                ),
-              );
-            }),
-            _hintChip('R3', AppLocalizations.of(context).smartFilters, onTap: () {
-              _feedbackAction();
-              _openSmartGenreFilters();
-            }),
-            _hintChip('Y', 'Details', onTap: () {
-              _feedbackAction();
-              final provider = context.read<AppListProvider>();
-              final visibleApps = _visibleApps(provider.apps.toList());
-              if (visibleApps.isNotEmpty) {
-                _openDetailsScreen(_selectedApp(visibleApps));
-              }
-            }),
-            _hintChip('RB', 'Fav', onTap: () {
-              final provider = context.read<AppListProvider>();
-              final visibleApps = _visibleApps(provider.apps.toList());
-              if (visibleApps.isNotEmpty) {
-                _toggleFavorite(_selectedApp(visibleApps));
-              }
-            }),
+                );
+              },
+            ),
+            _hintChip(
+              'R3',
+              AppLocalizations.of(context).smartFilters,
+              onTap: () {
+                _feedbackAction();
+                _openSmartGenreFilters();
+              },
+            ),
+            _hintChip(
+              'Y',
+              'Details',
+              onTap: () {
+                _feedbackAction();
+                final provider = context.read<AppListProvider>();
+                final visibleApps = _visibleApps(provider.apps.toList());
+                if (visibleApps.isNotEmpty) {
+                  _openDetailsScreen(_selectedApp(visibleApps));
+                }
+              },
+            ),
+            _hintChip(
+              'RB',
+              'Fav',
+              onTap: () {
+                final provider = context.read<AppListProvider>();
+                final visibleApps = _visibleApps(provider.apps.toList());
+                if (visibleApps.isNotEmpty) {
+                  _toggleFavorite(_selectedApp(visibleApps));
+                }
+              },
+            ),
             if (!_postersHidden)
-              _hintChip('↑', 'Hide posters', onTap: () {
-                _feedbackNavigate();
-                setState(() => _postersHidden = true);
-              }),
+              _hintChip(
+                '↑',
+                'Hide posters',
+                onTap: () {
+                  _feedbackNavigate();
+                  setState(() => _postersHidden = true);
+                },
+              ),
             if (_postersHidden)
-              _hintChip('↓', 'Show posters', onTap: () {
-                _feedbackNavigate();
-                setState(() => _postersHidden = false);
-              }),
+              _hintChip(
+                '↓',
+                'Show posters',
+                onTap: () {
+                  _feedbackNavigate();
+                  setState(() => _postersHidden = false);
+                },
+              ),
           ],
         ),
       ),
@@ -241,7 +273,9 @@ class _CarouselCardState extends State<_CarouselCard>
   void didUpdateWidget(_CarouselCard old) {
     super.didUpdateWidget(old);
 
-    if (!old.selected && widget.selected) {
+    if (!old.selected &&
+        widget.selected &&
+        !MotionScope.read(context).reduceMotion) {
       _pulseCtrl.forward(from: 0);
     }
   }
@@ -255,172 +289,180 @@ class _CarouselCardState extends State<_CarouselCard>
   @override
   Widget build(BuildContext context) {
     final active = widget.selected || widget.focused;
-    return Focus(
-      focusNode: widget.focusNode,
-      onFocusChange: (hasFocus) {
-        if (hasFocus) widget.onFocus();
-      },
-      onKeyEvent: (_, event) => widget.onKeyEvent(event),
-      child: GestureDetector(
-        onTap: widget.onTap,
-        onLongPress: widget.onLongPress,
-        child: AnimatedScale(
-          scale: active ? 1.0 : 0.94,
-          duration: const Duration(milliseconds: 160),
-          child: ScaleTransition(
-            scale: _pulseAnim,
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 180),
-              width: widget.cardWidth,
-              transform: active
-                  ? Matrix4.translationValues(0.0, -10.0, 0.0)
-                  : Matrix4.identity(),
-              decoration: BoxDecoration(
-                color: _tp.background,
-                borderRadius: BorderRadius.circular(widget.cardRadius),
-                              ),
-              clipBehavior: Clip.antiAlias,
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  if (widget.app.posterUrl != null &&
-                      widget.app.posterUrl!.isNotEmpty)
-                    Hero(
-                      tag: widget.heroTag,
-                      child: PosterImage(
-                        url: widget.app.posterUrl!,
-                        cacheKey: widget.app.artCacheKey('poster'),
-                        fit: BoxFit.cover,
-                        memCacheWidth: 300,
-                        errorWidget: (_, _, _) => _fallback(),
-                        placeholder: (_, _) => _fallback(),
-                      ),
-                    )
-                  else
-                    Hero(tag: widget.heroTag, child: _fallback()),
-                  if (widget.showLabel)
-                    Align(
-                      alignment: Alignment.bottomCenter,
-                      child: Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: const BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                            colors: [Colors.transparent, Color(0xCC000000)],
-                          ),
+    final motion = MotionScope.of(context);
+    return Semantics(
+      button: true,
+      label: widget.app.appName,
+      selected: active,
+      onTap: widget.onTap,
+      onLongPress: widget.onLongPress,
+      child: Focus(
+        focusNode: widget.focusNode,
+        onFocusChange: (hasFocus) {
+          if (hasFocus) widget.onFocus();
+        },
+        onKeyEvent: (_, event) => widget.onKeyEvent(event),
+        child: GestureDetector(
+          onTap: widget.onTap,
+          onLongPress: widget.onLongPress,
+          child: AnimatedScale(
+            scale: active ? 1.0 : 0.94,
+            duration: motion.focusDuration,
+            child: ScaleTransition(
+              scale: _pulseAnim,
+              child: AnimatedContainer(
+                duration: motion.focusDuration,
+                width: widget.cardWidth,
+                transform: active
+                    ? Matrix4.translationValues(0.0, -10.0, 0.0)
+                    : Matrix4.identity(),
+                decoration: BoxDecoration(
+                  color: _tp.background,
+                  borderRadius: BorderRadius.circular(widget.cardRadius),
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    if (widget.app.posterUrl != null &&
+                        widget.app.posterUrl!.isNotEmpty)
+                      Hero(
+                        tag: widget.heroTag,
+                        child: PosterImage(
+                          url: widget.app.posterUrl!,
+                          cacheKey: widget.app.artCacheKey('poster'),
+                          fit: BoxFit.cover,
+                          memCacheWidth: 300,
+                          errorWidget: (_, _, _) => _fallback(),
+                          placeholder: (_, _) => _fallback(),
                         ),
-                        child: Text(
-                          widget.app.appName,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontWeight: active
-                                ? FontWeight.w700
-                                : FontWeight.w500,
-                          ),
-                        ),
-                      ),
-                    ),
-                  if (widget.showRunningBadge && widget.app.isRunning)
-                    Positioned(
-                      top: 8,
-                      right: 8,
-                      child: Container(
-                        width: 10,
-                        height: 10,
-                        decoration: const BoxDecoration(
-                          color: Colors.greenAccent,
-                          shape: BoxShape.circle,
-                        ),
-                      ),
-                    ),
-
-                  if (widget.app.pluginName != null &&
-                      widget.app.pluginName!.isNotEmpty)
-                    Positioned(
-                      bottom: widget.showLabel ? 32 : 6,
-                      left: 6,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 5,
-                          vertical: 2,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.black.withValues(alpha: 0.65),
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Text(
-                          _storeAbbreviation(widget.app.pluginName!),
-                          style: TextStyle(
-                            color: _storeColor(widget.app.pluginName!),
-                            fontSize: 9,
-                            fontWeight: FontWeight.w800,
-                            letterSpacing: 0.5,
-                          ),
-                        ),
-                      ),
-                    ),
-
-                  if (AppOverrideService.instance.hasOverrides(
-                    widget.app.serverUuid ?? 'default',
-                    widget.app.appId,
-                  ))
-                    Positioned(
-                      top: 6,
-                      right: widget.showRunningBadge && widget.app.isRunning
-                          ? 24
-                          : 8,
-                      child: Container(
-                        padding: const EdgeInsets.all(3),
-                        decoration: BoxDecoration(
-                          color: Colors.black.withValues(alpha: 0.70),
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: const Icon(
-                          Icons.edit_note,
-                          color: Colors.amberAccent,
-                          size: 12,
-                        ),
-                      ),
-                    ),
-
-                  if (widget.app.playtimeMinutes > 0)
-                    Positioned(
-                      top: 6,
-                      left: 6,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 5,
-                          vertical: 2,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.black.withValues(alpha: 0.70),
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(
-                              Icons.access_time,
-                              color: Colors.white54,
-                              size: 8,
+                      )
+                    else
+                      Hero(tag: widget.heroTag, child: _fallback()),
+                    if (widget.showLabel)
+                      Align(
+                        alignment: Alignment.bottomCenter,
+                        child: Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: const BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                              colors: [Colors.transparent, Color(0xCC000000)],
                             ),
-                            const SizedBox(width: 3),
-                            Text(
-                              widget.app.playtimeLabel,
-                              style: const TextStyle(
-                                color: Colors.white70,
-                                fontSize: 9,
-                                fontWeight: FontWeight.w600,
-                              ),
+                          ),
+                          child: Text(
+                            widget.app.appName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: active
+                                  ? FontWeight.w700
+                                  : FontWeight.w500,
                             ),
-                          ],
+                          ),
                         ),
                       ),
-                    ),
-                ],
+                    if (widget.showRunningBadge && widget.app.isRunning)
+                      Positioned(
+                        top: 8,
+                        right: 8,
+                        child: Container(
+                          width: 10,
+                          height: 10,
+                          decoration: const BoxDecoration(
+                            color: Colors.greenAccent,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                      ),
+
+                    if (widget.app.pluginName != null &&
+                        widget.app.pluginName!.isNotEmpty)
+                      Positioned(
+                        bottom: widget.showLabel ? 32 : 6,
+                        left: 6,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 5,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.65),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            _storeAbbreviation(widget.app.pluginName!),
+                            style: TextStyle(
+                              color: _storeColor(widget.app.pluginName!),
+                              fontSize: 9,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 0.5,
+                            ),
+                          ),
+                        ),
+                      ),
+
+                    if (AppOverrideService.instance.hasOverrides(
+                      widget.app.serverUuid ?? 'default',
+                      widget.app.appId,
+                    ))
+                      Positioned(
+                        top: 6,
+                        right: widget.showRunningBadge && widget.app.isRunning
+                            ? 24
+                            : 8,
+                        child: Container(
+                          padding: const EdgeInsets.all(3),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.70),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: const Icon(
+                            Icons.edit_note,
+                            color: Colors.amberAccent,
+                            size: 12,
+                          ),
+                        ),
+                      ),
+
+                    if (widget.app.playtimeMinutes > 0)
+                      Positioned(
+                        top: 6,
+                        left: 6,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 5,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.70),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(
+                                Icons.access_time,
+                                color: Colors.white54,
+                                size: 8,
+                              ),
+                              const SizedBox(width: 3),
+                              Text(
+                                widget.app.playtimeLabel,
+                                style: const TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
               ),
             ),
           ),

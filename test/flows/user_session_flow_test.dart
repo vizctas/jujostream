@@ -5,7 +5,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:jujostream/providers/settings_provider.dart';
 import 'package:jujostream/models/stream_configuration.dart';
-import 'package:jujostream/providers/plugins_provider.dart';
 import 'package:jujostream/providers/auth_provider.dart';
 import 'package:jujostream/providers/cloud_mfa_provider.dart';
 import 'package:jujostream/services/metadata/steam_video_client.dart';
@@ -17,10 +16,14 @@ import 'package:http/http.dart' as http;
 String createMockJwt(String aal) {
   final payload = {
     'aal': aal,
-    'amr': [{'method': 'pwd', 'timestamp': 123456789}],
-    'exp': 2724393600
+    'amr': [
+      {'method': 'pwd', 'timestamp': 123456789},
+    ],
+    'exp': 2724393600,
   };
-  final encodedPayload = base64Url.encode(utf8.encode(jsonEncode(payload))).replaceAll('=', '');
+  final encodedPayload = base64Url
+      .encode(utf8.encode(jsonEncode(payload)))
+      .replaceAll('=', '');
   return 'header.$encodedPayload.signature';
 }
 
@@ -36,9 +39,9 @@ class MockSteamHttpClient extends http.BaseClient {
           {
             'id': 400,
             'name': 'Portal',
-            'tiny_image': 'https://mock.steam/portal.jpg'
-          }
-        ]
+            'tiny_image': 'https://mock.steam/portal.jpg',
+          },
+        ],
       });
     } else if (path.contains('/api/appdetails')) {
       body = jsonEncode({
@@ -47,7 +50,7 @@ class MockSteamHttpClient extends http.BaseClient {
           'data': {
             'short_description': 'A puzzle game.',
             'genres': [
-              {'description': 'Puzzle'}
+              {'description': 'Puzzle'},
             ],
             'movies': [
               {
@@ -56,12 +59,12 @@ class MockSteamHttpClient extends http.BaseClient {
                 'thumbnail': 'https://mock.steam/portal_thumb.jpg',
                 'mp4': {
                   '480': 'https://mock.steam/portal_480.mp4',
-                  'max': 'https://mock.steam/portal_max.mp4'
-                }
-              }
-            ]
-          }
-        }
+                  'max': 'https://mock.steam/portal_max.mp4',
+                },
+              },
+            ],
+          },
+        },
       });
     }
 
@@ -83,9 +86,7 @@ class MockSupabaseHttpClient extends http.BaseClient {
   Future<http.StreamedResponse> send(http.BaseRequest request) async {
     final path = request.url.path;
     final method = request.method;
-    
-    print('MockSupabaseHttpClient: path=$path method=$method');
-    
+
     String responseBody = '{}';
     int statusCode = 200;
 
@@ -93,8 +94,10 @@ class MockSupabaseHttpClient extends http.BaseClient {
       responseBody = jsonEncode({
         'id': 'mock-user-uuid',
         'email': 'user@test.com',
-        'email_confirmed_at': signupConfirmRequired ? null : '2026-05-31T07:32:56.000Z',
-        'user_metadata': {}
+        'email_confirmed_at': signupConfirmRequired
+            ? null
+            : '2026-05-31T07:32:56.000Z',
+        'user_metadata': {},
       });
     } else if (path.contains('/auth/v1/token')) {
       if (signupConfirmRequired && !isConfirmed) {
@@ -108,7 +111,7 @@ class MockSupabaseHttpClient extends http.BaseClient {
             'id': 'mock-user-uuid',
             'email': 'user@test.com',
             'email_confirmed_at': null,
-          }
+          },
         });
       } else {
         responseBody = jsonEncode({
@@ -120,27 +123,30 @@ class MockSupabaseHttpClient extends http.BaseClient {
             'id': 'mock-user-uuid',
             'email': 'user@test.com',
             'email_confirmed_at': '2026-05-31T07:32:56.000Z',
-            'factors': hasMfaFactor ? [
-              {
-                'id': 'mock-factor-uuid',
-                'friendly_name': 'Jujo.Stream Client',
-                'factor_type': 'totp',
-                'status': 'verified',
-                'created_at': '2026-05-31T07:32:56.000Z',
-                'updated_at': '2026-05-31T07:32:56.000Z'
-              }
-            ] : []
-          }
+            'factors': hasMfaFactor
+                ? [
+                    {
+                      'id': 'mock-factor-uuid',
+                      'friendly_name': 'Jujo.Stream Client',
+                      'factor_type': 'totp',
+                      'status': 'verified',
+                      'created_at': '2026-05-31T07:32:56.000Z',
+                      'updated_at': '2026-05-31T07:32:56.000Z',
+                    },
+                  ]
+                : [],
+          },
         });
       }
     } else if (path.contains('/challenge')) {
       responseBody = jsonEncode({
         'id': 'mock-challenge-uuid',
-        'expires_at': 2724393600 // Wait! In GoTrue-Dart, it expects a number (seconds/timestamp) or string? The error said: Expected expires_at to be a number, got Null! So it wants a number (int) timestamp! E.g. 2724393600!
+        'expires_at':
+            2724393600, // Wait! In GoTrue-Dart, it expects a number (seconds/timestamp) or string? The error said: Expected expires_at to be a number, got Null! So it wants a number (int) timestamp! E.g. 2724393600!
       });
     } else if (path.contains('/verify')) {
       // Challenge Verification
-      final bodyBytes = await (request as http.Request).body;
+      final bodyBytes = (request as http.Request).body;
       final parsed = jsonDecode(bodyBytes);
       if (parsed['code'] == '123456') {
         mfaVerified = true;
@@ -153,13 +159,13 @@ class MockSupabaseHttpClient extends http.BaseClient {
             'id': 'mock-user-uuid',
             'email': 'user@test.com',
             'email_confirmed_at': '2026-05-31T07:32:56.000Z',
-          }
+          },
         });
       } else {
         statusCode = 400;
         responseBody = jsonEncode({
           'error': 'Invalid 2FA code',
-          'message': 'Invalid 2FA code. Try again.'
+          'message': 'Invalid 2FA code. Try again.',
         });
       }
     } else if (path.contains('/auth/v1/factors')) {
@@ -172,8 +178,8 @@ class MockSupabaseHttpClient extends http.BaseClient {
               'factor_type': 'totp',
               'status': 'verified',
               'created_at': '2026-05-31T07:32:56.000Z',
-              'updated_at': '2026-05-31T07:32:56.000Z'
-            }
+              'updated_at': '2026-05-31T07:32:56.000Z',
+            },
           ]);
         } else {
           responseBody = jsonEncode([]);
@@ -186,15 +192,18 @@ class MockSupabaseHttpClient extends http.BaseClient {
           'totp': {
             'qr_code': 'mock-qr-code',
             'secret': 'mock-secret-uri-value',
-            'uri': 'otpauth://totp/Jujo.Stream:user@test.com?secret=mock-secret-uri-value&issuer=Jujo.Stream'
-          }
+            'uri':
+                'otpauth://totp/Jujo.Stream:user@test.com?secret=mock-secret-uri-value&issuer=Jujo.Stream',
+          },
         });
       }
     }
 
-    final response = http.Response(responseBody, statusCode, headers: {
-      'content-type': 'application/json; charset=utf-8',
-    });
+    final response = http.Response(
+      responseBody,
+      statusCode,
+      headers: {'content-type': 'application/json; charset=utf-8'},
+    );
 
     final stream = Stream.value(response.bodyBytes);
     return http.StreamedResponse(
@@ -217,7 +226,7 @@ void main() {
     mockHttpClient = MockSupabaseHttpClient();
     await Supabase.initialize(
       url: 'https://mock.supabase.co',
-      anonKey: 'mockKey',
+      publishableKey: 'mockKey',
       httpClient: mockHttpClient,
     );
   });
@@ -244,79 +253,91 @@ void main() {
       expect(prefs.getBool('first_run_shown'), true);
     });
 
-    test('Scenario 2: Gamepad Navigation & Disclaimer Acceptance simulation', () async {
-      final prefs = await SharedPreferences.getInstance();
-      
-      // Simulate disclaimer dismissed via Gamepad A / Enter key
-      // In first-run gate, key A or enter sets first_run_shown to true
-      await prefs.setBool('first_run_shown', true);
+    test(
+      'Scenario 2: Gamepad Navigation & Disclaimer Acceptance simulation',
+      () async {
+        final prefs = await SharedPreferences.getInstance();
 
-      expect(prefs.getBool('first_run_shown'), true);
-    });
+        // Simulate disclaimer dismissed via Gamepad A / Enter key
+        // In first-run gate, key A or enter sets first_run_shown to true
+        await prefs.setBool('first_run_shown', true);
+
+        expect(prefs.getBool('first_run_shown'), true);
+      },
+    );
   });
 
   group('Cloud Registration & Auth Gating Scenarios', () {
-    test('Scenario 3: Supabase Cloud Registration with Email Polling', () async {
-      final authProvider = AuthProvider();
+    test(
+      'Scenario 3: Supabase Cloud Registration with Email Polling',
+      () async {
+        final authProvider = AuthProvider();
 
-      // 1. Trigger registration
-      final signupOk = await authProvider.signUpWithCloud(
-        email: 'user@test.com',
-        password: 'password123',
-      );
-      expect(signupOk, true);
+        // 1. Trigger registration
+        final signupOk = await authProvider.signUpWithCloud(
+          email: 'user@test.com',
+          password: 'password123',
+        );
+        expect(signupOk, true);
 
-      // 2. Simulate polling ticks: first ticks are unconfirmed
-      mockHttpClient.isConfirmed = false;
-      final poll1 = await authProvider.loginWithCloud(
-        email: 'user@test.com',
-        password: 'password123',
-      );
-      expect(poll1, false); // Failed because email not confirmed yet
-      expect(authProvider.isSignedIn, false);
+        // 2. Simulate polling ticks: first ticks are unconfirmed
+        mockHttpClient.isConfirmed = false;
+        final poll1 = await authProvider.loginWithCloud(
+          email: 'user@test.com',
+          password: 'password123',
+        );
+        expect(poll1, false); // Failed because email not confirmed yet
+        expect(authProvider.isSignedIn, false);
 
-      // 3. Tick where email is now confirmed
-      mockHttpClient.isConfirmed = true;
-      final pollSuccess = await authProvider.loginWithCloud(
-        email: 'user@test.com',
-        password: 'password123',
-      );
-      expect(pollSuccess, true);
-      expect(authProvider.isSignedIn, true);
-      expect(authProvider.email, 'user@test.com');
-    });
+        // 3. Tick where email is now confirmed
+        mockHttpClient.isConfirmed = true;
+        final pollSuccess = await authProvider.loginWithCloud(
+          email: 'user@test.com',
+          password: 'password123',
+        );
+        expect(pollSuccess, true);
+        expect(authProvider.isSignedIn, true);
+        expect(authProvider.email, 'user@test.com');
+      },
+    );
 
-    test('Scenario 4: Cloud Registration Email Polling Failure / Timeout simulation', () async {
-      final authProvider = AuthProvider();
+    test(
+      'Scenario 4: Cloud Registration Email Polling Failure / Timeout simulation',
+      () async {
+        final authProvider = AuthProvider();
 
-      // 1. Trigger registration
-      final signupOk = await authProvider.signUpWithCloud(
-        email: 'user@test.com',
-        password: 'password123',
-      );
-      expect(signupOk, true);
+        // 1. Trigger registration
+        final signupOk = await authProvider.signUpWithCloud(
+          email: 'user@test.com',
+          password: 'password123',
+        );
+        expect(signupOk, true);
 
-      // 2. Simulate polling failures (e.g. email never gets confirmed)
-      mockHttpClient.isConfirmed = false;
-      
-      // First poll
-      final poll1 = await authProvider.loginWithCloud(
-        email: 'user@test.com',
-        password: 'password123',
-      );
-      expect(poll1, false);
+        // 2. Simulate polling failures (e.g. email never gets confirmed)
+        mockHttpClient.isConfirmed = false;
 
-      // Second poll
-      final poll2 = await authProvider.loginWithCloud(
-        email: 'user@test.com',
-        password: 'password123',
-      );
-      expect(poll2, false);
+        // First poll
+        final poll1 = await authProvider.loginWithCloud(
+          email: 'user@test.com',
+          password: 'password123',
+        );
+        expect(poll1, false);
 
-      // Verify that after multiple failures, user remains unauthenticated
-      expect(authProvider.isSignedIn, false);
-      expect(authProvider.cloudError, 'Por favor, confirma tu correo antes de iniciar sesión.');
-    });
+        // Second poll
+        final poll2 = await authProvider.loginWithCloud(
+          email: 'user@test.com',
+          password: 'password123',
+        );
+        expect(poll2, false);
+
+        // Verify that after multiple failures, user remains unauthenticated
+        expect(authProvider.isSignedIn, false);
+        expect(
+          authProvider.cloudError,
+          'Por favor, confirma tu correo antes de iniciar sesión.',
+        );
+      },
+    );
 
     test('Scenario 5: Jujo Cloud Login with MFA/2FA Gating', () async {
       final authProvider = AuthProvider();
@@ -330,9 +351,6 @@ void main() {
       );
       expect(loginOk, true);
       expect(authProvider.isSignedIn, true);
-      
-      final session = Supabase.instance.client.auth.currentSession;
-      print('Scenario 5: currentSession=$session');
 
       // 2. Check MFA status (which is locked / requires verification because user has factor enrolled)
       mockHttpClient.hasMfaFactor = true;
@@ -359,10 +377,11 @@ void main() {
 
       // 2. Enter invalid verification code (e.g. '000000')
       try {
-        final chal = await Supabase.instance.client.auth.mfa.challenge(factorId: 'mock-factor-uuid');
-        print('Direct challenge output: id=${chal.id} expiresAt=${chal.expiresAt}');
-      } catch (err) {
-        print('Direct challenge threw: $err');
+        await Supabase.instance.client.auth.mfa.challenge(
+          factorId: 'mock-factor-uuid',
+        );
+      } catch (_) {
+        // The provider-level verification below owns the user-visible result.
       }
 
       final verifyFail = await mfaProvider.verifyCode('000000');
@@ -446,66 +465,74 @@ void main() {
       expect(details.genres.first, 'Puzzle');
       expect(details.movies.isNotEmpty, true);
       expect(details.movies.first.bestUrl, 'https://mock.steam/portal_480.mp4');
-      expect(details.movies.first.thumbnail, 'https://mock.steam/portal_thumb.jpg');
+      expect(
+        details.movies.first.thumbnail,
+        'https://mock.steam/portal_thumb.jpg',
+      );
     });
   });
 
   group('Stream Session & Quick Menu Scenarios', () {
     setUp(() {
-      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(
-        const MethodChannel('com.limelight.jujostream/streaming'),
-        (MethodCall methodCall) async {
-          if (methodCall.method == 'startStream') {
-            final args = methodCall.arguments as Map;
-            if (args['host'] == 'error-host') {
-              throw PlatformException(
-                code: 'STRM-005',
-                message: 'Video decoder failed to initialize. code 104',
-                details: 104,
-              );
-            }
-            return true;
-          } else if (methodCall.method == 'stopStream') {
-            return null;
-          }
-          return null;
-        },
-      );
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(
+            const MethodChannel('com.limelight.jujostream/streaming'),
+            (MethodCall methodCall) async {
+              if (methodCall.method == 'startStream') {
+                final args = methodCall.arguments as Map;
+                if (args['host'] == 'error-host') {
+                  throw PlatformException(
+                    code: 'STRM-005',
+                    message: 'Video decoder failed to initialize. code 104',
+                    details: 104,
+                  );
+                }
+                return true;
+              } else if (methodCall.method == 'stopStream') {
+                return null;
+              }
+              return null;
+            },
+          );
     });
 
     tearDown(() {
-      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(
-        const MethodChannel('com.limelight.jujostream/streaming'),
-        null,
-      );
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(
+            const MethodChannel('com.limelight.jujostream/streaming'),
+            null,
+          );
     });
 
-    test('Scenario 10: Stream Session Startup & Video/Audio Initialization', () async {
-      final started = await StreamingPlatformChannel.startStream(
-        host: '192.168.1.100',
-        httpsPort: 47984,
-        appId: '12345',
-        width: 1920,
-        height: 1080,
-        fps: 60,
-        bitrate: 20000,
-        videoCodec: 'H264',
-        enableHdr: false,
-        fullRange: false,
-        framePacing: FramePacing.balanced,
-        audioConfig: 'stereo',
-        audioQuality: AudioQuality.high,
-        serverCert: 'CAFEBABE',
-        riKey: 'mock-key',
-        riKeyId: 1,
-        appVersion: '1.1.13',
-        gfeVersion: '3.27',
-        serverCodecModeSupport: 15,
-      );
+    test(
+      'Scenario 10: Stream Session Startup & Video/Audio Initialization',
+      () async {
+        final started = await StreamingPlatformChannel.startStream(
+          host: '192.168.1.100',
+          httpsPort: 47984,
+          appId: '12345',
+          width: 1920,
+          height: 1080,
+          fps: 60,
+          bitrate: 20000,
+          videoCodec: 'H264',
+          enableHdr: false,
+          fullRange: false,
+          framePacing: FramePacing.balanced,
+          audioConfig: 'stereo',
+          audioQuality: AudioQuality.high,
+          serverCert: 'CAFEBABE',
+          riKey: 'mock-key',
+          riKeyId: 1,
+          appVersion: '1.1.13',
+          gfeVersion: '3.27',
+          serverCodecModeSupport: 15,
+        );
 
-      expect(started, true);
-      expect(StreamingPlatformChannel.lastStartStreamError, null);
-    });
+        expect(started, true);
+        expect(StreamingPlatformChannel.lastStartStreamError, null);
+      },
+    );
 
     test('Scenario 11: Streaming Failure & Recovery (Decoder Crash)', () async {
       final started = await StreamingPlatformChannel.startStream(
@@ -532,23 +559,28 @@ void main() {
 
       // Verify startup failed
       expect(started, false);
-      expect(StreamingPlatformChannel.lastStartStreamError, 'STRM-005: Video decoder failed to initialize. code 104');
+      expect(
+        StreamingPlatformChannel.lastStartStreamError,
+        'STRM-005: Video decoder failed to initialize. code 104',
+      );
       expect(StreamingPlatformChannel.lastStartStreamErrorCode, 104);
     });
 
-    test('Scenario 12: Stream Overlay Quick Menu & Live Mic Passthrough Toggle', () async {
-      final settings = SettingsProvider();
-      await settings.loadSettings();
+    test(
+      'Scenario 12: Stream Overlay Quick Menu & Live Mic Passthrough Toggle',
+      () async {
+        final settings = SettingsProvider();
+        await settings.loadSettings();
 
-      // 1. Initial configuration: mic passthrough is disabled
-      expect(settings.config.clientMic, false);
+        // 1. Initial configuration: mic passthrough is disabled
+        expect(settings.config.clientMic, false);
 
-      // 2. User invokes Quick Menu and toggles Mic Passthrough
-      await settings.updateConfig(settings.config.copyWith(clientMic: true));
+        // 2. User invokes Quick Menu and toggles Mic Passthrough
+        await settings.updateConfig(settings.config.copyWith(clientMic: true));
 
-      // 3. Verify it is dynamically updated and notified
-      expect(settings.config.clientMic, true);
-    });
+        // 3. Verify it is dynamically updated and notified
+        expect(settings.config.clientMic, true);
+      },
+    );
   });
 }
-

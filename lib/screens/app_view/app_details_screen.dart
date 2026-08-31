@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:ui';
 
 import '../../widgets/poster_image.dart';
 import '../../widgets/game_backdrop_art.dart';
@@ -26,6 +25,7 @@ import '../../services/database/app_override_service.dart';
 import '../../services/tv/tv_detector.dart';
 import '../../services/input/gamepad_button_helper.dart';
 import '../../widgets/trailer_modal.dart';
+import '../../ui/accessible_action.dart';
 
 enum AppDetailsAction { play, options }
 
@@ -412,7 +412,7 @@ class _AppDetailsScreenState extends State<AppDetailsScreen> {
           const SizedBox(width: 3),
           Text(
             label,
-            style: const TextStyle(color: Colors.white60, fontSize: 9),
+            style: const TextStyle(color: Colors.white70, fontSize: 11),
           ),
         ],
       ),
@@ -420,14 +420,9 @@ class _AppDetailsScreenState extends State<AppDetailsScreen> {
   }
 
   Widget _buildBackdrop() {
-    // A sigma-36 full-width Gaussian blur is one of the most expensive single
-    // draws in Flutter, and this screen opens on every "details" press. It was
-    // gated on performanceMode alone, which defaults to false, so every TV box
-    // paid for it by default. The `else` branch below is a flat scrim that
-    // reads almost identically at couch distance.
-    final perfMode =
-        context.read<ThemeProvider>().performanceMode ||
-        TvDetector.instance.isTV;
+    // Preserve the official composition and a predictable frame budget. The
+    // former full-screen sigma-36 blur required an off-screen render pass and
+    // obscured the artwork it was meant to support.
     return Stack(
       fit: StackFit.expand,
       children: [
@@ -439,13 +434,7 @@ class _AppDetailsScreenState extends State<AppDetailsScreen> {
             fit: StackFit.expand,
             children: [
               hero,
-              if (!perfMode)
-                BackdropFilter(
-                  filter: ImageFilter.blur(sigmaX: 36, sigmaY: 36),
-                  child: Container(color: Colors.black.withValues(alpha: 0.58)),
-                )
-              else
-                Container(color: Colors.black.withValues(alpha: 0.65)),
+              Container(color: Colors.black.withValues(alpha: 0.62)),
             ],
           ),
         ),
@@ -685,59 +674,28 @@ class _AppDetailsScreenState extends State<AppDetailsScreen> {
   }
 
   Widget _miniEditBtn(IconData icon, String label, VoidCallback onTap) {
-    return Focus(
-      onKeyEvent: (_, event) {
-        if (event is! KeyDownEvent) return KeyEventResult.ignored;
-        final key = event.logicalKey;
-        if (key == LogicalKeyboardKey.gameButtonA ||
-            key == LogicalKeyboardKey.enter ||
-            key == LogicalKeyboardKey.select) {
-          onTap();
-          return KeyEventResult.handled;
-        }
-        return KeyEventResult.ignored;
-      },
-      child: Builder(
-        builder: (ctx) {
-          final hasFocus = Focus.of(ctx).hasFocus;
-          return GestureDetector(
-            onTap: onTap,
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 150),
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-              decoration: BoxDecoration(
-                color: hasFocus
-                    ? _tp.accent.withValues(alpha: 0.18)
-                    : Colors.transparent,
-                borderRadius: BorderRadius.circular(6),
-                border: hasFocus
-                    ? Border.all(color: _tp.accent.withValues(alpha: 0.6))
-                    : null,
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    icon,
-                    size: 11,
-                    color: hasFocus ? _tp.accentLight : Colors.white38,
-                  ),
-                  const SizedBox(width: 4),
-                  Text(
-                    label,
-                    style: TextStyle(
-                      color: hasFocus ? Colors.white70 : Colors.white38,
-                      fontSize: 10,
-                      fontWeight: FontWeight.w500,
-                      decoration: hasFocus ? null : TextDecoration.underline,
-                      decorationColor: Colors.white24,
-                    ),
-                  ),
-                ],
+    return AccessibleAction(
+      label: label,
+      tooltip: label,
+      onActivate: onTap,
+      borderRadius: BorderRadius.circular(6),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 14, color: _tp.accentLight),
+            const SizedBox(width: 5),
+            Text(
+              label,
+              style: const TextStyle(
+                color: Colors.white70,
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
               ),
             ),
-          );
-        },
+          ],
+        ),
       ),
     );
   }
@@ -1082,11 +1040,13 @@ class _AppDetailsScreenState extends State<AppDetailsScreen> {
               Icons.power_settings_new,
               AppLocalizations.of(context).closeSession,
               widget.app.isRunning ? Colors.redAccent : null,
-              widget.app.isRunning ? () async {
-                final provider = context.read<AppListProvider>();
-                await provider.quitApp();
-                if (mounted) Navigator.pop(context);
-              } : null, // If false, onTap is null (disabled)
+              widget.app.isRunning
+                  ? () async {
+                      final provider = context.read<AppListProvider>();
+                      await provider.quitApp();
+                      if (mounted) Navigator.pop(context);
+                    }
+                  : null, // If false, onTap is null (disabled)
               gamepadHint: 'Y',
             ),
             _compactBtn(
@@ -1183,8 +1143,6 @@ class _AppDetailsScreenState extends State<AppDetailsScreen> {
 
     final playtime = _ownedGameInfo?.playtimeMinutes ?? app.playtimeMinutes;
     final store = _storeInfo;
-
-    const hasTrailer = true;
 
     String formatPlaytime(int minutes) {
       if (minutes < 60) return '$minutes min';
@@ -1557,136 +1515,136 @@ class _AppDetailsScreenState extends State<AppDetailsScreen> {
     required VoidCallback onTap,
     bool featured = false,
   }) {
-    return Focus(
-      onFocusChange: (f) {
-        if (f) {
-          Scrollable.ensureVisible(
-            context,
-            alignment: 0.5,
-            duration: const Duration(milliseconds: 250),
-            curve: Curves.easeOutCubic,
-          );
-        }
-      },
-      onKeyEvent: (_, event) {
-        if (event is! KeyDownEvent) return KeyEventResult.ignored;
-        final key = event.logicalKey;
-        if (key == LogicalKeyboardKey.enter ||
-            key == LogicalKeyboardKey.select ||
-            key == LogicalKeyboardKey.gameButtonA) {
-          onTap();
-          return KeyEventResult.handled;
-        }
-        return KeyEventResult.ignored;
-      },
-      child: Builder(
-        builder: (ctx) {
-          final hasFocus = Focus.of(ctx).hasFocus;
-          final tone = _presetTone(preset);
-          final base = Color.alphaBlend(
-            tone.withValues(alpha: featured ? 0.16 : 0.10),
-            _tp.surfaceVariant.withValues(alpha: 0.94),
-          );
-          final badges = _presetBadges(preset);
-          return GestureDetector(
-            onTap: onTap,
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 180),
-              width: double.infinity,
-              padding: EdgeInsets.all(featured ? 16 : 14),
-              transform: Matrix4.translationValues(0, hasFocus ? -2 : 0, 0),
-              decoration: BoxDecoration(
-                color: base,
-                borderRadius: BorderRadius.circular(featured ? 18 : 16),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(
-                      alpha: hasFocus ? 0.24 : 0.12,
-                    ),
-                    blurRadius: hasFocus ? 20 : 10,
-                    offset: Offset(0, hasFocus ? 10 : 4),
-                  ),
-                  BoxShadow(
-                    color: tone.withValues(
-                      alpha: hasFocus
-                          ? (featured ? 0.18 : 0.10)
-                          : (featured ? 0.10 : 0.04),
-                    ),
-                    blurRadius: hasFocus ? (featured ? 18 : 10) : 8,
-                    offset: Offset(0, hasFocus ? 4 : 2),
-                  ),
-                ],
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Container(
-                        width: featured ? 40 : 34,
-                        height: featured ? 40 : 34,
-                        decoration: BoxDecoration(
-                          color: tone.withValues(alpha: hasFocus ? 0.22 : 0.16),
-                          borderRadius: BorderRadius.circular(12),
+    return Semantics(
+      button: true,
+      label: '$title. $subtitle',
+      onTap: onTap,
+      child: Focus(
+        onFocusChange: (f) {
+          if (f) {
+            Scrollable.ensureVisible(
+              context,
+              alignment: 0.5,
+              duration: const Duration(milliseconds: 250),
+              curve: Curves.easeOutCubic,
+            );
+          }
+        },
+        onKeyEvent: (_, event) {
+          if (event is! KeyDownEvent) return KeyEventResult.ignored;
+          final key = event.logicalKey;
+          if (key == LogicalKeyboardKey.enter ||
+              key == LogicalKeyboardKey.select ||
+              key == LogicalKeyboardKey.gameButtonA) {
+            onTap();
+            return KeyEventResult.handled;
+          }
+          return KeyEventResult.ignored;
+        },
+        child: Builder(
+          builder: (ctx) {
+            final hasFocus = Focus.of(ctx).hasFocus;
+            final tone = _presetTone(preset);
+            final base = Color.alphaBlend(
+              tone.withValues(alpha: featured ? 0.16 : 0.10),
+              _tp.surfaceVariant.withValues(alpha: 0.94),
+            );
+            final badges = _presetBadges(preset);
+            return GestureDetector(
+              onTap: onTap,
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 180),
+                width: double.infinity,
+                padding: EdgeInsets.all(featured ? 16 : 14),
+                transform: Matrix4.translationValues(0, hasFocus ? -2 : 0, 0),
+                decoration: BoxDecoration(
+                  color: base,
+                  borderRadius: BorderRadius.circular(featured ? 18 : 16),
+                  boxShadow: hasFocus
+                      ? [
+                          BoxShadow(
+                            color: tone.withValues(
+                              alpha: featured ? 0.18 : 0.12,
+                            ),
+                            blurRadius: featured ? 14 : 10,
+                            offset: const Offset(0, 4),
+                          ),
+                        ]
+                      : null,
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          width: featured ? 40 : 34,
+                          height: featured ? 40 : 34,
+                          decoration: BoxDecoration(
+                            color: tone.withValues(
+                              alpha: hasFocus ? 0.22 : 0.16,
+                            ),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          alignment: Alignment.center,
+                          child: Icon(
+                            _presetIcon(preset),
+                            color: Colors.white,
+                            size: featured ? 20 : 18,
+                          ),
                         ),
-                        alignment: Alignment.center,
-                        child: Icon(
-                          _presetIcon(preset),
-                          color: Colors.white,
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                title,
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: featured ? 15 : 14,
+                                ),
+                              ),
+                              const SizedBox(height: 3),
+                              Text(
+                                subtitle,
+                                style: TextStyle(
+                                  color: Colors.white.withValues(alpha: 0.70),
+                                  height: 1.35,
+                                  fontSize: featured ? 12.5 : 12,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Icon(
+                          Icons.arrow_forward_rounded,
+                          color: hasFocus ? Colors.white : Colors.white38,
                           size: featured ? 20 : 18,
                         ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              title,
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.w800,
-                                fontSize: featured ? 15 : 14,
-                              ),
-                            ),
-                            const SizedBox(height: 3),
-                            Text(
-                              subtitle,
-                              style: TextStyle(
-                                color: Colors.white.withValues(alpha: 0.70),
-                                height: 1.35,
-                                fontSize: featured ? 12.5 : 12,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Icon(
-                        Icons.arrow_forward_rounded,
-                        color: hasFocus ? Colors.white : Colors.white38,
-                        size: featured ? 20 : 18,
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  Wrap(
-                    spacing: 6,
-                    runSpacing: 6,
-                    children: [
-                      for (final badge in badges)
-                        _presetBadge(
-                          label: badge,
-                          tone: tone,
-                          focused: hasFocus,
-                        ),
-                    ],
-                  ),
-                ],
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: [
+                        for (final badge in badges)
+                          _presetBadge(
+                            label: badge,
+                            tone: tone,
+                            focused: hasFocus,
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
-            ),
-          );
-        },
+            );
+          },
+        ),
       ),
     );
   }
@@ -2194,103 +2152,108 @@ class _FocusableActionBtnState extends State<_FocusableActionBtn> {
       widget.borderColor.withValues(alpha: _focused ? 0.68 : 0.42),
       widget.backgroundColor,
     );
-    return Focus(
-      autofocus: widget.autofocus,
-      onFocusChange: (f) {
-        setState(() => _focused = f);
-        if (f) {
-          Scrollable.ensureVisible(
-            context,
-            alignment: 0.5,
-            duration: const Duration(milliseconds: 250),
+    return Semantics(
+      button: widget.onTap != null,
+      enabled: widget.onTap != null,
+      label: widget.label,
+      onTap: widget.onTap,
+      child: Focus(
+        autofocus: widget.autofocus,
+        onFocusChange: (f) {
+          setState(() => _focused = f);
+          if (f) {
+            Scrollable.ensureVisible(
+              context,
+              alignment: 0.5,
+              duration: const Duration(milliseconds: 250),
+              curve: Curves.easeOutCubic,
+            );
+          }
+        },
+        onKeyEvent: (_, event) {
+          if (widget.onTap == null) return KeyEventResult.ignored;
+          if (event is! KeyDownEvent) return KeyEventResult.ignored;
+          final key = event.logicalKey;
+          if (key == LogicalKeyboardKey.enter ||
+              key == LogicalKeyboardKey.select ||
+              key == LogicalKeyboardKey.gameButtonA) {
+            widget.onTap!();
+            return KeyEventResult.handled;
+          }
+          return KeyEventResult.ignored;
+        },
+        child: GestureDetector(
+          onTap: widget.onTap,
+          onTapDown: widget.onTap != null
+              ? (_) => setState(() => _pressed = true)
+              : null,
+          onTapUp: widget.onTap != null
+              ? (_) => setState(() => _pressed = false)
+              : null,
+          onTapCancel: widget.onTap != null
+              ? () => setState(() => _pressed = false)
+              : null,
+          child: AnimatedScale(
+            scale: targetScale,
+            duration: const Duration(milliseconds: 110),
             curve: Curves.easeOutCubic,
-          );
-        }
-      },
-      onKeyEvent: (_, event) {
-        if (widget.onTap == null) return KeyEventResult.ignored;
-        if (event is! KeyDownEvent) return KeyEventResult.ignored;
-        final key = event.logicalKey;
-        if (key == LogicalKeyboardKey.enter ||
-            key == LogicalKeyboardKey.select ||
-            key == LogicalKeyboardKey.gameButtonA) {
-          widget.onTap!();
-          return KeyEventResult.handled;
-        }
-        return KeyEventResult.ignored;
-      },
-      child: GestureDetector(
-        onTap: widget.onTap,
-        onTapDown: widget.onTap != null ? (_) => setState(() => _pressed = true) : null,
-        onTapUp: widget.onTap != null ? (_) => setState(() => _pressed = false) : null,
-        onTapCancel: widget.onTap != null ? () => setState(() => _pressed = false) : null,
-        child: AnimatedScale(
-          scale: targetScale,
-          duration: const Duration(milliseconds: 110),
-          curve: Curves.easeOutCubic,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 180),
-            width: double.infinity,
-            margin: const EdgeInsets.symmetric(horizontal: 3),
-            padding: EdgeInsets.symmetric(vertical: widget.isTV ? 14 : 10),
-            transform: Matrix4.translationValues(0, _focused ? -2 : 0, 0),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [gradientTop, gradientBottom],
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 180),
+              width: double.infinity,
+              margin: const EdgeInsets.symmetric(horizontal: 3),
+              padding: EdgeInsets.symmetric(vertical: widget.isTV ? 14 : 10),
+              transform: Matrix4.translationValues(0, _focused ? -2 : 0, 0),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [gradientTop, gradientBottom],
+                ),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                  color: outlineColor,
+                  width: _focused ? 1.4 : 1.0,
+                ),
+                boxShadow: _focused
+                    ? [
+                        BoxShadow(
+                          color: shadowTint.withValues(
+                            alpha: widget.isPrimary ? 0.24 : 0.12,
+                          ),
+                          blurRadius: widget.isPrimary ? 16 : 10,
+                          offset: const Offset(0, 4),
+                        ),
+                      ]
+                    : null,
               ),
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(
-                color: outlineColor,
-                width: _focused ? 1.4 : 1.0,
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: _focused ? 0.24 : 0.14),
-                  blurRadius: _focused ? 20 : 10,
-                  offset: Offset(0, _focused ? 10 : 4),
-                ),
-                BoxShadow(
-                  color: shadowTint.withValues(
-                    alpha: _focused
-                        ? (widget.isPrimary ? 0.26 : 0.12)
-                        : (widget.isPrimary ? 0.12 : 0.05),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.all(8),
+                    child: Icon(
+                      widget.icon,
+                      color: iconColor,
+                      size: widget.isTV ? 26 : 20,
+                    ),
                   ),
-                  blurRadius: _focused
-                      ? (widget.isPrimary ? 22 : 12)
-                      : (widget.isPrimary ? 12 : 8),
-                  offset: Offset(0, _focused ? 5 : 2),
-                ),
-              ],
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.all(8),
-                  child: Icon(
-                    widget.icon,
-                    color: iconColor,
-                    size: widget.isTV ? 26 : 20,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  widget.label,
-                  style: TextStyle(
-                    color: labelColor,
-                    fontSize: widget.isTV ? 13 : 10,
-                    fontWeight: widget.isPrimary
-                        ? FontWeight.w600
-                        : FontWeight.w500,
-                  ),
-                ),
-                if (widget.gamepadHint != null) ...[
                   const SizedBox(height: 2),
-                  GamepadHintIcon(widget.gamepadHint!, size: 22),
+                  Text(
+                    widget.label,
+                    style: TextStyle(
+                      color: labelColor,
+                      fontSize: widget.isTV ? 13 : 11,
+                      fontWeight: widget.isPrimary
+                          ? FontWeight.w600
+                          : FontWeight.w500,
+                    ),
+                  ),
+                  if (widget.gamepadHint != null) ...[
+                    const SizedBox(height: 2),
+                    GamepadHintIcon(widget.gamepadHint!, size: 22),
+                  ],
                 ],
-              ],
+              ),
             ),
           ),
         ),
@@ -2315,8 +2278,6 @@ class _FocusableChoiceRow extends StatefulWidget {
 }
 
 class _FocusableChoiceRowState extends State<_FocusableChoiceRow> {
-  AppThemeColors get _tp => context.read<ThemeProvider>().colors;
-
   bool _focused = false;
 
   @override

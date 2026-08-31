@@ -5,11 +5,11 @@ mixin _AppViewFiltersMixin on _AppViewScreenBase {
   Widget _buildInlineFilterBar(List<NvApp> apps) {
     final categories = _categoryItems(apps);
     return AnimatedSize(
-      duration: const Duration(milliseconds: 250),
-      curve: Curves.easeOutCubic,
+      duration: MotionScope.of(context).microDuration,
+      curve: MotionScope.of(context).standardCurve,
       child: _showBottomFilterBar
           ? Container(
-              height: 44,
+              height: 48,
               padding: const EdgeInsets.symmetric(horizontal: 12),
               child: Row(
                 children: [
@@ -43,14 +43,16 @@ mixin _AppViewFiltersMixin on _AppViewScreenBase {
             cat.collectionId == _activeCollectionId);
     return Padding(
       padding: const EdgeInsets.only(right: 6),
-      child: GestureDetector(
-        onTap: () => _applyFilter(
+      child: AccessibleAction(
+        label: '${cat.label}, ${cat.count}',
+        selected: active,
+        onActivate: () => _applyFilter(
           cat.filter,
           playniteCategory: cat.playniteCategory,
           collectionId: cat.collectionId,
         ),
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 150),
+          duration: MotionScope.of(context).microDuration,
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
           decoration: BoxDecoration(
             color: active
@@ -562,10 +564,12 @@ mixin _AppViewFiltersMixin on _AppViewScreenBase {
       final categories = _categoryItems(allApps);
       final match = categories.where((c) {
         if (c.filter != filter) return false;
-        if (filter == _AppFilter.playniteCategory)
+        if (filter == _AppFilter.playniteCategory) {
           return c.playniteCategory == playniteCategory;
-        if (filter == _AppFilter.collection)
+        }
+        if (filter == _AppFilter.collection) {
           return c.collectionId == collectionId;
+        }
         return true;
       }).firstOrNull;
       if (match != null && match.count == 0) {
@@ -583,10 +587,12 @@ mixin _AppViewFiltersMixin on _AppViewScreenBase {
     final categories = _categoryItems(allApps);
     int categoryIndex = categories.indexWhere((c) {
       if (c.filter != filter) return false;
-      if (filter == _AppFilter.playniteCategory)
+      if (filter == _AppFilter.playniteCategory) {
         return c.playniteCategory == playniteCategory;
-      if (filter == _AppFilter.collection)
+      }
+      if (filter == _AppFilter.collection) {
         return c.collectionId == collectionId;
+      }
       return true;
     });
     if (categoryIndex < 0) categoryIndex = 0;
@@ -946,10 +952,12 @@ mixin _AppViewFiltersMixin on _AppViewScreenBase {
 
     final recalc = categories.indexWhere((c) {
       if (c.filter != _activeFilter) return false;
-      if (_activeFilter == _AppFilter.playniteCategory)
+      if (_activeFilter == _AppFilter.playniteCategory) {
         return c.playniteCategory == _activePlayniteCategory;
-      if (_activeFilter == _AppFilter.collection)
+      }
+      if (_activeFilter == _AppFilter.collection) {
         return c.collectionId == _activeCollectionId;
+      }
       return true;
     });
     _selectedCategoryIndex = (recalc >= 0 ? recalc : 0).clamp(

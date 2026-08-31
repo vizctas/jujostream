@@ -49,6 +49,7 @@ import '../game/game_stream_screen.dart';
 import '../../models/stream_configuration.dart';
 import '../../ui/motion_policy.dart';
 import '../../ui/motion_scope.dart';
+import '../../ui/accessible_action.dart';
 
 part 'app_view_cards.dart';
 part 'app_view_carousel.dart';
@@ -1034,10 +1035,13 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
         ? Icons.radio_button_checked
         : Icons.play_circle_outline;
 
-    return GestureDetector(
-      onTap: () => _handleAppTap(app),
+    return AccessibleAction(
+      label: '$label, ${app.appName}',
+      tooltip: label,
+      onActivate: () => _handleAppTap(app),
+      borderRadius: BorderRadius.circular(12),
       child: Container(
-        height: 44,
+        height: 48,
         decoration: BoxDecoration(
           color: color.withValues(alpha: 0.10),
           borderRadius: BorderRadius.circular(12),
@@ -1165,8 +1169,12 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
           }, gamepadHint: 'R3'),
           const SizedBox(width: 4),
           if (apps.any((a) => a.isRunning))
-            GestureDetector(
-              onTap: () => _confirmQuitApp(context.read<AppListProvider>()),
+            AccessibleAction(
+              label: AppLocalizations.of(context).quitSession,
+              tooltip: AppLocalizations.of(context).quitSession,
+              onActivate: () =>
+                  _confirmQuitApp(context.read<AppListProvider>()),
+              borderRadius: BorderRadius.circular(999),
               child: Container(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 12,
@@ -1263,10 +1271,12 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
     VoidCallback onTap, {
     String? gamepadHint,
   }) {
-    return GestureDetector(
-      onTap: onTap,
+    return AccessibleAction(
+      label: label,
+      tooltip: label,
+      onActivate: onTap,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
         decoration: BoxDecoration(
           color: Colors.black.withValues(alpha: 0.0),
           borderRadius: BorderRadius.circular(10),
@@ -1295,52 +1305,6 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
     );
   }
 
-  // ignore: unused_element
-  Widget _badgedIconButton(IconData icon, String badge, VoidCallback onTap) {
-    return GestureDetector(
-      onTap: onTap,
-      child: SizedBox(
-        width: 38,
-        height: 38,
-        child: Stack(
-          children: [
-            Center(
-              child: Container(
-                width: 34,
-                height: 34,
-                decoration: BoxDecoration(
-                  color: Colors.black38,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                alignment: Alignment.center,
-                child: Icon(icon, color: Colors.white, size: 20),
-              ),
-            ),
-            Positioned(
-              right: 0,
-              bottom: 0,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 1),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.2),
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: Text(
-                  badge,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 7,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _hintChip(String button, String label, {VoidCallback? onTap}) {
     final child = Padding(
       padding: const EdgeInsets.only(right: 8),
@@ -1351,15 +1315,17 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
           const SizedBox(width: 3),
           Text(
             label,
-            style: const TextStyle(color: Colors.white60, fontSize: 9),
+            style: const TextStyle(color: Colors.white70, fontSize: 11),
           ),
         ],
       ),
     );
     if (onTap != null) {
-      return GestureDetector(
-        onTap: onTap,
-        behavior: HitTestBehavior.opaque,
+      return AccessibleAction(
+        label: label.isEmpty ? button : label,
+        tooltip: label.isEmpty ? null : label,
+        onActivate: onTap,
+        showFocusRing: false,
         child: child,
       );
     }
@@ -1412,10 +1378,14 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
           child: Row(
             children: [
               Expanded(
-                child: GestureDetector(
-                  onTap: () => _handleAppTap(selected),
+                child: AccessibleAction(
+                  label: selected.isRunning
+                      ? AppLocalizations.of(context).resume
+                      : AppLocalizations.of(context).play,
+                  onActivate: () => _handleAppTap(selected),
+                  borderRadius: BorderRadius.circular(14),
                   child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 300),
+                    duration: MotionScope.of(context).microDuration,
                     height: 48,
                     decoration: BoxDecoration(
                       color: accentBtn,
@@ -2451,8 +2421,15 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
         }
         return KeyEventResult.ignored;
       },
-      child: Builder(
-        builder: (ctx) {
+      child: Semantics(
+        button: true,
+        label: label,
+        onTap: () {
+          _feedbackNavigate();
+          onTap();
+        },
+        child: Builder(
+          builder: (ctx) {
           final hasFocus = Focus.of(ctx).hasFocus;
           return GestureDetector(
             onTap: () {
@@ -2461,13 +2438,13 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
             },
             behavior: HitTestBehavior.opaque,
             child: AnimatedContainer(
-              duration: const Duration(milliseconds: 150),
+              duration: MotionScope.of(context).microDuration,
               color: Colors.transparent,
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
               child: Row(
                 children: [
                   AnimatedContainer(
-                    duration: const Duration(milliseconds: 120),
+                    duration: MotionScope.of(context).microDuration,
                     width: 36,
                     height: 36,
                     decoration: hasFocus
@@ -2498,7 +2475,8 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
               ),
             ),
           );
-        },
+          },
+        ),
       ),
     );
   }
@@ -2968,11 +2946,13 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
               selectedBackground ?? Colors.white.withValues(alpha: 0.08);
           final fg = textColor ?? Colors.white;
           return Expanded(
-            child: GestureDetector(
-              onTap: onTap,
+            child: AccessibleAction(
+              label: label,
+              selected: selected,
+              onActivate: onTap,
               child: AnimatedContainer(
-                duration: const Duration(milliseconds: 120),
-                padding: const EdgeInsets.symmetric(vertical: 10),
+                duration: MotionScope.of(context).microDuration,
+                padding: const EdgeInsets.symmetric(vertical: 14),
                 decoration: BoxDecoration(
                   color: selected ? bgColor : Colors.transparent,
                   borderRadius: BorderRadius.circular(10),

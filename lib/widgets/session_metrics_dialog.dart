@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:math' as math;
 import 'dart:io';
 import 'dart:ui' as ui;
@@ -148,6 +148,7 @@ class _SessionMetricsDialogState extends State<SessionMetricsDialog>
   }
 
   void _shareSummary(BuildContext context) async {
+    final summary = _buildSummary(context);
     try {
       final boundary =
           _repaintKey.currentContext?.findRenderObject()
@@ -161,11 +162,11 @@ class _SessionMetricsDialogState extends State<SessionMetricsDialog>
       final file = File('${tmpDir.path}/jujo_metrics.png');
       await file.writeAsBytes(pngBytes);
       await SharePlus.instance.share(
-        ShareParams(files: [XFile(file.path)], text: _buildSummary(context)),
+        ShareParams(files: [XFile(file.path)], text: summary),
       );
     } catch (_) {
       // graceful fallback to text
-      await SharePlus.instance.share(ShareParams(text: _buildSummary(context)));
+      await SharePlus.instance.share(ShareParams(text: summary));
     } finally {
       if (mounted) {
         _focusNode.requestFocus();

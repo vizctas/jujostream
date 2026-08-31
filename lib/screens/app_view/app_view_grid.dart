@@ -89,7 +89,7 @@ mixin _AppViewGridMixin on _AppViewScreenBase {
                             AppLocalizations.of(context).running,
                             style: TextStyle(
                               color: Colors.greenAccent,
-                              fontSize: 9,
+                              fontSize: 11,
                             ),
                           ),
                         ),
@@ -107,7 +107,7 @@ mixin _AppViewGridMixin on _AppViewScreenBase {
                               sel.playtimeLabel,
                               style: const TextStyle(
                                 color: Colors.white54,
-                                fontSize: 10,
+                                fontSize: 11,
                               ),
                             ),
                           ],
@@ -312,7 +312,9 @@ mixin _AppViewGridMixin on _AppViewScreenBase {
                             color: Colors.white10,
                             child: Center(
                               child: Text(
-                                app.appName.substring(0, 1),
+                                app.appName.trim().isEmpty
+                                    ? '?'
+                                    : app.appName.trim().characters.first,
                                 style: const TextStyle(
                                   color: Colors.white24,
                                   fontSize: 24,
@@ -345,7 +347,7 @@ mixin _AppViewGridMixin on _AppViewScreenBase {
                                 overflow: TextOverflow.ellipsis,
                                 style: const TextStyle(
                                   color: Colors.white,
-                                  fontSize: 10,
+                                  fontSize: 11,
                                   fontWeight: FontWeight.w600,
                                 ),
                               ),

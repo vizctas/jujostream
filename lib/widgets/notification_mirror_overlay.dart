@@ -173,16 +173,18 @@ class _NotificationMirrorCard extends StatelessWidget {
                     accent: tp.accent,
                   ),
                 ],
-                GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTap: onDismiss,
-                  child: Padding(
-                    padding: EdgeInsets.all(3 * scale),
-                    child: Icon(
-                      Icons.close_rounded,
-                      color: sub,
-                      size: 14 * scale,
-                    ),
+                IconButton(
+                  onPressed: onDismiss,
+                  tooltip: MaterialLocalizations.of(context).closeButtonLabel,
+                  constraints: const BoxConstraints(
+                    minWidth: 44,
+                    minHeight: 44,
+                  ),
+                  padding: EdgeInsets.zero,
+                  icon: Icon(
+                    Icons.close_rounded,
+                    color: sub,
+                    size: 16 * scale.clamp(0.75, 2.0),
                   ),
                 ),
               ],

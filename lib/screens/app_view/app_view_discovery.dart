@@ -80,8 +80,13 @@ mixin _AppViewDiscoveryMixin on _AppViewScreenBase {
 
   Widget _buildDiscoveryThumb(NvApp app, List<NvApp> allApps) {
     final isSelected = app.appId == _selectedAppId;
-    return GestureDetector(
-      onTap: () {
+    return AccessibleAction(
+      label: app.appName,
+      selected: isSelected,
+      tooltip: app.appName,
+      minimumSize: const Size(50, 68),
+      borderRadius: BorderRadius.circular(9),
+      onActivate: () {
         _feedbackNavigate();
 
         var visibleApps = _visibleApps(allApps);
@@ -108,7 +113,7 @@ mixin _AppViewDiscoveryMixin on _AppViewScreenBase {
         }
       },
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 160),
+        duration: MotionScope.of(context).focusDuration,
         width: 50,
         height: 68,
         decoration: BoxDecoration(

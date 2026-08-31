@@ -294,6 +294,7 @@ class _VibeApolloScreenState extends State<VibeApolloScreen> {
           ? await client.get(uri, headers: _authHeader)
           : await client.post(uri, headers: _authHeader);
 
+      if (!mounted) return;
       final body = _decodeBody(response.bodyBytes);
 
       if (response.statusCode >= 200 && response.statusCode < 300) {
@@ -323,6 +324,7 @@ class _VibeApolloScreenState extends State<VibeApolloScreen> {
         _toast('HTTP ${response.statusCode}: $snippet', ok: false);
       }
     } catch (e) {
+      if (!mounted) return;
       final d = e.toString();
       _toast(
         '${_t(context, 'Connection error — check token and server.', 'Error de conexion — revisa token y servidor.')}\n${d.length > 80 ? d.substring(0, 80) : d}',
@@ -342,6 +344,7 @@ class _VibeApolloScreenState extends State<VibeApolloScreen> {
     final file = await openFile(acceptedTypeGroups: [imageGroup]);
     final path = file?.path;
     if (path == null) return;
+    if (!mounted) return;
 
     setState(() => _loadingId = action.id);
     final client = _buildClient();
@@ -353,6 +356,7 @@ class _VibeApolloScreenState extends State<VibeApolloScreen> {
 
       final streamed = await client.send(req);
       final bytes = await streamed.stream.toBytes();
+      if (!mounted) return;
       final body = _decodeBody(bytes);
 
       if (streamed.statusCode >= 200 && streamed.statusCode < 300) {
