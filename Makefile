@@ -43,6 +43,8 @@ RELEASE_NOTES ?= JujoStream client release $(TAG)
 DART_DEFINES = --dart-define=SUPABASE_URL=$(SUPABASE_URL) \
                --dart-define=SUPABASE_PUBLISHABLE_KEY=$(SUPABASE_PUBLISHABLE_KEY)
 PATCH_BUILT_IN_KOTLIN = powershell -NoProfile -ExecutionPolicy Bypass -File scripts/patch_flutter_plugins_built_in_kotlin.ps1
+DIRECT_FIRE_BUILD = flutter build apk --release --flavor directFire -t lib/main_direct_fire.dart $(DART_DEFINES)
+PLAY_AAB_BUILD = flutter build appbundle --release --flavor play -t lib/main_play.dart $(DART_DEFINES)
 
 
 #flutter run apk --release --dart-define=SUPABASE_URL=$(SUPABASE_URL) --dart-define=SUPABASE_PUBLISHABLE_KEY=$(SUPABASE_PUBLISHABLE_KEY)
@@ -51,8 +53,8 @@ PATCH_BUILT_IN_KOTLIN = powershell -NoProfile -ExecutionPolicy Bypass -File scri
 # Derived from TAG (e.g. client-1.1.13 or v1.1.13)
 APP_VERSION    = $(patsubst client-%,%,$(patsubst v%,%,$(TAG)))
 RELEASE_DIR    = $(RELEASE_DIST)/$(TAG)
-APK_SRC        = build/app/outputs/flutter-apk/app-release.apk
-AAB_SRC        = build/app/outputs/bundle/release/app-release.aab
+APK_SRC        = build/app/outputs/flutter-apk/app-directfire-release.apk
+AAB_SRC        = build/app/outputs/bundle/playRelease/app-play-release.aab
 # The whole Release folder is the Windows app, not just the .exe: the runner
 # needs flutter_windows.dll, every plugin DLL, and data/ — which holds app.so,
 # the AOT snapshot carrying the --dart-define values. Shipping the bare exe
@@ -100,21 +102,21 @@ validate-release-tag:
 	powershell -NoProfile -Command "if ('$(TAG)' -notmatch '^(?:client-|v)\d+\.\d+\.\d+$$') { Write-Error \"TAG must match client-X.Y.Z or vX.Y.Z. Got: $(TAG)\"; exit 1 }"
 
 rapk:
-	flutter build apk --release $(DART_DEFINES)
+	$(DIRECT_FIRE_BUILD)
 
 build-apk: verify-android-keystore
 	powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update_app_version.ps1 $(APP_VERSION)
 	flutter clean
 	flutter pub get
 	$(PATCH_BUILT_IN_KOTLIN)
-	flutter build apk --release $(DART_DEFINES)
+	$(DIRECT_FIRE_BUILD)
 
 build-aab: verify-android-keystore
 	powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update_app_version.ps1 $(APP_VERSION)
 	flutter clean
 	flutter pub get
 	$(PATCH_BUILT_IN_KOTLIN)
-	flutter build appbundle --release $(DART_DEFINES)
+	$(PLAY_AAB_BUILD)
 	@echo "AAB built: $(AAB_SRC)"
 
 release-apk-dry-run: validate-release-tag
@@ -122,8 +124,8 @@ release-apk-dry-run: validate-release-tag
 	@echo "Repo:            $(GITHUB_REPO)"
 	@echo "APK output:      $(APK_OUT)"
 	@echo "AAB output:      $(AAB_OUT)"
-	@echo "Build APK:       flutter build apk --release $(DART_DEFINES)"
-	@echo "Build AAB:       flutter build appbundle --release $(DART_DEFINES)"
+	@echo "Build APK:       $(DIRECT_FIRE_BUILD)"
+	@echo "Build AAB:       $(PLAY_AAB_BUILD)"
 	@echo "Git tag:         git tag $(TAG) && git push origin $(TAG)"
 	@echo "GH release:      gh release create $(TAG) \"$(APK_OUT)\" \"$(AAB_OUT)\" \"$(SHA_OUT)\" --repo $(GITHUB_REPO) --title \"JujoStream $(TAG)\" --notes \"$(RELEASE_NOTES)\""
 
@@ -135,8 +137,8 @@ $(RELEASE_DIR)/build-all: validate-release-tag $(RELEASE_DIR) verify-android-key
 	flutter clean
 	flutter pub get
 	$(PATCH_BUILT_IN_KOTLIN)
-	flutter build apk --release $(DART_DEFINES)
-	flutter build appbundle --release $(DART_DEFINES)
+	$(DIRECT_FIRE_BUILD)
+	$(PLAY_AAB_BUILD)
 	flutter build windows --release $(DART_DEFINES)
 	powershell -NoProfile -Command "Copy-Item -LiteralPath '$(APK_SRC)' -Destination '$(APK_OUT)' -Force"
 	powershell -NoProfile -Command "Copy-Item -LiteralPath '$(AAB_SRC)' -Destination '$(AAB_OUT)' -Force"
