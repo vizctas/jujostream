@@ -232,8 +232,16 @@ class GamepadHandler(
     // pipeline and the Chromecast's BT/vibrator stack until the box rebooted.
     // Packets are coalesced per device (newest wins) and applied at most every
     // 40 ms on a dedicated feedback thread, never on the receive thread.
-    private val controllerRumbleThrottle = ControllerLedThrottle(40_000_000L)
-    private val controllerTriggerThrottle = ControllerLedThrottle(40_000_000L)
+    // Chromecast HD (boreal, Android 14 UTTC.250917.004): controller vibration
+    // is routed through system_server's InputReader (VibratorInputMapper), and
+    // its QueuedInputListener::flush aborted with bad_variant_access under
+    // frame-rate rumble from two DualSense pads, rebooting the whole box
+    // (tombstones 2026-09-09 00:11:00 and 00:14:35). Keep that path sparse.
+    private val rumbleIntervalNanos: Long =
+        if (Build.VERSION.SDK_INT >= 34 && Build.DEVICE.startsWith("boreal")) 80_000_000L
+        else 40_000_000L
+    private val controllerRumbleThrottle = ControllerLedThrottle(rumbleIntervalNanos)
+    private val controllerTriggerThrottle = ControllerLedThrottle(rumbleIntervalNanos)
     private val rumbleRunnables = mutableMapOf<Int, Runnable>()
     private val triggerRunnables = mutableMapOf<Int, Runnable>()
     private val feedbackThread = HandlerThread("controller-feedback").also { it.start() }
