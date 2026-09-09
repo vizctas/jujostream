@@ -218,10 +218,9 @@ mixin _AppViewGamepadMixin on _AppViewScreenBase {
     if (next == start) return;
     final app = apps[next];
     _feedbackNavigate();
-    setState(() {
-      _selectedAppId = app.appId;
-      _focusedAppId = app.appId;
-    });
+    // Notifiers: only the listening cards and info panel rebuild.
+    _selectedAppId = app.appId;
+    _focusedAppId = app.appId;
     _queueAccentColorExtraction(app);
 
     if (_viewMode == _ViewMode.grid) {

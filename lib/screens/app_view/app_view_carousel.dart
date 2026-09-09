@@ -131,7 +131,15 @@ mixin _AppViewCarouselMixin on _AppViewScreenBase {
           separatorBuilder: (_, _) => SizedBox(width: lp.cardSpacing),
           itemBuilder: (context, index) {
             final app = apps[index];
-            final isSelected = app.appId == selected.appId;
+            // Each card listens to the selection/focus notifiers itself, so a
+            // D-pad move rebuilds two cards instead of the whole screen.
+            return AnimatedBuilder(
+              animation: Listenable.merge([
+                _selectedAppIdNotifier,
+                _focusedAppIdNotifier,
+              ]),
+              builder: (context, _) {
+            final isSelected = app.appId == _selectedAppId;
             return _CarouselCard(
               key: ValueKey(app.appId),
               app: app,
@@ -145,11 +153,11 @@ mixin _AppViewCarouselMixin on _AppViewScreenBase {
               showRunningBadge: lp.showRunningBadge,
               onFocus: () {
                 if (!mounted) return;
-                setState(() {
-                  _browseSection = _BrowseSection.carousel;
-                  _selectedAppId = app.appId;
-                  _focusedAppId = app.appId;
-                });
+                if (_browseSection != _BrowseSection.carousel) {
+                  setState(() => _browseSection = _BrowseSection.carousel);
+                }
+                _selectedAppId = app.appId;
+                _focusedAppId = app.appId;
                 _queueAccentColorExtraction(app);
                 _centerOnIndex(index, apps.length);
               },
@@ -160,10 +168,8 @@ mixin _AppViewCarouselMixin on _AppViewScreenBase {
                   _openDetailsScreen(app);
                 } else {
                   _feedbackNavigate();
-                  setState(() {
-                    _selectedAppId = app.appId;
-                    _focusedAppId = app.appId;
-                  });
+                  _selectedAppId = app.appId;
+                  _focusedAppId = app.appId;
                   _queueAccentColorExtraction(app);
                   _requestCardFocus(app.appId);
                   _centerOnIndex(index, apps.length);
@@ -171,13 +177,13 @@ mixin _AppViewCarouselMixin on _AppViewScreenBase {
               },
               onLongPress: () {
                 _feedbackHeavy();
-                setState(() {
-                  _selectedAppId = app.appId;
-                  _focusedAppId = app.appId;
-                });
+                _selectedAppId = app.appId;
+                _focusedAppId = app.appId;
                 _requestCardFocus(app.appId);
                 _centerOnIndex(index, apps.length);
                 _showRunningSheet(app);
+              },
+            );
               },
             );
           },

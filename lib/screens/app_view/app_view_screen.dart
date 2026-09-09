@@ -133,7 +133,11 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
   final ValueNotifier<int?> _selectedAppIdNotifier = ValueNotifier<int?>(null);
   int? get _selectedAppId => _selectedAppIdNotifier.value;
   set _selectedAppId(int? v) => _selectedAppIdNotifier.value = v;
-  int? _focusedAppId;
+  // Same treatment as selection: every D-pad move used to setState the whole
+  // 3k-line screen only so one carousel card could repaint its focus ring.
+  final ValueNotifier<int?> _focusedAppIdNotifier = ValueNotifier<int?>(null);
+  int? get _focusedAppId => _focusedAppIdNotifier.value;
+  set _focusedAppId(int? v) => _focusedAppIdNotifier.value = v;
   String _searchQuery = '';
   _AppFilter _activeFilter = _AppFilter.all;
   _ViewMode _viewMode = _ViewMode.carousel;
@@ -384,6 +388,7 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
       node.dispose();
     }
     _selectedAppIdNotifier.dispose();
+    _focusedAppIdNotifier.dispose();
     super.dispose();
   }
 
@@ -1005,7 +1010,7 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
 
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 4, 16, 6),
-          child: _buildPortraitHeader(selected),
+          child: _onSelection(selected, _buildPortraitHeader),
         ),
 
         Padding(
@@ -1107,15 +1112,18 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
 
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
-          child: Text(
-            selected.appName,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 18,
-              fontWeight: FontWeight.w800,
-              shadows: [Shadow(color: Colors.black87, blurRadius: 10)],
+          child: _onSelection(
+            selected,
+            (app) => Text(
+              app.appName,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+                shadows: [Shadow(color: Colors.black87, blurRadius: 10)],
+              ),
             ),
           ),
         ),
@@ -2027,6 +2035,17 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
     return _buildBackgroundChild(
       bgApp,
       const ValueKey<String>('launcher-dynamic-background'),
+    );
+  }
+
+  /// Rebuilds only [build] when the selection moves. The screen itself no
+  /// longer rebuilds per D-pad key, so anything that shows the selected app
+  /// immediately (title, badges) must subscribe here.
+  Widget _onSelection(NvApp fallback, Widget Function(NvApp app) build) {
+    return ValueListenableBuilder<int?>(
+      valueListenable: _selectedAppIdNotifier,
+      builder: (_, id, _) =>
+          build(id == null ? fallback : (_findAppById(id) ?? fallback)),
     );
   }
 

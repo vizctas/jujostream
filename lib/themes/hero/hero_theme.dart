@@ -471,7 +471,22 @@ class _HeroBodyState extends State<_HeroBody>
           )
         : s;
 
-    return Focus(
+    // ActivateIntent is what Flutter's default shortcuts (select / enter /
+    // space) and GamepadNavigationService dispatch to the focused node. The
+    // raw-key path above missed the remote's centre button on FireTV.
+    return Actions(
+      actions: <Type, Action<Intent>>{
+        ActivateIntent: CallbackAction<ActivateIntent>(
+          onInvoke: (_) {
+            if (_view == _HeroView.home && _sel != null) {
+              _action();
+              widget.onAppSelected(_sel!);
+            }
+            return null;
+          },
+        ),
+      },
+      child: Focus(
       focusNode: _fn,
       autofocus: true,
       onKeyEvent: _onKey,
@@ -564,6 +579,7 @@ class _HeroBodyState extends State<_HeroBody>
             ),
           ],
         ),
+      ),
       ),
     );
   }
