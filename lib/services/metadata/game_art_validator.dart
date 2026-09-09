@@ -50,10 +50,20 @@ class GameArtValidator {
 
   static Future<GameHeroProbe> probeHero(String url, {String? cacheKey}) {
     final key = cacheKey ?? url;
-    return _heroChecks.putIfAbsent(
-      key,
-      () => _probeWithRecovery(url, cacheKey),
-    );
+    return _heroChecks.putIfAbsent(key, () {
+      final probe = _probeWithRecovery(url, cacheKey);
+      // Only successful probes are memoised for the process lifetime. A
+      // failed one (network blip, unpinned first request) is forgotten after
+      // a short window so the hero can recover without an app restart.
+      probe.then((result) {
+        if (!result.isEligible) {
+          Future<void>.delayed(const Duration(seconds: 45), () {
+            if (identical(_heroChecks[key], probe)) _heroChecks.remove(key);
+          });
+        }
+      }, onError: (_) => _heroChecks.remove(key));
+      return probe;
+    });
   }
 
   static Future<GameHeroProbe> _probeWithRecovery(

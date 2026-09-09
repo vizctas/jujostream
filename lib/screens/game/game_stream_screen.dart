@@ -103,6 +103,16 @@ class _GameStreamScreenState extends State<GameStreamScreen>
   String? _activeOverlayPreset;
 
   bool _isReconnecting = false;
+
+  // Background suspend. Leaving to HOME without PiP destroys the render
+  // surface; the native side reports that as `renderStalled`, which used to
+  // be handled as a connection drop: reconnect while backgrounded, hit
+  // GS_WRONG_STATE, auto-`/cancel`, and the server killed the game. Instead
+  // the stream is stopped without cancelling (server pauses the app) and
+  // resumed once on return.
+  bool _inBackground = false;
+  bool _suspendedForBackground = false;
+  bool _resumingFromBackground = false;
   int _presetReconnectRetries = 0;
   static const int _maxPresetReconnectRetries = 2;
 
@@ -337,14 +347,33 @@ class _GameStreamScreenState extends State<GameStreamScreen>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.hidden) {
+      _inBackground = true;
       final pro = context.read<ProService>();
-      if (_isConnected &&
+      final pipEligible =
+          _isConnected &&
           _privacyGate.revealCompleted &&
           _config.pipEnabled &&
-          (pro.isPro || ProService.kDevMode)) {
+          (pro.isPro || ProService.kDevMode);
+      if (pipEligible) {
         StreamingPlatformChannel.enterPiP();
+      } else if (_isConnected && !_userInitiatedQuit) {
+        _suspendForBackground();
       }
     } else if (state == AppLifecycleState.resumed) {
+      _inBackground = false;
+      if (_suspendedForBackground) {
+        _suspendedForBackground = false;
+        _resumingFromBackground = true;
+        _reconnectAttempts = 0;
+        _lastDisconnectTime = null;
+        if (mounted) {
+          setState(() {
+            _isConnecting = true;
+            _reconnectMessage = AppLocalizations.of(context).reconnectingLabel;
+          });
+        }
+        _startStreaming();
+      }
       if (!_keyboardVisible) {
         SystemChannels.textInput.invokeMethod('TextInput.hide');
         _keyboardFocusNode.unfocus();
@@ -568,6 +597,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
           _privacyGate.markTransportConnected();
           _isConnecting = true;
           _isConnected = true;
+          _resumingFromBackground = false;
           _reconnectMessage = null;
         });
         if (_privacyGate.required) {
@@ -615,6 +645,20 @@ class _GameStreamScreenState extends State<GameStreamScreen>
 
         // GS_WRONG_STATE (104) — server has a stale session from a previous
         // client. Auto-cancel it and retry once before showing the error.
+        if (errorCode == 104 && _resumingFromBackground) {
+          // Our own suspend is still tearing down on the server. Wait and
+          // retry once without /cancel: cancelling here is what killed the
+          // game every time the user pressed HOME.
+          _resumingFromBackground = false;
+          debugPrint('[Stream] GS_WRONG_STATE after background resume — retry');
+          await Future.delayed(const Duration(seconds: 2));
+          if (isCurrent()) {
+            _lastDisconnectTime = null;
+            _startStreaming();
+          }
+          return;
+        }
+
         if (errorCode == 104 && !_isReconnecting) {
           if (!mounted) return;
           final isEs = Localizations.localeOf(context).languageCode == 'es';
@@ -926,6 +970,21 @@ class _GameStreamScreenState extends State<GameStreamScreen>
     }
   }
 
+  /// Stop the transport while the app is in the background, keeping the
+  /// server session (and the game) alive. `_stopStreaming` without
+  /// clearActiveSession makes the server pause rather than terminate.
+  void _suspendForBackground() {
+    if (_suspendedForBackground || _streamStopped) return;
+    _suspendedForBackground = true;
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
+    debugPrint('[Stream] suspending for background (no PiP); session kept');
+    BetaTelemetryService.event('stream_suspended_background', {});
+    _stopInFlight = false;
+    _streamStopped = false;
+    unawaited(_stopStreaming());
+  }
+
   Future<void> _stopStreaming({bool clearActiveSession = false}) async {
     if (_stopInFlight || _streamStopped) return;
 
@@ -1138,6 +1197,13 @@ class _GameStreamScreenState extends State<GameStreamScreen>
             _startStreaming();
           }
         case 'renderStalled':
+          if (_inBackground || _suspendedForBackground) {
+            // Surface loss caused by HOME is expected; the lifecycle handler
+            // already suspended the session. Treating it as a drop started a
+            // reconnect loop in the background that ended in /cancel.
+            debugPrint('[Stream] renderStalled while backgrounded — ignored');
+            break;
+          }
           BetaTelemetryService.event('native_render_stalled', {
             'reason': event['reason'] ?? 'unknown',
             'framesReceived': event['framesReceived'] ?? 0,

@@ -200,9 +200,19 @@ class MotionPolicy {
           ? MotionTier.constrained
           : MotionTier.premium);
   MotionTokens get tokens => MotionTokens.forTier(tier);
+
+  /// Continuous loops that repaint large areas (backdrop Ken Burns, ambient
+  /// waves/particles, card float and glow) are premium-only. Measured on a
+  /// FireTV 4K Max (tier standard) they held the launcher at a flat 50 ms per
+  /// frame while idle, so D-pad navigation could never exceed 20 fps. Short
+  /// state feedback and the one-shot cinematic keep running on every tier
+  /// that has not asked for reduced motion.
   bool get allowContinuousEffects => tier == MotionTier.premium;
-  bool get allowBackdropMotion =>
-      tier == MotionTier.standard || tier == MotionTier.premium;
+  bool get allowSignatureMotion => tier == MotionTier.premium;
+  bool get allowUserSelectedAmbientMotion => tier == MotionTier.premium;
+  bool get allowFeedbackMotion => !reduceMotion;
+  bool get allowCinematicMotion => !reduceMotion;
+  bool get allowBackdropMotion => tier == MotionTier.premium;
   bool get allowFunctionalMarquee => tier != MotionTier.reduced;
   Duration get focusDuration => tokens.focus;
   Duration get microDuration => tokens.state;

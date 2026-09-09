@@ -2,7 +2,8 @@ part of 'app_view_screen.dart';
 
 Future<void> _feedbackNavigate() async {
   UiSoundService.playClick();
-  HapticFeedback.lightImpact();
+  // No vibrator on TV boxes; skip the per-key platform-channel round trip.
+  if (!TvDetector.instance.isTV) HapticFeedback.lightImpact();
 }
 
 Future<void> _feedbackAction() async {

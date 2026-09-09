@@ -71,6 +71,14 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+        <!-- Impeller (Vulkan) on the Mali GPUs of FireTV 4K Max / Chromecast HD
+             rasterises every launcher frame in a flat 50 ms (20 fps, 100 %
+             janky, measured via SurfaceFlinger on 2026-09-08). The Skia GL
+             backend renders the same screens at 16.7 ms p50. Keep Impeller
+             off on Android until a Flutter release fixes that driver path. -->
+        <meta-data
+            android:name="io.flutter.embedding.android.EnableImpeller"
+            android:value="false" />
         <service
             android:name="com.limelight.jujostream.native_bridge.PairingForegroundService"
             android:foregroundServiceType="connectedDevice"

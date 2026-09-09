@@ -2,23 +2,30 @@ import 'package:flutter/foundation.dart';
 
 typedef ArtworkCacheEviction = Future<void> Function();
 
-/// Repairs a poisoned artwork cache entry at most once per versioned art key.
+/// Repairs a poisoned artwork cache entry, at most once per [retryAfter]
+/// window per versioned art key.
 ///
 /// A failed response used to remain on disk for 90 days. Keeping the retry
 /// budget here prevents independent widgets and probes from creating an
-/// eviction/download loop for the same source.
+/// eviction/download loop for the same source. The budget is time-bounded
+/// rather than permanent: a transient TLS or network failure at first paint
+/// used to leave the tile grey until the process was killed.
 class ArtworkCacheRecovery {
   ArtworkCacheRecovery._();
 
   static final instance = ArtworkCacheRecovery._();
+  static const retryAfter = Duration(seconds: 45);
 
-  final Set<String> _attempted = <String>{};
+  final Map<String, DateTime> _attempted = <String, DateTime>{};
 
   Future<bool> recoverOnce({
     required String identity,
     required ArtworkCacheEviction evict,
   }) async {
-    if (!_attempted.add(identity)) return false;
+    final now = DateTime.now();
+    final last = _attempted[identity];
+    if (last != null && now.difference(last) < retryAfter) return false;
+    _attempted[identity] = now;
     try {
       await evict();
     } catch (error) {

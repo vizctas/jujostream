@@ -9,6 +9,7 @@ import '../models/computer_details.dart';
 import '../models/nv_app.dart';
 import '../services/discovery/discovery_service.dart';
 import '../services/network/wake_on_lan_service.dart';
+import '../services/http_api/game_art_file_service.dart';
 import '../services/http_api/nv_http_client.dart';
 import '../services/pairing/pairing_service.dart';
 import '../services/database/achievement_service.dart';
@@ -199,6 +200,26 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
   /// hidden (not deleted) and restored on the next sign-in.
   bool get _cloudSignedIn => hasCloudSession();
 
+  /// Paired server certificate for an `https://host:port` art origin, or null.
+  /// Matches any address the computer has been reached through, since the
+  /// art URL embeds whichever address the last /applist resolved.
+  String? _pinnedCertFor(String host, int port) {
+    final h = host.toLowerCase();
+    for (final c in _computers) {
+      if (c.serverCert.trim().isEmpty || c.httpsPort != port) continue;
+      final addresses = [
+        c.activeAddress,
+        c.localAddress,
+        c.manualAddress,
+        c.remoteAddress,
+      ];
+      if (addresses.any((a) => a.trim().toLowerCase() == h)) {
+        return c.serverCert;
+      }
+    }
+    return null;
+  }
+
   List<ComputerDetails> get computers {
     final visible = _computers
         .where(
@@ -269,6 +290,9 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
        _unpairRequest = unpairRequest {
     WidgetsBinding.instance.addObserver(this);
     _loadPersistedComputers();
+    // Let /appasset requests pin the paired server certificate before any
+    // /applist has run this process (warm-cache launcher, process restart).
+    gameArtFileService.certResolver = _pinnedCertFor;
     _discoveryService.onComputerFound.listen(_onComputerDiscovered);
     _startAdaptivePoll();
     _syncSubscription = CloudSyncService.onSyncCompleted.listen((_) {

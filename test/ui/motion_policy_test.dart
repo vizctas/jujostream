@@ -87,5 +87,37 @@ void main() {
         expect(motion.allowContinuousEffects, isFalse);
       }
     });
+
+    test('TV tiers keep feedback and cinematic, drop continuous loops', () {
+      // Measured on FireTV 4K Max: signature/ambient/backdrop loops held the
+      // launcher at 50 ms per frame while idle. They are premium-only now.
+      for (final tier in [MotionTier.constrained, MotionTier.standard]) {
+        final motion = MotionPolicy(
+          reduceMotion: false,
+          performanceMode: tier == MotionTier.constrained,
+          resolvedTier: tier,
+        );
+
+        expect(motion.allowSignatureMotion, isFalse);
+        expect(motion.allowUserSelectedAmbientMotion, isFalse);
+        expect(motion.allowBackdropMotion, isFalse);
+        expect(motion.allowFeedbackMotion, isTrue);
+        expect(motion.allowCinematicMotion, isTrue);
+        expect(motion.allowContinuousEffects, isFalse);
+      }
+    });
+
+    test('accessibility reduction disables every optional motion class', () {
+      const motion = MotionPolicy(
+        reduceMotion: true,
+        performanceMode: false,
+        resolvedTier: MotionTier.reduced,
+      );
+
+      expect(motion.allowSignatureMotion, isFalse);
+      expect(motion.allowUserSelectedAmbientMotion, isFalse);
+      expect(motion.allowFeedbackMotion, isFalse);
+      expect(motion.allowCinematicMotion, isFalse);
+    });
   });
 }

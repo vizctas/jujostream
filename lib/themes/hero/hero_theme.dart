@@ -9,6 +9,7 @@ import '../../models/nv_app.dart';
 import '../../providers/theme_provider.dart';
 import '../../ui/motion_scope.dart';
 import '../../services/audio/ui_sound_service.dart';
+import '../../services/tv/tv_detector.dart';
 import '../../services/input/gamepad_button_helper.dart';
 import '../../widgets/news_carousel/news_carousel_widget.dart';
 import '../../widgets/game_backdrop_art.dart';
@@ -143,6 +144,10 @@ class _HeroBodyState extends State<_HeroBody>
   final GlobalKey<NewsCarouselWidgetState> _newsKey = GlobalKey();
   _HeroView _view = _HeroView.home;
   Timer? _bgDebounce;
+  // The header clock is read in build; nothing rebuilt the home view after
+  // returning from HOME, so it showed the old minute until the next key.
+  Timer? _clockTimer;
+  int _clockMinute = -1;
   int? _bgAppId;
   int _detailBtnIdx = 0;
   int _newsRotation = 0;
@@ -160,6 +165,13 @@ class _HeroBodyState extends State<_HeroBody>
       (widget.apps.length - 1).clamp(0, 999999),
     );
     _iconSc = ScrollController();
+    _clockMinute = DateTime.now().minute;
+    _clockTimer = Timer.periodic(const Duration(seconds: 20), (_) {
+      final minute = DateTime.now().minute;
+      if (minute != _clockMinute && mounted) {
+        setState(() => _clockMinute = minute);
+      }
+    });
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _scrollIcons(false);
@@ -180,6 +192,7 @@ class _HeroBodyState extends State<_HeroBody>
     _iconSc.dispose();
     _fn.dispose();
     _bgDebounce?.cancel();
+    _clockTimer?.cancel();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     super.dispose();
   }
@@ -210,7 +223,9 @@ class _HeroBodyState extends State<_HeroBody>
     final n = (_idx + d).clamp(0, widget.apps.length - 1);
     if (n == _idx) return;
     UiSoundService.playClick();
-    HapticFeedback.lightImpact();
+    // TV boxes have no vibrator; the platform-channel round trip per key was
+    // pure latency on the D-pad path.
+    if (!TvDetector.instance.isTV) HapticFeedback.lightImpact();
     setState(() => _idx = n);
     _bgDebounce?.cancel();
     _bgDebounce = Timer(const Duration(milliseconds: 200), () {
@@ -304,8 +319,11 @@ class _HeroBodyState extends State<_HeroBody>
         widget.onDetailViewChanged?.call(true);
         return KeyEventResult.handled;
       }
+      // DPAD_CENTER on a TV remote arrives as `select`, not `enter`; without
+      // it the centre button did nothing in this theme.
       if (k == LogicalKeyboardKey.gameButtonA ||
-          k == LogicalKeyboardKey.enter) {
+          k == LogicalKeyboardKey.enter ||
+          k == LogicalKeyboardKey.select) {
         _action();
         if (_sel != null) widget.onAppSelected(_sel!);
         return KeyEventResult.handled;
@@ -386,8 +404,11 @@ class _HeroBodyState extends State<_HeroBody>
         return KeyEventResult.handled;
       }
 
+      // DPAD_CENTER on a TV remote arrives as `select`, not `enter`; without
+      // it the centre button did nothing in this theme.
       if (k == LogicalKeyboardKey.gameButtonA ||
-          k == LogicalKeyboardKey.enter) {
+          k == LogicalKeyboardKey.enter ||
+          k == LogicalKeyboardKey.select) {
         _activateDetailButton();
         return KeyEventResult.handled;
       }
@@ -494,34 +515,41 @@ class _HeroBodyState extends State<_HeroBody>
         child: Stack(
           fit: StackFit.expand,
           children: [
-            if (widget.videoWidget != null &&
-                widget.videoForAppId == bgApp?.appId)
-              Positioned.fill(child: widget.videoWidget!)
-            else if (bgApp != null)
-              Positioned.fill(
-                child: GameBackdropArt(
-                  app: bgApp,
-                  heroCacheWidth: context
-                      .read<ThemeProvider>()
-                      .backgroundArtCacheWidth,
-                  fallbackColor: tp.background,
-                  enableKenBurns: !tp.reduceEffects && !tp.performanceMode,
-                ),
-              )
-            else
-              Positioned.fill(child: Container(color: tp.background)),
-
+            // Backdrop + scrim live in their own raster layer. Without the
+            // boundary every selection animation frame re-rasterised the
+            // full-screen hero and both scrims, which alone cost ~50 ms on a
+            // FireTV GPU and pinned D-pad navigation at 20 fps.
             Positioned.fill(
-              child: Container(color: Colors.black.withValues(alpha: 0.45)),
-            ),
-            Positioned.fill(
-              child: Container(
-                decoration: const BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment(0, -0.3),
-                    end: Alignment.bottomCenter,
-                    colors: [Colors.transparent, Color(0xDD000000)],
-                  ),
+              child: RepaintBoundary(
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    if (widget.videoWidget != null &&
+                        widget.videoForAppId == bgApp?.appId)
+                      widget.videoWidget!
+                    else if (bgApp != null)
+                      GameBackdropArt(
+                        app: bgApp,
+                        heroCacheWidth: context
+                            .read<ThemeProvider>()
+                            .backgroundArtCacheWidth,
+                        fallbackColor: tp.background,
+                        enableKenBurns:
+                            !tp.reduceEffects && !tp.performanceMode,
+                      )
+                    else
+                      Container(color: tp.background),
+                    Container(color: Colors.black.withValues(alpha: 0.45)),
+                    const DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment(0, -0.3),
+                          end: Alignment.bottomCenter,
+                          colors: [Colors.transparent, Color(0xDD000000)],
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),
@@ -657,12 +685,19 @@ class _HeroBodyState extends State<_HeroBody>
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 textAlign: TextAlign.center,
-                style: const TextStyle(
+                style: TextStyle(
                   color: Colors.white,
                   fontSize: 32,
                   fontWeight: FontWeight.w900,
                   height: 1.1,
-                  shadows: [Shadow(color: Colors.black87, blurRadius: 20)],
+                  // A 20 px text blur is a full blur pass on every repaint of
+                  // this layer; TV GPUs pay it on each navigation frame.
+                  shadows: [
+                    Shadow(
+                      color: Colors.black87,
+                      blurRadius: TvDetector.instance.isTV ? 4 : 20,
+                    ),
+                  ],
                 ),
               ),
             ),
@@ -758,7 +793,10 @@ class _HeroBodyState extends State<_HeroBody>
                 final lp = context.read<LauncherPreferences>();
                 final sel = i == _idx;
                 final size = sel ? _iconSelSize : _iconSize;
-                return GestureDetector(
+                // One raster layer per card: a selection change repaints the
+                // two cards that changed, not every clipped poster in view.
+                return RepaintBoundary(
+                  child: GestureDetector(
                   onTap: () {
                     if (sel) {
                       _action();
@@ -858,6 +896,7 @@ class _HeroBodyState extends State<_HeroBody>
                         ],
                       ),
                     ),
+                  ),
                   ),
                 );
               },
