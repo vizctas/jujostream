@@ -467,20 +467,22 @@ mixin _AppViewGridMixin on _AppViewScreenBase {
   void _onGridScroll() {}
 
   Widget _buildGridFooterHints() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _hintChip('X', 'Carousel'),
-            _hintChip('Y', AppLocalizations.of(context).details),
-            _hintChip('START', AppLocalizations.of(context).play),
-            _hintChip('SELECT', AppLocalizations.of(context).settingsLabel),
-            _hintChip('R3', AppLocalizations.of(context).smartFilters),
-            _hintChip('RB', AppLocalizations.of(context).fav),
-          ],
+    return IdleFade(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _hintChip('X', 'Carousel'),
+              _hintChip('Y', AppLocalizations.of(context).details),
+              _hintChip('START', AppLocalizations.of(context).play),
+              _hintChip('SELECT', AppLocalizations.of(context).settingsLabel),
+              _hintChip('R3', AppLocalizations.of(context).smartFilters),
+              _hintChip('RB', AppLocalizations.of(context).fav),
+            ],
+          ),
         ),
       ),
     );

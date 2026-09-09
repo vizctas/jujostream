@@ -41,8 +41,14 @@ class _JujoBrandTitleState extends State<JujoBrandTitle>
       duration: const Duration(milliseconds: 2250),
     );
     _translateY = _sequence(const [0, -20, 2, -9, 1, 0]).animate(_controller);
-    _rotation = _sequence(const [0, 21, -11, 7, -3, 0])
-        .animate(_controller); // degrees
+    _rotation = _sequence(const [
+      0,
+      21,
+      -11,
+      7,
+      -3,
+      0,
+    ]).animate(_controller); // degrees
     // Deferred so MediaQuery/ThemeProvider are readable. This bounce lives in
     // the home screen app bar and repeated every 15s for the life of the
     // screen, ignoring both the in-app Reduce Effects toggle and the OS
@@ -56,7 +62,7 @@ class _JujoBrandTitleState extends State<JujoBrandTitle>
       );
       if (motion.reduceMotion) return;
       _controller.forward();
-      if (!motion.allowContinuousEffects) return;
+      if (!motion.allowSignatureMotion) return;
       _timer = Timer.periodic(const Duration(seconds: 15), (_) {
         if (mounted) _controller.forward(from: 0);
       });
@@ -67,8 +73,10 @@ class _JujoBrandTitleState extends State<JujoBrandTitle>
     return TweenSequence<double>([
       for (var i = 0; i < keyframes.length - 1; i++)
         TweenSequenceItem(
-          tween: Tween(begin: keyframes[i], end: keyframes[i + 1])
-              .chain(CurveTween(curve: _segmentCurve)),
+          tween: Tween(
+            begin: keyframes[i],
+            end: keyframes[i + 1],
+          ).chain(CurveTween(curve: _segmentCurve)),
           weight: 1,
         ),
     ]);
@@ -84,8 +92,9 @@ class _JujoBrandTitleState extends State<JujoBrandTitle>
   @override
   Widget build(BuildContext context) {
     final brightness = Theme.of(context).brightness;
-    final baseColor =
-        brightness == Brightness.light ? Colors.black87 : Colors.white;
+    final baseColor = brightness == Brightness.light
+        ? Colors.black87
+        : Colors.white;
     final scale = widget.iconSize / 48;
 
     return Row(
@@ -181,6 +190,5 @@ class _JujoBoxPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_JujoBoxPainter oldDelegate) =>
-      oldDelegate.color != color;
+  bool shouldRepaint(_JujoBoxPainter oldDelegate) => oldDelegate.color != color;
 }

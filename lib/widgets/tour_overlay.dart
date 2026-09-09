@@ -130,7 +130,7 @@ class _TourOverlayState extends State<TourOverlay>
 
   void _syncPulse() {
     if (TourController.instance.isActive &&
-        MotionScope.read(context).allowContinuousEffects) {
+        MotionScope.read(context).allowFeedbackMotion) {
       if (!_pulseController.isAnimating) _pulseController.repeat(reverse: true);
     } else if (_pulseController.isAnimating) {
       _pulseController.stop();
@@ -165,9 +165,10 @@ class _TourOverlayState extends State<TourOverlay>
       return;
     }
     _spotAnim = _posController.drive(
-      Tween<Offset>(begin: _currentSpot, end: _targetSpot).chain(
-        CurveTween(curve: Curves.easeInOutCubic),
-      ),
+      Tween<Offset>(
+        begin: _currentSpot,
+        end: _targetSpot,
+      ).chain(CurveTween(curve: Curves.easeInOutCubic)),
     );
     _posController
       ..reset()
@@ -196,8 +197,7 @@ class _TourOverlayState extends State<TourOverlay>
         final spot = _spotAnim.value;
         final pulse = 1.0 + _pulseController.value * 0.18;
 
-        final tipAbove = step.tooltipAbove ||
-            spot.dy > size.height * 0.65;
+        final tipAbove = step.tooltipAbove || spot.dy > size.height * 0.65;
         final tipY = tipAbove
             ? spot.dy - spotR * pulse - 160
             : spot.dy + spotR * pulse + 16;
@@ -206,84 +206,84 @@ class _TourOverlayState extends State<TourOverlay>
         return FocusScope(
           autofocus: true,
           child: Focus(
-          autofocus: true,
-          onKeyEvent: (_, ev) {
-            if (ev is! KeyDownEvent) return KeyEventResult.ignored;
-            final k = ev.logicalKey;
-            if (k == LogicalKeyboardKey.gameButtonA ||
-                k == LogicalKeyboardKey.enter ||
-                k == LogicalKeyboardKey.select) {
-              ctrl.next();
-              return KeyEventResult.handled;
-            }
-            if (k == LogicalKeyboardKey.gameButtonB ||
-                k == LogicalKeyboardKey.gameButtonX ||
-                k == LogicalKeyboardKey.escape ||
-                k == LogicalKeyboardKey.goBack) {
-              ctrl.dismiss();
-              return KeyEventResult.handled;
-            }
-            return KeyEventResult.ignored;
-          },
-          child: GestureDetector(
-            onTap: ctrl.next,
-            child: SizedBox.expand(
-              child: Stack(
-                children: [
-
-                  CustomPaint(
-                    size: size,
-                    painter: _SpotlightPainter(
-                      center: spot,
-                      radius: spotR * pulse,
+            autofocus: true,
+            onKeyEvent: (_, ev) {
+              if (ev is! KeyDownEvent) return KeyEventResult.ignored;
+              final k = ev.logicalKey;
+              if (k == LogicalKeyboardKey.gameButtonA ||
+                  k == LogicalKeyboardKey.enter ||
+                  k == LogicalKeyboardKey.select) {
+                ctrl.next();
+                return KeyEventResult.handled;
+              }
+              if (k == LogicalKeyboardKey.gameButtonB ||
+                  k == LogicalKeyboardKey.gameButtonX ||
+                  k == LogicalKeyboardKey.escape ||
+                  k == LogicalKeyboardKey.goBack) {
+                ctrl.dismiss();
+                return KeyEventResult.handled;
+              }
+              return KeyEventResult.ignored;
+            },
+            child: GestureDetector(
+              onTap: ctrl.next,
+              child: SizedBox.expand(
+                child: Stack(
+                  children: [
+                    CustomPaint(
+                      size: size,
+                      painter: _SpotlightPainter(
+                        center: spot,
+                        radius: spotR * pulse,
+                      ),
                     ),
-                  ),
 
-                  Positioned(
-                    left: spot.dx - spotR * pulse - 10,
-                    top: spot.dy - spotR * pulse - 10,
-                    child: IgnorePointer(
-                      child: Container(
-                        width: (spotR * pulse + 10) * 2,
-                        height: (spotR * pulse + 10) * 2,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                            color: Colors.white.withValues(
-                                alpha: 0.35 - _pulseController.value * 0.25),
-                            width: 2.5,
+                    Positioned(
+                      left: spot.dx - spotR * pulse - 10,
+                      top: spot.dy - spotR * pulse - 10,
+                      child: IgnorePointer(
+                        child: Container(
+                          width: (spotR * pulse + 10) * 2,
+                          height: (spotR * pulse + 10) * 2,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: Colors.white.withValues(
+                                alpha: 0.35 - _pulseController.value * 0.25,
+                              ),
+                              width: 2.5,
+                            ),
                           ),
                         ),
                       ),
                     ),
-                  ),
 
-                  Positioned(
-                    left: tipX,
-                    top: tipY.clamp(8.0, size.height - 200),
-                    child: _TourTooltip(
-                      step: step,
-                      index: ctrl.currentIndex,
-                      total: ctrl.total,
-                      onNext: ctrl.next,
-                      onSkip: ctrl.dismiss,
+                    Positioned(
+                      left: tipX,
+                      top: tipY.clamp(8.0, size.height - 200),
+                      child: _TourTooltip(
+                        step: step,
+                        index: ctrl.currentIndex,
+                        total: ctrl.total,
+                        onNext: ctrl.next,
+                        onSkip: ctrl.dismiss,
+                      ),
                     ),
-                  ),
 
-                  Positioned(
-                    bottom: 32,
-                    left: 0,
-                    right: 0,
-                    child: _StepDots(
-                      total: ctrl.total,
-                      current: ctrl.currentIndex,
+                    Positioned(
+                      bottom: 32,
+                      left: 0,
+                      right: 0,
+                      child: _StepDots(
+                        total: ctrl.total,
+                        current: ctrl.currentIndex,
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),
-        ),
         );
       },
     );
@@ -340,9 +340,7 @@ class _TourTooltip extends StatelessWidget {
           decoration: BoxDecoration(
             color: const Color(0xFF1C1C2E),
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: Colors.white.withValues(alpha: 0.12),
-            ),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withValues(alpha: 0.55),
@@ -355,7 +353,6 @@ class _TourTooltip extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
-
               Text(
                 '${index + 1} / $total',
                 style: const TextStyle(
@@ -406,7 +403,9 @@ class _TourTooltip extends StatelessWidget {
                     onTap: onNext,
                     child: Container(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 20, vertical: 8),
+                        horizontal: 20,
+                        vertical: 8,
+                      ),
                       decoration: BoxDecoration(
                         color: const Color(0xFF6C63FF),
                         borderRadius: BorderRadius.circular(99),
@@ -449,9 +448,7 @@ class _StepDots extends StatelessWidget {
           width: active ? 20 : 8,
           height: 8,
           decoration: BoxDecoration(
-            color: active
-                ? Colors.white
-                : Colors.white.withValues(alpha: 0.3),
+            color: active ? Colors.white : Colors.white.withValues(alpha: 0.3),
             borderRadius: BorderRadius.circular(4),
           ),
         );

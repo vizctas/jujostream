@@ -38,6 +38,7 @@ import '../auth/cloud_auth_screen.dart';
 import '../../ui/motion_policy.dart';
 import '../../ui/motion_scope.dart';
 import '../../ui/adaptive_motion.dart';
+import '../../ui/input_idle.dart';
 
 class PcViewScreen extends StatefulWidget {
   const PcViewScreen({super.key});
@@ -587,7 +588,7 @@ class _PcViewScreenState extends State<PcViewScreen>
   }
 
   void _startRearrangeMode() {
-    final allowMotion = MotionScope.read(context).allowContinuousEffects;
+    final allowMotion = MotionScope.read(context).allowFeedbackMotion;
     setState(() {
       _rearrangeMode = true;
       _selectedRearrangeIndex = null;
@@ -1488,6 +1489,7 @@ class _ComputerCardState extends State<_ComputerCard> {
                           // grid tile. Constant transparency belongs in the
                           // color, which costs nothing.
                           ExcludeSemantics(
+                            child: IdleFade(
                             child: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
@@ -1526,6 +1528,7 @@ class _ComputerCardState extends State<_ComputerCard> {
                                   ),
                                 ],
                               ],
+                            ),
                             ),
                           ),
                         ],

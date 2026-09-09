@@ -208,18 +208,19 @@ class _GameBackdropArtState extends State<GameBackdropArt>
             ? constraints.biggest
             : MediaQuery.sizeOf(context);
         _scheduleValidationForViewport(viewport);
-        return _buildBackdrop();
+        return _buildBackdrop(viewport);
       },
     );
   }
 
-  Widget _buildBackdrop() {
+  Widget _buildBackdrop(Size viewport) {
     final selection =
         _resolvedHero ??
         const GameBackdropSelection(role: GameBackdropRole.none);
+    final probe = _heroProbe;
     final child = switch (selection.role) {
-      GameBackdropRole.hero when _heroProbe?.isEligible == true => _buildHero(
-        selection,
+      GameBackdropRole.hero when probe?.isEligible == true => _buildHero(
+        _fitted(selection, probe!, viewport),
       ),
       GameBackdropRole.hero => _premiumFallback(),
       GameBackdropRole.poster => _premiumFallback(),
@@ -245,18 +246,57 @@ class _GameBackdropArtState extends State<GameBackdropArt>
     );
   }
 
+  GameBackdropSelection _fitted(
+    GameBackdropSelection selection,
+    GameHeroProbe probe,
+    Size viewport,
+  ) {
+    if (viewport.isEmpty) return selection;
+    final fit = GameArtPolicy.heroFitFor(
+      width: probe.width,
+      height: probe.height,
+      viewportWidth: viewport.width,
+      viewportHeight: viewport.height,
+    );
+    return selection.withFit(fit.fit, fit.alignment);
+  }
+
   Widget _buildHero(GameBackdropSelection selection) {
-    final hero = PosterImage(
+    final image = PosterImage(
       key: const Key('game-backdrop-hero'),
       url: selection.url!,
       cacheKey: selection.cacheKey,
-      fit: BoxFit.cover,
-      alignment: Alignment.center,
+      fit: selection.fit,
+      alignment: selection.alignment,
       width: double.infinity,
       height: double.infinity,
       memCacheWidth: widget.heroCacheWidth,
       errorWidget: (_, _, _) => _premiumFallback(),
     );
+    // A letterboxed hero sits on the fallback colour and fades into it, so
+    // the uncovered band reads as composition instead of a missing image.
+    final hero = selection.fit == BoxFit.cover
+        ? image
+        : Stack(
+            fit: StackFit.expand,
+            children: [
+              ColoredBox(color: widget.fallbackColor),
+              image,
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    stops: const [0.45, 1.0],
+                    colors: [
+                      widget.fallbackColor.withValues(alpha: 0),
+                      widget.fallbackColor,
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          );
     final decorated =
         widget.heroBuilder?.call(context, selection, hero) ?? hero;
     return KeyedSubtree(

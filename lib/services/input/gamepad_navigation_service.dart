@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../platform_channels/gamepad_channel.dart';
+import '../../ui/input_idle.dart';
 
 /// Translates WGI/XInput nav events (sent via MethodChannel) into Flutter
 /// focus-system traversal. Works app-wide without touching individual screens.
@@ -41,6 +42,9 @@ class GamepadNavigationService {
   }
 
   static void _onNav(String key) {
+    // Native gamepad/stick input never reaches HardwareKeyboard; feed the
+    // on-screen hint idle timer from here as well.
+    InputIdle.instance.poke();
     if (!_active) return;
 
     if (key == 'x' || key == 'y' || key == 'lb' || key == 'rb' || key == 'start') {

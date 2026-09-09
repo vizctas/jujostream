@@ -137,7 +137,7 @@ class _PulsingDotState extends State<_PulsingDot>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (MotionScope.of(context).allowContinuousEffects) {
+    if (MotionScope.of(context).allowFeedbackMotion) {
       if (!_ctrl.isAnimating) _ctrl.repeat(reverse: true);
     } else {
       _ctrl

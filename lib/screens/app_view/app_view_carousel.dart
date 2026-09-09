@@ -3,7 +3,8 @@ part of 'app_view_screen.dart';
 mixin _AppViewCarouselMixin on _AppViewScreenBase {
   @override
   Widget _buildCarouselHintsRow() {
-    return Padding(
+    return IdleFade(
+      child: Padding(
       padding: const EdgeInsets.only(left: 16, bottom: 4),
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
@@ -103,6 +104,7 @@ mixin _AppViewCarouselMixin on _AppViewScreenBase {
               ),
           ],
         ),
+      ),
       ),
     );
   }

@@ -27,10 +27,12 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
 import com.limelight.jujostream.native_bridge.GamepadHandler
+import com.limelight.jujostream.native_bridge.NativeTvImeBridge
 import com.limelight.jujostream.native_bridge.StreamingPlugin
 
 class MainActivity : FlutterActivity() {
     private var gamepadHandler: GamepadHandler? = null
+    private var nativeTvImeBridge: NativeTvImeBridge? = null
 
     companion object {
         private const val NOTIFICATION_PERMISSION_REQUEST_CODE = 1001
@@ -135,6 +137,7 @@ class MainActivity : FlutterActivity() {
         flutterEngine.plugins.add(StreamingPlugin())
 
         gamepadHandler = GamepadHandler(this, flutterEngine.dartExecutor.binaryMessenger)
+        nativeTvImeBridge = NativeTvImeBridge(this, flutterEngine.dartExecutor.binaryMessenger)
 
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.jujostream/tv_detector")
             .setMethodCallHandler { call, result ->
@@ -394,6 +397,8 @@ class MainActivity : FlutterActivity() {
 
     override fun onDestroy() {
         releasePairingLocks() // safety: release any held locks if activity is destroyed
+        nativeTvImeBridge?.dispose()
+        nativeTvImeBridge = null
         gamepadHandler?.dispose()
         gamepadHandler = null
         super.onDestroy()

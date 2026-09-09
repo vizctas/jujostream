@@ -49,8 +49,7 @@ class _AppCardState extends State<_AppCard>
 
   void _syncGlow() {
     final animate =
-        widget.app.isRunning &&
-        MotionScope.read(context).allowContinuousEffects;
+        widget.app.isRunning && MotionScope.read(context).allowFeedbackMotion;
     if (animate) {
       if (!_glowCtrl.isAnimating) _glowCtrl.repeat(reverse: true);
     } else {
@@ -268,7 +267,7 @@ class _SkeletonCardState extends State<_SkeletonCard>
   void didChangeDependencies() {
     super.didChangeDependencies();
     _startTimer?.cancel();
-    if (MotionScope.of(context).allowContinuousEffects) {
+    if (MotionScope.of(context).allowFeedbackMotion) {
       _startTimer = Timer(widget.delay, () {
         if (mounted && !_ctrl.isAnimating) _ctrl.repeat(reverse: true);
       });

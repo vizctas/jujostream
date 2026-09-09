@@ -40,6 +40,7 @@ import '../../themes/launcher_theme.dart';
 import '../../themes/launcher_theme_registry.dart';
 import '../../widgets/coming_soon_dialog.dart';
 import '../../widgets/wallpaper_picker_dialog.dart';
+import 'settings_remote_navigation.dart';
 import 'vpn_guide_sheet.dart';
 
 // Top-level translation helper — accessible from all widget classes in this file.
@@ -153,14 +154,11 @@ class _SettingsScreenState extends State<SettingsScreen>
           Navigator.maybePop(context);
           return KeyEventResult.handled;
         }
-        // RB / R1 — next tab (wraps)
-        if (key == LogicalKeyboardKey.gameButtonRight1) {
-          _cycleTab(1);
-          return KeyEventResult.handled;
-        }
-        // LB / L1 — prev tab (wraps)
-        if (key == LogicalKeyboardKey.gameButtonLeft1) {
-          _cycleTab(-1);
+        // D-pad left/right and LB/RB switch pages when the focused control
+        // does not consume the horizontal key itself (for example, sliders).
+        final pageDelta = settingsPageDeltaForKey(key);
+        if (pageDelta != null) {
+          _cycleTab(pageDelta == SettingsPageDelta.next ? 1 : -1);
           return KeyEventResult.handled;
         }
         return KeyEventResult.ignored;

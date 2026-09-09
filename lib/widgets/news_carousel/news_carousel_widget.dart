@@ -582,7 +582,7 @@ class _ShimmerCardState extends State<_ShimmerCard>
   void didChangeDependencies() {
     super.didChangeDependencies();
     _startTimer?.cancel();
-    if (MotionScope.of(context).allowContinuousEffects) {
+    if (MotionScope.of(context).allowFeedbackMotion) {
       _startTimer = Timer(widget.delay, () {
         if (mounted && !_ctrl.isAnimating) _ctrl.repeat();
       });

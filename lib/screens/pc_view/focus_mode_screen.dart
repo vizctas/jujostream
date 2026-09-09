@@ -25,6 +25,7 @@ import '../../widgets/pairing_dialog.dart';
 import '../app_view/app_view_screen.dart';
 import '../settings/settings_screen.dart';
 import '../settings/profile_screen.dart';
+import '../../ui/input_idle.dart';
 import '../../ui/motion_policy.dart';
 import '../../ui/motion_scope.dart';
 import '../about/about_screen.dart';
@@ -1093,7 +1094,7 @@ class _FocusServerCardState extends State<_FocusServerCard>
   }
 
   void _syncAnimation() {
-    final allowed = MotionScope.read(context).allowContinuousEffects;
+    final allowed = MotionScope.read(context).allowSignatureMotion;
     if (allowed && !_floatController.isAnimating) {
       _floatController.repeat(reverse: true);
     } else if (!allowed && _floatController.isAnimating) {
@@ -1103,7 +1104,7 @@ class _FocusServerCardState extends State<_FocusServerCard>
   }
 
   void _syncGlow() {
-    final allowed = MotionScope.read(context).allowContinuousEffects;
+    final allowed = MotionScope.read(context).allowSignatureMotion;
     if (widget.isSelected && allowed) {
       if (!_glowController.isAnimating) _glowController.repeat(reverse: true);
     } else {
@@ -1168,208 +1169,210 @@ class _FocusServerCardState extends State<_FocusServerCard>
             onTap: widget.onTap,
             onLongPress: widget.onLongPress,
             child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ConstrainedBox(
-                constraints: BoxConstraints(
-                  maxWidth: maxWidth,
-                  maxHeight: maxHeight,
-                ),
-                child: AspectRatio(
-                  aspectRatio: 1.55,
-                  child: AnimatedBuilder(
-                    animation: _glowAnimation,
-                    builder: (context, child) {
-                      // Dynamic bloom: zero glow when unfocused,,
-                      // breathe animation only when focused/hovered.
-                      final glowAlpha = widget.isSelected
-                          ? _glowAnimation.value
-                          : 0.0;
-                      return Container(
-                        margin: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 24,
-                        ),
-                        decoration: BoxDecoration(
-                          color: tp.surface.withValues(
-                            alpha: isLight ? 0.92 : 0.85,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxWidth: maxWidth,
+                    maxHeight: maxHeight,
+                  ),
+                  child: AspectRatio(
+                    aspectRatio: 1.55,
+                    child: AnimatedBuilder(
+                      animation: _glowAnimation,
+                      builder: (context, child) {
+                        // Dynamic bloom: zero glow when unfocused,,
+                        // breathe animation only when focused/hovered.
+                        final glowAlpha = widget.isSelected
+                            ? _glowAnimation.value
+                            : 0.0;
+                        return Container(
+                          margin: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 24,
                           ),
-                          borderRadius: BorderRadius.circular(24),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withValues(
-                                alpha: isLight ? 0.12 : 0.4,
+                          decoration: BoxDecoration(
+                            color: tp.surface.withValues(
+                              alpha: isLight ? 0.92 : 0.85,
+                            ),
+                            borderRadius: BorderRadius.circular(24),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withValues(
+                                  alpha: isLight ? 0.12 : 0.4,
+                                ),
+                                blurRadius: 32,
+                                offset: const Offset(0, 12),
                               ),
-                              blurRadius: 32,
-                              offset: const Offset(0, 12),
-                            ),
-                            BoxShadow(
-                              color: tp.accent.withValues(alpha: glowAlpha),
-                              blurRadius: widget.isSelected ? 18 : 0,
-                              spreadRadius: widget.isSelected ? 3 : 0,
-                            ),
-                          ],
-                        ),
-                        clipBehavior: Clip.antiAlias,
-                        child: child,
-                      );
-                    },
-                    child: Stack(
-                      children: [
-                        // ── Background image: custom or asset fallback ──
-                        Positioned.fill(
-                          child:
-                              (widget.bgPath != null &&
-                                  widget.bgPath!.isNotEmpty)
-                              ? Image.file(
-                                  io.File(widget.bgPath!),
-                                  fit: BoxFit.cover,
-                                  cacheWidth: kFocusCardImageCacheWidth,
-                                  excludeFromSemantics: true,
-                                  errorBuilder: (_, _, _) => Image.asset(
+                              BoxShadow(
+                                color: tp.accent.withValues(alpha: glowAlpha),
+                                blurRadius: widget.isSelected ? 18 : 0,
+                                spreadRadius: widget.isSelected ? 3 : 0,
+                              ),
+                            ],
+                          ),
+                          clipBehavior: Clip.antiAlias,
+                          child: child,
+                        );
+                      },
+                      child: Stack(
+                        children: [
+                          // ── Background image: custom or asset fallback ──
+                          Positioned.fill(
+                            child:
+                                (widget.bgPath != null &&
+                                    widget.bgPath!.isNotEmpty)
+                                ? Image.file(
+                                    io.File(widget.bgPath!),
+                                    fit: BoxFit.cover,
+                                    cacheWidth: kFocusCardImageCacheWidth,
+                                    excludeFromSemantics: true,
+                                    errorBuilder: (_, _, _) => Image.asset(
+                                      _focusDefaultAsset(widget.index),
+                                      fit: BoxFit.cover,
+                                      cacheWidth: kFocusCardImageCacheWidth,
+                                      excludeFromSemantics: true,
+                                    ),
+                                  )
+                                : Image.asset(
                                     _focusDefaultAsset(widget.index),
                                     fit: BoxFit.cover,
                                     cacheWidth: kFocusCardImageCacheWidth,
                                     excludeFromSemantics: true,
                                   ),
-                                )
-                              : Image.asset(
-                                  _focusDefaultAsset(widget.index),
-                                  fit: BoxFit.cover,
-                                  cacheWidth: kFocusCardImageCacheWidth,
-                                  excludeFromSemantics: true,
-                                ),
-                        ),
-                        // ── Gradient overlay (always present) ──
-                        Positioned.fill(
-                          child: Container(
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                begin: Alignment.topCenter,
-                                end: Alignment.bottomCenter,
-                                colors: [
-                                  Colors.black.withValues(alpha: 0.25),
-                                  Colors.black.withValues(alpha: 0.65),
-                                ],
-                              ),
-                            ),
                           ),
-                        ),
-
-                        // ── Cloud label / More options (top-right) ──
-                        Positioned(
-                          top: 8,
-                          right: 8,
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              if (widget.computer.isCloud)
-                                const Padding(
-                                  padding: EdgeInsets.only(right: 6),
-                                  child: CloudBadge(compact: true),
-                                ),
-                              _MoreOptionsButton(
-                                onTap: widget.onLongPress,
-                                iconSize: 20,
-                              ),
-                            ],
-                          ),
-                        ),
-                        // ── Status chip + server name (bottom-left) ──
-                        Positioned(
-                          bottom: 10,
-                          left: 10,
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 8,
-                                  vertical: 3,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: statusColor.withValues(alpha: 0.2),
-                                  borderRadius: BorderRadius.circular(20),
-                                  border: Border.all(
-                                    color: statusColor.withValues(alpha: 0.55),
-                                    width: 1,
-                                  ),
-                                ),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Container(
-                                      width: 6,
-                                      height: 6,
-                                      decoration: BoxDecoration(
-                                        color: statusColor,
-                                        shape: BoxShape.circle,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 5),
-                                    Flexible(
-                                      child: Text(
-                                      statusText,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: TextStyle(
-                                        color: statusColor,
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                      ),
-                                    ),
+                          // ── Gradient overlay (always present) ──
+                          Positioned.fill(
+                            child: Container(
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  begin: Alignment.topCenter,
+                                  end: Alignment.bottomCenter,
+                                  colors: [
+                                    Colors.black.withValues(alpha: 0.25),
+                                    Colors.black.withValues(alpha: 0.65),
                                   ],
                                 ),
                               ),
-                              const SizedBox(height: 4),
-                              Text(
-                                widget.computer.name,
-                                style: TextStyle(
-                                  color: Colors.white.withValues(alpha: 0.8),
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.w700,
-                                  letterSpacing: 0.3,
+                            ),
+                          ),
+
+                          // ── Cloud label / More options (top-right) ──
+                          Positioned(
+                            top: 8,
+                            right: 8,
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                if (widget.computer.isCloud)
+                                  const Padding(
+                                    padding: EdgeInsets.only(right: 6),
+                                    child: CloudBadge(compact: true),
+                                  ),
+                                _MoreOptionsButton(
+                                  onTap: widget.onLongPress,
+                                  iconSize: 20,
                                 ),
-                                maxLines: 1,
-                                // Without this, `maxLines: 1` clips the name
-                                // mid-glyph instead of ellipsizing it.
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              if (isPaired)
-                                Text(
-                                  connectionStatus,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    color: widget.computer.isCloud
-                                        ? Colors.cyanAccent.withValues(
-                                            alpha: 0.82,
-                                          )
-                                        : Colors.white54,
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.w600,
+                              ],
+                            ),
+                          ),
+                          // ── Status chip + server name (bottom-left) ──
+                          Positioned(
+                            bottom: 10,
+                            left: 10,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 3,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: statusColor.withValues(alpha: 0.2),
+                                    borderRadius: BorderRadius.circular(20),
+                                    border: Border.all(
+                                      color: statusColor.withValues(
+                                        alpha: 0.55,
+                                      ),
+                                      width: 1,
+                                    ),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Container(
+                                        width: 6,
+                                        height: 6,
+                                        decoration: BoxDecoration(
+                                          color: statusColor,
+                                          shape: BoxShape.circle,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 5),
+                                      Flexible(
+                                        child: Text(
+                                          statusText,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                            color: statusColor,
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ),
-                            ],
+                                const SizedBox(height: 4),
+                                Text(
+                                  widget.computer.name,
+                                  style: TextStyle(
+                                    color: Colors.white.withValues(alpha: 0.8),
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.w700,
+                                    letterSpacing: 0.3,
+                                  ),
+                                  maxLines: 1,
+                                  // Without this, `maxLines: 1` clips the name
+                                  // mid-glyph instead of ellipsizing it.
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                if (isPaired)
+                                  Text(
+                                    connectionStatus,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      color: widget.computer.isCloud
+                                          ? Colors.cyanAccent.withValues(
+                                              alpha: 0.82,
+                                            )
+                                          : Colors.white54,
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                              ],
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
                 ),
-              ),
-              // ── Gamepad hints — outside AspectRatio so they survive landscape ──
-              Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: _GamepadHintsRow(
-                  isOnline: isOnline,
-                  actionText: actionText,
-                  settingsLabel: l.settings,
+                // ── Gamepad hints — outside AspectRatio so they survive landscape ──
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: _GamepadHintsRow(
+                    isOnline: isOnline,
+                    actionText: actionText,
+                    settingsLabel: l.settings,
+                  ),
                 ),
-              ),
-            ],
+              ],
             ),
           ),
         ),
@@ -1443,7 +1446,7 @@ class _FocusServerCircleState extends State<_FocusServerCircle>
   }
 
   void _syncAnimation() {
-    final allowed = MotionScope.read(context).allowContinuousEffects;
+    final allowed = MotionScope.read(context).allowSignatureMotion;
     if (allowed && !_floatController.isAnimating) {
       _floatController.repeat(reverse: true);
     } else if (!allowed && _floatController.isAnimating) {
@@ -1453,7 +1456,7 @@ class _FocusServerCircleState extends State<_FocusServerCircle>
   }
 
   void _syncGlow() {
-    final allowed = MotionScope.read(context).allowContinuousEffects;
+    final allowed = MotionScope.read(context).allowSignatureMotion;
     if (widget.isSelected && allowed) {
       if (!_glowController.isAnimating) _glowController.repeat(reverse: true);
     } else {
@@ -1516,180 +1519,180 @@ class _FocusServerCircleState extends State<_FocusServerCircle>
           onTap: widget.onTap,
           onLongPress: widget.onLongPress,
           child: GestureDetector(
-          onTap: widget.onTap,
-          onLongPress: widget.onLongPress,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // ── Circular server portrait ──
-              AnimatedBuilder(
-                animation: _glowAnimation,
-                builder: (context, child) {
-                  // Dynamic bloom: zero glow when unfocused,,
-                  // breathe animation only when focused/hovered.
-                  final glowAlpha = widget.isSelected
-                      ? _glowAnimation.value
-                      : 0.0;
-                  return Container(
-                    width: circleSize + borderWidth * 2,
-                    height: circleSize + borderWidth * 2,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                        color: borderColor,
-                        width: borderWidth,
+            onTap: widget.onTap,
+            onLongPress: widget.onLongPress,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // ── Circular server portrait ──
+                AnimatedBuilder(
+                  animation: _glowAnimation,
+                  builder: (context, child) {
+                    // Dynamic bloom: zero glow when unfocused,,
+                    // breathe animation only when focused/hovered.
+                    final glowAlpha = widget.isSelected
+                        ? _glowAnimation.value
+                        : 0.0;
+                    return Container(
+                      width: circleSize + borderWidth * 2,
+                      height: circleSize + borderWidth * 2,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: borderColor,
+                          width: borderWidth,
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: borderColor.withValues(alpha: 0.35),
+                            blurRadius: 24,
+                            spreadRadius: 2,
+                          ),
+                          BoxShadow(
+                            color: tp.accent.withValues(alpha: glowAlpha),
+                            blurRadius: widget.isSelected ? 18 : 0,
+                            spreadRadius: widget.isSelected ? 3 : 0,
+                          ),
+                        ],
                       ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: borderColor.withValues(alpha: 0.35),
-                          blurRadius: 24,
-                          spreadRadius: 2,
-                        ),
-                        BoxShadow(
-                          color: tp.accent.withValues(alpha: glowAlpha),
-                          blurRadius: widget.isSelected ? 18 : 0,
-                          spreadRadius: widget.isSelected ? 3 : 0,
-                        ),
-                      ],
-                    ),
-                    child: child,
-                  );
-                },
-                child: ClipOval(
-                  child: SizedBox(
-                    width: circleSize,
-                    height: circleSize,
-                    child: Stack(
-                      fit: StackFit.expand,
-                      children: [
-                        // ── Background image ──
-                        (widget.bgPath != null && widget.bgPath!.isNotEmpty)
-                            ? Image.file(
-                                io.File(widget.bgPath!),
-                                fit: BoxFit.cover,
-                                cacheWidth: kFocusCircleImageCacheWidth,
-                                excludeFromSemantics: true,
-                                errorBuilder: (_, _, _) => Image.asset(
+                      child: child,
+                    );
+                  },
+                  child: ClipOval(
+                    child: SizedBox(
+                      width: circleSize,
+                      height: circleSize,
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          // ── Background image ──
+                          (widget.bgPath != null && widget.bgPath!.isNotEmpty)
+                              ? Image.file(
+                                  io.File(widget.bgPath!),
+                                  fit: BoxFit.cover,
+                                  cacheWidth: kFocusCircleImageCacheWidth,
+                                  excludeFromSemantics: true,
+                                  errorBuilder: (_, _, _) => Image.asset(
+                                    _focusDefaultAsset(widget.index),
+                                    fit: BoxFit.cover,
+                                    cacheWidth: kFocusCircleImageCacheWidth,
+                                    excludeFromSemantics: true,
+                                  ),
+                                )
+                              : Image.asset(
                                   _focusDefaultAsset(widget.index),
                                   fit: BoxFit.cover,
                                   cacheWidth: kFocusCircleImageCacheWidth,
                                   excludeFromSemantics: true,
                                 ),
-                              )
-                            : Image.asset(
-                                _focusDefaultAsset(widget.index),
-                                fit: BoxFit.cover,
-                                cacheWidth: kFocusCircleImageCacheWidth,
-                                excludeFromSemantics: true,
+                          // ── Subtle vignette ──
+                          Container(
+                            decoration: BoxDecoration(
+                              gradient: RadialGradient(
+                                colors: [
+                                  Colors.transparent,
+                                  Colors.black.withValues(alpha: 0.3),
+                                ],
+                                stops: const [0.6, 1.0],
                               ),
-                        // ── Subtle vignette ──
-                        Container(
-                          decoration: BoxDecoration(
-                            gradient: RadialGradient(
-                              colors: [
-                                Colors.transparent,
-                                Colors.black.withValues(alpha: 0.3),
-                              ],
-                              stops: const [0.6, 1.0],
                             ),
                           ),
-                        ),
-                        // ── Cloud label / More options (top-right area) ──
-                        Positioned(
-                          top: 8,
-                          right: 8,
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              if (widget.computer.isCloud)
-                                Container(
-                                  margin: const EdgeInsets.only(right: 6),
-                                  padding: const EdgeInsets.all(4),
-                                  decoration: BoxDecoration(
-                                    color: Colors.blueAccent.withValues(
-                                      alpha: 0.15,
-                                    ),
-                                    shape: BoxShape.circle,
-                                    border: Border.all(
+                          // ── Cloud label / More options (top-right area) ──
+                          Positioned(
+                            top: 8,
+                            right: 8,
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                if (widget.computer.isCloud)
+                                  Container(
+                                    margin: const EdgeInsets.only(right: 6),
+                                    padding: const EdgeInsets.all(4),
+                                    decoration: BoxDecoration(
                                       color: Colors.blueAccent.withValues(
-                                        alpha: 0.3,
+                                        alpha: 0.15,
+                                      ),
+                                      shape: BoxShape.circle,
+                                      border: Border.all(
+                                        color: Colors.blueAccent.withValues(
+                                          alpha: 0.3,
+                                        ),
                                       ),
                                     ),
+                                    child: const Icon(
+                                      Icons.cloud,
+                                      size: 10,
+                                      color: Colors.blueAccent,
+                                    ),
                                   ),
-                                  child: const Icon(
-                                    Icons.cloud,
-                                    size: 10,
-                                    color: Colors.blueAccent,
-                                  ),
+                                _MoreOptionsButton(
+                                  onTap: widget.onLongPress,
+                                  iconSize: 16,
+                                  scrim: true,
                                 ),
-                              _MoreOptionsButton(
-                                onTap: widget.onLongPress,
-                                iconSize: 16,
-                                scrim: true,
-                              ),
-                            ],
+                              ],
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 14),
-              // ── Server name ──
-              Text(
-                widget.computer.name,
-                style: TextStyle(
-                  color: isLight
-                      ? Colors.black87
-                      : Colors.white.withValues(alpha: 0.9),
-                  fontSize: 18,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 0.3,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-              // ── IP address ──
-              if (ipAddress.isNotEmpty) ...[
-                const SizedBox(height: 2),
+                const SizedBox(height: 14),
+                // ── Server name ──
                 Text(
-                  ipAddress,
+                  widget.computer.name,
                   style: TextStyle(
-                    // This sits over user-chosen artwork, so there is no fixed
-                    // background to measure against. white38 was 3.6:1 even on
-                    // the darkest theme; white54 clears 4.5:1 there and gives
-                    // the scrim something to work with over a bright poster.
-                    color: isLight ? Colors.black54 : Colors.white54,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w400,
+                    color: isLight
+                        ? Colors.black87
+                        : Colors.white.withValues(alpha: 0.9),
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.3,
                   ),
-                ),
-              ],
-              if (isPaired) ...[
-                const SizedBox(height: 3),
-                Text(
-                  connectionStatus,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: widget.computer.isCloud
-                        ? Colors.cyanAccent.withValues(alpha: 0.82)
-                        : (isLight ? Colors.black45 : Colors.white54),
-                    fontSize: 10,
-                    fontWeight: FontWeight.w600,
+                ),
+                // ── IP address ──
+                if (ipAddress.isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    ipAddress,
+                    style: TextStyle(
+                      // This sits over user-chosen artwork, so there is no fixed
+                      // background to measure against. white38 was 3.6:1 even on
+                      // the darkest theme; white54 clears 4.5:1 there and gives
+                      // the scrim something to work with over a bright poster.
+                      color: isLight ? Colors.black54 : Colors.white54,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w400,
+                    ),
                   ),
+                ],
+                if (isPaired) ...[
+                  const SizedBox(height: 3),
+                  Text(
+                    connectionStatus,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: widget.computer.isCloud
+                          ? Colors.cyanAccent.withValues(alpha: 0.82)
+                          : (isLight ? Colors.black45 : Colors.white54),
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 10),
+                // ── Gamepad hints ──
+                _GamepadHintsRow(
+                  isOnline: isOnline,
+                  actionText: actionText,
+                  settingsLabel: l.settings,
                 ),
               ],
-              const SizedBox(height: 10),
-              // ── Gamepad hints ──
-              _GamepadHintsRow(
-                isOnline: isOnline,
-                actionText: actionText,
-                settingsLabel: l.settings,
-              ),
-            ],
-          ),
+            ),
           ),
         ),
       ),
@@ -1717,8 +1720,7 @@ class _MoreOptionsButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isSpanish =
-        AppLocalizations.of(context).locale.languageCode == 'es';
+    final isSpanish = AppLocalizations.of(context).locale.languageCode == 'es';
     final icon = Icon(
       Icons.more_vert,
       size: iconSize,
@@ -1770,7 +1772,8 @@ class _GamepadHintsRow extends StatelessWidget {
   Widget build(BuildContext context) {
     if (!isOnline && actionText.isEmpty) return const SizedBox.shrink();
 
-    return Row(
+    return IdleFade(
+      child: Row(
       mainAxisSize: MainAxisSize.min,
       children: [
         if (isOnline) ...[
@@ -1799,6 +1802,7 @@ class _GamepadHintsRow extends StatelessWidget {
           ),
         ],
       ],
+      ),
     );
   }
 }
@@ -1849,7 +1853,7 @@ class _ParticleOverlayState extends State<_ParticleOverlay>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (MotionScope.of(context).allowContinuousEffects) {
+    if (MotionScope.of(context).allowUserSelectedAmbientMotion) {
       if (!_controller.isAnimating) _controller.repeat();
     } else {
       _controller
@@ -1973,7 +1977,7 @@ class _WaveOverlayState extends State<_WaveOverlay>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (MotionScope.of(context).allowContinuousEffects) {
+    if (MotionScope.of(context).allowUserSelectedAmbientMotion) {
       if (!_ticker.isActive) _ticker.start();
     } else if (_ticker.isActive) {
       _ticker.stop();
@@ -2416,4 +2420,3 @@ class _FocusMenuTileState extends State<_FocusMenuTile> {
     );
   }
 }
-

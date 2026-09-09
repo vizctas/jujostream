@@ -42,6 +42,7 @@ import '../../services/network/smart_bitrate_service.dart';
 import '../../services/stream/image_load_throttle.dart';
 import '../../services/tv/tv_detector.dart';
 import '../../themes/launcher_theme.dart';
+import '../../ui/input_idle.dart';
 import '../../widgets/poster_image.dart';
 import '../../widgets/game_backdrop_art.dart';
 import '../../widgets/launch_experience.dart';
@@ -2008,7 +2009,15 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
   Timer? _bgDebounce;
 
   Widget _buildDynamicBackground(NvApp selected) {
-    final bgAppId = _debouncedBgAppId ?? selected.appId;
+    // The debounced id only exists to skip transient selections while the
+    // D-pad is still moving. Once no debounce is pending the selection is
+    // settled, so trust it: a restored/programmatic selection that never went
+    // through _queueAccentColorExtraction left the previous app's backdrop
+    // on screen (seen on Chromecast: "Biped" selected, Avatar backdrop).
+    final settling = _bgDebounce?.isActive ?? false;
+    final bgAppId = settling
+        ? (_debouncedBgAppId ?? selected.appId)
+        : selected.appId;
     final bgApp = bgAppId == selected.appId
         ? selected
         : _findAppById(bgAppId) ?? selected;
@@ -2085,15 +2094,19 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
             alpha: showVideo ? 0.0 : lp.backgroundDim,
           ),
         ),
-        Container(
-          decoration: const BoxDecoration(
-            gradient: RadialGradient(
-              center: Alignment(0.45, -0.35),
-              radius: 1.2,
-              colors: [Color(0x2200E5FF), Colors.transparent],
+        // The cyan radial tint is a third full-screen layer over the backdrop.
+        // On TV-class GPUs that overdraw is paid on every frame, so it is
+        // reserved for desktop where the backdrop also moves.
+        if (!TvDetector.instance.isTV)
+          Container(
+            decoration: const BoxDecoration(
+              gradient: RadialGradient(
+                center: Alignment(0.45, -0.35),
+                radius: 1.2,
+                colors: [Color(0x2200E5FF), Colors.transparent],
+              ),
             ),
           ),
-        ),
       ],
     );
   }
@@ -2121,7 +2134,10 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
             if (image == null) return const SizedBox.shrink();
             return RawImage(
               image: image,
-              fit: BoxFit.cover,
+              // Match the hero's placement: a cover blur over a letterboxed
+              // wide hero re-introduced the zoom the policy just avoided.
+              fit: selection.fit,
+              alignment: selection.alignment,
               filterQuality: FilterQuality.low,
             );
           },

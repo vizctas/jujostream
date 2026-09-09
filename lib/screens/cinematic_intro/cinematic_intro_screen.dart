@@ -171,8 +171,7 @@ class _CinematicIntroScreenState extends State<CinematicIntroScreen>
     } else {
       _continueController.repeat(reverse: true);
       _particleController.repeat();
-      _initAudio();
-      _fallController.forward();
+      _startCinematic();
     }
 
     // autofocus is skipped when the scope already has focus — force it so
@@ -182,27 +181,23 @@ class _CinematicIntroScreenState extends State<CinematicIntroScreen>
     });
   }
 
-  Future<void> _initAudio() async {
+  Future<void> _startCinematic() async {
     try {
       await _audio.initialize();
-      _audio.playFall();
+      await _audio.play();
     } catch (e) {
       debugPrint('CinematicAudio init error: $e');
+    } finally {
+      if (mounted) _fallController.forward();
     }
   }
 
   void _triggerImpact() {
     _impactTriggered = true;
     _explosionController.forward();
-    _audio.playImpact();
-
     // Logo emerges in sync with the blast — the flash covers the
     // falling-icon -> logo-icon swap.
     _logoRevealController.forward();
-
-    Future.delayed(const Duration(milliseconds: 150), () {
-      _audio.playRevealChime();
-    });
 
     // Start cube bounce after logo reveal completes (900ms reveal)
     Future.delayed(const Duration(milliseconds: 1000), () {
@@ -226,6 +221,7 @@ class _CinematicIntroScreenState extends State<CinematicIntroScreen>
       widget.onComplete();
     } else if (_fallController.isAnimating) {
       _fallController.stop(canceled: false);
+      unawaited(_audio.jumpToImpact());
       if (!_impactTriggered) _triggerImpact();
     }
   }

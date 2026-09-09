@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'dart:ui' show ImageFilter;
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, defaultTargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -11,7 +13,9 @@ import '../../providers/auth_provider.dart';
 import '../../providers/cloud_mfa_provider.dart';
 import '../../providers/theme_provider.dart';
 import '../../services/input/gamepad_navigation_service.dart';
+import '../../services/tv/native_tv_ime_bridge.dart';
 import '../../services/tv/tv_focus_helpers.dart';
+import '../../ui/proportional_scale.dart';
 
 class CloudAuthScreen extends StatefulWidget {
   final bool isFirstRun;
@@ -51,6 +55,9 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
   @override
   void initState() {
     super.initState();
+    debugPrint(
+      '[NativeTvIme] targetPlatform=$defaultTargetPlatform enabled=$_usesNativeTvIme',
+    );
     GamepadNavigationService.setActive(false);
     _mfaProvider = context.read<CloudMfaProvider>();
     _mfaProvider.addListener(_onMfaStateChange);
@@ -85,6 +92,7 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
   @override
   void dispose() {
     _confirmationTimer?.cancel();
+    unawaited(NativeTvImeBridge.instance.close());
     _emailController.dispose();
     _passwordController.dispose();
     _mfaCodeController.dispose();
@@ -97,6 +105,7 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
   }
 
   Future<void> _handleSubmit() async {
+    if (_usesNativeTvIme) unawaited(NativeTvImeBridge.instance.close());
     if (_isSignUp) {
       await _handleSignUp();
     } else {
@@ -232,6 +241,7 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
   }
 
   Future<void> _handleMfaVerify(String code) async {
+    if (_usesNativeTvIme) unawaited(NativeTvImeBridge.instance.close());
     setState(() => _isLoading = true);
     final mfa = context.read<CloudMfaProvider>();
     final success = await mfa.verifyCode(code);
@@ -278,17 +288,96 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
     }
   }
 
-  // Native IME helpers. Gamepad select focuses the real field, touch uses the
-  // same TextFormField path, so the device keyboard stays native.
-  void _focusNativeInput(FocusNode focusNode) {
-    focusNode.requestFocus();
-    // Show the keyboard only after the field's input connection has attached.
-    // Showing it in the same tick raced the attach on TV: the IME appeared
-    // with no connection, so the remote's keys never reached it.
+  // JUJO's Android build targets remote-first TV devices. Using the native
+  // input connection on Android avoids Flutter's Chromecast DPAD/IME defect;
+  // desktop builds retain the normal EditableText implementation.
+  bool get _usesNativeTvIme => defaultTargetPlatform == TargetPlatform.android;
+
+  void _focusNativeInput(
+    FocusNode focusNode, {
+    required String fieldId,
+    required TextEditingController controller,
+    required NativeTvImeInput input,
+    required TextInputAction action,
+    required VoidCallback onSubmitted,
+    ValueChanged<String>? onChanged,
+    int? maxLength,
+  }) {
+    if (!_usesNativeTvIme) {
+      focusNode.requestFocus();
+      return;
+    }
+
+    unawaited(
+      NativeTvImeBridge.instance
+          .open(
+            fieldId: fieldId,
+            controller: controller,
+            input: input,
+            action: action,
+            maxLength: maxLength,
+            onChanged: onChanged,
+            onSubmitted: onSubmitted,
+            onClosed: () => _restoreTraversalAfterNativeIme(focusNode),
+          )
+          .catchError((Object error) {
+            debugPrint('[NativeTvIme] open failed: $error');
+          }),
+    );
+  }
+
+  void _restoreTraversalAfterNativeIme(FocusNode focusNode) {
+    if (!mounted) return;
+    focusNode.unfocus();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      SystemChannels.textInput.invokeMethod<void>('TextInput.show');
+      if (mounted) FocusScope.of(context).nextFocus();
     });
+  }
+
+  Widget _guardNativeImeField(Widget child) {
+    return IgnorePointer(ignoring: _usesNativeTvIme, child: child);
+  }
+
+  void _focusEmailInput() {
+    _focusNativeInput(
+      _emailFocusNode,
+      fieldId: 'email',
+      controller: _emailController,
+      input: NativeTvImeInput.email,
+      action: TextInputAction.next,
+      onSubmitted: _focusPasswordInput,
+    );
+  }
+
+  void _focusPasswordInput() {
+    _focusNativeInput(
+      _passwordFocusNode,
+      fieldId: 'password',
+      controller: _passwordController,
+      input: NativeTvImeInput.password,
+      action: TextInputAction.done,
+      onSubmitted: _handleSubmit,
+    );
+  }
+
+  void _focusMfaInput() {
+    _focusNativeInput(
+      _mfaCodeFocusNode,
+      fieldId: 'mfa',
+      controller: _mfaCodeController,
+      input: NativeTvImeInput.number,
+      action: TextInputAction.done,
+      maxLength: 6,
+      onChanged: _onMfaCodeChanged,
+      onSubmitted: () => _handleMfaVerify(_mfaCodeController.text),
+    );
+  }
+
+  void _onMfaCodeChanged(String code) {
+    if (code.length == 6 && !_isLoading) {
+      FocusScope.of(context).unfocus();
+      _handleMfaVerify(code);
+    }
   }
 
   bool get _typingInField {
@@ -299,6 +388,7 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
   }
 
   void _continueLocalOnly() {
+    if (_usesNativeTvIme) unawaited(NativeTvImeBridge.instance.close());
     FocusScope.of(context).unfocus();
     if (!widget.isFirstRun && (Navigator.maybeOf(context)?.canPop() ?? false)) {
       Navigator.of(context).pop();
@@ -327,40 +417,37 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
         focusFillColor: Colors.white.withValues(alpha: 0.08),
         focusBorderWidth: 1.2,
         focusScale: 1.0,
-        child:
-            interceptArrowKeys
-                ? Focus(
-                  onKeyEvent: (node, event) {
-                    if (event is! KeyDownEvent) {
-                      return KeyEventResult.ignored;
-                    }
-                    final key = event.logicalKey;
-                    // While an inner field is being edited, key events bubble
-                    // from it up through this ancestor. Stealing up/down here
-                    // yanked focus off the field, closed the IME connection,
-                    // and left the on-screen keyboard visible but deaf — the
-                    // remote could never reach it. Arrows belong to the IME
-                    // while typing.
-                    if (_typingInField) {
-                      return KeyEventResult.ignored;
-                    }
-                    if (key == LogicalKeyboardKey.arrowUp) {
-                      node.nearestScope?.focusInDirection(
-                        TraversalDirection.up,
-                      );
-                      return KeyEventResult.handled;
-                    }
-                    if (key == LogicalKeyboardKey.arrowDown) {
-                      node.nearestScope?.focusInDirection(
-                        TraversalDirection.down,
-                      );
-                      return KeyEventResult.handled;
-                    }
+        child: interceptArrowKeys
+            ? Focus(
+                onKeyEvent: (node, event) {
+                  if (event is! KeyDownEvent) {
                     return KeyEventResult.ignored;
-                  },
-                  child: child,
-                )
-                : child,
+                  }
+                  final key = event.logicalKey;
+                  // While an inner field is being edited, key events bubble
+                  // from it up through this ancestor. Stealing up/down here
+                  // yanked focus off the field, closed the IME connection,
+                  // and left the on-screen keyboard visible but deaf — the
+                  // remote could never reach it. Arrows belong to the IME
+                  // while typing.
+                  if (_typingInField) {
+                    return KeyEventResult.ignored;
+                  }
+                  if (key == LogicalKeyboardKey.arrowUp) {
+                    node.nearestScope?.focusInDirection(TraversalDirection.up);
+                    return KeyEventResult.handled;
+                  }
+                  if (key == LogicalKeyboardKey.arrowDown) {
+                    node.nearestScope?.focusInDirection(
+                      TraversalDirection.down,
+                    );
+                    return KeyEventResult.handled;
+                  }
+                  return KeyEventResult.ignored;
+                },
+                child: child,
+              )
+            : child,
       ),
     );
   }
@@ -377,7 +464,11 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
           focused == _passwordFocusNode ||
           focused == _mfaCodeFocusNode) {
         focused?.unfocus();
-        SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
+        if (_usesNativeTvIme) {
+          unawaited(NativeTvImeBridge.instance.close());
+        } else {
+          SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
+        }
         return KeyEventResult.handled;
       }
       final mfa = context.read<CloudMfaProvider>();
@@ -430,8 +521,9 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
             Center(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.all(24),
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 420),
+                child: ProportionalScale(
+                  scale: 0.75, // 25% smaller than the 420px base (user request 2026-09-03)
+                  baseWidth: 420,
                   child: showMfaPanel
                       ? _buildMfaLayout(context, mfa, tp)
                       : _buildAuthLayout(context, tp),
@@ -497,31 +589,37 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
                   _orderedAuthFocus(
                     order: 0,
                     autofocus: true,
-                    interceptArrowKeys: true,
-                    onSelect: () => _focusNativeInput(_emailFocusNode),
-                    child: TextFormField(
-                      controller: _emailController,
-                      focusNode: _emailFocusNode,
-                      style: const TextStyle(color: Colors.white),
-                      decoration: _inputDecoration(
-                        'Email',
-                        Icons.mail_outline,
-                        tp,
+                    interceptArrowKeys: !_usesNativeTvIme,
+                    excludeChildFocus: _usesNativeTvIme,
+                    onSelect: _focusEmailInput,
+                    child: _guardNativeImeField(
+                      TextFormField(
+                        controller: _emailController,
+                        focusNode: _emailFocusNode,
+                        readOnly: _usesNativeTvIme,
+                        canRequestFocus: !_usesNativeTvIme,
+                        showCursor: !_usesNativeTvIme,
+                        enableInteractiveSelection: !_usesNativeTvIme,
+                        style: const TextStyle(color: Colors.white),
+                        decoration: _inputDecoration(
+                          'Email',
+                          Icons.mail_outline,
+                          tp,
+                        ),
+                        keyboardType: TextInputType.emailAddress,
+                        textInputAction: TextInputAction.next,
+                        autocorrect: false,
+                        enableSuggestions: false,
+                        onFieldSubmitted: (_) => _focusPasswordInput(),
+                        validator: (value) {
+                          final email = value?.trim() ?? '';
+                          if (email.isEmpty) return 'Email is required';
+                          if (!email.contains('@')) {
+                            return 'Please enter a valid email';
+                          }
+                          return null;
+                        },
                       ),
-                      keyboardType: TextInputType.emailAddress,
-                      textInputAction: TextInputAction.next,
-                      autocorrect: false,
-                      enableSuggestions: false,
-                      onFieldSubmitted: (_) =>
-                          _focusNativeInput(_passwordFocusNode),
-                      validator: (value) {
-                        final email = value?.trim() ?? '';
-                        if (email.isEmpty) return 'Email is required';
-                        if (!email.contains('@')) {
-                          return 'Please enter a valid email';
-                        }
-                        return null;
-                      },
                     ),
                   ),
                   const SizedBox(height: 16),
@@ -529,46 +627,53 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
                   // Password field
                   _orderedAuthFocus(
                     order: 1,
-                    interceptArrowKeys: true,
-                    onSelect: () => _focusNativeInput(_passwordFocusNode),
-                    child: TextFormField(
-                      controller: _passwordController,
-                      focusNode: _passwordFocusNode,
-                      style: const TextStyle(color: Colors.white),
-                      obscureText: _obscurePassword,
-                      decoration:
-                          _inputDecoration(
-                            'Password',
-                            Icons.lock_outline,
-                            tp,
-                          ).copyWith(
-                            suffixIcon: IconButton(
-                              icon: Icon(
-                                _obscurePassword
-                                    ? Icons.visibility_off_outlined
-                                    : Icons.visibility_outlined,
-                                color: Colors.white54,
-                                size: 20,
-                              ),
-                              onPressed: () => setState(
-                                () => _obscurePassword = !_obscurePassword,
+                    interceptArrowKeys: !_usesNativeTvIme,
+                    excludeChildFocus: _usesNativeTvIme,
+                    onSelect: _focusPasswordInput,
+                    child: _guardNativeImeField(
+                      TextFormField(
+                        controller: _passwordController,
+                        focusNode: _passwordFocusNode,
+                        readOnly: _usesNativeTvIme,
+                        canRequestFocus: !_usesNativeTvIme,
+                        showCursor: !_usesNativeTvIme,
+                        enableInteractiveSelection: !_usesNativeTvIme,
+                        style: const TextStyle(color: Colors.white),
+                        obscureText: _obscurePassword,
+                        decoration:
+                            _inputDecoration(
+                              'Password',
+                              Icons.lock_outline,
+                              tp,
+                            ).copyWith(
+                              suffixIcon: IconButton(
+                                icon: Icon(
+                                  _obscurePassword
+                                      ? Icons.visibility_off_outlined
+                                      : Icons.visibility_outlined,
+                                  color: Colors.white54,
+                                  size: 20,
+                                ),
+                                onPressed: () => setState(
+                                  () => _obscurePassword = !_obscurePassword,
+                                ),
                               ),
                             ),
-                          ),
-                      keyboardType: TextInputType.visiblePassword,
-                      textInputAction: TextInputAction.done,
-                      autocorrect: false,
-                      enableSuggestions: false,
-                      onFieldSubmitted: (_) => _handleSubmit(),
-                      validator: (value) {
-                        if (value == null || value.isEmpty) {
-                          return 'Password is required';
-                        }
-                        if (value.length < 6) {
-                          return 'Must be at least 6 characters';
-                        }
-                        return null;
-                      },
+                        keyboardType: TextInputType.visiblePassword,
+                        textInputAction: TextInputAction.done,
+                        autocorrect: false,
+                        enableSuggestions: false,
+                        onFieldSubmitted: (_) => _handleSubmit(),
+                        validator: (value) {
+                          if (value == null || value.isEmpty) {
+                            return 'Password is required';
+                          }
+                          if (value.length < 6) {
+                            return 'Must be at least 6 characters';
+                          }
+                          return null;
+                        },
+                      ),
                     ),
                   ),
 
@@ -869,42 +974,44 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
                 _orderedAuthFocus(
                   order: 0,
                   autofocus: true,
-                  interceptArrowKeys: true,
-                  onSelect: () => _focusNativeInput(_mfaCodeFocusNode),
-                  child: TextFormField(
-                    controller: _mfaCodeController,
-                    focusNode: _mfaCodeFocusNode,
-                    autofocus: true,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 22,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: 8,
+                  interceptArrowKeys: !_usesNativeTvIme,
+                  excludeChildFocus: _usesNativeTvIme,
+                  onSelect: _focusMfaInput,
+                  child: _guardNativeImeField(
+                    TextFormField(
+                      controller: _mfaCodeController,
+                      focusNode: _mfaCodeFocusNode,
+                      autofocus: !_usesNativeTvIme,
+                      readOnly: _usesNativeTvIme,
+                      canRequestFocus: !_usesNativeTvIme,
+                      showCursor: !_usesNativeTvIme,
+                      enableInteractiveSelection: !_usesNativeTvIme,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 22,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 8,
+                      ),
+                      keyboardType: TextInputType.number,
+                      textInputAction: TextInputAction.done,
+                      textAlign: TextAlign.center,
+                      maxLength: 6,
+                      inputFormatters: [
+                        FilteringTextInputFormatter.digitsOnly,
+                        LengthLimitingTextInputFormatter(6),
+                      ],
+                      decoration: _inputDecoration(
+                        '6-digit code',
+                        Icons.onetwothree_outlined,
+                        tp,
+                      ).copyWith(counterText: ''),
+                      onChanged: _onMfaCodeChanged,
+                      onFieldSubmitted: (code) {
+                        if (code.length == 6 && !_isLoading) {
+                          _handleMfaVerify(code);
+                        }
+                      },
                     ),
-                    keyboardType: TextInputType.number,
-                    textInputAction: TextInputAction.done,
-                    textAlign: TextAlign.center,
-                    maxLength: 6,
-                    inputFormatters: [
-                      FilteringTextInputFormatter.digitsOnly,
-                      LengthLimitingTextInputFormatter(6),
-                    ],
-                    decoration: _inputDecoration(
-                      '6-digit code',
-                      Icons.onetwothree_outlined,
-                      tp,
-                    ).copyWith(counterText: ''),
-                    onChanged: (code) {
-                      if (code.length == 6 && !_isLoading) {
-                        FocusScope.of(context).unfocus();
-                        _handleMfaVerify(code);
-                      }
-                    },
-                    onFieldSubmitted: (code) {
-                      if (code.length == 6 && !_isLoading) {
-                        _handleMfaVerify(code);
-                      }
-                    },
                   ),
                 ),
 
@@ -1135,8 +1242,8 @@ class _WrapOrderedTraversalPolicy extends OrderedTraversalPolicy {
     final nextIndex = switch (direction) {
       TraversalDirection.up || TraversalDirection.left =>
         (currentIndex - 1 + nodes.length) % nodes.length,
-      TraversalDirection.down || TraversalDirection.right =>
-        (currentIndex + 1) % nodes.length,
+      TraversalDirection.down ||
+      TraversalDirection.right => (currentIndex + 1) % nodes.length,
     };
 
     nodes[nextIndex].requestFocus();

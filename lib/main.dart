@@ -317,11 +317,7 @@ class _StartupGateState extends State<StartupGate> with WidgetsBindingObserver {
       if (builder != null) {
         return builder(
           onComplete: _onStartupAnimationComplete,
-          // The cinematic remains selected and visible on every tier. Only
-          // premium devices run its particles, wind, shake and parallel
-          // controllers during the already expensive first-frame warm-up.
-          reducedMotion:
-              motion.reduceMotion || motion.tier != MotionTier.premium,
+          reducedMotion: !motion.allowCinematicMotion,
         );
       }
     }

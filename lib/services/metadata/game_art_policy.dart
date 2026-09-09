@@ -1,15 +1,37 @@
+import 'package:flutter/widgets.dart';
+
 import '../../models/nv_app.dart';
 
 enum GameBackdropRole { hero, poster, none }
 
 class GameBackdropSelection {
-  const GameBackdropSelection({required this.role, this.url, this.cacheKey});
+  const GameBackdropSelection({
+    required this.role,
+    this.url,
+    this.cacheKey,
+    this.fit = BoxFit.cover,
+    this.alignment = Alignment.center,
+  });
 
   final GameBackdropRole role;
   final String? url;
   final String? cacheKey;
 
+  /// How the accepted hero is placed in the viewport. Wide Steam-style heroes
+  /// (3.1:1) are shown whole, pinned to the top, instead of being cover-zoomed.
+  final BoxFit fit;
+  final Alignment alignment;
+
   bool get hasArt => role != GameBackdropRole.none && url != null;
+
+  GameBackdropSelection withFit(BoxFit fit, Alignment alignment) =>
+      GameBackdropSelection(
+        role: role,
+        url: url,
+        cacheKey: cacheKey,
+        fit: fit,
+        alignment: alignment,
+      );
 }
 
 class GameArtPolicy {
@@ -106,6 +128,29 @@ class GameArtPolicy {
     return imageAspect < viewportAspect
         ? imageAspect / viewportAspect
         : viewportAspect / imageAspect;
+  }
+
+  /// Cover keeps composition when little is cropped. Heroes much wider than
+  /// the viewport (Steam `library_hero` is 3.1:1) would lose ~40% to a cover
+  /// zoom, so they render whole, pinned to the top, over the fallback colour.
+  /// Taller viewports (phones) always cover: a pillarboxed banner is worse.
+  static const coverMaxCrop = 0.20;
+
+  static ({BoxFit fit, Alignment alignment}) heroFitFor({
+    required int width,
+    required int height,
+    required double viewportWidth,
+    required double viewportHeight,
+  }) {
+    if (width <= 0 || height <= 0 || viewportWidth <= 0 || viewportHeight <= 0) {
+      return (fit: BoxFit.cover, alignment: Alignment.center);
+    }
+    final imageAspect = width / height;
+    final viewportAspect = viewportWidth / viewportHeight;
+    final wideEnoughToCrop = imageAspect > viewportAspect / (1 - coverMaxCrop);
+    return wideEnoughToCrop
+        ? (fit: BoxFit.fitWidth, alignment: Alignment.topCenter)
+        : (fit: BoxFit.cover, alignment: Alignment.center);
   }
 
   static bool isEligibleHeroForViewport({

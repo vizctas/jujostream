@@ -3,18 +3,21 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('details preserves official artwork without a full-screen blur pass', () {
-    final source = File(
-      'lib/screens/app_view/app_details_screen.dart',
-    ).readAsStringSync();
-    final start = source.indexOf('Widget _buildBackdrop()');
-    final end = source.indexOf('Widget _buildTopBar()', start);
-    final backdrop = source.substring(start, end);
+  test(
+    'details preserves official artwork without a full-screen blur pass',
+    () {
+      final source = File(
+        'lib/screens/app_view/app_details_screen.dart',
+      ).readAsStringSync();
+      final start = source.indexOf('Widget _buildBackdrop()');
+      final end = source.indexOf('Widget _buildTopBar()', start);
+      final backdrop = source.substring(start, end);
 
-    expect(backdrop, contains('GameBackdropArt('));
-    expect(backdrop, isNot(contains('BackdropFilter(')));
-    expect(backdrop, isNot(contains('ImageFilter.blur')));
-  });
+      expect(backdrop, contains('GameBackdropArt('));
+      expect(backdrop, isNot(contains('BackdropFilter(')));
+      expect(backdrop, isNot(contains('ImageFilter.blur')));
+    },
+  );
 
   test('launcher actions share the accessible interaction primitive', () {
     final source = File(
@@ -35,6 +38,6 @@ void main() {
     final rearrange = source.substring(start, end);
 
     expect(rearrange, contains('MotionScope.read(context)'));
-    expect(rearrange, contains('allowContinuousEffects'));
+    expect(rearrange, contains('allowFeedbackMotion'));
   });
 }
