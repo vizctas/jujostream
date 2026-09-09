@@ -970,13 +970,27 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
         sendEvent(mapOf("type" to "statusUpdate", "status" to connectionStatus))
     }
 
-    override fun onRumble(controllerNumber: Short, lowFreqMotor: Short, highFreqMotor: Short) {
+    // These four run on moonlight-common-c's native thread through JNI with no
+    // ExceptionCheck on the C side. A Kotlin exception left pending there
+    // aborts the whole process on the next JNI call, so controller feedback
+    // must never throw past this boundary. Games that drive rumble/LED at
+    // frame rate (fighting games) are the ones that hit it.
+    private inline fun feedbackGuard(what: String, block: () -> Unit) {
+        try {
+            block()
+        } catch (t: Throwable) {
+            Log.w(TAG, "Controller feedback '$what' failed: $t")
+        }
+    }
 
-        GamepadHandler.instance?.handleRumble(
-            controllerNumber.toInt(),
-            lowFreqMotor.toInt() and 0xFFFF,
-            highFreqMotor.toInt() and 0xFFFF
-        )
+    override fun onRumble(controllerNumber: Short, lowFreqMotor: Short, highFreqMotor: Short) {
+        feedbackGuard("rumble") {
+            GamepadHandler.instance?.handleRumble(
+                controllerNumber.toInt(),
+                lowFreqMotor.toInt() and 0xFFFF,
+                highFreqMotor.toInt() and 0xFFFF
+            )
+        }
         // Rumble is fully handled on Android. Forwarding every haptic packet to
         // Dart made the generic stats listener run HUD parsing, session metrics,
         // telemetry, and dynamic-bitrate evaluation for feedback that no Dart
@@ -984,28 +998,34 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
     }
 
     override fun onRumbleTriggers(controllerNumber: Short, leftTrigger: Short, rightTrigger: Short) {
-        GamepadHandler.instance?.handleRumbleTriggers(
-            controllerNumber.toInt(),
-            leftTrigger.toInt() and 0xFFFF,
-            rightTrigger.toInt() and 0xFFFF
-        )
+        feedbackGuard("rumbleTriggers") {
+            GamepadHandler.instance?.handleRumbleTriggers(
+                controllerNumber.toInt(),
+                leftTrigger.toInt() and 0xFFFF,
+                rightTrigger.toInt() and 0xFFFF
+            )
+        }
     }
 
     override fun onSetMotionEventState(controllerNumber: Short, motionType: Byte, reportRateHz: Short) {
-        GamepadHandler.instance?.handleSetMotionEventState(
-            controllerNumber.toInt(),
-            motionType.toInt() and 0xFF,
-            reportRateHz.toInt() and 0xFFFF
-        )
+        feedbackGuard("motionEventState") {
+            GamepadHandler.instance?.handleSetMotionEventState(
+                controllerNumber.toInt(),
+                motionType.toInt() and 0xFF,
+                reportRateHz.toInt() and 0xFFFF
+            )
+        }
     }
 
     override fun onSetControllerLED(controllerNumber: Short, r: Byte, g: Byte, b: Byte) {
-        GamepadHandler.instance?.handleSetControllerLED(
-            controllerNumber.toInt(),
-            r.toInt() and 0xFF,
-            g.toInt() and 0xFF,
-            b.toInt() and 0xFF
-        )
+        feedbackGuard("controllerLED") {
+            GamepadHandler.instance?.handleSetControllerLED(
+                controllerNumber.toInt(),
+                r.toInt() and 0xFF,
+                g.toInt() and 0xFF,
+                b.toInt() and 0xFF
+            )
+        }
     }
 
     private fun cleanup() {

@@ -9,6 +9,7 @@ import android.os.BatteryManager
 import android.hardware.input.InputManager
 import android.os.Build
 import android.os.Handler
+import android.os.HandlerThread
 import android.os.Looper
 import android.os.VibrationEffect
 import android.os.Vibrator
@@ -224,6 +225,21 @@ class GamepadHandler(
     private val controllerLedRunnables = mutableMapOf<Int, Runnable>()
     private var ledCallbackCount = 0L
     private var ledAppliedCount = 0L
+
+    // Rumble arrives on moonlight's native receive thread, once per frame per
+    // controller. Each packet used to do two Binder round trips (getDevice +
+    // vibrate) right there, so two DualSense pads at 60 Hz stalled the stream
+    // pipeline and the Chromecast's BT/vibrator stack until the box rebooted.
+    // Packets are coalesced per device (newest wins) and applied at most every
+    // 40 ms on a dedicated feedback thread, never on the receive thread.
+    private val controllerRumbleThrottle = ControllerLedThrottle(40_000_000L)
+    private val controllerTriggerThrottle = ControllerLedThrottle(40_000_000L)
+    private val rumbleRunnables = mutableMapOf<Int, Runnable>()
+    private val triggerRunnables = mutableMapOf<Int, Runnable>()
+    private val feedbackThread = HandlerThread("controller-feedback").also { it.start() }
+    private val feedbackHandler = Handler(feedbackThread.looper)
+
+    private fun packMotors(a: Int, b: Int): Int = ((a and 0xFFFF) shl 16) or (b and 0xFFFF)
 
     var mouseEmulationActive: Boolean = false
         private set
@@ -1448,6 +1464,34 @@ class GamepadHandler(
 
         val deviceId = deviceSlots.entries.firstOrNull { it.value == controllerNumber }?.key
             ?: return
+        val packed = packMotors(lowFreqMotor, highFreqMotor)
+        val task: Runnable
+        val schedule: ControllerLedSchedule
+        synchronized(controllerFeedbackLock) {
+            schedule = controllerRumbleThrottle.enqueue(deviceId, packed, System.nanoTime())
+                ?: return
+            task = Runnable { dispatchRumble(deviceId) }
+            rumbleRunnables[deviceId] = task
+        }
+        feedbackHandler.postDelayed(task, schedule.delayMs)
+    }
+
+    private fun dispatchRumble(deviceId: Int) {
+        val packed = synchronized(controllerFeedbackLock) {
+            rumbleRunnables.remove(deviceId)
+            controllerRumbleThrottle.takePending(deviceId, System.nanoTime())
+        } ?: return
+        try {
+            applyRumble(deviceId, packed ushr 16, packed and 0xFFFF)
+            synchronized(controllerFeedbackLock) {
+                controllerRumbleThrottle.markApplied(deviceId, packed)
+            }
+        } catch (t: Throwable) {
+            Log.w(TAG, "Rumble apply failed for device $deviceId: $t")
+        }
+    }
+
+    private fun applyRumble(deviceId: Int, lowFreqMotor: Int, highFreqMotor: Int) {
         val device = InputDevice.getDevice(deviceId) ?: return
         var handledByController = false
 
@@ -1515,6 +1559,34 @@ class GamepadHandler(
 
         val deviceId = deviceSlots.entries.firstOrNull { it.value == controllerNumber }?.key
             ?: return
+        val packed = packMotors(leftTrigger, rightTrigger)
+        val task: Runnable
+        val schedule: ControllerLedSchedule
+        synchronized(controllerFeedbackLock) {
+            schedule = controllerTriggerThrottle.enqueue(deviceId, packed, System.nanoTime())
+                ?: return
+            task = Runnable { dispatchRumbleTriggers(deviceId) }
+            triggerRunnables[deviceId] = task
+        }
+        feedbackHandler.postDelayed(task, schedule.delayMs)
+    }
+
+    private fun dispatchRumbleTriggers(deviceId: Int) {
+        val packed = synchronized(controllerFeedbackLock) {
+            triggerRunnables.remove(deviceId)
+            controllerTriggerThrottle.takePending(deviceId, System.nanoTime())
+        } ?: return
+        try {
+            applyRumbleTriggers(deviceId, packed ushr 16, packed and 0xFFFF)
+            synchronized(controllerFeedbackLock) {
+                controllerTriggerThrottle.markApplied(deviceId, packed)
+            }
+        } catch (t: Throwable) {
+            Log.w(TAG, "Trigger rumble apply failed for device $deviceId: $t")
+        }
+    }
+
+    private fun applyRumbleTriggers(deviceId: Int, leftTrigger: Int, rightTrigger: Int) {
         val device = InputDevice.getDevice(deviceId) ?: return
         var handledByController = false
 
@@ -2482,6 +2554,14 @@ class GamepadHandler(
     fun dispose() {
         instance = null
         stopMotionSensors()
+        synchronized(controllerFeedbackLock) {
+            rumbleRunnables.clear()
+            triggerRunnables.clear()
+            controllerRumbleThrottle.clearAll()
+            controllerTriggerThrottle.clearAll()
+        }
+        feedbackHandler.removeCallbacksAndMessages(null)
+        feedbackThread.quitSafely()
         val inputManager = context.getSystemService(Context.INPUT_SERVICE) as? InputManager
         inputManager?.unregisterInputDeviceListener(this)
         methodChannel.setMethodCallHandler(null)
