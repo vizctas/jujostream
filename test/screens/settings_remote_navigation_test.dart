@@ -3,15 +3,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:jujostream/screens/settings/settings_remote_navigation.dart';
 
 void main() {
-  test('D-pad horizontal arrows switch settings pages', () {
-    expect(
-      settingsPageDeltaForKey(LogicalKeyboardKey.arrowRight),
-      SettingsPageDelta.next,
-    );
-    expect(
-      settingsPageDeltaForKey(LogicalKeyboardKey.arrowLeft),
-      SettingsPageDelta.previous,
-    );
+  test('D-pad horizontal arrows stay with the focused control', () {
+    // Stealing them at the page boundary made horizontal lists, sliders and
+    // chip rows inside a settings page unreachable with a TV remote.
+    expect(settingsPageDeltaForKey(LogicalKeyboardKey.arrowRight), isNull);
+    expect(settingsPageDeltaForKey(LogicalKeyboardKey.arrowLeft), isNull);
   });
 
   test('controller shoulder shortcuts keep switching settings pages', () {

@@ -93,10 +93,33 @@ class GameArtFileService extends FileService {
   }) async {
     final uri = Uri.parse(url);
     final client = _clientFor(uri);
-    final request = http.Request('GET', uri);
-    if (headers != null) request.headers.addAll(headers);
+    final pinned = client != _publicClient;
+
+    http.Request build() {
+      final request = http.Request('GET', uri);
+      if (headers != null) request.headers.addAll(headers);
+      // nvhttp closes the socket after every /appasset response without
+      // sending `Connection: close`, so a pooled keep-alive socket is dead by
+      // the next request and fails with "Connection closed before full
+      // header was received". Ask for a fresh connection each time.
+      if (pinned) request.headers['connection'] = 'close';
+      return request;
+    }
+
     try {
-      return HttpGetResponse(await client.send(request).timeout(requestTimeout));
+      return HttpGetResponse(await client.send(build()).timeout(requestTimeout));
+    } on http.ClientException catch (error) {
+      if (!pinned || !error.message.contains('Connection closed')) {
+        debugPrint('[JUJO][art] GET ${uri.host}:${uri.port}${uri.path} failed: $error');
+        rethrow;
+      }
+      // A socket the pool believed open: GET is idempotent, retry once.
+      try {
+        return HttpGetResponse(await client.send(build()).timeout(requestTimeout));
+      } catch (retryError) {
+        debugPrint('[JUJO][art] GET ${uri.host}:${uri.port}${uri.path} failed after retry: $retryError');
+        rethrow;
+      }
     } catch (error) {
       debugPrint('[JUJO][art] GET ${uri.host}:${uri.port}${uri.path} failed: $error');
       rethrow;

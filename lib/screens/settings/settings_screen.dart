@@ -190,6 +190,16 @@ class _SettingsScreenState extends State<SettingsScreen>
                     isScrollable: true,
                     padding: EdgeInsets.zero,
                     tabAlignment: TabAlignment.start,
+                    // Tabs are the remote's way to change page now (focus the
+                    // strip, left/right, select), so the focused tab needs a
+                    // visible ring; the strip has no indicator otherwise.
+                    overlayColor: WidgetStateProperty.resolveWith(
+                      (states) => states.contains(WidgetState.focused)
+                          ? Theme.of(
+                              context,
+                            ).colorScheme.primary.withValues(alpha: 0.28)
+                          : null,
+                    ),
                     indicator: const BoxDecoration(),
                     dividerColor: Colors.transparent,
                     indicatorColor: Colors.transparent,
