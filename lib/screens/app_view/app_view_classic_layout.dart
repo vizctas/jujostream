@@ -130,42 +130,81 @@ mixin _AppViewClassicMixin on _AppViewScreenBase {
       if (app.isHdrSupported) 'HDR',
     ];
     final description = app.description?.trim();
+    final titleStyle = compact
+        ? ClassicTokens.displayCompact
+        : ClassicTokens.display;
+    final metaStyle = compact ? ClassicTokens.metaCompact : ClassicTokens.meta;
+    final bodyStyle = compact ? ClassicTokens.bodyCompact : ClassicTokens.body;
+    final bodyLines = compact
+        ? ClassicTokens.descriptionLinesCompact
+        : ClassicTokens.descriptionLines;
+    // +s4: glyph descenders overshoot fontSize*height and were clipped.
+    double lines(TextStyle s, int n) =>
+        s.fontSize! * s.height! * n + ClassicTokens.s4;
+
+    // Every block reserves its height whether or not the app fills it, so the
+    // poster row never moves when the selection changes.
+    Widget fixed(double height, Widget? child) => SizedBox(
+      height: height,
+      child: child == null
+          ? null
+          : Align(alignment: Alignment.topLeft, child: child),
+    );
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text(
-          app.appName,
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-          style: compact ? ClassicTokens.displayCompact : ClassicTokens.display,
-        ),
-        if (meta.isNotEmpty) ...[
-          const SizedBox(height: ClassicTokens.s12),
+        fixed(
+          lines(titleStyle, 1),
           Text(
-            meta.join('  ·  '),
+            app.appName,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: ClassicTokens.meta,
+            style: titleStyle,
           ),
-        ],
-        if (genres.isNotEmpty) ...[
-          const SizedBox(height: ClassicTokens.s16),
-          Wrap(
-            spacing: ClassicTokens.s8,
-            runSpacing: ClassicTokens.s8,
-            children: [for (final g in genres) _ClassicChip(g)],
+        ),
+        const SizedBox(height: ClassicTokens.s8),
+        fixed(
+          lines(metaStyle, 1),
+          meta.isEmpty
+              ? null
+              : Text(
+                  meta.join('  ·  '),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: metaStyle,
+                ),
+        ),
+        const SizedBox(height: ClassicTokens.s12),
+        fixed(
+          ClassicTokens.chipHeight,
+          genres.isEmpty
+              ? null
+              : SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  physics: const NeverScrollableScrollPhysics(),
+                  child: Row(
+                    children: [
+                      for (final g in genres) ...[
+                        _ClassicChip(g),
+                        const SizedBox(width: ClassicTokens.s8),
+                      ],
+                    ],
+                  ),
+                ),
+        ),
+        const SizedBox(height: ClassicTokens.s12),
+        fixed(
+          lines(bodyStyle, bodyLines),
+          Text(
+            description == null || description.isEmpty
+                ? l.noDescription
+                : description,
+            maxLines: bodyLines,
+            overflow: TextOverflow.ellipsis,
+            style: bodyStyle,
           ),
-        ],
-        const SizedBox(height: ClassicTokens.s16),
-        Text(
-          description == null || description.isEmpty
-              ? l.noDescription
-              : description,
-          maxLines: compact ? 2 : 3,
-          overflow: TextOverflow.ellipsis,
-          style: ClassicTokens.body,
         ),
       ],
     );

@@ -84,14 +84,28 @@ class ClassicTokens {
   /// Landscape screens under [compactHeight] (phone/desktop windows).
   static const TextStyle displayCompact = TextStyle(
     color: text,
-    fontSize: 40,
+    fontSize: 26,
     fontWeight: FontWeight.w700,
-    letterSpacing: -0.8,
-    height: 1.05,
+    letterSpacing: -0.5,
+    height: 1.1,
   );
+  static const TextStyle bodyCompact = TextStyle(
+    color: textMuted,
+    fontSize: 13,
+    fontWeight: FontWeight.w400,
+    height: 1.35,
+  );
+  static const TextStyle metaCompact = TextStyle(
+    color: textMuted,
+    fontSize: 12,
+    fontWeight: FontWeight.w500,
+    height: 1.2,
+  );
+  static const int descriptionLines = 3;
+  static const int descriptionLinesCompact = 2;
   static const TextStyle dialogTitle = TextStyle(
     color: text,
-    fontSize: 32,
+    fontSize: 24,
     fontWeight: FontWeight.w700,
     letterSpacing: -0.5,
     height: 1.1,
@@ -106,6 +120,7 @@ class ClassicTokens {
     color: textMuted,
     fontSize: 16,
     fontWeight: FontWeight.w500,
+    height: 1.2,
   );
   static const TextStyle label = TextStyle(
     color: textFaint,
