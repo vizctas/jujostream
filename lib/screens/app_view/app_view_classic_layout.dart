@@ -516,7 +516,10 @@ class _ClassicGameDialogState extends State<_ClassicGameDialog> {
                             gradient: LinearGradient(
                               begin: Alignment.topCenter,
                               end: Alignment.bottomCenter,
-                              stops: const [0.35, 1.0],
+                              stops: const [
+                                ClassicTokens.dialogArtFadeStart,
+                                1.0,
+                              ],
                               colors: [surface.withValues(alpha: 0), surface],
                             ),
                           ),
@@ -754,7 +757,11 @@ class _ClassicButtonBody extends StatelessWidget {
           ],
           if (hint != null) ...[
             const SizedBox(width: ClassicTokens.s12),
-            GamepadHintIcon(hint!, size: 18, forceVisible: true),
+            GamepadHintIcon(
+              hint!,
+              size: ClassicTokens.hintIconSize,
+              forceVisible: true,
+            ),
           ],
         ],
       ),

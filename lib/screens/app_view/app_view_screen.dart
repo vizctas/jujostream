@@ -982,16 +982,16 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
                 left: 0,
                 top: 0,
                 bottom: 0,
-                width: screenSize.width * 0.8,
+                width: screenSize.width * ClassicTokens.leftBandWidth,
                 child: DecoratedBox(
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
                       begin: Alignment.centerLeft,
                       end: Alignment.centerRight,
-                      stops: const [0.0, 0.56, 1.0],
+                      stops: const [0.0, ClassicTokens.leftBandMidStop, 1.0],
                       colors: [
-                        bg.withValues(alpha: 0.92),
-                        bg.withValues(alpha: 0.55),
+                        bg.withValues(alpha: ClassicTokens.leftBandAlphaStart),
+                        bg.withValues(alpha: ClassicTokens.leftBandAlphaMid),
                         bg.withValues(alpha: 0.0),
                       ],
                     ),
@@ -1002,7 +1002,7 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
                 left: 0,
                 right: 0,
                 bottom: 0,
-                height: screenSize.height * 0.5,
+                height: screenSize.height * ClassicTokens.bottomBandHeight,
                 child: DecoratedBox(
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
@@ -1010,7 +1010,7 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
                       end: Alignment.bottomCenter,
                       colors: [
                         bg.withValues(alpha: 0.0),
-                        bg.withValues(alpha: 0.9),
+                        bg.withValues(alpha: ClassicTokens.bottomBandAlpha),
                       ],
                     ),
                   ),
@@ -2526,51 +2526,54 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
         },
         child: Builder(
           builder: (ctx) {
-          final hasFocus = Focus.of(ctx).hasFocus;
-          return GestureDetector(
-            onTap: () {
-              _feedbackNavigate();
-              onTap();
-            },
-            behavior: HitTestBehavior.opaque,
-            child: AnimatedContainer(
-              duration: MotionScope.of(context).microDuration,
-              color: Colors.transparent,
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-              child: Row(
-                children: [
-                  AnimatedContainer(
-                    duration: MotionScope.of(context).microDuration,
-                    width: 36,
-                    height: 36,
-                    decoration: hasFocus
-                        ? BoxDecoration(
-                            color: color.withValues(alpha: 0.22),
-                            shape: BoxShape.circle,
-                          )
-                        : null,
-                    alignment: Alignment.center,
-                    child: Icon(
-                      icon,
-                      color: hasFocus ? color : color.withValues(alpha: 0.7),
-                      size: 22,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      label,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w500,
+            final hasFocus = Focus.of(ctx).hasFocus;
+            return GestureDetector(
+              onTap: () {
+                _feedbackNavigate();
+                onTap();
+              },
+              behavior: HitTestBehavior.opaque,
+              child: AnimatedContainer(
+                duration: MotionScope.of(context).microDuration,
+                color: Colors.transparent,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 12,
+                ),
+                child: Row(
+                  children: [
+                    AnimatedContainer(
+                      duration: MotionScope.of(context).microDuration,
+                      width: 36,
+                      height: 36,
+                      decoration: hasFocus
+                          ? BoxDecoration(
+                              color: color.withValues(alpha: 0.22),
+                              shape: BoxShape.circle,
+                            )
+                          : null,
+                      alignment: Alignment.center,
+                      child: Icon(
+                        icon,
+                        color: hasFocus ? color : color.withValues(alpha: 0.7),
+                        size: 22,
                       ),
                     ),
-                  ),
-                  ?trailing,
-                ],
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        label,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                    ?trailing,
+                  ],
+                ),
               ),
-            ),
-          );
+            );
           },
         ),
       ),

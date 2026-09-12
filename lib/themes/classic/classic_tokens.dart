@@ -46,6 +46,16 @@ class ClassicTokens {
   static const Duration dialogOut = Duration(milliseconds: 180);
   static const double dialogSlide = 12;
 
+  // Backdrop legibility bands (fractions of the screen) and their alphas.
+  static const double leftBandWidth = 0.8;
+  static const double leftBandMidStop = 0.56;
+  static const double leftBandAlphaStart = 0.92;
+  static const double leftBandAlphaMid = 0.55;
+  static const double bottomBandHeight = 0.5;
+  static const double bottomBandAlpha = 0.9;
+  static const double dialogArtFadeStart = 0.35;
+  static const double hintIconSize = 18;
+
   // Dialog.
   static const double dialogWidthFraction = 0.62;
   static const double dialogMaxWidth = 880;
