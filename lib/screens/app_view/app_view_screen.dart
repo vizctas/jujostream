@@ -215,6 +215,9 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
   @override
   void initState() {
     super.initState();
+    // Slow-frame log split by thread so a TV jank can be attributed to
+    // build/layout (UI) or rasterization (GPU) from logcat alone.
+    SchedulerBinding.instance.addTimingsCallback(_onFrameTimings);
     _posterPrefetchScheduler = LatestWindowScheduler<_LauncherArtRequest>(
       keyOf: (request) => request.memoryKey,
       load: _precacheArtwork,
@@ -379,6 +382,7 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
 
   @override
   void dispose() {
+    SchedulerBinding.instance.removeTimingsCallback(_onFrameTimings);
     WidgetsBinding.instance.removeObserver(this);
     _stopAutoRefreshTimer();
     _accentDebounce?.cancel();
@@ -977,43 +981,63 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
               // Reading column lives on the left: darken that side, keep the
               // art clean on the right, and ground the poster row at the bottom.
               // Each gradient only covers the band it tints: TV GPUs pay every
-              // full-screen blended layer on every frame of the crossfade.
-              Positioned(
-                left: 0,
-                top: 0,
-                bottom: 0,
-                width: screenSize.width * ClassicTokens.leftBandWidth,
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.centerLeft,
-                      end: Alignment.centerRight,
-                      stops: const [0.0, ClassicTokens.leftBandMidStop, 1.0],
-                      colors: [
-                        bg.withValues(alpha: ClassicTokens.leftBandAlphaStart),
-                        bg.withValues(alpha: ClassicTokens.leftBandAlphaMid),
-                        bg.withValues(alpha: 0.0),
-                      ],
+              // full-screen blended layer on every frame of the crossfade. The
+              // boundary keeps the static bands out of the layer that the
+              // focus animations repaint (Chromecast: 33 ms -> 16.7 ms).
+              RepaintBoundary(
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    Positioned(
+                      left: 0,
+                      top: 0,
+                      bottom: 0,
+                      width: screenSize.width * ClassicTokens.leftBandWidth,
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.centerLeft,
+                            end: Alignment.centerRight,
+                            stops: const [
+                              0.0,
+                              ClassicTokens.leftBandMidStop,
+                              1.0,
+                            ],
+                            colors: [
+                              bg.withValues(
+                                alpha: ClassicTokens.leftBandAlphaStart,
+                              ),
+                              bg.withValues(
+                                alpha: ClassicTokens.leftBandAlphaMid,
+                              ),
+                              bg.withValues(alpha: 0.0),
+                            ],
+                          ),
+                        ),
+                      ),
                     ),
-                  ),
-                ),
-              ),
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: 0,
-                height: screenSize.height * ClassicTokens.bottomBandHeight,
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [
-                        bg.withValues(alpha: 0.0),
-                        bg.withValues(alpha: ClassicTokens.bottomBandAlpha),
-                      ],
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      height:
+                          screenSize.height * ClassicTokens.bottomBandHeight,
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [
+                              bg.withValues(alpha: 0.0),
+                              bg.withValues(
+                                alpha: ClassicTokens.bottomBandAlpha,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
                     ),
-                  ),
+                  ],
                 ),
               ),
             ] else
@@ -2097,6 +2121,20 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
     );
   }
 
+  static const _slowFrame = Duration(milliseconds: 25);
+
+  void _onFrameTimings(List<FrameTiming> timings) {
+    for (final t in timings) {
+      if (t.totalSpan < _slowFrame) continue;
+      debugPrint(
+        '[JUJO][frame] total=${t.totalSpan.inMilliseconds}ms '
+        'build=${t.buildDuration.inMilliseconds}ms '
+        'raster=${t.rasterDuration.inMilliseconds}ms '
+        'vsyncOverhead=${t.vsyncOverhead.inMilliseconds}ms',
+      );
+    }
+  }
+
   /// Rebuilds only [build] when the selection moves. The screen itself no
   /// longer rebuilds per D-pad key, so anything that shows the selected app
   /// immediately (title, badges) must subscribe here.
@@ -2246,7 +2284,11 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
 
     if (app.isRunning) {
       _showRunningSheet(app);
-    } else if (_useCinematicLayout) {
+    } else if (_useCinematicLayout &&
+        context.read<ThemeProvider>().launcherThemeId ==
+            LauncherThemeId.classic) {
+      // Other launcher themes route their own selection here too; the
+      // centered dialog belongs to Classic only.
       _showClassicGameDialog(app);
     } else {
       _showTvLaunchModal(app);

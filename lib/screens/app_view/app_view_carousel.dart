@@ -5,107 +5,107 @@ mixin _AppViewCarouselMixin on _AppViewScreenBase {
   Widget _buildCarouselHintsRow() {
     return IdleFade(
       child: Padding(
-      padding: const EdgeInsets.only(left: 16, bottom: 4),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _hintChip(
-              'X',
-              'Grid',
-              onTap: () {
-                _feedbackAction();
-                setState(() {
-                  _viewMode = _viewMode == _ViewMode.carousel
-                      ? _ViewMode.grid
-                      : _ViewMode.carousel;
-                });
-                if (_viewMode == _ViewMode.grid) {
-                  _disposeVideoController();
-                }
-              },
-            ),
-            _hintChip(
-              'START',
-              'Play',
-              onTap: () {
-                final provider = context.read<AppListProvider>();
-                final visibleApps = _visibleApps(provider.apps.toList());
-                if (visibleApps.isNotEmpty) {
-                  _handleAppTap(_selectedApp(visibleApps));
-                }
-              },
-            ),
-            _hintChip(
-              'SELECT',
-              'Settings',
-              onTap: () {
-                _feedbackAction();
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => AppViewPresentationSettingsScreen(
-                      preferences: context.read<LauncherPreferences>(),
+        padding: const EdgeInsets.only(left: 16, bottom: 4),
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _hintChip(
+                'X',
+                'Grid',
+                onTap: () {
+                  _feedbackAction();
+                  setState(() {
+                    _viewMode = _viewMode == _ViewMode.carousel
+                        ? _ViewMode.grid
+                        : _ViewMode.carousel;
+                  });
+                  if (_viewMode == _ViewMode.grid) {
+                    _disposeVideoController();
+                  }
+                },
+              ),
+              _hintChip(
+                'START',
+                'Play',
+                onTap: () {
+                  final provider = context.read<AppListProvider>();
+                  final visibleApps = _visibleApps(provider.apps.toList());
+                  if (visibleApps.isNotEmpty) {
+                    _handleAppTap(_selectedApp(visibleApps));
+                  }
+                },
+              ),
+              _hintChip(
+                'SELECT',
+                'Settings',
+                onTap: () {
+                  _feedbackAction();
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => AppViewPresentationSettingsScreen(
+                        preferences: context.read<LauncherPreferences>(),
+                      ),
                     ),
-                  ),
-                );
-              },
-            ),
-            _hintChip(
-              'R3',
-              AppLocalizations.of(context).smartFilters,
-              onTap: () {
-                _feedbackAction();
-                _openSmartGenreFilters();
-              },
-            ),
-            _hintChip(
-              'Y',
-              'Details',
-              onTap: () {
-                _feedbackAction();
-                final provider = context.read<AppListProvider>();
-                final visibleApps = _visibleApps(provider.apps.toList());
-                if (visibleApps.isNotEmpty) {
-                  _openDetailsScreen(_selectedApp(visibleApps));
-                }
-              },
-            ),
-            _hintChip(
-              'RB',
-              'Fav',
-              onTap: () {
-                final provider = context.read<AppListProvider>();
-                final visibleApps = _visibleApps(provider.apps.toList());
-                if (visibleApps.isNotEmpty) {
-                  _toggleFavorite(_selectedApp(visibleApps));
-                }
-              },
-            ),
-            // The cinematic layout sends ↑ to the icon rail instead.
-            if (!_postersHidden && !_useCinematicLayout)
-              _hintChip(
-                '↑',
-                'Hide posters',
-                onTap: () {
-                  _feedbackNavigate();
-                  setState(() => _postersHidden = true);
+                  );
                 },
               ),
-            if (_postersHidden)
               _hintChip(
-                '↓',
-                'Show posters',
+                'R3',
+                AppLocalizations.of(context).smartFilters,
                 onTap: () {
-                  _feedbackNavigate();
-                  setState(() => _postersHidden = false);
+                  _feedbackAction();
+                  _openSmartGenreFilters();
                 },
               ),
-          ],
+              _hintChip(
+                'Y',
+                'Details',
+                onTap: () {
+                  _feedbackAction();
+                  final provider = context.read<AppListProvider>();
+                  final visibleApps = _visibleApps(provider.apps.toList());
+                  if (visibleApps.isNotEmpty) {
+                    _openDetailsScreen(_selectedApp(visibleApps));
+                  }
+                },
+              ),
+              _hintChip(
+                'RB',
+                'Fav',
+                onTap: () {
+                  final provider = context.read<AppListProvider>();
+                  final visibleApps = _visibleApps(provider.apps.toList());
+                  if (visibleApps.isNotEmpty) {
+                    _toggleFavorite(_selectedApp(visibleApps));
+                  }
+                },
+              ),
+              // The cinematic layout sends ↑ to the icon rail instead.
+              if (!_postersHidden && !_useCinematicLayout)
+                _hintChip(
+                  '↑',
+                  'Hide posters',
+                  onTap: () {
+                    _feedbackNavigate();
+                    setState(() => _postersHidden = true);
+                  },
+                ),
+              if (_postersHidden)
+                _hintChip(
+                  '↓',
+                  'Show posters',
+                  onTap: () {
+                    _feedbackNavigate();
+                    setState(() => _postersHidden = false);
+                  },
+                ),
+            ],
+          ),
         ),
-      ),
       ),
     );
   }
@@ -135,62 +135,68 @@ mixin _AppViewCarouselMixin on _AppViewScreenBase {
             final app = apps[index];
             // Each card listens to the selection/focus notifiers itself, so a
             // D-pad move rebuilds two cards instead of the whole screen.
-            return AnimatedBuilder(
-              animation: Listenable.merge([
-                _selectedAppIdNotifier,
-                _focusedAppIdNotifier,
-              ]),
-              builder: (context, _) {
-            final isSelected = app.appId == _selectedAppId;
-            return _CarouselCard(
-              key: ValueKey(app.appId),
-              app: app,
-              heroTag: _heroTag(app),
-              selected: isSelected,
-              focused: _focusedAppId == app.appId,
-              focusNode: _cardFocusNodes[app.appId],
-              cardWidth: cw,
-              cardRadius: cinematic
-                  ? ClassicTokens.radiusCard
-                  : lp.cardBorderRadius,
-              // The title lives in the reading column on the cinematic layout.
-              showLabel: lp.showCardLabels && !cinematic,
-              cinematic: cinematic,
-              showRunningBadge: lp.showRunningBadge,
-              onFocus: () {
-                if (!mounted) return;
-                if (_browseSection != _BrowseSection.carousel) {
-                  setState(() => _browseSection = _BrowseSection.carousel);
-                }
-                _selectedAppId = app.appId;
-                _focusedAppId = app.appId;
-                _queueAccentColorExtraction(app);
-                _centerOnIndex(index, apps.length);
-              },
-              onKeyEvent: (event) => _onKeyEvent(event, apps, app),
-              onTap: () {
-                if (isSelected) {
-                  _feedbackAction();
-                  _openDetailsScreen(app);
-                } else {
-                  _feedbackNavigate();
-                  _selectedAppId = app.appId;
-                  _focusedAppId = app.appId;
-                  _queueAccentColorExtraction(app);
-                  _requestCardFocus(app.appId);
-                  _centerOnIndex(index, apps.length);
-                }
-              },
-              onLongPress: () {
-                _feedbackHeavy();
-                _selectedAppId = app.appId;
-                _focusedAppId = app.appId;
-                _requestCardFocus(app.appId);
-                _centerOnIndex(index, apps.length);
-                _showRunningSheet(app);
-              },
-            );
-              },
+            // Each card repaints alone while its focus scale/ring animates
+            // instead of dragging the whole screen layer with it.
+            return RepaintBoundary(
+              child: AnimatedBuilder(
+                animation: Listenable.merge([
+                  _selectedAppIdNotifier,
+                  _focusedAppIdNotifier,
+                ]),
+                builder: (context, _) {
+                  final isSelected = app.appId == _selectedAppId;
+                  return _CarouselCard(
+                    key: ValueKey(app.appId),
+                    app: app,
+                    heroTag: _heroTag(app),
+                    selected: isSelected,
+                    focused: _focusedAppId == app.appId,
+                    focusNode: _cardFocusNodes[app.appId],
+                    cardWidth: cw,
+                    cardRadius: cinematic
+                        ? ClassicTokens.radiusCard
+                        : lp.cardBorderRadius,
+                    // The title lives in the reading column on the cinematic layout.
+                    showLabel: lp.showCardLabels && !cinematic,
+                    cinematic: cinematic,
+                    showRunningBadge: lp.showRunningBadge,
+                    onFocus: () {
+                      if (!mounted) return;
+                      if (_browseSection != _BrowseSection.carousel) {
+                        setState(
+                          () => _browseSection = _BrowseSection.carousel,
+                        );
+                      }
+                      _selectedAppId = app.appId;
+                      _focusedAppId = app.appId;
+                      _queueAccentColorExtraction(app);
+                      _centerOnIndex(index, apps.length);
+                    },
+                    onKeyEvent: (event) => _onKeyEvent(event, apps, app),
+                    onTap: () {
+                      if (isSelected) {
+                        _feedbackAction();
+                        _openDetailsScreen(app);
+                      } else {
+                        _feedbackNavigate();
+                        _selectedAppId = app.appId;
+                        _focusedAppId = app.appId;
+                        _queueAccentColorExtraction(app);
+                        _requestCardFocus(app.appId);
+                        _centerOnIndex(index, apps.length);
+                      }
+                    },
+                    onLongPress: () {
+                      _feedbackHeavy();
+                      _selectedAppId = app.appId;
+                      _focusedAppId = app.appId;
+                      _requestCardFocus(app.appId);
+                      _centerOnIndex(index, apps.length);
+                      _showRunningSheet(app);
+                    },
+                  );
+                },
+              ),
             );
           },
         ),
@@ -331,12 +337,16 @@ class _CarouselCardState extends State<_CarouselCard>
                       ? ClassicTokens.focusScale
                       : 1.0)
                 : (active ? 1.0 : 0.94),
-            duration: widget.cinematic ? ClassicTokens.focus : motion.focusDuration,
+            duration: widget.cinematic
+                ? ClassicTokens.focus
+                : motion.focusDuration,
             curve: widget.cinematic ? ClassicTokens.curve : Curves.linear,
             child: ScaleTransition(
               scale: _pulseAnim,
               child: AnimatedContainer(
-                duration: widget.cinematic ? ClassicTokens.focus : motion.focusDuration,
+                duration: widget.cinematic
+                    ? ClassicTokens.focus
+                    : motion.focusDuration,
                 curve: widget.cinematic ? ClassicTokens.curve : Curves.linear,
                 width: widget.cardWidth,
                 transform: active && !widget.cinematic
