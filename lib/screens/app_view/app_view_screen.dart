@@ -42,6 +42,7 @@ import '../../services/network/smart_bitrate_service.dart';
 import '../../services/stream/image_load_throttle.dart';
 import '../../services/tv/tv_detector.dart';
 import '../../themes/launcher_theme.dart';
+import '../../themes/classic/classic_tokens.dart';
 import '../../ui/input_idle.dart';
 import '../../widgets/poster_image.dart';
 import '../../widgets/game_backdrop_art.dart';
@@ -54,6 +55,7 @@ import '../../ui/accessible_action.dart';
 
 part 'app_view_cards.dart';
 part 'app_view_carousel.dart';
+part 'app_view_classic_layout.dart';
 part 'app_view_discovery.dart';
 part 'app_view_filters.dart';
 part 'app_view_gamepad_handler.dart';
@@ -100,6 +102,14 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
   int _gridCrossAxisCount();
   Widget _buildHorizontalCarousel(List<NvApp> apps, NvApp selected);
   Widget _buildCarouselHintsRow();
+  bool get _useCinematicLayout;
+  Widget _buildCinematicLayout(
+    List<NvApp> apps,
+    List<NvApp> visibleApps,
+    NvApp selected,
+  );
+  void _focusRail();
+  void _showClassicGameDialog(NvApp app);
   void _centerOnIndex(int index, int total, {bool animate = true});
   Widget _buildCategoryBar(
     List<NvApp> apps, {
@@ -911,6 +921,8 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
     final motion = MotionPolicy.fromContext(context, themeProvider);
     final shouldAnimate =
         !TvDetector.instance.isTV && motion.allowContinuousEffects;
+    final cinematic = isLandscape && _useCinematicLayout;
+    final bg = ClassicTokens.bg(_tp);
 
     if (shouldAnimate && !_backgroundMotionController.isAnimating) {
       _backgroundMotionController.repeat(reverse: true);
@@ -960,18 +972,51 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
           children: [
             RepaintBoundary(child: _buildDynamicBackground(selected)),
 
-            Container(
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [Color(0x55000000), Color(0xBB000000)],
+            if (cinematic) ...[
+              // Reading column lives on the left: darken that side, keep the
+              // art clean on the right, and ground the poster row at the bottom.
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.centerLeft,
+                    end: Alignment.centerRight,
+                    stops: const [0.0, 0.45, 0.8],
+                    colors: [
+                      bg.withValues(alpha: 0.92),
+                      bg.withValues(alpha: 0.55),
+                      bg.withValues(alpha: 0.0),
+                    ],
+                  ),
                 ),
               ),
-            ),
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    stops: const [0.5, 1.0],
+                    colors: [
+                      bg.withValues(alpha: 0.0),
+                      bg.withValues(alpha: 0.9),
+                    ],
+                  ),
+                ),
+              ),
+            ] else
+              Container(
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [Color(0x55000000), Color(0xBB000000)],
+                  ),
+                ),
+              ),
             SafeArea(
               child: _viewMode == _ViewMode.grid
                   ? _buildGridLayout(apps, visibleApps, selected)
+                  : cinematic
+                  ? _buildCinematicLayout(apps, visibleApps, selected)
                   : isLandscape
                   ? _buildLandscapeLayout(apps, visibleApps, selected)
                   : _buildPortraitLayout(apps, visibleApps, selected),
@@ -2187,6 +2232,8 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
 
     if (app.isRunning) {
       _showRunningSheet(app);
+    } else if (_useCinematicLayout) {
+      _showClassicGameDialog(app);
     } else {
       _showTvLaunchModal(app);
     }
@@ -3111,7 +3158,8 @@ class _AppViewScreenState extends _AppViewScreenBase
         _AppViewFiltersMixin,
         _AppViewVideoPreviewMixin,
         _AppViewGamepadMixin,
-        _AppViewDiscoveryMixin {}
+        _AppViewDiscoveryMixin,
+        _AppViewClassicMixin {}
 
 class _LaunchStartingOverlay extends StatelessWidget {
   final NvApp app;

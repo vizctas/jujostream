@@ -76,6 +76,10 @@ mixin _AppViewGamepadMixin on _AppViewScreenBase {
 
         if (_showBottomFilterBar) {
           setState(() => _showBottomFilterBar = false);
+        } else if (_useCinematicLayout) {
+          // Up from the poster row reaches the icon rail; the reading column
+          // is not focusable and hiding posters has no place in this layout.
+          _focusRail();
         } else if (!_postersHidden) {
           _feedbackNavigate();
           setState(() => _postersHidden = true);

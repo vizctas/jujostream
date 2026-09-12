@@ -110,6 +110,7 @@ class AppLocalizations {
     'running': {'en': 'Running', 'es': 'EN EJECUCIÓN'},
     'favorites': {'en': 'Favorites', 'es': 'Favoritos'},
     'recent': {'en': 'Recent', 'es': 'Recientes'},
+    'libraryLabel': {'en': 'Library', 'es': 'Biblioteca'},
     'all': {'en': 'All', 'es': 'Todos'},
     'hiddenGames': {'en': 'Hidden games', 'es': 'Juegos ocultos'},
     'hideGame': {'en': 'Hide game', 'es': 'Ocultar juego'},
@@ -998,6 +999,7 @@ class AppLocalizations {
   String get running => _s('running');
   String get favorites => _s('favorites');
   String get recent => _s('recent');
+  String get libraryLabel => _s('libraryLabel');
   String get all => _s('all');
   String get hiddenGames => _s('hiddenGames');
   String get hideGame => _s('hideGame');

@@ -76,6 +76,20 @@ class SessionHistoryService {
     }
   }
 
+  static Future<DateTime?> lastSessionEnd(int appId) async {
+    try {
+      final db = await _open();
+      final result = await db.rawQuery(
+        'SELECT MAX(end_time_ms) as last FROM $_kTable WHERE app_id = ?',
+        [appId],
+      );
+      final ms = (result.first['last'] as num?)?.toInt();
+      return ms == null ? null : DateTime.fromMillisecondsSinceEpoch(ms);
+    } catch (_) {
+      return null;
+    }
+  }
+
   static Future<int> totalPlaytimeAllSec() async {
     try {
       final db = await _open();

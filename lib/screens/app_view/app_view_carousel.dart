@@ -84,7 +84,8 @@ mixin _AppViewCarouselMixin on _AppViewScreenBase {
                 }
               },
             ),
-            if (!_postersHidden)
+            // The cinematic layout sends ↑ to the icon rail instead.
+            if (!_postersHidden && !_useCinematicLayout)
               _hintChip(
                 '↑',
                 'Hide posters',
@@ -115,6 +116,7 @@ mixin _AppViewCarouselMixin on _AppViewScreenBase {
 
     final cw = lp.cardWidth * 0.7;
     final ch = lp.cardHeight * 0.7;
+    final cinematic = _useCinematicLayout;
     return Padding(
       padding: const EdgeInsets.only(top: 14),
       child: SizedBox(
@@ -148,8 +150,12 @@ mixin _AppViewCarouselMixin on _AppViewScreenBase {
               focused: _focusedAppId == app.appId,
               focusNode: _cardFocusNodes[app.appId],
               cardWidth: cw,
-              cardRadius: lp.cardBorderRadius,
-              showLabel: lp.showCardLabels,
+              cardRadius: cinematic
+                  ? ClassicTokens.radiusCard
+                  : lp.cardBorderRadius,
+              // The title lives in the reading column on the cinematic layout.
+              showLabel: lp.showCardLabels && !cinematic,
+              cinematic: cinematic,
               showRunningBadge: lp.showRunningBadge,
               onFocus: () {
                 if (!mounted) return;
@@ -230,6 +236,10 @@ class _CarouselCard extends StatefulWidget {
   final double cardRadius;
   final bool showLabel;
   final bool showRunningBadge;
+
+  /// Cinematic Classic (MASTER.md): scale 1.06 + accent ring on focus, no
+  /// lift, no pulse.
+  final bool cinematic;
   final VoidCallback onFocus;
   final KeyEventResult Function(KeyEvent event) onKeyEvent;
   final VoidCallback onTap;
@@ -250,6 +260,7 @@ class _CarouselCard extends StatefulWidget {
     this.cardRadius = 14,
     this.showLabel = true,
     this.showRunningBadge = true,
+    this.cinematic = false,
   });
 
   @override
@@ -283,6 +294,7 @@ class _CarouselCardState extends State<_CarouselCard>
 
     if (!old.selected &&
         widget.selected &&
+        !widget.cinematic &&
         !MotionScope.read(context).reduceMotion) {
       _pulseCtrl.forward(from: 0);
     }
@@ -314,20 +326,37 @@ class _CarouselCardState extends State<_CarouselCard>
           onTap: widget.onTap,
           onLongPress: widget.onLongPress,
           child: AnimatedScale(
-            scale: active ? 1.0 : 0.94,
-            duration: motion.focusDuration,
+            scale: widget.cinematic
+                ? (active && !motion.reduceMotion
+                      ? ClassicTokens.focusScale
+                      : 1.0)
+                : (active ? 1.0 : 0.94),
+            duration: widget.cinematic ? ClassicTokens.focus : motion.focusDuration,
+            curve: widget.cinematic ? ClassicTokens.curve : Curves.linear,
             child: ScaleTransition(
               scale: _pulseAnim,
               child: AnimatedContainer(
-                duration: motion.focusDuration,
+                duration: widget.cinematic ? ClassicTokens.focus : motion.focusDuration,
+                curve: widget.cinematic ? ClassicTokens.curve : Curves.linear,
                 width: widget.cardWidth,
-                transform: active
+                transform: active && !widget.cinematic
                     ? Matrix4.translationValues(0.0, -10.0, 0.0)
                     : Matrix4.identity(),
                 decoration: BoxDecoration(
                   color: _tp.background,
                   borderRadius: BorderRadius.circular(widget.cardRadius),
                 ),
+                foregroundDecoration: widget.cinematic
+                    ? BoxDecoration(
+                        borderRadius: BorderRadius.circular(widget.cardRadius),
+                        border: Border.all(
+                          color: active
+                              ? ClassicTokens.accent(_tp)
+                              : ClassicTokens.accent(_tp).withValues(alpha: 0),
+                          width: ClassicTokens.focusRingWidth,
+                        ),
+                      )
+                    : null,
                 clipBehavior: Clip.antiAlias,
                 child: Stack(
                   fit: StackFit.expand,
