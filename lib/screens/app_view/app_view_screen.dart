@@ -923,6 +923,7 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
         !TvDetector.instance.isTV && motion.allowContinuousEffects;
     final cinematic = isLandscape && _useCinematicLayout;
     final bg = ClassicTokens.bg(_tp);
+    final screenSize = MediaQuery.sizeOf(context);
 
     if (shouldAnimate && !_backgroundMotionController.isAnimating) {
       _backgroundMotionController.repeat(reverse: true);
@@ -975,30 +976,43 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
             if (cinematic) ...[
               // Reading column lives on the left: darken that side, keep the
               // art clean on the right, and ground the poster row at the bottom.
-              DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.centerLeft,
-                    end: Alignment.centerRight,
-                    stops: const [0.0, 0.45, 0.8],
-                    colors: [
-                      bg.withValues(alpha: 0.92),
-                      bg.withValues(alpha: 0.55),
-                      bg.withValues(alpha: 0.0),
-                    ],
+              // Each gradient only covers the band it tints: TV GPUs pay every
+              // full-screen blended layer on every frame of the crossfade.
+              Positioned(
+                left: 0,
+                top: 0,
+                bottom: 0,
+                width: screenSize.width * 0.8,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.centerLeft,
+                      end: Alignment.centerRight,
+                      stops: const [0.0, 0.56, 1.0],
+                      colors: [
+                        bg.withValues(alpha: 0.92),
+                        bg.withValues(alpha: 0.55),
+                        bg.withValues(alpha: 0.0),
+                      ],
+                    ),
                   ),
                 ),
               ),
-              DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    stops: const [0.5, 1.0],
-                    colors: [
-                      bg.withValues(alpha: 0.0),
-                      bg.withValues(alpha: 0.9),
-                    ],
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                height: screenSize.height * 0.5,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        bg.withValues(alpha: 0.0),
+                        bg.withValues(alpha: 0.9),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -2153,11 +2167,8 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
             heroBuilder: (context, selection, hero) =>
                 _buildValidatedHeroBackground(hero, selection, lp),
           ),
-        Container(
-          color: Colors.black.withValues(
-            alpha: showVideo ? 0.0 : lp.backgroundDim,
-          ),
-        ),
+        if (!showVideo && !_useCinematicLayout)
+          Container(color: Colors.black.withValues(alpha: lp.backgroundDim)),
         // The cyan radial tint is a third full-screen layer over the backdrop.
         // On TV-class GPUs that overdraw is paid on every frame, so it is
         // reserved for desktop where the backdrop also moves.
@@ -2180,8 +2191,11 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
     GameBackdropSelection selection,
     LauncherPreferences preferences,
   ) {
+    // The cinematic layout keeps the art clean (its gradients carry the
+    // legibility) and every extra full-screen layer costs a vsync on TV GPUs.
     if (context.read<ThemeProvider>().performanceMode ||
-        preferences.backgroundBlur <= 0) {
+        preferences.backgroundBlur <= 0 ||
+        _useCinematicLayout) {
       return hero;
     }
     return Stack(
