@@ -115,13 +115,34 @@ void main() {
       steamBackgroundUrl: 'steam',
       rawgBackgroundUrl: 'rawg',
       posterUrl: 'poster',
+      screenshotUrls: const ['shot-0', 'shot-1'],
     );
 
     expect(
       GameArtPolicy.heroCandidates(app).map((candidate) => candidate.url),
-      ['host', 'rawg', 'steam'],
+      ['host', 'rawg', 'steam', 'shot-0', 'shot-1'],
     );
     expect(GameArtPolicy.posterFallback(app).url, 'poster');
+  });
+
+  test('gallery images back the hero when the host advertises none', () {
+    final app = NvApp(
+      appId: 1,
+      appName: 'Hades',
+      posterUrl: 'poster',
+      screenshotUrls: const ['shot-0', 'shot-1', 'shot-2'],
+    );
+
+    final candidates = GameArtPolicy.heroCandidates(app);
+
+    // Capped at two: each probe is a full download on the device.
+    expect(candidates.map((candidate) => candidate.url), [
+      'shot-0',
+      'shot-1',
+    ]);
+    // Per-index cache keys: two gallery images must not share one entry.
+    expect(candidates.first.cacheKey, app.artCacheKey('shot', 0));
+    expect(candidates.last.cacheKey, app.artCacheKey('shot', 1));
   });
 
   test('poster-only app selects premium fallback, not portrait art', () {

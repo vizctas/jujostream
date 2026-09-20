@@ -104,12 +104,15 @@ class PosterImage extends StatefulWidget {
 class _PosterImageState extends State<PosterImage> {
   var _reloadGeneration = 0;
   var _recoveryScheduled = false;
+  var _deferredRetries = 0;
+  static const _maxDeferredRetries = 5;
 
   @override
   void didUpdateWidget(covariant PosterImage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.url != widget.url || oldWidget.cacheKey != widget.cacheKey) {
       _recoveryScheduled = false;
+      _deferredRetries = 0;
       _reloadGeneration = 0;
     }
   }
@@ -137,12 +140,25 @@ class _PosterImageState extends State<PosterImage> {
         )
         .then((recovered) {
           if (!mounted ||
-              !recovered ||
               widget.url != requestedUrl ||
               widget.cacheKey != requestedKey) {
             return;
           }
-          setState(() => _reloadGeneration++);
+          if (recovered) {
+            setState(() => _reloadGeneration++);
+          } else if (_deferredRetries < _maxDeferredRetries) {
+            // Budget spent (second failure inside the window, e.g. the server
+            // is still downloading remote art). errorWidget fires once per
+            // load, so without this the tile stayed blank all session.
+            _deferredRetries++;
+            Future.delayed(ArtworkCacheRecovery.retryAfter, () {
+              if (mounted &&
+                  widget.url == requestedUrl &&
+                  widget.cacheKey == requestedKey) {
+                _scheduleNetworkRecovery(cacheWidth);
+              }
+            });
+          }
         })
         .whenComplete(() => _recoveryScheduled = false);
   }

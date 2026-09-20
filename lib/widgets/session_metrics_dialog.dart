@@ -199,8 +199,9 @@ class _SessionMetricsDialogState extends State<SessionMetricsDialog>
       shadowColor: Colors.transparent,
       surfaceTintColor: Colors.transparent,
       insetPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      child: Align(
-        alignment: Alignment.center,
+      // ponytail: uniform 0.9 scale shrinks card + every inner element at once.
+      child: Transform.scale(
+        scale: 0.9,
         child: Focus(
           focusNode: _focusNode,
           autofocus: true,

@@ -920,6 +920,7 @@ class _HeroBodyState extends State<_HeroBody>
           ),
           const SizedBox(height: 8),
 
+          if (context.watch<LauncherPreferences>().showButtonHints)
           Padding(
             padding: const EdgeInsets.fromLTRB(24, 0, 24, 14),
             child: Row(
@@ -1263,6 +1264,7 @@ class _HeroBodyState extends State<_HeroBody>
           ),
         ),
 
+        if (context.watch<LauncherPreferences>().showButtonHints)
         Padding(
           padding: const EdgeInsets.fromLTRB(40, 4, 40, 12),
           child: Row(

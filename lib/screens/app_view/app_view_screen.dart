@@ -41,6 +41,7 @@ import '../../services/library/latest_window_scheduler.dart';
 import '../../services/network/smart_bitrate_service.dart';
 import '../../services/stream/image_load_throttle.dart';
 import '../../services/tv/tv_detector.dart';
+import '../../ui/virtual_canvas.dart';
 import '../../themes/launcher_theme.dart';
 import '../../themes/classic/classic_tokens.dart';
 import '../../ui/input_idle.dart';
@@ -831,7 +832,7 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
               ),
             );
           }
-          return launcherTheme.buildBody(
+          final body = launcherTheme.buildBody(
             context: context,
             apps: visibleApps,
             allApps: provider.apps.toList(),
@@ -882,6 +883,12 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
             },
             activeFilterLabel: _filterLabel(_activeFilter),
           );
+          // Big Screen sizes itself from the viewport; the rest use fixed
+          // sizes and need the TV downscale.
+          return launcherTheme.id == LauncherThemeId.bigScreen ||
+                  !TvDetector.instance.isTV
+              ? body
+              : VirtualCanvas(child: body);
         }
         return _buildCarouselScreen(provider.apps);
       },
@@ -2284,11 +2291,8 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
 
     if (app.isRunning) {
       _showRunningSheet(app);
-    } else if (_useCinematicLayout &&
-        context.read<ThemeProvider>().launcherThemeId ==
-            LauncherThemeId.classic) {
-      // Other launcher themes route their own selection here too; the
-      // centered dialog belongs to Classic only.
+    } else if (_useCinematicLayout) {
+      // Every launcher theme routes its selection here: one centered card.
       _showClassicGameDialog(app);
     } else {
       _showTvLaunchModal(app);

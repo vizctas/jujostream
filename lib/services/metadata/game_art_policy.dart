@@ -37,6 +37,9 @@ class GameBackdropSelection {
 class GameArtPolicy {
   const GameArtPolicy._();
 
+  /// Gallery images considered as last-resort heroes. See [heroCandidates].
+  static const maxGalleryHeroes = 2;
+
   static GameBackdropSelection selectBackdrop(NvApp app) {
     final candidates = heroCandidates(app);
     if (candidates.isNotEmpty) return candidates.first;
@@ -47,14 +50,14 @@ class GameArtPolicy {
     final candidates = <GameBackdropSelection>[];
     final seen = <String>{};
 
-    void add(String? value, String cacheKind) {
+    void add(String? value, String cacheKind, [int idx = 0]) {
       final url = _usable(value);
       if (url == null || !seen.add(url)) return;
       candidates.add(
         GameBackdropSelection(
           role: GameBackdropRole.hero,
           url: url,
-          cacheKey: app.artCacheKey(cacheKind),
+          cacheKey: app.artCacheKey(cacheKind, idx),
         ),
       );
     }
@@ -64,6 +67,21 @@ class GameArtPolicy {
     add(app.heroImageUrl, 'hero');
     add(app.rawgBackgroundUrl, 'rawgbg');
     add(app.steamBackgroundUrl, 'steambg');
+    // Last resort: the host's gallery. A game whose host-side hero is missing
+    // or is a small/portrait provider still has no hero at all, yet usually
+    // does carry 1080p artwork here — the host only advertises gallery images
+    // it validated as landscape, and the probe in GameBackdropArt still
+    // enforces hero eligibility per viewport, so nothing portrait slips in.
+    // Capped: GameBackdropArt probes every candidate to pick the best crop,
+    // and each probe is a full download. Two is enough — the host orders
+    // artwork before screenshots — and keeps a Chromecast from fetching eight
+    // 1080p stills to draw one tile.
+    final galleryFallbacks = app.screenshotUrls.length < maxGalleryHeroes
+        ? app.screenshotUrls.length
+        : maxGalleryHeroes;
+    for (var i = 0; i < galleryFallbacks; i++) {
+      add(app.screenshotUrls[i], 'shot', i);
+    }
     return List.unmodifiable(candidates);
   }
 

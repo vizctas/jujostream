@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import '../models/stream_configuration.dart';
+import '../platform_channels/gamepad_channel.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 
@@ -25,11 +26,13 @@ class SettingsProvider extends ChangeNotifier {
       }
     }
     _loaded = true;
+    _pushBlockedButtons();
     notifyListeners();
   }
 
   Future<void> updateConfig(StreamConfiguration newConfig) async {
     _config = newConfig;
+    _pushBlockedButtons();
     notifyListeners();
 
     final prefs = await SharedPreferences.getInstance();
@@ -39,6 +42,13 @@ class SettingsProvider extends ChangeNotifier {
   Future<void> applySerializedConfig(Map<String, dynamic> partialConfig) async {
     final merged = <String, dynamic>{..._config.toJson(), ...partialConfig};
     await updateConfig(StreamConfiguration.fromJson(merged));
+  }
+
+  /// Blocked buttons are pushed from here rather than from the stream screen:
+  /// a button the user disabled has to stay dead in the launcher too, and this
+  /// is the one place every config change passes through.
+  void _pushBlockedButtons() {
+    GamepadChannel.setBlockedButtons(_config.blockedGamepadButtons.keys.toList());
   }
 
   Future<void> setResolution(int width, int height) async {

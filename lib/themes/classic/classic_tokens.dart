@@ -42,9 +42,10 @@ class ClassicTokens {
   static const Curve curve = Cubic(0.2, 0, 0, 1);
   static const Duration focus = Duration(milliseconds: 130);
   static const Duration backdrop = Duration(milliseconds: 220);
-  static const Duration dialogIn = Duration(milliseconds: 250);
+  static const Duration dialogIn = Duration(milliseconds: 340);
   static const Duration dialogOut = Duration(milliseconds: 180);
-  static const double dialogSlide = 12;
+  static const double dialogSlide = 16;
+  static const double dialogScaleFrom = 0.94;
 
   // Backdrop legibility bands (fractions of the screen) and their alphas.
   static const double leftBandWidth = 0.8;
@@ -57,11 +58,13 @@ class ClassicTokens {
   static const double hintIconSize = 18;
 
   // Dialog.
-  static const double dialogWidthFraction = 0.62;
+  static const double dialogWidthFraction = 0.7;
+  static const double dialogDesignHeight = 720;
+  static const double dialogCompactHeight = 800;
   static const double dialogMaxWidth = 880;
   static const double scrimAlpha = 0.72;
   static const double dialogArtAspect = 21 / 9;
-  static const double dialogArtAspectCompact = 4;
+  static const double dialogArtAspectCompact = 3;
   static const int dialogArtCacheWidth = 1280;
 
   // Fixed whites.

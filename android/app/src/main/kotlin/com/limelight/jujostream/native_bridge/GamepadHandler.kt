@@ -200,6 +200,12 @@ class GamepadHandler(
     private var triggerDeadzonePercent: Int = 2
     private var responseCurve: Float = 1.0f
     private var buttonRemapTable: Map<Int, Int>? = null
+
+    /** Buttons the user disabled, as GamepadDevicePolicy.buttonKey values. */
+    private var blockedButtons: Set<Long> = emptySet()
+
+    /** While true every gamepad key is reported to Dart and swallowed. */
+    private var buttonCaptureActive = false
     private var touchpadAsMouse: Boolean = false
     private var motionSensorsEnabled: Boolean = false
     private var motionFallbackEnabled: Boolean = false
@@ -467,6 +473,18 @@ class GamepadHandler(
                     } else null
                     result.success(null)
                 }
+                "setBlockedButtons" -> {
+                    val raw = call.argument<List<*>>("buttons")
+                    blockedButtons = raw
+                        ?.mapNotNull { (it as? Number)?.toLong() }
+                        ?.toSet()
+                        ?: emptySet()
+                    result.success(null)
+                }
+                "setButtonCapture" -> {
+                    buttonCaptureActive = call.argument<Boolean>("enabled") ?: false
+                    result.success(null)
+                }
                 "setMouseSensitivity" -> {
                     mouseSensitivity = (call.argument<Double>("sensitivity") ?: 1.0)
                         .toFloat().coerceIn(0.1f, 5.0f)
@@ -693,6 +711,27 @@ class GamepadHandler(
         if (isStreaming && event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
             Log.i(TAG, "STREAM_KEY: keyCode=${event.keyCode}(${KeyEvent.keyCodeToString(event.keyCode)}), scanCode=${event.scanCode}, deviceId=${event.deviceId}, overlay=$overlayVisible")
         }
+
+        // Capture and blocking run before the streaming gate, and before any
+        // remapping: MainActivity.dispatchKeyEvent is the one funnel every
+        // gamepad KeyEvent passes through, so a button disabled here does
+        // nothing in the launcher either -- which is the point of disabling it.
+        // Nothing configured: keep the idle launcher path free of a device
+        // lookup on every key press.
+        if (buttonCaptureActive || blockedButtons.isNotEmpty()) {
+            val gamepad = InputDevice.getDevice(event.deviceId)?.takeIf { isGamepadDevice(it) }
+            if (gamepad != null) {
+                val buttonKey = GamepadDevicePolicy.buttonKey(event.keyCode, event.scanCode)
+                if (buttonCaptureActive) {
+                    if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
+                        reportCapturedButton(buttonKey, event, gamepad)
+                    }
+                    return true
+                }
+                if (buttonKey in blockedButtons) return true
+            }
+        }
+
         if (!isStreaming) return false
 
         val device = InputDevice.getDevice(event.deviceId) ?: return false
@@ -2237,21 +2276,33 @@ class GamepadHandler(
                     val hasThrottle = getMotionRange(dev, MotionEvent.AXIS_THROTTLE) != null
                     val hasZ = getMotionRange(dev, MotionEvent.AXIS_Z) != null
                     val hasRZ = getMotionRange(dev, MotionEvent.AXIS_RZ) != null
+                    val hasRX = getMotionRange(dev, MotionEvent.AXIS_RX) != null
+                    val hasRY = getMotionRange(dev, MotionEvent.AXIS_RY) != null
 
-                    when {
-                        hasLT && hasRT -> {
+                    when (GamepadDevicePolicy.triggerAxesFor(
+                        hasLTrigger = hasLT,
+                        hasRTrigger = hasRT,
+                        hasBrake = hasBrake,
+                        hasGas = hasGas,
+                        hasThrottle = hasThrottle,
+                        hasZ = hasZ,
+                        hasRz = hasRZ,
+                        hasRx = hasRX,
+                        hasRy = hasRY,
+                    )) {
+                        GamepadDevicePolicy.TriggerAxes.LTRIGGER_RTRIGGER -> {
                             state.leftTriggerAxis = MotionEvent.AXIS_LTRIGGER
                             state.rightTriggerAxis = MotionEvent.AXIS_RTRIGGER
                         }
-                        hasBrake && hasGas -> {
+                        GamepadDevicePolicy.TriggerAxes.BRAKE_GAS -> {
                             state.leftTriggerAxis = MotionEvent.AXIS_BRAKE
                             state.rightTriggerAxis = MotionEvent.AXIS_GAS
                         }
-                        hasBrake && hasThrottle -> {
+                        GamepadDevicePolicy.TriggerAxes.BRAKE_THROTTLE -> {
                             state.leftTriggerAxis = MotionEvent.AXIS_BRAKE
                             state.rightTriggerAxis = MotionEvent.AXIS_THROTTLE
                         }
-                        hasZ && hasRZ -> {
+                        GamepadDevicePolicy.TriggerAxes.Z_RZ -> {
                             state.leftTriggerAxis = MotionEvent.AXIS_Z
                             state.rightTriggerAxis = MotionEvent.AXIS_RZ
                             state.rightStickXAxis = MotionEvent.AXIS_RX
@@ -2260,7 +2311,10 @@ class GamepadHandler(
                                 state.triggersIdleNegative = true
                             }
                         }
-                        else -> {
+                        // No analog trigger axis: ZL/ZR arrive as digital
+                        // BUTTON_L2/BUTTON_R2 keys, and the right stick keeps
+                        // its default Z/RZ axes.
+                        GamepadDevicePolicy.TriggerAxes.DIGITAL -> {
                             state.leftTriggerAxis = -1
                             state.rightTriggerAxis = -1
                         }
@@ -2452,6 +2506,18 @@ class GamepadHandler(
         KeyEvent.KEYCODE_NUMPAD_DOT      -> 0x6E
         KeyEvent.KEYCODE_NUMPAD_DIVIDE   -> 0x6F
         else -> null
+    }
+
+    private fun reportCapturedButton(buttonKey: Long, event: KeyEvent, device: InputDevice) {
+        val payload = mapOf(
+            "key" to buttonKey,
+            "keyCode" to event.keyCode,
+            "scanCode" to event.scanCode,
+            "label" to KeyEvent.keyCodeToString(event.keyCode),
+            "device" to (device.name ?: ""),
+        )
+        Log.i(TAG, "CAPTURED BUTTON: $payload")
+        mainHandler.post { methodChannel.invokeMethod("onButtonCaptured", payload) }
     }
 
     private fun handleRemapping(event: KeyEvent, state: ControllerState): Int {

@@ -391,14 +391,21 @@ class _ClassicDialogRoute extends RawDialogRoute<void> {
            final curved = animation.drive(
              CurveTween(curve: ClassicTokens.curve),
            );
-           // Enter: fade + 12 px rise. Exit: fade only.
+           // Enter: fade + rise + settle from 0.94. Exit: fade, sink to 0.98.
+           // Opacity finishes early so the card is solid while it settles.
            final exiting = animation.status == AnimationStatus.reverse;
-           final dy = exiting
-               ? 0.0
-               : (1 - curved.value) * ClassicTokens.dialogSlide;
-           return FadeTransition(
-             opacity: curved,
-             child: Transform.translate(offset: Offset(0, dy), child: child),
+           final t = curved.value;
+           final dy = exiting ? 0.0 : (1 - t) * ClassicTokens.dialogSlide;
+           final scale = exiting
+               ? 0.98 + 0.02 * t
+               : ClassicTokens.dialogScaleFrom +
+                     (1 - ClassicTokens.dialogScaleFrom) * t;
+           return Opacity(
+             opacity: exiting ? t : (t / 0.6).clamp(0.0, 1.0),
+             child: Transform.translate(
+               offset: Offset(0, dy),
+               child: Transform.scale(scale: scale, child: child),
+             ),
            );
          },
        );
@@ -479,14 +486,20 @@ class _ClassicGameDialogState extends State<_ClassicGameDialog> {
     final l = AppLocalizations.of(context);
     final app = widget.app;
     final colors = widget.colors;
-    final size = MediaQuery.sizeOf(context);
+    final screen = MediaQuery.sizeOf(context);
+    // TV boxes report 960x540 logical px (DPR 2), which doubled every token.
+    // Lay the card out on a virtual >=720p canvas and scale it down as one
+    // piece, so type, chips, stats and buttons all shrink together.
+    final k = (screen.height / ClassicTokens.dialogDesignHeight).clamp(
+      0.6,
+      1.0,
+    );
+    final size = screen / k;
     final width = (size.width * ClassicTokens.dialogWidthFraction).clamp(
       0.0,
       ClassicTokens.dialogMaxWidth,
     );
-    // TV boxes report 960x540 logical px (DPR 2): tighter art and copy so the
-    // action bar stays on screen without scrolling.
-    final compact = size.height < ClassicTokens.compactHeight;
+    final compact = size.height < ClassicTokens.dialogCompactHeight;
     final pad = compact ? ClassicTokens.s16 : ClassicTokens.s24;
     final art = GameArtPolicy.selectBackdrop(app);
     final genres =
@@ -510,172 +523,185 @@ class _ClassicGameDialogState extends State<_ClassicGameDialog> {
     return Focus(
       skipTraversal: true,
       onKeyEvent: _onKey,
-      child: Center(
-        child: ConstrainedBox(
-          constraints: BoxConstraints(
-            maxWidth: width,
-            maxHeight: size.height - ClassicTokens.tvMarginY * 2,
-          ),
-          child: Material(
-            color: surface,
-            borderRadius: BorderRadius.circular(ClassicTokens.radiusDialog),
-            clipBehavior: Clip.antiAlias,
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  AspectRatio(
-                    aspectRatio: compact
-                        ? ClassicTokens.dialogArtAspectCompact
-                        : ClassicTokens.dialogArtAspect,
-                    child: Stack(
-                      fit: StackFit.expand,
-                      children: [
-                        if (art.hasArt)
-                          PosterImage(
-                            url: art.url!,
-                            cacheKey: art.cacheKey,
-                            fit: art.fit,
-                            alignment: art.alignment,
-                            memCacheWidth: ClassicTokens.dialogArtCacheWidth,
-                            placeholder: (_, _) => ColoredBox(
-                              color: ClassicTokens.surfaceVariant(colors),
-                            ),
-                            errorWidget: (_, _, _) => ColoredBox(
-                              color: ClassicTokens.surfaceVariant(colors),
-                            ),
-                          )
-                        else
-                          ColoredBox(
-                            color: ClassicTokens.surfaceVariant(colors),
-                          ),
-                        DecoratedBox(
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              begin: Alignment.topCenter,
-                              end: Alignment.bottomCenter,
-                              stops: const [
-                                ClassicTokens.dialogArtFadeStart,
-                                1.0,
-                              ],
-                              colors: [surface.withValues(alpha: 0), surface],
-                            ),
-                          ),
-                        ),
-                        Positioned(
-                          left: ClassicTokens.s24,
-                          right: ClassicTokens.s24,
-                          bottom: ClassicTokens.s16,
-                          child: Text(
-                            app.appName,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: ClassicTokens.dialogTitle,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Padding(
-                    padding: EdgeInsets.fromLTRB(
-                      pad,
-                      ClassicTokens.s8,
-                      pad,
-                      pad,
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        if (genres.isNotEmpty) ...[
-                          Wrap(
-                            spacing: ClassicTokens.s8,
-                            runSpacing: ClassicTokens.s8,
-                            children: [for (final g in genres) _ClassicChip(g)],
-                          ),
-                          const SizedBox(height: ClassicTokens.s16),
-                        ],
-                        Text(
-                          description == null || description.isEmpty
-                              ? l.noDescription
-                              : description,
-                          maxLines: compact ? 3 : 4,
-                          overflow: TextOverflow.ellipsis,
-                          style: ClassicTokens.body,
-                        ),
-                        SizedBox(height: pad),
-                        Row(
+      child: Transform.scale(
+        scale: k,
+        child: OverflowBox(
+          maxWidth: size.width,
+          maxHeight: size.height,
+          child: Center(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth: width,
+                maxHeight: size.height - ClassicTokens.tvMarginY * 2,
+              ),
+              child: Material(
+                color: surface,
+                borderRadius: BorderRadius.circular(ClassicTokens.radiusDialog),
+                clipBehavior: Clip.antiAlias,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      AspectRatio(
+                        aspectRatio: compact
+                            ? ClassicTokens.dialogArtAspectCompact
+                            : ClassicTokens.dialogArtAspect,
+                        child: Stack(
+                          fit: StackFit.expand,
                           children: [
-                            _ClassicStat(
-                              label: l.timePlayed,
-                              value: playtimeText,
-                            ),
-                            const SizedBox(width: ClassicTokens.s32),
-                            _ClassicStat(
-                              label: l.lastSessionLabel,
-                              value: _classicRelativeDate(l, lastDate),
-                            ),
-                            if (achievement != null) ...[
-                              const SizedBox(width: ClassicTokens.s32),
-                              _ClassicStat(
-                                label: l.achievements,
-                                value:
-                                    '${achievement.unlocked}/${achievement.total}',
-                                valueColor: achievement.isComplete
-                                    ? ClassicTokens.success
-                                    : null,
+                            if (art.hasArt)
+                              PosterImage(
+                                url: art.url!,
+                                cacheKey: art.cacheKey,
+                                fit: art.fit,
+                                alignment: art.alignment,
+                                memCacheWidth:
+                                    ClassicTokens.dialogArtCacheWidth,
+                                placeholder: (_, _) => ColoredBox(
+                                  color: ClassicTokens.surfaceVariant(colors),
+                                ),
+                                errorWidget: (_, _, _) => ColoredBox(
+                                  color: ClassicTokens.surfaceVariant(colors),
+                                ),
+                              )
+                            else
+                              ColoredBox(
+                                color: ClassicTokens.surfaceVariant(colors),
                               ),
-                            ],
+                            DecoratedBox(
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  begin: Alignment.topCenter,
+                                  end: Alignment.bottomCenter,
+                                  stops: const [
+                                    ClassicTokens.dialogArtFadeStart,
+                                    1.0,
+                                  ],
+                                  colors: [
+                                    surface.withValues(alpha: 0),
+                                    surface,
+                                  ],
+                                ),
+                              ),
+                            ),
+                            Positioned(
+                              left: ClassicTokens.s24,
+                              right: ClassicTokens.s24,
+                              bottom: ClassicTokens.s16,
+                              child: Text(
+                                app.appName,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: ClassicTokens.dialogTitle,
+                              ),
+                            ),
                           ],
                         ),
-                      ],
-                    ),
-                  ),
-                  const Divider(height: 1, color: ClassicTokens.line),
-                  Padding(
-                    padding: EdgeInsets.symmetric(
-                      horizontal: pad,
-                      vertical: ClassicTokens.s16,
-                    ),
-                    child: FocusTraversalGroup(
-                      policy: WidgetOrderTraversalPolicy(),
-                      child: Row(
-                        children: [
-                          _ClassicFocusable(
-                            label: l.play,
-                            autofocus: true,
-                            onTap: widget.onPlay,
-                            builder: (focused) => _ClassicButtonBody(
-                              icon: Icons.play_arrow_rounded,
-                              text: l.play,
-                              hint: 'X',
-                              fill: ClassicTokens.accent(colors),
-                            ),
-                          ),
-                          const SizedBox(width: ClassicTokens.s12),
-                          _ClassicFocusable(
-                            label: l.details,
-                            onTap: widget.onDetails,
-                            builder: (focused) => _ClassicButtonBody(
-                              icon: Icons.info_outline_rounded,
-                              text: l.details,
-                              hint: 'Y',
-                            ),
-                          ),
-                          const Spacer(),
-                          _ClassicFocusable(
-                            label: l.options,
-                            onTap: widget.onMore,
-                            builder: (focused) => const _ClassicButtonBody(
-                              icon: Icons.settings_outlined,
-                            ),
-                          ),
-                        ],
                       ),
-                    ),
+                      Padding(
+                        padding: EdgeInsets.fromLTRB(
+                          pad,
+                          ClassicTokens.s8,
+                          pad,
+                          pad,
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (genres.isNotEmpty) ...[
+                              Wrap(
+                                spacing: ClassicTokens.s8,
+                                runSpacing: ClassicTokens.s8,
+                                children: [
+                                  for (final g in genres) _ClassicChip(g),
+                                ],
+                              ),
+                              const SizedBox(height: ClassicTokens.s16),
+                            ],
+                            Text(
+                              description == null || description.isEmpty
+                                  ? l.noDescription
+                                  : description,
+                              maxLines: compact ? 3 : 4,
+                              overflow: TextOverflow.ellipsis,
+                              style: ClassicTokens.body,
+                            ),
+                            SizedBox(height: pad),
+                            Row(
+                              children: [
+                                _ClassicStat(
+                                  label: l.timePlayed,
+                                  value: playtimeText,
+                                ),
+                                const SizedBox(width: ClassicTokens.s32),
+                                _ClassicStat(
+                                  label: l.lastSessionLabel,
+                                  value: _classicRelativeDate(l, lastDate),
+                                ),
+                                if (achievement != null) ...[
+                                  const SizedBox(width: ClassicTokens.s32),
+                                  _ClassicStat(
+                                    label: l.achievements,
+                                    value:
+                                        '${achievement.unlocked}/${achievement.total}',
+                                    valueColor: achievement.isComplete
+                                        ? ClassicTokens.success
+                                        : null,
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                      const Divider(height: 1, color: ClassicTokens.line),
+                      Padding(
+                        padding: EdgeInsets.symmetric(
+                          horizontal: pad,
+                          vertical: ClassicTokens.s16,
+                        ),
+                        child: FocusTraversalGroup(
+                          policy: WidgetOrderTraversalPolicy(),
+                          child: Row(
+                            children: [
+                              _ClassicFocusable(
+                                label: l.play,
+                                autofocus: true,
+                                onTap: widget.onPlay,
+                                builder: (focused) => _ClassicButtonBody(
+                                  icon: Icons.play_arrow_rounded,
+                                  text: l.play,
+                                  hint: 'X',
+                                  fill: ClassicTokens.accent(colors),
+                                ),
+                              ),
+                              const SizedBox(width: ClassicTokens.s12),
+                              _ClassicFocusable(
+                                label: l.details,
+                                onTap: widget.onDetails,
+                                builder: (focused) => _ClassicButtonBody(
+                                  icon: Icons.info_outline_rounded,
+                                  text: l.details,
+                                  hint: 'Y',
+                                ),
+                              ),
+                              const Spacer(),
+                              _ClassicFocusable(
+                                label: l.options,
+                                onTap: widget.onMore,
+                                builder: (focused) => const _ClassicButtonBody(
+                                  icon: Icons.settings_outlined,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                ],
+                ),
               ),
             ),
           ),

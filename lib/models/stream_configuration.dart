@@ -44,6 +44,12 @@ class StreamConfiguration {
   final bool gamepadTouchpadAsMouse;
   final ButtonRemapProfile buttonRemapProfile;
   final Map<int, int> customRemapTable;
+
+  /// Physical gamepad buttons the user disabled, id -> human label. The id is
+  /// `keyCode << 32 | scanCode`, captured natively: macro pads ship their extra
+  /// rear buttons preset to mirror a face button, so the keyCode alone would
+  /// also disable the real one.
+  final Map<int, String> blockedGamepadButtons;
   final double gamepadMouseSpeed;
 
   final bool ultraLowLatency;
@@ -213,6 +219,7 @@ class StreamConfiguration {
     this.gamepadTouchpadAsMouse = false,
     this.buttonRemapProfile = ButtonRemapProfile.none,
     this.customRemapTable = const {},
+    this.blockedGamepadButtons = const {},
     this.gamepadMouseSpeed = 1.75,
     this.ultraLowLatency = false,
     this.lowLatencyFrameBalance = false,
@@ -301,6 +308,7 @@ class StreamConfiguration {
     bool? gamepadTouchpadAsMouse,
     ButtonRemapProfile? buttonRemapProfile,
     Map<int, int>? customRemapTable,
+    Map<int, String>? blockedGamepadButtons,
     double? gamepadMouseSpeed,
     bool? ultraLowLatency,
     bool? lowLatencyFrameBalance,
@@ -392,6 +400,8 @@ class StreamConfiguration {
           gamepadTouchpadAsMouse ?? this.gamepadTouchpadAsMouse,
       buttonRemapProfile: buttonRemapProfile ?? this.buttonRemapProfile,
       customRemapTable: customRemapTable ?? this.customRemapTable,
+      blockedGamepadButtons:
+          blockedGamepadButtons ?? this.blockedGamepadButtons,
       gamepadMouseSpeed: gamepadMouseSpeed ?? this.gamepadMouseSpeed,
       ultraLowLatency: ultraLowLatency ?? this.ultraLowLatency,
       lowLatencyFrameBalance:
@@ -486,6 +496,9 @@ class StreamConfiguration {
     'gamepadTouchpadAsMouse': gamepadTouchpadAsMouse,
     'buttonRemapProfile': buttonRemapProfile.index,
     'customRemapTable': customRemapTable.map(
+      (k, v) => MapEntry(k.toString(), v),
+    ),
+    'blockedGamepadButtons': blockedGamepadButtons.map(
       (k, v) => MapEntry(k.toString(), v),
     ),
     'gamepadMouseSpeed': gamepadMouseSpeed,
@@ -625,6 +638,9 @@ class StreamConfiguration {
             ButtonRemapProfile.values.length - 1,
           )],
       customRemapTable: _parseRemapTable(json['customRemapTable']),
+      blockedGamepadButtons: _parseBlockedButtons(
+        json['blockedGamepadButtons'],
+      ),
       gamepadMouseSpeed:
           (json['gamepadMouseSpeed'] as num?)?.toDouble() ?? 1.75,
       ultraLowLatency: json['ultraLowLatency'] ?? false,
@@ -683,6 +699,16 @@ class StreamConfiguration {
       videoPacingSlackMs: json['videoPacingSlackMs'] as int?,
       videoMaxFrameAgeMs: json['videoMaxFrameAgeMs'] as int?,
     );
+  }
+
+  static Map<int, String> _parseBlockedButtons(dynamic raw) {
+    if (raw is! Map) return {};
+    final out = <int, String>{};
+    for (final e in raw.entries) {
+      final k = int.tryParse(e.key.toString());
+      if (k != null) out[k] = e.value?.toString() ?? '';
+    }
+    return out;
   }
 
   static Map<int, int> _parseRemapTable(dynamic raw) {

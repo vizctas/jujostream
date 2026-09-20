@@ -467,6 +467,7 @@ mixin _AppViewGridMixin on _AppViewScreenBase {
   void _onGridScroll() {}
 
   Widget _buildGridFooterHints() {
+    if (!context.watch<LauncherPreferences>().showButtonHints) return const SizedBox.shrink();
     return IdleFade(
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),

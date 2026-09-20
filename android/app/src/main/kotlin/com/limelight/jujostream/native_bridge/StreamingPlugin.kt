@@ -831,6 +831,9 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
     override fun onConnectionStarted() {
         isConnectionEstablished = true
         networkLock?.acquire()
+        // Without this an idle stream (cutscene, no pad input) hits the system
+        // screen timeout / TV daydream, the activity pauses and the session goes stale.
+        setKeepScreenOn(true)
         videoRenderer?.resetStats()
         videoRenderer?.start()
         audioRenderer?.start()
@@ -1031,6 +1034,7 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
     private fun cleanup() {
         stopStatsPolling()
         networkLock?.release()
+        setKeepScreenOn(false)
         GamepadHandler.instance?.releaseControllerFeedbackResources("native stream cleanup")
         isStreamingActive = false
         isConnectionEstablished = false
@@ -1052,6 +1056,14 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
 
         surfaceProducer?.release()
         surfaceProducer = null
+    }
+
+    private fun setKeepScreenOn(on: Boolean) {
+        val act = activity ?: return
+        act.runOnUiThread {
+            val flag = android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+            if (on) act.window.addFlags(flag) else act.window.clearFlags(flag)
+        }
     }
 
     private fun handleNativeIdle() {

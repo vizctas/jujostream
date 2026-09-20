@@ -824,6 +824,7 @@ class _BodyState extends State<_Body> {
           ),
           const SizedBox(height: 8),
 
+          if (context.watch<LauncherPreferences>().showButtonHints)
           Padding(
             padding: const EdgeInsets.fromLTRB(24, 0, 24, 14),
             child: Row(
@@ -1175,6 +1176,7 @@ class _BodyState extends State<_Body> {
           ),
         ),
 
+        if (context.watch<LauncherPreferences>().showButtonHints)
         Padding(
           padding: const EdgeInsets.fromLTRB(40, 8, 40, 12),
           child: Row(

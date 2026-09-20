@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import '../../services/preferences/launcher_preferences.dart';
 
 import '../../l10n/app_localizations.dart';
 import '../../models/gaming_news_item.dart';
@@ -505,7 +506,7 @@ class _BigScreenBodyState extends State<_BigScreenBody> {
         children: [
           _Background(app: selected),
           Positioned.fill(
-            bottom: _footerHeight,
+            bottom: context.watch<LauncherPreferences>().showButtonHints ? _footerHeight : 0,
             child: SingleChildScrollView(
               controller: _pageScrollController,
               padding: const EdgeInsets.only(bottom: 24),
@@ -519,6 +520,7 @@ class _BigScreenBodyState extends State<_BigScreenBody> {
               ),
             ),
           ),
+          if (context.watch<LauncherPreferences>().showButtonHints)
           Positioned(
             left: 0,
             right: 0,

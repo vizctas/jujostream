@@ -29,6 +29,12 @@ class GamepadChannel {
   ///    (foreground or background) for screens that opt in.
   static void Function(String key)? onNavInput;
 
+  /// Fired for every gamepad button pressed while capture mode is on, so the
+  /// settings screen can learn the identity of a button the user wants to
+  /// disable. Keys: `key` (int, the stable id), `keyCode`, `scanCode`,
+  /// `label`, `device`.
+  static void Function(Map<String, dynamic> button)? onButtonCaptured;
+
   static void init() {
     _channel.setMethodCallHandler((call) async {
       if (call.method == 'onComboDetected') {
@@ -50,6 +56,11 @@ class GamepadChannel {
         final args = call.arguments;
         final int? slot = args is Map ? args['slot'] as int? : args as int?;
         if (slot != null) onControllerDisconnected?.call(slot);
+      } else if (call.method == 'onButtonCaptured') {
+        final args = call.arguments;
+        if (args is Map) {
+          onButtonCaptured?.call(Map<String, dynamic>.from(args));
+        }
       } else if (call.method == 'onNavInput') {
         final key = call.arguments as String?;
         if (key != null) onNavInput?.call(key);
@@ -147,6 +158,19 @@ class GamepadChannel {
 
   static Future<void> setButtonRemap(Map<int, int>? remapTable) async {
     await _invoke('setButtonRemap', {'remap': remapTable});
+  }
+
+  /// Buttons that must do nothing, as ids from [onButtonCaptured]. Pushed by
+  /// SettingsProvider, not by the stream screen: a disabled macro button has
+  /// to stay dead in the launcher too.
+  static Future<void> setBlockedButtons(List<int> buttons) async {
+    await _invoke('setBlockedButtons', {'buttons': buttons});
+  }
+
+  /// While enabled, every gamepad button is swallowed and reported through
+  /// [onButtonCaptured] instead of acting.
+  static Future<void> setButtonCapture(bool enabled) async {
+    await _invoke('setButtonCapture', {'enabled': enabled});
   }
 
   static Future<void> setMouseSensitivity(double sensitivity) async {

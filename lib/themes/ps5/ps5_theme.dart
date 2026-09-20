@@ -585,7 +585,7 @@ class _Ps5BodyState extends State<_Ps5Body> {
                     _buildIconStrip(tp, s),
                     const Spacer(),
                     if (s != null) _buildBottomPanel(tp, s, l),
-                    _buildHints(tp, s, l),
+                    if (context.watch<LauncherPreferences>().showButtonHints) _buildHints(tp, s, l),
                   ],
                 ],
               ),

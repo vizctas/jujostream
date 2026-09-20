@@ -23,7 +23,7 @@ class LauncherPreferences extends ChangeNotifier {
 
   int _maxRecentCount = 8;
 
-  bool _showButtonHints = true;
+  bool _showButtonHints = false;
   String _buttonScheme = 'xbox';
 
   bool _desktopFullscreen = true;
@@ -79,7 +79,7 @@ class LauncherPreferences extends ChangeNotifier {
     _parallaxSpeed = getD('lp_parallaxSpeed', 20.0);
     _searchActivatesOnType = getB('lp_searchOnType', false);
     _maxRecentCount = getI('lp_maxRecentCount', 8).clamp(1, 12);
-    _showButtonHints = getB('lp_showButtonHints', true);
+    _showButtonHints = getB('lp_showButtonHintsV2', false);
     _buttonScheme = getS('lp_buttonScheme', 'xbox');
     _desktopFullscreen = getB('lp_desktopFullscreen', true);
     notifyListeners();
@@ -102,7 +102,7 @@ class LauncherPreferences extends ChangeNotifier {
       p.setDouble(_key('lp_parallaxSpeed'), _parallaxSpeed),
       p.setBool(_key('lp_searchOnType'), _searchActivatesOnType),
       p.setInt(_key('lp_maxRecentCount'), _maxRecentCount),
-      p.setBool(_key('lp_showButtonHints'), _showButtonHints),
+      p.setBool(_key('lp_showButtonHintsV2'), _showButtonHints),
       p.setString(_key('lp_buttonScheme'), _buttonScheme),
       p.setBool(_key('lp_desktopFullscreen'), _desktopFullscreen),
     ]);
@@ -226,7 +226,7 @@ class LauncherPreferences extends ChangeNotifier {
     _parallaxSpeed = 20.0;
     _searchActivatesOnType = false;
     _maxRecentCount = 8;
-    _showButtonHints = true;
+    _showButtonHints = false;
     _buttonScheme = 'xbox';
     _desktopFullscreen = true;
     notifyListeners();

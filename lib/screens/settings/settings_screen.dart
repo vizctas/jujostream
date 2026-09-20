@@ -42,6 +42,7 @@ import '../../widgets/coming_soon_dialog.dart';
 import '../../widgets/wallpaper_picker_dialog.dart';
 import 'settings_remote_navigation.dart';
 import 'vpn_guide_sheet.dart';
+import 'blocked_buttons_screen.dart';
 
 // Top-level translation helper — accessible from all widget classes in this file.
 String _tr(BuildContext context, String en, String es) {
@@ -1124,6 +1125,26 @@ class _SettingsScreenState extends State<SettingsScreen>
                               ),
                             ),
                           ),
+                          _FocusableNavTile(
+                            icon: Icons.block,
+                            title: _tr(
+                              context,
+                              'Blocked Buttons',
+                              'Botones bloqueados',
+                            ),
+                            subtitle: _tr(
+                              context,
+                              'Disable extra rear/macro buttons',
+                              'Desactivar botones traseros o de macro',
+                            ),
+                            onTap: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => const BlockedButtonsScreen(),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 4),
                           _toggle(
                             _tr(
                               context,

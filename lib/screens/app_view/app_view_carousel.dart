@@ -3,6 +3,7 @@ part of 'app_view_screen.dart';
 mixin _AppViewCarouselMixin on _AppViewScreenBase {
   @override
   Widget _buildCarouselHintsRow() {
+    if (!context.watch<LauncherPreferences>().showButtonHints) return const SizedBox.shrink();
     return IdleFade(
       child: Padding(
         padding: const EdgeInsets.only(left: 16, bottom: 4),
