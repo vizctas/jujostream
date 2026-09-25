@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
@@ -24,6 +26,41 @@ void main() {
       pathProviderChannel,
       null,
     );
+  });
+
+  test('timed-out paired art aborts its socket and frees the slot', () {
+    fakeAsync((async) {
+      final sent = <Uri>[];
+      var aborted = 0;
+      final service = GameArtFileService(
+        publicClient: MockClient((_) async => http.Response('public', 200)),
+        pinnedClientFactory: (_) => _HangingClient(sent, () => aborted++),
+      );
+      service.registerPinnedOrigin(
+        address: '192.168.3.6',
+        port: 47984,
+        expectedServerCert: 'server-cert',
+      );
+
+      final errors = <Object>[];
+      for (var i = 0; i < 3; i++) {
+        service
+            .get('https://192.168.3.6:47984/appasset?appid=$i')
+            .catchError((Object e) {
+              errors.add(e);
+              return HttpGetResponse(http.StreamedResponse(const Stream.empty(), 500));
+            });
+      }
+      async.flushMicrotasks();
+      // Only as many requests as sockets are in flight; the third waits for a
+      // slot instead of burning its timeout in the connection queue.
+      expect(sent, hasLength(GameArtFileService.pinnedConnectionsPerHost));
+
+      async.elapse(GameArtFileService.requestTimeout + const Duration(seconds: 1));
+      expect(aborted, 2, reason: 'hung requests must release their sockets');
+      expect(sent, hasLength(3));
+      expect(errors.whereType<TimeoutException>(), hasLength(2));
+    });
   });
 
   test('routes paired host artwork through its pinned client', () async {
@@ -124,4 +161,25 @@ void main() {
       }
     },
   );
+}
+
+/// Never answers; completes with an error only when the request is aborted.
+class _HangingClient extends http.BaseClient {
+  _HangingClient(this.sent, this.onAbort);
+
+  final List<Uri> sent;
+  final void Function() onAbort;
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) {
+    sent.add(request.url);
+    final done = Completer<http.StreamedResponse>();
+    if (request case http.Abortable(:final abortTrigger?)) {
+      abortTrigger.whenComplete(() {
+        onAbort();
+        done.completeError(http.RequestAbortedException(request.url));
+      });
+    }
+    return done.future;
+  }
 }

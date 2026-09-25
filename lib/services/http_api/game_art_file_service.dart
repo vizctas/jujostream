@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
+import 'package:pool/pool.dart';
 
 import '../crypto/client_identity.dart';
 
@@ -27,7 +30,7 @@ class GameArtFileService extends FileService {
              );
              // Artwork is best-effort and must never occupy every NVHTTPS
              // worker needed for launch and stream control.
-             client.maxConnectionsPerHost = 2;
+             client.maxConnectionsPerHost = pinnedConnectionsPerHost;
              client.connectionTimeout = const Duration(seconds: 6);
              client.idleTimeout = const Duration(seconds: 15);
              return IOClient(client);
@@ -36,6 +39,12 @@ class GameArtFileService extends FileService {
   /// Art requests must not hang a scheduler slot forever; the disk cache
   /// simply retries on the next visit.
   static const requestTimeout = Duration(seconds: 20);
+
+  /// Paired-host art shares [pinnedConnectionsPerHost] sockets. Taking a slot
+  /// here, before the request, keeps [requestTimeout] measuring the request
+  /// instead of the wait behind 50 queued posters.
+  static const pinnedConnectionsPerHost = 2;
+  final Pool _pinnedSlots = Pool(pinnedConnectionsPerHost);
 
   final http.Client _publicClient;
   final PinnedArtClientFactory _pinnedClientFactory;
@@ -95,31 +104,57 @@ class GameArtFileService extends FileService {
     final client = _clientFor(uri);
     final pinned = client != _publicClient;
 
-    http.Request build() {
-      final request = http.Request('GET', uri);
+    Future<FileServiceResponse> fetch() async {
+      final abort = Completer<void>();
+      final request = http.AbortableRequest('GET', uri, abortTrigger: abort.future);
       if (headers != null) request.headers.addAll(headers);
       // nvhttp closes the socket after every /appasset response without
       // sending `Connection: close`, so a pooled keep-alive socket is dead by
       // the next request and fails with "Connection closed before full
       // header was received". Ask for a fresh connection each time.
       if (pinned) request.headers['connection'] = 'close';
-      return request;
+      try {
+        // Headers and body share one deadline, and the body is read here: a
+        // response nobody drains keeps its socket checked out forever. Timed
+        // out requests used to do exactly that (Future.timeout does not cancel
+        // the request), so after one slow burst both paired-host sockets were
+        // held by abandoned responses and every later poster timed out: only
+        // the first ~29 tiles of the library ever loaded.
+        return await () async {
+          final response = await client.send(request);
+          final bytes = await response.stream.toBytes();
+          return HttpGetResponse(
+            http.StreamedResponse(
+              Stream.value(bytes),
+              response.statusCode,
+              contentLength: bytes.length,
+              request: response.request,
+              headers: response.headers,
+              reasonPhrase: response.reasonPhrase,
+            ),
+          );
+        }().timeout(requestTimeout);
+      } on TimeoutException {
+        // Frees the socket now, or as soon as the queued request gets one.
+        if (!abort.isCompleted) abort.complete();
+        rethrow;
+      }
+    }
+
+    Future<FileServiceResponse> fetchWithRetry() async {
+      try {
+        return await fetch();
+      } on http.ClientException catch (error) {
+        if (!pinned || !error.message.contains('Connection closed')) rethrow;
+        // A socket the pool believed open: GET is idempotent, retry once.
+        return await fetch();
+      }
     }
 
     try {
-      return HttpGetResponse(await client.send(build()).timeout(requestTimeout));
-    } on http.ClientException catch (error) {
-      if (!pinned || !error.message.contains('Connection closed')) {
-        debugPrint('[JUJO][art] GET ${uri.host}:${uri.port}${uri.path} failed: $error');
-        rethrow;
-      }
-      // A socket the pool believed open: GET is idempotent, retry once.
-      try {
-        return HttpGetResponse(await client.send(build()).timeout(requestTimeout));
-      } catch (retryError) {
-        debugPrint('[JUJO][art] GET ${uri.host}:${uri.port}${uri.path} failed after retry: $retryError');
-        rethrow;
-      }
+      return pinned
+          ? await _pinnedSlots.withResource(fetchWithRetry)
+          : await fetchWithRetry();
     } catch (error) {
       debugPrint('[JUJO][art] GET ${uri.host}:${uri.port}${uri.path} failed: $error');
       rethrow;
