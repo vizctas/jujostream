@@ -59,8 +59,8 @@ class ClassicTokens {
 
   // Dialog.
   static const double dialogWidthFraction = 0.7;
-  static const double dialogDesignHeight = 720;
-  static const double dialogCompactHeight = 800;
+  static const double dialogDesignHeight = 800;
+  static const double dialogCompactHeight = 880;
   static const double dialogMaxWidth = 880;
   static const double scrimAlpha = 0.72;
   static const double dialogArtAspect = 21 / 9;

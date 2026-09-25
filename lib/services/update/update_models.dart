@@ -50,12 +50,16 @@ class ClientUpdateRelease {
     required this.tag,
     required this.apk,
     required this.releasePage,
+    this.notes = '',
   });
 
   final ClientVersion version;
   final String tag;
   final ClientUpdateAsset apk;
   final Uri releasePage;
+
+  /// GitHub release body (markdown-ish plain text), shown before download.
+  final String notes;
 }
 
 typedef DownloadProgress = void Function(int received, int total);

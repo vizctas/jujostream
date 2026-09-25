@@ -40,6 +40,7 @@ import 'services/notifications/notification_mirror_platform.dart';
 import 'services/pro/pro_service.dart';
 import 'services/crash/crash_service.dart';
 import 'services/telemetry/beta_telemetry_service.dart';
+import 'services/update/startup_prompts.dart';
 import 'services/update/unsupported_update_provider.dart';
 import 'services/update/update_provider.dart';
 import 'ui/motion_policy.dart';
@@ -245,6 +246,7 @@ class _StartupGateState extends State<StartupGate> with WidgetsBindingObserver {
   bool _checked = false;
   bool _showStartupAnimation = false;
   bool _focusModeEnabled = false;
+  bool _promptsScheduled = false;
   String _startupAnimationId = StartupAnimationRegistry.cinematicV1Id;
 
   @override
@@ -327,6 +329,12 @@ class _StartupGateState extends State<StartupGate> with WidgetsBindingObserver {
       return launcherBuilder(_focusModeEnabled);
     }
 
+    if (!_promptsScheduled) {
+      _promptsScheduled = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(StartupPrompts.run(context));
+      });
+    }
     return _focusModeEnabled ? const FocusModeScreen() : const PcViewScreen();
   }
 }

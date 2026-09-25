@@ -390,6 +390,10 @@ class NvHttpClient {
         final extraCount =
             int.tryParse(extractXmlValue(appXml, 'ExtraImageCount') ?? '0') ??
             0;
+        // Art revision (newer servers): part of every art URL so the disk
+        // cache key changes when the art changes in Admin.
+        final artRev = extractXmlValue(appXml, 'ArtRev') ?? '';
+        final rev = artRev.isEmpty ? '' : '&artrev=$artRev';
         apps.add(
           NvApp(
             appId: appId,
@@ -400,13 +404,13 @@ class NvHttpClient {
 
             posterUrl:
                 '$base/appasset'
-                '?uniqueid=$uniqueId&appid=$appId&AssetType=2&AssetIdx=0',
+                '?uniqueid=$uniqueId&appid=$appId&AssetType=2&AssetIdx=0$rev',
             heroImageUrl: hasHero
-                ? '$base/appasset?uniqueid=$uniqueId&appid=$appId&AssetType=3&AssetIdx=0'
+                ? '$base/appasset?uniqueid=$uniqueId&appid=$appId&AssetType=3&AssetIdx=0$rev'
                 : null,
             screenshotUrls: [
               for (var i = 0; i < extraCount; i++)
-                '$base/appasset?uniqueid=$uniqueId&appid=$appId&AssetType=4&AssetIdx=$i',
+                '$base/appasset?uniqueid=$uniqueId&appid=$appId&AssetType=4&AssetIdx=$i$rev',
             ],
           ),
         );

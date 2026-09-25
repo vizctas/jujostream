@@ -98,6 +98,7 @@ class ClientUpdateService {
         version: version,
         tag: tag,
         releasePage: releasePage,
+        notes: entry['body']?.toString().trim() ?? '',
         apk: ClientUpdateAsset(
           name: apkJson['name'].toString(),
           downloadUrl: downloadUrl,

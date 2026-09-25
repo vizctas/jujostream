@@ -77,7 +77,7 @@ class NvApp {
       _ => null,
     };
     final sourceFingerprint = _artSourceFingerprint(source);
-    return 'nvart_v3_${_stableHash(identity)}_${kind}_${idx}_${_stableHash(sourceFingerprint)}';
+    return 'nvart_v4_${_stableHash(identity)}_${kind}_${idx}_${_stableHash(sourceFingerprint)}';
   }
 
   static String _artSourceFingerprint(String? source) {
@@ -91,7 +91,8 @@ class NvApp {
       return 'host-appasset:'
           '${query['appid'] ?? ''}:'
           '${query['AssetType'] ?? ''}:'
-          '${query['AssetIdx'] ?? ''}';
+          '${query['AssetIdx'] ?? ''}:'
+          '${query['artrev'] ?? ''}';
     }
     return source;
   }

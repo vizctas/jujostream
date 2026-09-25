@@ -72,7 +72,7 @@ void main() {
     );
 
     expect(first.artCacheKey('poster'), isNot(second.artCacheKey('poster')));
-    expect(first.artCacheKey('poster'), startsWith('nvart_v3_'));
+    expect(first.artCacheKey('poster'), startsWith('nvart_v4_'));
   });
 
   test('host artwork cache survives address and session-id changes', () {
@@ -92,6 +92,19 @@ void main() {
     );
 
     expect(first.artCacheKey('poster'), second.artCacheKey('poster'));
+  });
+
+  test('host artwork cache key follows the server art revision', () {
+    NvApp app(String rev) => NvApp(
+      appId: 7,
+      appName: 'Hades',
+      serverUuid: 'server',
+      posterUrl:
+          'https://192.168.3.6:47984/appasset?uniqueid=one&appid=7&AssetType=2&AssetIdx=0&artrev=$rev',
+    );
+
+    expect(app('aaaa').artCacheKey('poster'), app('aaaa').artCacheKey('poster'));
+    expect(app('aaaa').artCacheKey('poster'), isNot(app('bbbb').artCacheKey('poster')));
   });
 
   test('landscape background getter never promotes poster', () {
