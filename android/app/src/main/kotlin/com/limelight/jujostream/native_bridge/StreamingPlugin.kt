@@ -96,6 +96,7 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
     private var lastFramesRendered = 0L
     private var lastFramesPresented = 0L
     private var lastFramesDropped = 0L
+    private var statsLogTicks = 0
     private val renderWatchdog = RenderProgressWatchdog(stallThresholdSamples = 15)
     private var configuredBitrateKbps = 20000
     private var activeCodecName = "unknown"
@@ -844,6 +845,7 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
         lastFramesDropped = 0L
         lastFramesReceived = 0L
         renderWatchdog.reset()
+        statsLogTicks = 0
         stopStatsPolling()
         statsGuard.startSession()
         statsTimer = Timer("StreamStats", true).also { timer ->
@@ -893,6 +895,18 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
                     val decoderName = statsMap["decoderName"] as? String ?: "unknown"
                     val renderPath = statsMap["renderPath"] as? String
                         ?: if (directSubmitActive) "direct-submit" else "texture"
+
+                    // One logcat line every 5 s: the only stream-quality signal readable
+                    // over adb on release builds (perf A/B runs, field diagnosis).
+                    if (++statsLogTicks % 25 == 0) {
+                        Log.i(
+                            "JUJO_STATS",
+                            "recv=$currentReceived rend=$currentFrames drop=$currentDropped fps=$fps " +
+                                "rtt=$rttMs var=$rttVarianceMs if50=${statsMap["interFrameP50"]} " +
+                                "if95=${statsMap["interFrameP95"]} if99=${statsMap["interFrameP99"]} " +
+                                "dec95=${statsMap["p95"]} q=$queueDepth nq=$nativeVideoQueueFrames codec=$activeCodecName"
+                        )
+                    }
 
                     when (renderWatchdog.observe(receivedDelta, progressDelta)) {
                         RenderProgressWatchdog.Action.RECOVER -> {
