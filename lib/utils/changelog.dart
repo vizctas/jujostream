@@ -2,6 +2,18 @@
 /// version. Add an entry with every release bump (kAppVersion); a version with
 /// no entry simply shows nothing.
 const Map<String, ({List<String> es, List<String> en})> kChangelog = {
+  '1.1.27': (
+    es: [
+      'Posters: ahora cargan todos los juegos de la librería; antes se '
+          'quedaban grises a partir del juego ~30.',
+      'Registro de estadísticas del stream para diagnosticar fluidez.',
+    ],
+    en: [
+      'Posters: every game in the library now loads; before, tiles past '
+          'the ~30th stayed grey.',
+      'Stream statistics logging to diagnose smoothness.',
+    ],
+  ),
   '1.1.26': (
     es: [
       'Posters: se corrige que muchos juegos no mostraran su poster aunque '
