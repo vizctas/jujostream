@@ -366,6 +366,15 @@ Java_com_limelight_jujostream_native_1bridge_StreamingBridge_nativeSendTouchEven
                             contactAreaMajor, contactAreaMinor, rotation);
 }
 
+JNIEXPORT jint JNICALL
+Java_com_limelight_jujostream_native_1bridge_StreamingBridge_nativeSendControllerTouchEvent(
+        JNIEnv* env, jclass clazz,
+        jshort controllerNumber, jbyte eventType, jint pointerId,
+        jfloat x, jfloat y, jfloat pressure) {
+    return LiSendControllerTouchEvent((uint8_t)controllerNumber, (uint8_t)eventType,
+                                      (uint32_t)pointerId, x, y, pressure);
+}
+
 JNIEXPORT void JNICALL
 Java_com_limelight_jujostream_native_1bridge_StreamingBridge_nativeSendUtf8Text(
         JNIEnv* env, jclass clazz, jstring text) {

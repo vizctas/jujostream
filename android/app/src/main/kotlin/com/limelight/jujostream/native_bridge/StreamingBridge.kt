@@ -57,6 +57,11 @@ object StreamingBridge {
         contactAreaMajor: Float, contactAreaMinor: Float,
         rotation: Short
     ): Int
+    /** A touch on a controller's own touchpad, not on the host screen. */
+    @JvmStatic external fun nativeSendControllerTouchEvent(
+        controllerNumber: Short, eventType: Byte, pointerId: Int,
+        x: Float, y: Float, pressure: Float
+    ): Int
     @JvmStatic external fun nativeSendUtf8Text(text: String)
     @JvmStatic external fun nativeSendControllerMotionEvent(
         controllerNumber: Short, motionType: Byte,

@@ -51,6 +51,10 @@ class GamepadHandler(
         private const val TOUCHPAD_FLAG = 0x100000
         private const val MISC_FLAG     = 0x200000
 
+        // Not an Android key code: the touchpad click of a Sony pad that
+        // reports raw HID buttons (scan code 317), on its way to keyToFlag.
+        private const val KEYCODE_PS_TOUCHPAD = 0x10000 + 317
+
         // Virtual flags for analog triggers (not part of moonlight buttonFlags,
         // used only for overlay trigger combo detection)
         private const val LT_VIRTUAL_FLAG = 0x10000
@@ -207,6 +211,7 @@ class GamepadHandler(
     /** While true every gamepad key is reported to Dart and swallowed. */
     private var buttonCaptureActive = false
     private var touchpadAsMouse: Boolean = false
+    private val loggedTouchpadDevices = mutableSetOf<Int>()
     private var motionSensorsEnabled: Boolean = false
     private var motionFallbackEnabled: Boolean = false
     private var mouseSensitivity: Float = 1.0f
@@ -343,6 +348,7 @@ class GamepadHandler(
                         lastMouseX = -1f
                         lastMouseY = -1f
                         prevMouseButtonState = 0
+                        loggedTouchpadDevices.clear()
                         result.success(0)
                     }
                 }
@@ -1152,6 +1158,8 @@ class GamepadHandler(
 
         if (overlayVisible) return false
 
+        if (handleTouchpadAsPointer(event)) return true
+
         // The mouse button press/release is already handled by
         // handleMotionEvent() via ACTION_BUTTON_PRESS/RELEASE in
         // dispatchGenericMotionEvent. The ACTION_DOWN/UP/MOVE events
@@ -1211,6 +1219,8 @@ class GamepadHandler(
         if (isMouse) {
 
             if (overlayVisible) return false
+
+            if (handleTouchpadAsPointer(event)) return true
 
             val action = event.actionMasked
 
@@ -1410,14 +1420,13 @@ class GamepadHandler(
         val isTouchpad = (source and InputDevice.SOURCE_TOUCHPAD) == InputDevice.SOURCE_TOUCHPAD
         if (!isTouchpad) return false
 
-        val deviceId = event.deviceId
-        val state = controllers[deviceId]
+        // The touchpad is its own InputDevice, with its own id, next to the pad.
+        val (slot, touchState) = touchpadOwner(event.device) ?: return false
 
         if (touchpadAsMouse) {
 
             val x = event.getAxisValue(MotionEvent.AXIS_X)
             val y = event.getAxisValue(MotionEvent.AXIS_Y)
-            val touchState = state ?: ControllerState()
 
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
@@ -1442,37 +1451,83 @@ class GamepadHandler(
             }
         } else {
 
-            val eventType: Byte = when (event.actionMasked) {
-                MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> 0x01
-                MotionEvent.ACTION_MOVE -> 0x02
-                MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP -> 0x03
-                MotionEvent.ACTION_CANCEL -> 0x04
-                else -> return false
+            logTouchpadPath(event, "touchpad", slot)
+            setTouchpadButton(slot, touchState, (event.buttonState and MotionEvent.BUTTON_PRIMARY) != 0)
+
+            val action = event.actionMasked
+            // Button and hover actions carry no finger; they are still ours.
+            val eventType = ControllerTouchpadPolicy.eventType(action) ?: return true
+            if (eventType == ControllerTouchpadPolicy.EVENT_CANCEL_ALL) {
+                StreamingBridge.nativeSendControllerTouchEvent(slot.toShort(), eventType, 0, 0f, 0f, 0f)
+                return true
             }
 
-            // LiSendTouchEvent expects normalized 0.0–1.0 coordinates.
-            // Touchpad coords are in the device's raw axis range (e.g.
-            // 0–1920 for DualSense). Normalize using the axis max values.
+            // The host scales 0..1 onto the emulated pad; the device reports
+            // its own raw range (0..1920 by 0..1080 on a DualSense).
             val tpDevice = event.device
             val xRange = tpDevice?.getMotionRange(MotionEvent.AXIS_X, event.source)
             val yRange = tpDevice?.getMotionRange(MotionEvent.AXIS_Y, event.source)
-            val xMax = xRange?.max?.coerceAtLeast(1f) ?: 1f
-            val yMax = yRange?.max?.coerceAtLeast(1f) ?: 1f
+            val allPointers = ControllerTouchpadPolicy.reportsAllPointers(action)
 
             for (i in 0 until event.pointerCount) {
-                val nx = (event.getX(i) / xMax).coerceIn(0f, 1f)
-                val ny = (event.getY(i) / yMax).coerceIn(0f, 1f)
-                StreamingBridge.nativeSendTouchEvent(
+                if (!allPointers && i != event.actionIndex) continue
+                StreamingBridge.nativeSendControllerTouchEvent(
+                    slot.toShort(),
                     eventType,
                     event.getPointerId(i),
-                    nx, ny,
-                    event.getPressure(i),
-                    event.getTouchMajor(i), event.getTouchMinor(i),
-                    event.getOrientation(i).toInt().toShort()
+                    ControllerTouchpadPolicy.normalize(event.getX(i), xRange?.min ?: 0f, xRange?.max ?: 1f),
+                    ControllerTouchpadPolicy.normalize(event.getY(i), yRange?.min ?: 0f, yRange?.max ?: 1f),
+                    event.getPressure(i)
                 )
             }
         }
         return true
+    }
+
+    /** The connected controller that a touchpad or pointer device is part of. */
+    private fun touchpadOwner(dev: InputDevice?): Pair<Int, ControllerState>? {
+        dev ?: return null
+        controllers[dev.id]?.let { return (deviceSlots[dev.id] ?: 0) to it }
+        val candidates = controllers.entries.filter { (_, state) ->
+            ControllerTouchpadPolicy.isTouchpadOf(dev.vendorId, dev.productId, state.vendorId, state.productId)
+        }
+        // ponytail: two identical pads whose descriptors differ from their
+        // touchpads both resolve to the first one. Match on Bluetooth address
+        // if that pairing ever matters.
+        val owner = candidates.firstOrNull { InputDevice.getDevice(it.key)?.descriptor == dev.descriptor }
+            ?: candidates.firstOrNull()
+            ?: return null
+        return (deviceSlots[owner.key] ?: return null) to owner.value
+    }
+
+    /**
+     * Without pointer capture Android turns a controller's touchpad into a
+     * mouse cursor: its click arrives as the primary mouse button and a finger
+     * drag as cursor motion. Report the click as the pad's touchpad button and
+     * keep the motion off the host, where it would flip a game to keyboard and
+     * mouse prompts.
+     */
+    private fun handleTouchpadAsPointer(event: MotionEvent): Boolean {
+        if (touchpadAsMouse) return false
+        val (slot, state) = touchpadOwner(event.device) ?: return false
+        logTouchpadPath(event, "pointer", slot)
+        setTouchpadButton(slot, state, (event.buttonState and MotionEvent.BUTTON_PRIMARY) != 0)
+        return true
+    }
+
+    private fun setTouchpadButton(slot: Int, state: ControllerState, pressed: Boolean) {
+        val flags = if (pressed) state.buttonFlags or TOUCHPAD_FLAG
+            else state.buttonFlags and TOUCHPAD_FLAG.inv()
+        if (flags == state.buttonFlags) return
+        state.buttonFlags = flags
+        sendInput(slot, state)
+    }
+
+    /** Once per device: which of Android's two touchpad shapes this box delivers. */
+    private fun logTouchpadPath(event: MotionEvent, path: String, slot: Int) {
+        if (!loggedTouchpadDevices.add(event.deviceId)) return
+        Log.i(TAG, "TOUCHPAD: device=${event.device?.name} id=${event.deviceId} " +
+            "source=0x${event.source.toString(16)} path=$path slot=$slot")
     }
 
     private fun applyTriggerDeadzone(raw: Float): Float {
@@ -2264,7 +2319,8 @@ class GamepadHandler(
                         } else {
                             Log.i(TAG, "Detected Sony standard on Android 12+ (relying on native OS mapping)")
                         }
-                        state.supportedButtonFlags = ALL_STANDARD_BUTTONS
+                        // The click comes from the touchpad's own InputDevice.
+                        state.supportedButtonFlags = ALL_STANDARD_BUTTONS or TOUCHPAD_FLAG
                     }
                 }
 
@@ -2542,6 +2598,7 @@ class GamepadHandler(
                 314 -> KeyEvent.KEYCODE_BUTTON_THUMBL
                 315 -> KeyEvent.KEYCODE_BUTTON_THUMBR
                 316 -> KeyEvent.KEYCODE_BUTTON_MODE
+                317 -> KEYCODE_PS_TOUCHPAD
                 else -> REMAP_CONSUME
             }
         }
@@ -2573,6 +2630,7 @@ class GamepadHandler(
             KeyEvent.KEYCODE_BUTTON_THUMBL -> LS_CLK_FLAG
             KeyEvent.KEYCODE_BUTTON_THUMBR -> RS_CLK_FLAG
             KeyEvent.KEYCODE_BUTTON_MODE -> SPECIAL_FLAG
+            KEYCODE_PS_TOUCHPAD -> TOUCHPAD_FLAG
             else -> null
         } ?: return null
 
