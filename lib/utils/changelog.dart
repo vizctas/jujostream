@@ -2,6 +2,16 @@
 /// version. Add an entry with every release bump (kAppVersion); a version with
 /// no entry simply shows nothing.
 const Map<String, ({List<String> es, List<String> en})> kChangelog = {
+  '1.1.28': (
+    es: [
+      'DualSense / DualShock 4: el botón del touchpad ahora llega al juego '
+          'como touchpad del mando; antes movía el ratón del PC.',
+    ],
+    en: [
+      'DualSense / DualShock 4: the touchpad button now reaches the game as '
+          "the controller's touchpad; before, it moved the PC mouse.",
+    ],
+  ),
   '1.1.27': (
     es: [
       'Posters: ahora cargan todos los juegos de la librería; antes se '
