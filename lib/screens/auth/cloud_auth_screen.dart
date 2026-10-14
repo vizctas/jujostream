@@ -14,6 +14,7 @@ import '../../providers/cloud_mfa_provider.dart';
 import '../../providers/theme_provider.dart';
 import '../../services/input/gamepad_navigation_service.dart';
 import '../../services/tv/native_tv_ime_bridge.dart';
+import '../../services/tv/tv_detector.dart';
 import '../../services/tv/tv_focus_helpers.dart';
 import '../../ui/proportional_scale.dart';
 
@@ -288,10 +289,13 @@ class _CloudAuthScreenState extends State<CloudAuthScreen> {
     }
   }
 
-  // JUJO's Android build targets remote-first TV devices. Using the native
-  // input connection on Android avoids Flutter's Chromecast DPAD/IME defect;
-  // desktop builds retain the normal EditableText implementation.
-  bool get _usesNativeTvIme => defaultTargetPlatform == TargetPlatform.android;
+  // On Android TV the native input connection avoids Flutter's Chromecast
+  // DPAD/IME defect. Only there: on a phone it left the fields unfocusable, so
+  // a tap never moved the highlight or showed a cursor, and the autofocused
+  // Email stayed highlighted while the Password was being typed.
+  bool get _usesNativeTvIme =>
+      defaultTargetPlatform == TargetPlatform.android &&
+      TvDetector.instance.isTV;
 
   void _focusNativeInput(
     FocusNode focusNode, {
