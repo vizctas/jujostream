@@ -2,6 +2,16 @@
 /// version. Add an entry with every release bump (kAppVersion); a version with
 /// no entry simply shows nothing.
 const Map<String, ({List<String> es, List<String> en})> kChangelog = {
+  '1.1.29': (
+    es: [
+      'Jujo Cloud en teléfonos: al tocar Email o Contraseña ahora se marca '
+          'el campo correcto y se escribe en él.',
+    ],
+    en: [
+      'Jujo Cloud on phones: tapping Email or Password now highlights that '
+          'field and types into it.',
+    ],
+  ),
   '1.1.28': (
     es: [
       'DualSense / DualShock 4: el botón del touchpad ahora llega al juego '
