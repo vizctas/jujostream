@@ -124,6 +124,10 @@ class GamepadHandler(
     var isStreaming = false
         private set
     var overlayVisible = false
+        set(value) {
+            if (field != value) mouseMotion.reset()
+            field = value
+        }
 
     private val methodChannel = MethodChannel(binaryMessenger, CHANNEL)
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -243,22 +247,20 @@ class GamepadHandler(
     // pipeline and the Chromecast's BT/vibrator stack until the box rebooted.
     // Packets are coalesced per device (newest wins) and applied at most every
     // 40 ms on a dedicated feedback thread, never on the receive thread.
-    // Chromecast HD (boreal, Android 14 UTTC.250917.004): controller vibration
-    // is routed through system_server's InputReader (VibratorInputMapper), and
-    // its QueuedInputListener::flush aborted with bad_variant_access under
-    // frame-rate rumble from two DualSense pads, rebooting the whole box
-    // (tombstones 2026-09-09 00:11:00 and 00:14:35). Keep that path sparse.
-    private val rumbleIntervalNanos: Long =
-        if (Build.VERSION.SDK_INT >= 34 && Build.DEVICE.startsWith("boreal")) 80_000_000L
-        else 40_000_000L
-    private val controllerRumbleThrottle = ControllerLedThrottle(rumbleIntervalNanos)
-    private val controllerTriggerThrottle = ControllerLedThrottle(rumbleIntervalNanos)
+    // Motors and triggers share one packed, quantized state per controller, so
+    // a dispatch happens only when a level actually changes and costs a single
+    // combined vibration (one InputReader call). On Chromecast HD any such call
+    // can abort system_server, so there it never happens: ControllerRumblePolicy.
+    private val controllerVibrationSafe =
+        ControllerRumblePolicy.inputVibrationSafe(Build.VERSION.SDK_INT, Build.DEVICE)
+    private val controllerRumbleThrottle = ControllerLedThrottle(40_000_000L)
+    private val requestedRumble = mutableMapOf<Int, Int>()
     private val rumbleRunnables = mutableMapOf<Int, Runnable>()
-    private val triggerRunnables = mutableMapOf<Int, Runnable>()
+    // Controllers we left vibrating; only touched on the feedback thread.
+    private val vibratingControllers = mutableSetOf<Int>()
+    @Volatile private var rumbleInputCalls = 0L
     private val feedbackThread = HandlerThread("controller-feedback").also { it.start() }
     private val feedbackHandler = Handler(feedbackThread.looper)
-
-    private fun packMotors(a: Int, b: Int): Int = ((a and 0xFFFF) shl 16) or (b and 0xFFFF)
 
     var mouseEmulationActive: Boolean = false
         private set
@@ -272,8 +274,9 @@ class GamepadHandler(
     private var mouseEmuAHoldRunnable: Runnable? = null
     private val mouseEmuAHoldThresholdMs: Long = 350L
 
-    private var lastMouseX: Float = -1f
-    private var lastMouseY: Float = -1f
+    private val mouseMotion = MouseMotionAccumulator { dx, dy ->
+        StreamingBridge.nativeSendMouseMove(dx, dy)
+    }
     private var prevMouseButtonState: Int = 0
 
     private var lastOverlayHatDir: String? = null
@@ -324,6 +327,7 @@ class GamepadHandler(
                     val active = call.argument<Boolean>("active") ?: false
                     Log.i(TAG, "STREAM_STATE: setStreamingActive($active) — was $isStreaming")
                     isStreaming = active
+                    mouseMotion.reset()
                     // A stream-state transition always means the in-stream overlay is
                     // not showing. Reset the gate here so a (re)started session can never
                     // inherit a stale overlayVisible=true from a previous session — that
@@ -345,8 +349,6 @@ class GamepadHandler(
                         controllers.clear()
                         deviceSlots.clear()
                         currentControllers = 0
-                        lastMouseX = -1f
-                        lastMouseY = -1f
                         prevMouseButtonState = 0
                         loggedTouchpadDevices.clear()
                         result.success(0)
@@ -466,7 +468,7 @@ class GamepadHandler(
                     rumbleFallbackStrength =
                         (call.argument<Int>("strength") ?: 100).coerceIn(0, 100)
                     if (!rumbleEnabled) {
-                        cancelDeviceRumble()
+                        stopAllRumble()
                     }
                     result.success(null)
                 }
@@ -492,6 +494,7 @@ class GamepadHandler(
                     result.success(null)
                 }
                 "setMouseSensitivity" -> {
+                    mouseMotion.reset()
                     mouseSensitivity = (call.argument<Double>("sensitivity") ?: 1.0)
                         .toFloat().coerceIn(0.1f, 5.0f)
                     result.success(null)
@@ -696,7 +699,7 @@ class GamepadHandler(
         val hasDpadSource = (src and InputDevice.SOURCE_DPAD) == InputDevice.SOURCE_DPAD
         val hasGamepadSource = (src and InputDevice.SOURCE_GAMEPAD) == InputDevice.SOURCE_GAMEPAD
         val hasJoystickSource = (src and InputDevice.SOURCE_JOYSTICK) == InputDevice.SOURCE_JOYSTICK
-        val likelyExternal = dev.isExternal || dev.vendorId != 0
+        val likelyExternal = (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && dev.isExternal) || dev.vendorId != 0
 
         if (!likelyExternal) return false
         if (!hasDpadSource && !hasGamepadSource && !hasJoystickSource) return false
@@ -1176,32 +1179,19 @@ class GamepadHandler(
                 // Seed the last-known position so the first drag delta
                 // is correct. The button press itself was already sent
                 // by handleMotionEvent (ACTION_BUTTON_PRESS).
-                lastMouseX = event.x
-                lastMouseY = event.y
+                mouseMotion.seed(event.deviceId, event.x, event.y)
                 return true
             }
             MotionEvent.ACTION_MOVE -> {
                 // Forward relative deltas during mouse-button drag.
-                val x = event.x
-                val y = event.y
-                if (lastMouseX >= 0f) {
-                    val rawDx = (x - lastMouseX) * mouseSensitivity
-                    val rawDy = (y - lastMouseY) * mouseSensitivity
-                    val dx = rawDx.toInt().coerceIn(-32767, 32767).toShort()
-                    val dy = rawDy.toInt().coerceIn(-32767, 32767).toShort()
-                    if (dx != 0.toShort() || dy != 0.toShort()) {
-                        StreamingBridge.nativeSendMouseMove(dx, dy)
-                    }
-                }
-                lastMouseX = x
-                lastMouseY = y
+                mouseMotion.move(event.deviceId, event.x, event.y, mouseSensitivity)
                 return true
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 // Update tracking position. The button release was
                 // already sent by handleMotionEvent (ACTION_BUTTON_RELEASE).
-                lastMouseX = event.x
-                lastMouseY = event.y
+                if (action == MotionEvent.ACTION_CANCEL) mouseMotion.reset()
+                else mouseMotion.seed(event.deviceId, event.x, event.y)
                 return true
             }
         }
@@ -1226,26 +1216,13 @@ class GamepadHandler(
 
             if (action == MotionEvent.ACTION_HOVER_MOVE ||
                 action == MotionEvent.ACTION_MOVE) {
-                val x = event.x
-                val y = event.y
-                if (lastMouseX >= 0f) {
-                    val rawDx = (x - lastMouseX) * mouseSensitivity
-                    val rawDy = (y - lastMouseY) * mouseSensitivity
-                    val dx = rawDx.toInt().coerceIn(-32767, 32767).toShort()
-                    val dy = rawDy.toInt().coerceIn(-32767, 32767).toShort()
-                    if (dx != 0.toShort() || dy != 0.toShort()) {
-                        StreamingBridge.nativeSendMouseMove(dx, dy)
-                    }
-                }
-                lastMouseX = x
-                lastMouseY = y
+                mouseMotion.move(event.deviceId, event.x, event.y, mouseSensitivity)
                 return true
             }
 
             if (action == MotionEvent.ACTION_HOVER_ENTER ||
                 action == MotionEvent.ACTION_HOVER_EXIT) {
-                lastMouseX = event.x
-                lastMouseY = event.y
+                mouseMotion.seed(event.deviceId, event.x, event.y)
                 return true
             }
 
@@ -1561,16 +1538,35 @@ class GamepadHandler(
         return Pair(outX, outY)
     }
 
-    fun handleRumble(controllerNumber: Int, lowFreqMotor: Int, highFreqMotor: Int) {
+    fun handleRumble(controllerNumber: Int, lowFreqMotor: Int, highFreqMotor: Int) =
+        enqueueRumble(controllerNumber) {
+            ControllerRumblePolicy.withMotors(
+                it,
+                ControllerRumblePolicy.quantize(lowFreqMotor),
+                ControllerRumblePolicy.quantize(highFreqMotor),
+            )
+        }
+
+    fun handleRumbleTriggers(controllerNumber: Int, leftTrigger: Int, rightTrigger: Int) =
+        enqueueRumble(controllerNumber) {
+            ControllerRumblePolicy.withTriggers(
+                it,
+                ControllerRumblePolicy.quantize(leftTrigger),
+                ControllerRumblePolicy.quantize(rightTrigger),
+            )
+        }
+
+    private inline fun enqueueRumble(controllerNumber: Int, update: (Int) -> Int) {
         if (!rumbleEnabled) return
 
         val deviceId = deviceSlots.entries.firstOrNull { it.value == controllerNumber }?.key
             ?: return
-        val packed = packMotors(lowFreqMotor, highFreqMotor)
         val task: Runnable
         val schedule: ControllerLedSchedule
         synchronized(controllerFeedbackLock) {
-            schedule = controllerRumbleThrottle.enqueue(deviceId, packed, System.nanoTime())
+            val state = update(requestedRumble[deviceId] ?: 0)
+            requestedRumble[deviceId] = state
+            schedule = controllerRumbleThrottle.enqueue(deviceId, state, System.nanoTime())
                 ?: return
             task = Runnable { dispatchRumble(deviceId) }
             rumbleRunnables[deviceId] = task
@@ -1579,155 +1575,144 @@ class GamepadHandler(
     }
 
     private fun dispatchRumble(deviceId: Int) {
-        val packed = synchronized(controllerFeedbackLock) {
+        val state = synchronized(controllerFeedbackLock) {
             rumbleRunnables.remove(deviceId)
             controllerRumbleThrottle.takePending(deviceId, System.nanoTime())
         } ?: return
         try {
-            applyRumble(deviceId, packed ushr 16, packed and 0xFFFF)
+            applyRumble(deviceId, state)
             synchronized(controllerFeedbackLock) {
-                controllerRumbleThrottle.markApplied(deviceId, packed)
+                controllerRumbleThrottle.markApplied(deviceId, state)
             }
         } catch (t: Throwable) {
             Log.w(TAG, "Rumble apply failed for device $deviceId: $t")
         }
     }
 
-    private fun applyRumble(deviceId: Int, lowFreqMotor: Int, highFreqMotor: Int) {
-        val device = InputDevice.getDevice(deviceId) ?: return
-        var handledByController = false
+    private fun applyRumble(deviceId: Int, state: Int) {
+        val low = ControllerRumblePolicy.low(state)
+        val high = ControllerRumblePolicy.high(state)
+        val left = ControllerRumblePolicy.leftTrigger(state)
+        val right = ControllerRumblePolicy.rightTrigger(state)
 
+        val device = if (controllerVibrationSafe) InputDevice.getDevice(deviceId) else null
+        val handledByController =
+            device != null && applyControllerRumble(device, low, high, left, right)
+
+        if ((!handledByController && rumbleFallbackEnabled) || deviceRumbleEnabled) {
+            applyDeviceRumble(scaledFallbackAmplitude(maxOf(low, high, left, right)))
+        }
+    }
+
+    /**
+     * One InputReader call per level change: a single combined vibration held
+     * for [ControllerRumblePolicy.HOLD_MS], or one cancel when everything drops
+     * to zero. Returns false when the controller has no vibrator at all.
+     */
+    private fun applyControllerRumble(
+        device: InputDevice, low: Int, high: Int, left: Int, right: Int,
+    ): Boolean {
+        val id = device.id
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-
             val vm = device.vibratorManager
-            val vibratorIds = vm.vibratorIds
-            if (vibratorIds.isNotEmpty()) {
-                handledByController = true
-
-                val lfAmp = (lowFreqMotor * 255 / 65535).coerceIn(0, 255)
-                val hfAmp = (highFreqMotor * 255 / 65535).coerceIn(0, 255)
-
-                if (lfAmp > 0 || hfAmp > 0) {
-
-                    if (lfAmp > 0) {
-                        vm.getVibrator(vibratorIds[0]).vibrate(
-                            VibrationEffect.createOneShot(120, lfAmp)
+            val ids = vm.vibratorIds
+            if (ids.isNotEmpty()) {
+                val amps = when {
+                    ids.size >= 4 -> intArrayOf(low, high, left, right)
+                    ids.size >= 2 -> intArrayOf(low, high)
+                    else -> intArrayOf(maxOf(low, high))
+                }
+                if (amps.all { it == 0 }) {
+                    if (vibratingControllers.remove(id)) {
+                        vm.cancel()
+                        rumbleInputCalls++
+                    }
+                    return true
+                }
+                val combo = android.os.CombinedVibration.startParallel()
+                for (i in amps.indices) {
+                    if (amps[i] > 0) {
+                        combo.addVibrator(
+                            ids[i],
+                            VibrationEffect.createOneShot(ControllerRumblePolicy.HOLD_MS, amps[i]),
                         )
-                    } else {
-                        vm.getVibrator(vibratorIds[0]).cancel()
-                    }
-
-                    if (vibratorIds.size >= 2) {
-                        if (hfAmp > 0) {
-                            vm.getVibrator(vibratorIds[1]).vibrate(
-                                VibrationEffect.createOneShot(80, hfAmp)
-                            )
-                        } else {
-                            vm.getVibrator(vibratorIds[1]).cancel()
-                        }
-                    }
-
-                    for (i in 2 until vibratorIds.size) {
-                        vm.getVibrator(vibratorIds[i]).cancel()
-                    }
-                } else {
-                    for (id in vibratorIds) {
-                        vm.getVibrator(id).cancel()
                     }
                 }
+                vm.vibrate(combo.combine())
+                rumbleInputCalls++
+                vibratingControllers += id
+                return true
             }
         }
 
-        val controllerVibrator = device.vibrator
-        if (!handledByController && controllerVibrator.hasVibrator()) {
-            handledByController = true
-            val amplitude = ((lowFreqMotor + highFreqMotor) / 2).coerceIn(0, 65535)
-            val normalizedAmplitude = (amplitude * 255 / 65535).coerceIn(0, 255)
-            if (normalizedAmplitude > 0) {
-                controllerVibrator.vibrate(VibrationEffect.createOneShot(100, normalizedAmplitude))
+        val vibrator = device.vibrator
+        if (!vibrator.hasVibrator()) return false
+        val amp = maxOf(low, high)
+        if (amp > 0) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                vibrator.vibrate(VibrationEffect.createOneShot(ControllerRumblePolicy.HOLD_MS, amp))
             } else {
-                controllerVibrator.cancel()
+                @Suppress("DEPRECATION")
+                vibrator.vibrate(ControllerRumblePolicy.HOLD_MS)
             }
+            rumbleInputCalls++
+            vibratingControllers += id
+        } else if (vibratingControllers.remove(id)) {
+            vibrator.cancel()
+            rumbleInputCalls++
         }
-
-        if ((!handledByController && rumbleFallbackEnabled) || deviceRumbleEnabled) {
-            val deviceAmplitude = scaledFallbackAmplitude((lowFreqMotor + highFreqMotor) / 2)
-            applyDeviceRumble(deviceAmplitude, 100L)
-        }
+        return true
     }
 
-    fun handleRumbleTriggers(controllerNumber: Int, leftTrigger: Int, rightTrigger: Int) {
-        if (!rumbleEnabled) return
-
-        val deviceId = deviceSlots.entries.firstOrNull { it.value == controllerNumber }?.key
-            ?: return
-        val packed = packMotors(leftTrigger, rightTrigger)
-        val task: Runnable
-        val schedule: ControllerLedSchedule
-        synchronized(controllerFeedbackLock) {
-            schedule = controllerTriggerThrottle.enqueue(deviceId, packed, System.nanoTime())
-                ?: return
-            task = Runnable { dispatchRumbleTriggers(deviceId) }
-            triggerRunnables[deviceId] = task
-        }
-        feedbackHandler.postDelayed(task, schedule.delayMs)
-    }
-
-    private fun dispatchRumbleTriggers(deviceId: Int) {
-        val packed = synchronized(controllerFeedbackLock) {
-            triggerRunnables.remove(deviceId)
-            controllerTriggerThrottle.takePending(deviceId, System.nanoTime())
-        } ?: return
-        try {
-            applyRumbleTriggers(deviceId, packed ushr 16, packed and 0xFFFF)
-            synchronized(controllerFeedbackLock) {
-                controllerTriggerThrottle.markApplied(deviceId, packed)
-            }
-        } catch (t: Throwable) {
-            Log.w(TAG, "Trigger rumble apply failed for device $deviceId: $t")
-        }
-    }
-
-    private fun applyRumbleTriggers(deviceId: Int, leftTrigger: Int, rightTrigger: Int) {
+    private fun cancelControllerRumble(deviceId: Int) {
         val device = InputDevice.getDevice(deviceId) ?: return
-        var handledByController = false
-
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            val vm = device.vibratorManager
-            val vibratorIds = vm.vibratorIds
+            device.vibratorManager.cancel()
+        } else {
+            device.vibrator.cancel()
+        }
+        rumbleInputCalls++
+    }
 
-            if (vibratorIds.size >= 4) {
-                handledByController = true
-                val leftAmp = (leftTrigger * 255 / 65535).coerceIn(0, 255)
-                val rightAmp = (rightTrigger * 255 / 65535).coerceIn(0, 255)
-                if (leftAmp > 0) {
-                    vm.getVibrator(vibratorIds[2]).vibrate(VibrationEffect.createOneShot(100, leftAmp))
-                } else {
-                    vm.getVibrator(vibratorIds[2]).cancel()
-                }
-                if (rightAmp > 0) {
-                    vm.getVibrator(vibratorIds[3]).vibrate(VibrationEffect.createOneShot(100, rightAmp))
-                } else {
-                    vm.getVibrator(vibratorIds[3]).cancel()
+    /**
+     * Drops queued rumble and stops every vibration this stream started. The
+     * cancels run on the feedback thread, after anything already queued there.
+     */
+    private fun stopAllRumble() {
+        val tasks = synchronized(controllerFeedbackLock) {
+            val pending = rumbleRunnables.values.toList()
+            rumbleRunnables.clear()
+            requestedRumble.clear()
+            controllerRumbleThrottle.clearAll()
+            pending
+        }
+        for (task in tasks) feedbackHandler.removeCallbacks(task)
+        feedbackHandler.post {
+            for (id in vibratingControllers) {
+                try {
+                    cancelControllerRumble(id)
+                } catch (t: Throwable) {
+                    Log.w(TAG, "Rumble cancel failed for device $id: $t")
                 }
             }
-        }
-
-        if ((!handledByController && rumbleFallbackEnabled) || deviceRumbleEnabled) {
-            applyDeviceRumble(scaledFallbackAmplitude(max(leftTrigger, rightTrigger)), 90L)
+            vibratingControllers.clear()
+            try { cancelDeviceRumble() } catch (_: Throwable) { }
         }
     }
 
-    private fun scaledFallbackAmplitude(rawAmplitude: Int): Int {
-        val normalizedAmplitude = (rawAmplitude.coerceIn(0, 65535) * 255 / 65535).coerceIn(0, 255)
-        return (normalizedAmplitude * rumbleFallbackStrength / 100).coerceIn(0, 255)
-    }
+    private fun scaledFallbackAmplitude(amplitude: Int): Int =
+        (amplitude.coerceIn(0, 255) * rumbleFallbackStrength / 100).coerceIn(0, 255)
 
-    private fun applyDeviceRumble(amplitude: Int, durationMs: Long) {
+    private fun applyDeviceRumble(amplitude: Int) {
         val vibrator = getDeviceVibrator() ?: return
         if (!vibrator.hasVibrator()) return
         if (amplitude > 0) {
-            vibrator.vibrate(VibrationEffect.createOneShot(durationMs, amplitude))
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                vibrator.vibrate(VibrationEffect.createOneShot(ControllerRumblePolicy.HOLD_MS, amplitude))
+            } else {
+                @Suppress("DEPRECATION")
+                vibrator.vibrate(ControllerRumblePolicy.HOLD_MS)
+            }
         } else {
             vibrator.cancel()
         }
@@ -1850,6 +1835,7 @@ class GamepadHandler(
             controllerLedThrottle.clearAll()
         }
         for (task in tasks) mainHandler.removeCallbacks(task)
+        stopAllRumble()
         for (session in sessions) {
             try {
                 session.close()
@@ -1859,7 +1845,8 @@ class GamepadHandler(
         }
         if (logSummary && (callbacks > 0L || applied > 0L || sessions.isNotEmpty())) {
             Log.i(TAG, "Controller feedback released ($reason): ledCallbacks=$callbacks " +
-                "ledApplied=$applied sessionsClosed=${sessions.size}")
+                "ledApplied=$applied sessionsClosed=${sessions.size} " +
+                "rumbleInputCalls=$rumbleInputCalls controllerVibration=$controllerVibrationSafe")
         }
     }
 
@@ -1983,6 +1970,12 @@ class GamepadHandler(
 
     override fun onInputDeviceRemoved(deviceId: Int) {
         releaseControllerLightSession(deviceId)
+        synchronized(controllerFeedbackLock) {
+            rumbleRunnables.remove(deviceId)?.let { feedbackHandler.removeCallbacks(it) }
+            requestedRumble.remove(deviceId)
+            controllerRumbleThrottle.clear(deviceId)
+        }
+        feedbackHandler.post { vibratingControllers.remove(deviceId) }
         val slot = deviceSlots[deviceId]
         if (slot != null) {
 
@@ -2097,6 +2090,10 @@ class GamepadHandler(
             }
         }
         if (readBatteryState(dev) != null) caps = caps or LI_CCAP_BATTERY_STATE
+        if (!controllerVibrationSafe) {
+            // Nothing would be applied (ControllerRumblePolicy); don't invite the traffic.
+            caps = caps and (LI_CCAP_RUMBLE or LI_CCAP_TRIGGER_RUMBLE).inv()
+        }
         return caps.toShort()
     }
 
@@ -2603,10 +2600,12 @@ class GamepadHandler(
             }
         }
         if (state.usesLinuxGamepadStandardFaceButtons) {
-
+            // Older generic layouts label these face buttons X/Y. Fire OS
+            // backports Sony's fallback layout even on Android 11: scan 308
+            // is already BUTTON_L1 there. Never turn that bumper into X.
             return when (event.scanCode) {
-                307 -> KeyEvent.KEYCODE_BUTTON_Y
-                308 -> KeyEvent.KEYCODE_BUTTON_X
+                307 -> if (keyCode == KeyEvent.KEYCODE_BUTTON_X) KeyEvent.KEYCODE_BUTTON_Y else keyCode
+                308 -> if (keyCode == KeyEvent.KEYCODE_BUTTON_Y) KeyEvent.KEYCODE_BUTTON_X else keyCode
                 else -> keyCode
             }
         }
@@ -2686,13 +2685,8 @@ class GamepadHandler(
     fun dispose() {
         instance = null
         stopMotionSensors()
-        synchronized(controllerFeedbackLock) {
-            rumbleRunnables.clear()
-            triggerRunnables.clear()
-            controllerRumbleThrottle.clearAll()
-            controllerTriggerThrottle.clearAll()
-        }
-        feedbackHandler.removeCallbacksAndMessages(null)
+        stopAllRumble()
+        // quitSafely still runs the cancels stopAllRumble just posted.
         feedbackThread.quitSafely()
         val inputManager = context.getSystemService(Context.INPUT_SERVICE) as? InputManager
         inputManager?.unregisterInputDeviceListener(this)
