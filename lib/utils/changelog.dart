@@ -2,6 +2,20 @@
 /// version. Add an entry with every release bump (kAppVersion); a version with
 /// no entry simply shows nothing.
 const Map<String, ({List<String> es, List<String> en})> kChangelog = {
+  '1.1.30': (
+    es: [
+      'Chromecast HD: se corrige el cierre inesperado del stream al jugar '
+          'con mando; ahí la vibración del mando queda desactivada porque '
+          'reiniciaba el Chromecast.',
+      'Vibración del mando más eficiente en el resto de dispositivos.',
+    ],
+    en: [
+      'Chromecast HD: fixed the stream closing unexpectedly while playing '
+          'with a controller; controller rumble is off there because it '
+          'restarted the Chromecast.',
+      'More efficient controller rumble on every other device.',
+    ],
+  ),
   '1.1.29': (
     es: [
       'Jujo Cloud en teléfonos: al tocar Email o Contraseña ahora se marca '
