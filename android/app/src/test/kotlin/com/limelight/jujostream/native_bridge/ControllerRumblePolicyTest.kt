@@ -12,16 +12,17 @@ class ControllerRumblePolicyTest {
     // --- platform gate -------------------------------------------------------
 
     @Test
-    fun `chromecast hd on android 14 never reaches the input reader`() {
-        assertFalse(ControllerRumblePolicy.inputVibrationSafe(sdkInt = 34, device = "boreal"))
+    fun `android 14 tvs never reach the input reader`() {
+        // Chromecast HD (boreal) and Xiaomi MiBox (jaws)
+        assertFalse(ControllerRumblePolicy.inputVibrationSafe(sdkInt = 34, isTv = true))
     }
 
     @Test
     fun `other devices keep controller rumble`() {
-        assertTrue(ControllerRumblePolicy.inputVibrationSafe(30, "AFTKRT"))       // Fire TV 4K
-        assertTrue(ControllerRumblePolicy.inputVibrationSafe(34, "husky"))        // Pixel 8
-        assertTrue(ControllerRumblePolicy.inputVibrationSafe(35, "boreal"))       // boreal on a fixed release
-        assertTrue(ControllerRumblePolicy.inputVibrationSafe(33, "boreal"))
+        assertTrue(ControllerRumblePolicy.inputVibrationSafe(30, isTv = true))    // Fire TV 4K
+        assertTrue(ControllerRumblePolicy.inputVibrationSafe(34, isTv = false))   // Pixel 8
+        assertTrue(ControllerRumblePolicy.inputVibrationSafe(35, isTv = true))    // fixed release
+        assertTrue(ControllerRumblePolicy.inputVibrationSafe(33, isTv = true))
     }
 
     // --- quantization --------------------------------------------------------

@@ -252,7 +252,7 @@ class GamepadHandler(
     // combined vibration (one InputReader call). On Chromecast HD any such call
     // can abort system_server, so there it never happens: ControllerRumblePolicy.
     private val controllerVibrationSafe =
-        ControllerRumblePolicy.inputVibrationSafe(Build.VERSION.SDK_INT, Build.DEVICE)
+        ControllerRumblePolicy.inputVibrationSafe(Build.VERSION.SDK_INT, isTvDevice())
     private val controllerRumbleThrottle = ControllerLedThrottle(40_000_000L)
     private val requestedRumble = mutableMapOf<Int, Int>()
     private val rumbleRunnables = mutableMapOf<Int, Runnable>()

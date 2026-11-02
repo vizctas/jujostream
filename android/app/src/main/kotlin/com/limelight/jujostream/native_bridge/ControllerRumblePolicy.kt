@@ -12,8 +12,11 @@ package com.limelight.jujostream.native_bridge
  * into mPendingArgs under the lock). Chromecast HD (boreal, UTTC.250917.004)
  * ships that base code: tombstones on 2026-09-09 (Marvel Tokon, unthrottled)
  * and 2026-09-30 17:22:49 (Mortal Shell II, already throttled to 80 ms). The
- * race is per call, so no rate is safe there. Everywhere else fewer calls is
- * still less Binder traffic and less exposure to the same class of bug.
+ * race is per call, so no rate is safe there. Android TV 14 shares that base:
+ * the Xiaomi MiBox (jaws, UKG3.250107.001) libinputreader.so has the same
+ * vibrate -> InputListenerInterface::notify call outside the queue lock.
+ * Everywhere else fewer calls is still less Binder traffic and less exposure
+ * to the same class of bug.
  *
  * Android-free so the policy runs in plain JVM tests.
  */
@@ -24,10 +27,10 @@ internal object ControllerRumblePolicy {
     /** Long enough to hold a steady rumble, short enough to bound a missed stop. */
     const val HOLD_MS = 60_000L
 
-    // ponytail: exact device match; add other Android 14 base builds here when a
-    // tombstone shows QueuedInputListener::flush -> bad_variant_access on them.
-    fun inputVibrationSafe(sdkInt: Int, device: String): Boolean =
-        !(sdkInt == 34 && device.startsWith("boreal"))
+    // shortcut: every Android 14 TV is treated as the unfixed base (Chromecast HD
+    // and MiBox verified); Android 14 phones got QPR1+ and keep rumble.
+    fun inputVibrationSafe(sdkInt: Int, isTv: Boolean): Boolean =
+        !(sdkInt == 34 && isTv)
 
     /** 16-bit motor value -> 0..255 amplitude snapped to [levels] steps; nonzero stays nonzero. */
     fun quantize(raw: Int, levels: Int = LEVELS): Int {
