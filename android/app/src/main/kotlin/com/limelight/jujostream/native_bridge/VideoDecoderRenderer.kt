@@ -45,9 +45,6 @@ class VideoDecoderRenderer(
         const val FRAME_PACING_SMOOTHNESS = 3
         const val FRAME_PACING_ADAPTIVE   = 4
 
-        private const val LATENCY_EMA_ALPHA = 0.05f
-
-        private const val TIMING_RING_SIZE = 300
     }
 
     private var videoDecoder: MediaCodec? = null
@@ -82,15 +79,9 @@ class VideoDecoderRenderer(
         private set
     @Volatile var totalFramesDropped = 0L
         private set
-    @Volatile var avgDecodeLatencyMs = 0f
-        private set
-
-    private val frameTimingRing = FloatArray(TIMING_RING_SIZE)
-    private var frameTimingIndex = 0
-    private var frameTimingCount = 0
-    private val interFrameRing = FloatArray(TIMING_RING_SIZE)
-    private var interFrameIndex = 0
-    private var interFrameCount = 0
+    private val frameTimings = FrameTimingWindow()
+    val avgDecodeLatencyMs: Float
+        get() = frameTimings.averageMs
     @Volatile private var lastRenderNs = 0L
     @Volatile private var lastPresentationNs = 0L
 
@@ -154,11 +145,17 @@ class VideoDecoderRenderer(
             // VRR: hint compositor about ideal cadence
             if (enableVrr && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 try {
-                    renderSurface!!.setFrameRate(
-                        redrawRate.toFloat(),
-                        Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE,
-                        Surface.CHANGE_FRAME_RATE_ONLY_IF_SEAMLESS
-                    )
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                        renderSurface!!.setFrameRate(
+                            redrawRate.toFloat(),
+                            Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE,
+                            Surface.CHANGE_FRAME_RATE_ONLY_IF_SEAMLESS
+                        )
+                    } else {
+                        renderSurface!!.setFrameRate(
+                            redrawRate.toFloat(), Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE
+                        )
+                    }
                     Log.i(TAG, "VRR: Surface frame rate hint set to ${redrawRate}fps")
                 } catch (e: Exception) {
                     Log.w(TAG, "VRR: setFrameRate failed: ${e.message}")
@@ -434,9 +431,7 @@ class VideoDecoderRenderer(
         totalFramesRendered = 0L
         totalFramesPresented = 0L
         totalFramesDropped = 0L
-        avgDecodeLatencyMs = 0f
-        frameTimingIndex = 0; frameTimingCount = 0
-        interFrameIndex = 0; interFrameCount = 0
+        frameTimings.reset()
         lastRenderNs = 0L
         lastPresentationNs = 0L
         startTimeNs = System.nanoTime()
@@ -546,7 +541,7 @@ class VideoDecoderRenderer(
                         idx >= 0 -> {
                             decoder.releaseOutputBuffer(newestIndex, false)
                             totalFramesDropped++
-                            updateDecodeLatency(newestPtsUs)
+                            updateDecodeLatency(newestPtsUs, rendered = false)
                             newestIndex = idx
                             newestPtsUs = info.presentationTimeUs
                         }
@@ -617,6 +612,7 @@ class VideoDecoderRenderer(
 
                             decoder.releaseOutputBuffer(outIndex, false)
                             totalFramesDropped++
+                            updateDecodeLatency(info.presentationTimeUs, rendered = false)
                         } else {
                             decoder.releaseOutputBuffer(outIndex, info.presentationTimeUs * 1000L)
                             totalFramesRendered++
@@ -675,7 +671,7 @@ class VideoDecoderRenderer(
                                 if (lastIndex >= 0) {
                                     decoder.releaseOutputBuffer(lastIndex, false)
                                     totalFramesDropped++
-                                    updateDecodeLatency(lastPtsUs)
+                                    updateDecodeLatency(lastPtsUs, rendered = false)
                                 }
                                 lastIndex = idx
                                 lastPtsUs = info.presentationTimeUs
@@ -750,7 +746,7 @@ class VideoDecoderRenderer(
                                 decoder.releaseOutputBuffer(stale.bufferIndex, false)
                             } catch (_: IllegalStateException) { }
                             totalFramesDropped++
-                            updateDecodeLatency(stale.ptsUs)
+                            updateDecodeLatency(stale.ptsUs, rendered = false)
                         }
 
                         pendingFrames.offerLast(frame)
@@ -785,7 +781,7 @@ class VideoDecoderRenderer(
                     decoder.releaseOutputBuffer(chosen.bufferIndex, false)
                 } catch (_: IllegalStateException) { }
                 totalFramesDropped++
-                updateDecodeLatency(chosen.ptsUs)
+                updateDecodeLatency(chosen.ptsUs, rendered = false)
             }
             chosen = candidate
         }
@@ -801,26 +797,11 @@ class VideoDecoderRenderer(
         }
     }
 
-    private fun updateDecodeLatency(ptsUs: Long) {
+    private fun updateDecodeLatency(ptsUs: Long, rendered: Boolean = true) {
         val nowNs = System.nanoTime()
         val queueNs = synchronized(queueTimestampNs) { queueTimestampNs.remove(ptsUs) } ?: return
-        val latencyMs = (nowNs - queueNs) / 1_000_000f
-
-        avgDecodeLatencyMs = if (avgDecodeLatencyMs == 0f) latencyMs
-            else avgDecodeLatencyMs * (1f - LATENCY_EMA_ALPHA) + latencyMs * LATENCY_EMA_ALPHA
-
-        frameTimingRing[frameTimingIndex] = latencyMs
-        frameTimingIndex = (frameTimingIndex + 1) % TIMING_RING_SIZE
-        if (frameTimingCount < TIMING_RING_SIZE) frameTimingCount++
-
-        val prevNs = lastRenderNs
-        lastRenderNs = nowNs
-        if (prevNs > 0L) {
-            val intervalMs = (nowNs - prevNs) / 1_000_000f
-            interFrameRing[interFrameIndex] = intervalMs
-            interFrameIndex = (interFrameIndex + 1) % TIMING_RING_SIZE
-            if (interFrameCount < TIMING_RING_SIZE) interFrameCount++
-        }
+        frameTimings.record(queueNs, nowNs, rendered)
+        if (rendered) lastRenderNs = nowNs
     }
 
     private fun presentLowLatencyFrame(decoder: MediaCodec, bufferIndex: Int, ptsUs: Long) {
@@ -1114,18 +1095,10 @@ class VideoDecoderRenderer(
     }
 
     fun getStats(): Map<String, Any> {
-        // Optimize: Sort the timing arrays only once per stats fetch
-        val decodeTimings = if (frameTimingCount > 0) {
-            val copy = frameTimingRing.copyOf(frameTimingCount)
-            copy.sort()
-            copy
-        } else null
-
-        val interFrameTimings = if (interFrameCount > 0) {
-            val copy = interFrameRing.copyOf(interFrameCount)
-            copy.sort()
-            copy
-        } else null
+        // Copy atomically; sort outside the rendering thread's critical section.
+        val (decodeTimings, interFrameTimings) = frameTimings.snapshot()
+        decodeTimings.sort()
+        interFrameTimings.sort()
 
         return mapOf(
             "framesReceived"  to totalFramesReceived,
