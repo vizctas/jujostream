@@ -2,6 +2,21 @@
 /// version. Add an entry with every release bump (kAppVersion); a version with
 /// no entry simply shows nothing.
 const Map<String, ({List<String> es, List<String> en})> kChangelog = {
+  '1.1.33': (
+    es: [
+      'El porcentaje de frames perdidos del overlay ya no muestra picos '
+          'falsos: se mide sobre los últimos 5 segundos.',
+      'La recuperación del decodificador detecta mejor un video congelado.',
+      'Android 11: corregido un posible cierre al ajustar la tasa de '
+          'refresco.',
+    ],
+    en: [
+      'The overlay drop percentage no longer shows false spikes: it is '
+          'measured over the last 5 seconds.',
+      'Decoder recovery detects a frozen picture more reliably.',
+      'Android 11: fixed a possible crash when setting the refresh rate.',
+    ],
+  ),
   '1.1.32': (
     es: [
       'Ajustes: tema y color se eligen en una lista simple, más fácil con '
