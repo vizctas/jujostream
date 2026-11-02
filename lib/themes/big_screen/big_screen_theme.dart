@@ -8,7 +8,6 @@ import '../../services/preferences/launcher_preferences.dart';
 import '../../l10n/app_localizations.dart';
 import '../../models/gaming_news_item.dart';
 import '../../models/nv_app.dart';
-import '../../providers/plugins_provider.dart';
 import '../../providers/theme_provider.dart';
 import '../../ui/motion_scope.dart';
 import '../../ui/accessible_action.dart';
@@ -213,18 +212,10 @@ class _BigScreenBodyState extends State<_BigScreenBody> {
 
   Future<void> _loadNews() async {
     setState(() => _newsLoading = true);
-    final plugins = context.read<PluginsProvider>();
-    String? steamApiKey;
-    if (plugins.isEnabled('steam_connect')) {
-      steamApiKey = await plugins.getApiKey('steam_connect');
-    }
-    final steamAppIds = steamApiKey != null && steamApiKey.trim().isNotEmpty
-        ? await _steamAppIdsForNewsWithFallback()
-        : _directSteamAppIdsForNews();
+    final steamAppIds = await _steamAppIdsForNewsWithFallback();
     if (!mounted) return;
     final items = await GamingNewsService.fetchDashboardItems(
       steamAppIds: steamAppIds,
-      steamApiKey: steamApiKey,
     );
     if (!mounted) return;
     setState(() {

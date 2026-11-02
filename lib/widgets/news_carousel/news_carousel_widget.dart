@@ -6,7 +6,6 @@ import 'package:provider/provider.dart';
 
 import '../../models/gaming_news_item.dart';
 import '../../models/nv_app.dart';
-import '../../providers/plugins_provider.dart';
 import '../../providers/theme_provider.dart';
 import '../../services/audio/ui_sound_service.dart';
 import '../../services/metadata/steam_video_client.dart';
@@ -116,21 +115,12 @@ class NewsCarouselWidgetState extends State<NewsCarouselWidget> {
     _fetched = true;
     setState(() => _loading = true);
 
-    final plugins = context.read<PluginsProvider>();
-    String? steamApiKey;
-    if (plugins.isEnabled('steam_connect')) {
-      steamApiKey = await plugins.getApiKey('steam_connect');
-    }
-
-    final steamAppIds = steamApiKey != null && steamApiKey.trim().isNotEmpty
-        ? await _steamAppIdsWithFallback()
-        : _directSteamAppIds();
+    final steamAppIds = await _steamAppIdsWithFallback();
 
     if (!mounted) return;
 
     final items = await GamingNewsService.fetchDashboardItems(
       steamAppIds: steamAppIds,
-      steamApiKey: steamApiKey,
     );
 
     if (!mounted) return;

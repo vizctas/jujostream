@@ -202,26 +202,22 @@ void main() {
       },
     );
 
-    test(
-      'fetchSteamNewsForApps does not call Steam without an API key',
-      () async {
-        final client = _CountingClient();
+    test('public Steam news is requested without an API key', () async {
+      final client = _CountingClient();
 
-        final items = await GamingNewsService.fetchSteamNewsForApps(
-          steamAppIds: const [620],
-          apiKey: '',
-          client: client,
-        );
+      final items = await GamingNewsService.fetchSteamNewsForApps(
+        steamAppIds: const [620],
+        client: client,
+      );
 
-        expect(items, isEmpty);
-        expect(client.requestCount, 0);
-      },
-    );
+      expect(items, isEmpty);
+      expect(client.requestCount, 1);
+    });
 
     test(
       'fetchSteamNewsForApps maps Steam Web API news to update cards',
       () async {
-        final client = _FakeClient(
+        final client = _CapturingClient(
           http.Response(
             jsonEncode({
               'appnews': {
@@ -244,12 +240,15 @@ void main() {
 
         final items = await GamingNewsService.fetchSteamNewsForApps(
           steamAppIds: const [620],
-          apiKey: 'secret-key',
           client: client,
         );
 
         expect(items, hasLength(1));
         expect(items.single.id, 'steam-steam-news-1');
+        expect(
+          client.lastRequest!.url.queryParameters.containsKey('key'),
+          isFalse,
+        );
         expect(items.single.type, GamingNewsType.update);
         expect(items.single.title, 'Portal 2 Update');
         expect(items.single.subtitle, 'Patch notes and performance fixes.');
@@ -261,6 +260,20 @@ void main() {
         );
       },
     );
+
+    test('public news ignores invalid IDs and deduplicates requests', () async {
+      final client = _CountingClient();
+      await GamingNewsService.fetchSteamNewsForApps(
+        steamAppIds: [-1, 0],
+        client: client,
+      );
+      expect(client.requestCount, 0);
+      await GamingNewsService.fetchSteamNewsForApps(
+        steamAppIds: [620, 620, 0, -1],
+        client: client,
+      );
+      expect(client.requestCount, 1);
+    });
 
     test(
       'fetchGiveaways returns empty list when GamerPower has no data',

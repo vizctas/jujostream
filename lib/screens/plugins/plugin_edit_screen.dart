@@ -746,8 +746,8 @@ class _PluginEditScreenState extends State<PluginEditScreen> {
                           const SizedBox(height: 8),
                           Text(
                             Localizations.localeOf(context).languageCode == 'es'
-                                ? 'Inicia sesión y obtenemos tu SteamID y API key automáticamente.'
-                                : 'Sign in and we grab your SteamID and API key automatically.',
+                                ? 'Inicia sesión para obtener tu SteamID. La API key se configura aparte para consultar biblioteca y logros; Big Screen no la necesita.'
+                                : 'Sign in to obtain your SteamID. Configure an API key separately for library and achievement queries; Big Screen does not need it.',
                             style: const TextStyle(
                               color: Colors.white54,
                               fontSize: 12,

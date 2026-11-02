@@ -36,12 +36,11 @@ class GamingNewsService {
 
   static Future<List<GamingNewsItem>> fetchDashboardItems({
     required List<int> steamAppIds,
-    required String? steamApiKey,
   }) async {
     final results = await Future.wait([
       fetchDeals(),
       fetchGiveaways(),
-      fetchSteamNewsForApps(steamAppIds: steamAppIds, apiKey: steamApiKey),
+      fetchSteamNewsForApps(steamAppIds: steamAppIds),
     ]);
     return combineDashboardItems(results);
   }
@@ -154,18 +153,15 @@ class GamingNewsService {
 
   static Future<List<GamingNewsItem>> fetchSteamNewsForApps({
     required List<int> steamAppIds,
-    required String? apiKey,
     http.Client? client,
   }) async {
-    final trimmedApiKey = apiKey?.trim();
     final uniqueAppIds = steamAppIds
         .where((appId) => appId > 0)
         .toSet()
         .take(12)
         .toList(growable: false);
-    if (trimmedApiKey == null ||
-        trimmedApiKey.isEmpty ||
-        uniqueAppIds.isEmpty) {
+    // GetNewsForApp is public; only GetNewsForAppAuthed requires a key.
+    if (uniqueAppIds.isEmpty) {
       return const <GamingNewsItem>[];
     }
 
