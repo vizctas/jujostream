@@ -96,6 +96,7 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
     private var lastFramesRendered = 0L
     private var lastFramesPresented = 0L
     private var lastFramesDropped = 0L
+    private val dropRateWindow = DropRateWindow()
     private var statsLogTicks = 0
     private val renderWatchdog = RenderProgressWatchdog(stallThresholdSamples = 15)
     private var configuredBitrateKbps = 20000
@@ -844,6 +845,7 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
         lastFramesPresented = 0L
         lastFramesDropped = 0L
         lastFramesReceived = 0L
+        dropRateWindow.reset()
         renderWatchdog.reset()
         statsLogTicks = 0
         stopStatsPolling()
@@ -862,10 +864,7 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
                     val droppedDelta = (currentDropped - lastFramesDropped).coerceAtLeast(0)
                     val progressDelta = if (renderer.presentationTrackingEnabled) presentedDelta else renderedDelta
                     val fps = (progressDelta * 5).toInt()
-                    val totalDelta = renderedDelta + droppedDelta
-                    val dropRate = if (totalDelta > 0)
-                        ((droppedDelta.toFloat() / totalDelta.toFloat()) * 100).toInt().coerceIn(0, 100)
-                    else 0
+                    val dropRate = dropRateWindow.add(renderedDelta, droppedDelta)
                     val decodeTime = renderer.avgDecodeLatencyMs.toInt()
                     val bitrateM = (configuredBitrateKbps / 1000.0).toInt().coerceAtLeast(1)
                     val resolution = "${renderer.initialWidth}x${renderer.initialHeight}"
@@ -1057,6 +1056,7 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
         lastFramesRendered = 0L
         lastFramesPresented = 0L
         lastFramesDropped = 0L
+        dropRateWindow.reset()
         renderWatchdog.reset()
         DisplayModeHelper.restore(activity)
         DirectSubmitViewFactory.reset()
