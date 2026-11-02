@@ -2,6 +2,18 @@
 /// version. Add an entry with every release bump (kAppVersion); a version with
 /// no entry simply shows nothing.
 const Map<String, ({List<String> es, List<String> en})> kChangelog = {
+  '1.1.32': (
+    es: [
+      'Ajustes: tema y color se eligen en una lista simple, más fácil con '
+          'el mando o el control remoto.',
+      'Big Screen y noticias funcionan sin conectar Steam ni API key.',
+    ],
+    en: [
+      'Settings: theme and colour are picked from a simple list, easier '
+          'with a controller or remote.',
+      'Big Screen and news work without connecting Steam or an API key.',
+    ],
+  ),
   '1.1.31': (
     es: [
       'TV con Android 14 (Xiaomi MiBox y similares): la vibración del mando '
