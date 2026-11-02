@@ -77,11 +77,15 @@ object DisplayModeHelper {
     private fun applyFrameRateHint(surface: Surface?, targetFps: Int) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R || surface == null) return
         try {
-            surface.setFrameRate(
-                targetFps.toFloat(),
-                Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE,
-                Surface.CHANGE_FRAME_RATE_ONLY_IF_SEAMLESS
-            )
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                surface.setFrameRate(
+                    targetFps.toFloat(),
+                    Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE,
+                    Surface.CHANGE_FRAME_RATE_ONLY_IF_SEAMLESS
+                )
+            } else {
+                surface.setFrameRate(targetFps.toFloat(), Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE)
+            }
             Log.i(TAG, "Set Surface frame rate hint: ${targetFps}fps (seamless)")
         } catch (e: Exception) {
             Log.w(TAG, "setFrameRate failed: ${e.message}")
