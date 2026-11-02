@@ -2,6 +2,17 @@
 /// version. Add an entry with every release bump (kAppVersion); a version with
 /// no entry simply shows nothing.
 const Map<String, ({List<String> es, List<String> en})> kChangelog = {
+  '1.1.31': (
+    es: [
+      'TV con Android 14 (Xiaomi MiBox y similares): la vibración del mando '
+          'queda desactivada porque podía reiniciar el dispositivo en plena '
+          'partida, como pasaba en Chromecast HD.',
+    ],
+    en: [
+      'Android 14 TVs (Xiaomi MiBox and similar): controller rumble is off '
+          'because it could restart the device mid-game, as on Chromecast HD.',
+    ],
+  ),
   '1.1.30': (
     es: [
       'Chromecast HD: se corrige el cierre inesperado del stream al jugar '
