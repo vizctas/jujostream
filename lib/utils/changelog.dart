@@ -2,6 +2,16 @@
 /// version. Add an entry with every release bump (kAppVersion); a version with
 /// no entry simply shows nothing.
 const Map<String, ({List<String> es, List<String> en})> kChangelog = {
+  '1.1.35': (
+    es: [
+      'JUJO Cloud: los servidores que otras cuentas comparten contigo '
+          'aparecen y se emparejan solos tras aceptar la invitación.',
+    ],
+    en: [
+      'JUJO Cloud: servers other accounts share with you appear and pair '
+          'automatically once you accept the invite.',
+    ],
+  ),
   '1.1.34': (
     es: [
       'Android TV (MiBox y similares): los juegos vuelven a detectar el '
