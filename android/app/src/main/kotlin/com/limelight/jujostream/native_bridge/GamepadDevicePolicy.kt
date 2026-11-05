@@ -1,6 +1,16 @@
 package com.limelight.jujostream.native_bridge
 
 internal object GamepadDevicePolicy {
+    /**
+     * Remotes, pairing helpers and Android TV's uinput devices (virtual-search,
+     * virtual-remote) report SOURCE_GAMEPAD with face keys via Generic.kl. Taken
+     * as pads they grab slot 0, so games bound to player 1 ignore the real one.
+     */
+    fun isNonGamepadByName(deviceName: String?): Boolean {
+        val name = deviceName?.lowercase() ?: return false
+        return name.contains("remote") || name.contains("pair") || name.startsWith("virtual")
+    }
+
     fun requiresJoyConOptIn(vendorId: Int, deviceName: String?): Boolean {
         val name = deviceName?.lowercase() ?: ""
         return name.contains("joy-con") || name.contains("joycon")

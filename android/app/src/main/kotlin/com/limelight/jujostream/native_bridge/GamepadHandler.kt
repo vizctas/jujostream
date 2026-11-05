@@ -645,11 +645,7 @@ class GamepadHandler(
     }
 
     private fun isGamepadDevice(dev: InputDevice): Boolean {
-        val name = dev.name?.lowercase() ?: ""
-
-        if (name.contains("remote")) return false
-
-        if (name.contains("pair")) return false
+        if (GamepadDevicePolicy.isNonGamepadByName(dev.name)) return false
 
         val joyConDevice = isJoyConDevice(dev)
         if (joyConDevice && !joyConEnabled) return false

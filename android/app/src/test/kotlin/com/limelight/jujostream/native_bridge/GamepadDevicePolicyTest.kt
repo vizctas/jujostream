@@ -9,6 +9,16 @@ import org.junit.Test
 class GamepadDevicePolicyTest {
 
     @Test
+    fun `Android TV virtual input devices and remotes are not gamepads`() {
+        for (name in listOf("virtual-search", "virtual-remote", "Virtual", "Chromecast Remote", "Pairing Helper")) {
+            assertTrue(name, GamepadDevicePolicy.isNonGamepadByName(name))
+        }
+        for (name in listOf("DualSense Wireless Controller", "Xbox Wireless Controller", "8BitDo Pro 2", null)) {
+            assertFalse("$name", GamepadDevicePolicy.isNonGamepadByName(name))
+        }
+    }
+
+    @Test
     fun `Nintendo Switch Pro style controllers are not gated by Joy-Con opt-in`() {
         assertFalse(
             GamepadDevicePolicy.requiresJoyConOptIn(
