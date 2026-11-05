@@ -429,7 +429,16 @@ class CloudSyncService {
           .select()
           .eq('user_id', userId);
 
-      final cloudProfiles = response as List<dynamic>;
+      // Servers other accounts shared with me (accepted invites). Same row
+      // shape, so they merge and cloud-pair like my own; the server checks
+      // the membership when pairing. Push never touches them (not my rows).
+      List<dynamic> shared = const [];
+      try {
+        shared = await client.rpc('shared_server_profiles') as List<dynamic>;
+      } catch (e) {
+        _log.w('pullConfigFromSupabase: shared servers unavailable: $e');
+      }
+      final cloudProfiles = [...response as List<dynamic>, ...shared];
 
       final prefs = await SharedPreferences.getInstance();
       final savedComputers = prefs.getStringList(_kSavedComputers) ?? const [];

@@ -80,6 +80,7 @@ class CountingCloudPairingClient extends http.BaseClient {
 
 class MockSupabaseSyncHttpClient extends http.BaseClient {
   List<Map<String, dynamic>> dbRows = [];
+  List<Map<String, dynamic>> sharedRows = [];
   bool upsertCalled = false;
   List<Map<String, dynamic>> lastUpsertedRows = [];
   bool patchCalled = false;
@@ -105,6 +106,8 @@ class MockSupabaseSyncHttpClient extends http.BaseClient {
           'email_confirmed_at': '2026-05-31T07:32:56.000Z',
         },
       });
+    } else if (path.contains('/rest/v1/rpc/shared_server_profiles')) {
+      responseBody = jsonEncode(sharedRows);
     } else if (path.contains('/rest/v1/user_server_profiles')) {
       if (method == 'GET') {
         responseBody = jsonEncode(dbRows);
@@ -163,6 +166,7 @@ void main() {
   setUp(() {
     SharedPreferences.setMockInitialValues({});
     mockHttpClient.dbRows.clear();
+    mockHttpClient.sharedRows = [];
     mockHttpClient.upsertCalled = false;
     mockHttpClient.lastUpsertedRows.clear();
     mockHttpClient.patchCalled = false;
@@ -425,6 +429,37 @@ void main() {
         );
       },
     );
+
+    test('servers shared with me sync as cloud computers', () async {
+      await Supabase.instance.client.auth.signInWithPassword(
+        email: 'user@test.com',
+        password: 'password123',
+      );
+      CloudSyncService.instance.pairingClientFactoryForTest = (_) =>
+          MockCloudPairingHttpClient();
+      mockHttpClient.dbRows = [];
+      mockHttpClient.sharedRows = [
+        {
+          'server_url': 'https://192.168.3.6:47990',
+          'server_name': 'Friend Rig',
+          'server_uuid': 'friend-uuid',
+          'cert_fingerprint': 'FRIEND-FP',
+          'local_addresses': ['192.168.3.6'],
+          'role': 'viewer',
+          'owner_email': 'friend@x.com',
+        },
+      ];
+
+      expect(await CloudSyncService.instance.pullConfigFromSupabase(), isTrue);
+
+      final prefs = await SharedPreferences.getInstance();
+      final saved = prefs.getStringList('saved_computers')!;
+      final computer = ComputerDetails.fromJson(jsonDecode(saved.single));
+      expect(computer.name, 'Friend Rig');
+      expect(computer.uuid, 'friend-uuid');
+      expect(computer.serverCert, 'FRIEND-FP');
+      expect(computer.isCloud, isTrue);
+    });
 
     test('does not replace a server pin while signed out', () async {
       await Supabase.instance.client.auth.signOut();
