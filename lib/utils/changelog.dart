@@ -2,6 +2,20 @@
 /// version. Add an entry with every release bump (kAppVersion); a version with
 /// no entry simply shows nothing.
 const Map<String, ({List<String> es, List<String> en})> kChangelog = {
+  '1.1.34': (
+    es: [
+      'Android TV (MiBox y similares): los juegos vuelven a detectar el '
+          'mando; un dispositivo virtual del sistema ocupaba el jugador 1.',
+      'Corregido un fallo que podía impedir iniciar el stream tras '
+          'sincronizar con la nube.',
+    ],
+    en: [
+      'Android TV (MiBox and similar): games detect the controller again; '
+          'a system virtual device was taking player 1.',
+      'Fixed a failure that could stop streams from starting after a '
+          'cloud sync.',
+    ],
+  ),
   '1.1.33': (
     es: [
       'El porcentaje de frames perdidos del overlay ya no muestra picos '
