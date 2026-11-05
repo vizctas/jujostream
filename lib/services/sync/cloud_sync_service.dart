@@ -454,7 +454,6 @@ class CloudSyncService {
         final String? cloudName = cloudMap['server_name'];
         final String? certFingerprint = cloudMap['cert_fingerprint'];
         final String? externalAddress = cloudMap['external_address'];
-        final String? serverVersion = cloudMap['server_version'];
         final bool isDefault = cloudMap['is_default'] ?? false;
 
         // Rows without a cert fingerprint are not maintained by the server's
@@ -492,9 +491,9 @@ class CloudSyncService {
           if (externalAddress != null && externalAddress.isNotEmpty) {
             local.remoteAddress = externalAddress;
           }
-          if (serverVersion != null && serverVersion.isNotEmpty) {
-            local.serverVersion = serverVersion;
-          }
+          // Not cloud `server_version`: that is the Jujo product version
+          // (1.0.x); serverVersion is the GFE protocol appversion and a 1.x
+          // value makes moonlight-common-c send a legacy SDP (ANNOUNCE 400).
           // Always update configHttpsPort from cloud so cloud-pairing POSTs
           // reach the confighttp server (port base+1) rather than nvhttp (base-5).
           if (cloudPort > 0) {

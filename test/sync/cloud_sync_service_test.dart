@@ -379,6 +379,53 @@ void main() {
       },
     );
 
+    test(
+      'cloud server_version never replaces the protocol appversion',
+      () async {
+        await Supabase.instance.client.auth.signInWithPassword(
+          email: 'user@test.com',
+          password: 'password123',
+        );
+        CloudSyncService.instance.pairingClientFactoryForTest = (_) =>
+            MockCloudPairingHttpClient();
+
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setStringList('saved_computers', [
+          jsonEncode(
+            ComputerDetails(
+              uuid: 'rig',
+              name: 'Gaming Rig',
+              localAddress: '192.168.3.6',
+              httpsPort: 47984,
+              configHttpsPort: 47990,
+            ).toJson(),
+          ),
+        ]);
+        mockHttpClient.dbRows = [
+          {
+            'id': 'cloud-row',
+            'user_id': 'mock-user-uuid',
+            'server_uuid': 'rig',
+            'server_url': 'https://192.168.3.6:47990',
+            'server_name': 'Gaming Rig',
+            'cert_fingerprint': 'FP',
+            'local_addresses': ['192.168.3.6'],
+            'server_version': '1.0.34',
+          },
+        ];
+
+        expect(await CloudSyncService.instance.pullConfigFromSupabase(), isTrue);
+
+        final saved = prefs.getStringList('saved_computers')!;
+        expect(saved, hasLength(1));
+        // 1.0.34 here made moonlight-common-c send a legacy SDP → ANNOUNCE 400.
+        expect(
+          ComputerDetails.fromJson(jsonDecode(saved.single)).serverVersion,
+          '7.1.431.-1',
+        );
+      },
+    );
+
     test('does not replace a server pin while signed out', () async {
       await Supabase.instance.client.auth.signOut();
       final computer = ComputerDetails(
