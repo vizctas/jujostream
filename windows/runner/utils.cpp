@@ -18,7 +18,6 @@ void CreateAndAttachConsole() {
       _dup2(_fileno(stderr), 2);
     }
     std::ios::sync_with_stdio();
-    FlutterDesktopResyncOutputStreams();
   }
 }
 
@@ -51,7 +50,6 @@ void InitializeBetaNativeLogging() {
     _dup2(_fileno(stdout), 1);
   }
   std::ios::sync_with_stdio();
-  FlutterDesktopResyncOutputStreams();
 
   fprintf(stderr, "[native] beta log initialized\n");
   fflush(stderr);

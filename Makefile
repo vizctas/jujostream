@@ -137,9 +137,11 @@ $(RELEASE_DIR)/build-all: validate-release-tag $(RELEASE_DIR) verify-android-key
 	flutter clean
 	flutter pub get
 	$(PATCH_BUILT_IN_KOTLIN)
+	powershell -NoProfile -ExecutionPolicy Bypass -File scripts/patch_windows_flutter_names.ps1 -Phase PreBuild
 	$(DIRECT_FIRE_BUILD)
 	$(PLAY_AAB_BUILD)
 	flutter build windows --release $(DART_DEFINES)
+	powershell -NoProfile -ExecutionPolicy Bypass -File scripts/patch_windows_flutter_names.ps1 -Phase PostBuild
 	powershell -NoProfile -Command "Copy-Item -LiteralPath '$(APK_SRC)' -Destination '$(APK_OUT)' -Force"
 	powershell -NoProfile -Command "Copy-Item -LiteralPath '$(AAB_SRC)' -Destination '$(AAB_OUT)' -Force"
 	powershell -NoProfile -Command "if (-not (Test-Path -LiteralPath '$(WIN_SRC_DIR)/data/app.so')) { throw 'Windows build is incomplete: data/app.so is missing.' }"
