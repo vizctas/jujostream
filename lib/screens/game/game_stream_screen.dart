@@ -226,7 +226,9 @@ class _GameStreamScreenState extends State<GameStreamScreen>
     _settingsProvider = context.read<SettingsProvider>();
     _computerProvider = context.read<ComputerProvider>();
     _settingsProvider.addListener(_handleSettingsConfigChanged);
-    _config = widget.overrideConfig ?? _settingsProvider.config;
+    _config =
+        widget.overrideConfig ??
+        _settingsProvider.configForServer(widget.computer.hostId);
     _touchMode = _config.mouseMode;
     _showGamepad = _config.showOnscreenControls;
     _showPerfStats = _config.enablePerfOverlay;
@@ -3156,7 +3158,10 @@ class _GameStreamScreenState extends State<GameStreamScreen>
     if (preset == 'app_controlled') {
       _activeOverlayPreset = null;
       _config =
-          widget.overrideConfig ?? context.read<SettingsProvider>().config;
+          widget.overrideConfig ??
+          context.read<SettingsProvider>().configForServer(
+            widget.computer.hostId,
+          );
     } else {
       _activeOverlayPreset = preset;
       switch (preset) {

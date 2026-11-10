@@ -930,6 +930,55 @@ class AppLocalizations {
       'en': 'Steam linked (private profile).',
       'es': 'Steam vinculado (perfil privado).',
     },
+    'scopeGlobalLabel': {'en': 'Global', 'es': 'Global'},
+    'scopeGlobalDesc': {
+      'en': 'Default options shared across all servers',
+      'es': 'Opciones por defecto compartidas por todos los servidores',
+    },
+    'serverOptionsTitle': {
+      'en': 'Server Options & Overrides',
+      'es': 'Opciones del servidor',
+    },
+    'serverOptionsSubtitleGlobal': {
+      'en': 'Using global options (launcher, speed, video)',
+      'es': 'Usando opciones globales (launcher, velocidad, video)',
+    },
+    'serverOptionsSubtitleCustom': {
+      'en': 'Custom server override active',
+      'es': 'Override propio activo en este servidor',
+    },
+    'serverOverrideToggleTitle': {
+      'en': 'Custom options for this server',
+      'es': 'Opciones propias para este servidor',
+    },
+    'serverOverrideToggleSubOn': {
+      'en': 'Running with its own launcher, speed, video & controller options',
+      'es': 'Se ejecuta con sus propias opciones de launcher, velocidad, video y mando',
+    },
+    'serverOverrideToggleSubOff': {
+      'en': 'Inheriting global configuration — toggle or edit any option to override',
+      'es': 'Heredando configuración global — activa o edita cualquier opción para personalizar',
+    },
+    'serverOverrideResetBtn': {
+      'en': 'Reset to Global',
+      'es': 'Restaurar global',
+    },
+    'serverOverrideResetDone': {
+      'en': 'Server restored to global options',
+      'es': 'Servidor restaurado a opciones globales',
+    },
+    'serverOverrideBadgeCustom': {
+      'en': 'CUSTOM OVERRIDE',
+      'es': 'OVERRIDE PROPIO',
+    },
+    'serverOverrideBadgeGlobal': {
+      'en': 'GLOBAL',
+      'es': 'GLOBAL',
+    },
+    'serverConfigScopeLabel': {
+      'en': 'Options Profile',
+      'es': 'Perfil de opciones',
+    },
   };
 
   String _s(String key) {
@@ -1423,6 +1472,19 @@ class AppLocalizations {
   String get pluginSteamValidationFailed => _s('pluginSteamValidationFailed');
   String get pluginSteamConnectedMsg => _s('pluginSteamConnectedMsg');
   String get pluginSteamLinkedPrivate => _s('pluginSteamLinkedPrivate');
+  String get scopeGlobalLabel => _s('scopeGlobalLabel');
+  String get scopeGlobalDesc => _s('scopeGlobalDesc');
+  String get serverOptionsTitle => _s('serverOptionsTitle');
+  String get serverOptionsSubtitleGlobal => _s('serverOptionsSubtitleGlobal');
+  String get serverOptionsSubtitleCustom => _s('serverOptionsSubtitleCustom');
+  String get serverOverrideToggleTitle => _s('serverOverrideToggleTitle');
+  String get serverOverrideToggleSubOn => _s('serverOverrideToggleSubOn');
+  String get serverOverrideToggleSubOff => _s('serverOverrideToggleSubOff');
+  String get serverOverrideResetBtn => _s('serverOverrideResetBtn');
+  String get serverOverrideResetDone => _s('serverOverrideResetDone');
+  String get serverOverrideBadgeCustom => _s('serverOverrideBadgeCustom');
+  String get serverOverrideBadgeGlobal => _s('serverOverrideBadgeGlobal');
+  String get serverConfigScopeLabel => _s('serverConfigScopeLabel');
   String unlockedOf(int unlocked, int total) =>
       '$unlocked / $total ${_s('unlockedCount')}';
   String completedPercentLabel(double pct) =>

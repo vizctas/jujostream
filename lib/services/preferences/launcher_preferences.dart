@@ -29,11 +29,70 @@ class LauncherPreferences extends ChangeNotifier {
   bool _desktopFullscreen = true;
 
   String _profileId = 'classic';
-  String _key(String base) => '${_profileId}_$base';
+  String? _serverHostId;
+  bool _serverOverrideActive = false;
+  Future<void>? _pendingSave;
+  Future<void> Function(String hostId)? onAutoEnableServerOverride;
+
+  String? get serverHostId => _serverHostId;
+  bool get isServerScopeActive =>
+      _serverOverrideActive &&
+      _serverHostId != null &&
+      _serverHostId!.isNotEmpty;
+
+  String _globalKey(String base) => '${_profileId}_$base';
+  String _key(String base) => isServerScopeActive
+      ? 'srv_${_serverHostId}_${_profileId}_$base'
+      : _globalKey(base);
 
   void switchProfile(String profileId) async {
+    if (_pendingSave != null) {
+      await _pendingSave;
+    }
     _profileId = profileId;
     await load();
+  }
+
+  Future<void> setServerScope({
+    String? hostId,
+    required bool overrideActive,
+    String? profileId,
+  }) async {
+    if (_pendingSave != null) {
+      await _pendingSave;
+    }
+    final normalizedHost = (hostId != null && hostId.isNotEmpty)
+        ? hostId
+        : null;
+    if (profileId != null && profileId.isNotEmpty) {
+      _profileId = profileId;
+    }
+    _serverHostId = normalizedHost;
+    _serverOverrideActive = overrideActive && normalizedHost != null;
+    await load();
+  }
+
+  Future<bool> hasServerCustomKeys(String hostId) async {
+    if (hostId.isEmpty) return false;
+    final p = await SharedPreferences.getInstance();
+    final prefix = 'srv_${hostId}_';
+    return p.getKeys().any((k) => k.startsWith(prefix));
+  }
+
+  Future<void> clearServerOverrides(String hostId) async {
+    if (hostId.isEmpty) return;
+    final p = await SharedPreferences.getInstance();
+    final prefix = 'srv_${hostId}_';
+    final keysToRemove = p
+        .getKeys()
+        .where((k) => k.startsWith(prefix))
+        .toList();
+    for (final k in keysToRemove) {
+      await p.remove(k);
+    }
+    if (_serverHostId == hostId) {
+      await load();
+    }
   }
 
   double get backgroundBlur => _backgroundBlur;
@@ -55,13 +114,20 @@ class LauncherPreferences extends ChangeNotifier {
   bool get desktopFullscreen => _desktopFullscreen;
 
   Future<void> load([String? profileId]) async {
+    if (_pendingSave != null) {
+      await _pendingSave;
+    }
     if (profileId != null) _profileId = profileId;
     final p = await SharedPreferences.getInstance();
 
-    double getD(String k, double def) => p.getDouble(_key(k)) ?? def;
-    bool getB(String k, bool def) => p.getBool(_key(k)) ?? def;
-    int getI(String k, int def) => p.getInt(_key(k)) ?? def;
-    String getS(String k, String def) => p.getString(_key(k)) ?? def;
+    double getD(String k, double def) =>
+        p.getDouble(_key(k)) ?? p.getDouble(_globalKey(k)) ?? def;
+    bool getB(String k, bool def) =>
+        p.getBool(_key(k)) ?? p.getBool(_globalKey(k)) ?? def;
+    int getI(String k, int def) =>
+        p.getInt(_key(k)) ?? p.getInt(_globalKey(k)) ?? def;
+    String getS(String k, String def) =>
+        p.getString(_key(k)) ?? p.getString(_globalKey(k)) ?? def;
 
     // Classic profile defaults: blur=0, radius=16, spacing=18, w=126, h=170
     final isClassic = _profileId == 'classic';
@@ -85,7 +151,20 @@ class LauncherPreferences extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> _save() async {
+  Future<void> _save() {
+    final future = _performSave();
+    _pendingSave = future;
+    return future;
+  }
+
+  Future<void> _performSave() async {
+    if (_serverHostId != null &&
+        _serverHostId!.isNotEmpty &&
+        !_serverOverrideActive &&
+        onAutoEnableServerOverride != null) {
+      _serverOverrideActive = true;
+      await onAutoEnableServerOverride!(_serverHostId!);
+    }
     final p = await SharedPreferences.getInstance();
     await Future.wait([
       p.setDouble(_key('lp_bgBlur'), _backgroundBlur),

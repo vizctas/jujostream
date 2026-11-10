@@ -7,7 +7,9 @@ import '../l10n/app_localizations.dart';
 import '../models/computer_details.dart';
 import '../providers/auth_provider.dart';
 import '../providers/computer_provider.dart';
+import '../providers/settings_provider.dart';
 import '../providers/theme_provider.dart';
+import '../screens/settings/settings_screen.dart';
 import '../ui/computer_connection_status.dart';
 import '../ui/motion_scope.dart';
 import '../widgets/pairing_dialog.dart';
@@ -55,6 +57,16 @@ class ComputerOptionsDialog {
       pageBuilder: (ctx, _, _) {
         final tp = context.read<ThemeProvider>();
         final provider = context.read<ComputerProvider>();
+        final settings = context.read<SettingsProvider>();
+        final hasServerOverride = settings.hasServerOverride(computer.hostId);
+        final serverProfile = settings.serverProfile(computer.hostId);
+        final diffBadges = (hasServerOverride && serverProfile != null)
+            ? serverProfile.diffBadges(
+                settings.globalConfig,
+                globalLauncherThemeName: tp.globalLauncherThemeId.name,
+                isEs: l.locale.languageCode == 'es',
+              )
+            : const <String>[];
         final cloudSignedIn = context.read<AuthProvider>().isSignedIn;
         final size = MediaQuery.sizeOf(ctx);
         // The branches were inverted: a window wider than 900 got a NARROWER
@@ -174,6 +186,30 @@ class ComputerOptionsDialog {
                                 } else {
                                   provider.setPrimaryServer(computer.uuid);
                                 }
+                              },
+                            ),
+                            _tile(
+                              icon: Icons.tune_rounded,
+                              iconColor: hasServerOverride
+                                  ? tp.accentLight
+                                  : Colors.white70,
+                              title: l.serverOptionsTitle,
+                              subtitle: hasServerOverride
+                                  ? (diffBadges.isNotEmpty
+                                        ? '${l.serverOptionsSubtitleCustom} · ${diffBadges.take(3).join(" · ")}'
+                                        : l.serverOptionsSubtitleCustom)
+                                  : l.serverOptionsSubtitleGlobal,
+                              onTap: () {
+                                Navigator.pop(ctx);
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => SettingsScreen(
+                                      initialServerId: computer.hostId,
+                                      initialServerName: computer.name,
+                                    ),
+                                  ),
+                                );
                               },
                             ),
                             _tile(

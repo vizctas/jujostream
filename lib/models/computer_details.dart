@@ -119,6 +119,13 @@ class ComputerDetails {
   /// nvhttp HTTPS port, never zero. Cloud-synced records land here with
   /// `httpsPort = 0` until the first successful /serverinfo fills it in.
   int get effectiveHttpsPort => httpsPort > 0 ? httpsPort : 47984;
+
+  /// Canonical host identifier used for per-server preferences and overrides.
+  String get hostId => uuid.isNotEmpty
+      ? uuid
+      : (localAddress.isNotEmpty
+            ? localAddress
+            : (activeAddress.isNotEmpty ? activeAddress : name));
 }
 
 enum ComputerState { online, offline, unknown }

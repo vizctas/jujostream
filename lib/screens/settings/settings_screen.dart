@@ -41,6 +41,7 @@ import 'settings_remote_navigation.dart';
 import 'appearance_settings.dart';
 import 'vpn_guide_sheet.dart';
 import 'blocked_buttons_screen.dart';
+import '../../widgets/settings/settings_scope_bar.dart';
 
 // Top-level translation helper — accessible from all widget classes in this file.
 String _tr(BuildContext context, String en, String es) {
@@ -51,7 +52,16 @@ String formatStandbyVolumeLabel(double value) =>
     value.clamp(0.0, 1.0).toStringAsFixed(2);
 
 class SettingsScreen extends StatefulWidget {
-  const SettingsScreen({super.key});
+  final String? initialServerId;
+  final String? initialServerName;
+  final int initialTabIndex;
+
+  const SettingsScreen({
+    super.key,
+    this.initialServerId,
+    this.initialServerName,
+    this.initialTabIndex = 0,
+  });
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -65,16 +75,69 @@ class _SettingsScreenState extends State<SettingsScreen>
     _kTabCount,
     (i) => FocusScopeNode(debugLabel: 'settings-tab-$i'),
   );
+  SettingsProvider? _settingsRef;
+  LauncherPreferences? _launcherPrefsRef;
+  ThemeProvider? _themeProviderRef;
+  String? _previousRuntimeServerHostId;
+  bool _scopeInitialized = false;
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: _kTabCount, vsync: this);
+    _tabController = TabController(
+      length: _kTabCount,
+      vsync: this,
+      initialIndex: widget.initialTabIndex.clamp(0, _kTabCount - 1),
+    );
     _tabController.addListener(_onTabChanged);
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _settingsRef = context.read<SettingsProvider>();
+    _launcherPrefsRef = context.read<LauncherPreferences>();
+    _themeProviderRef = context.read<ThemeProvider>();
+    if (!_scopeInitialized) {
+      _scopeInitialized = true;
+      _previousRuntimeServerHostId = _launcherPrefsRef?.serverHostId;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _settingsRef?.setScope(
+          widget.initialServerId,
+          serverName: widget.initialServerName,
+          launcherPreferences: _launcherPrefsRef,
+          themeProvider: _themeProviderRef,
+        );
+      });
+    }
+  }
+
+  @override
   void dispose() {
+    final settings = _settingsRef;
+    final launcherPrefs = _launcherPrefsRef;
+    final themeProvider = _themeProviderRef;
+    final prevHostId = _previousRuntimeServerHostId;
+    if (settings != null) {
+      unawaited(
+        settings
+            .setScope(
+              null,
+              launcherPreferences: launcherPrefs,
+              themeProvider: themeProvider,
+            )
+            .then((_) {
+              if (prevHostId != null && prevHostId.isNotEmpty) {
+                return settings.syncRuntimeServerContext(
+                  prevHostId,
+                  launcherPreferences: launcherPrefs,
+                  themeProvider: themeProvider,
+                );
+              }
+            }),
+      );
+    }
     _tabController.removeListener(_onTabChanged);
     _tabController.dispose();
     for (final s in _tabScopes) {
@@ -243,26 +306,45 @@ class _SettingsScreenState extends State<SettingsScreen>
               final startupAnimation = context
                   .watch<StartupAnimationPreferences>();
 
-              return TabBarView(
-                controller: _tabController,
-                children: [
-                  FocusScope(
-                    node: _tabScopes[0],
-                    child: FocusTraversalGroup(
-                      policy: OrderedTraversalPolicy(),
-                      child: ListView(
-                        padding: _tabPadding(context),
-                        children: [
-                          _section(_tr(context, 'Appearance', 'Apariencia')),
-                          const AppearanceSettings(),
+              final horizontalPadding = MediaQuery.of(context).size.width > 1200
+                  ? 64.0
+                  : MediaQuery.of(context).size.width > 800
+                  ? 32.0
+                  : 16.0;
 
-                          _section(
-                            _tr(
-                              context,
-                              'Launcher Appearance',
-                              'Apariencia de inicio',
-                            ),
-                          ),
+              return Column(
+                children: [
+                  SettingsScopeBar(
+                    fallbackServerId: widget.initialServerId,
+                    fallbackServerName: widget.initialServerName,
+                    padding: EdgeInsets.fromLTRB(
+                      horizontalPadding,
+                      12,
+                      horizontalPadding,
+                      4,
+                    ),
+                  ),
+                  Expanded(
+                    child: TabBarView(
+                      controller: _tabController,
+                      children: [
+                        FocusScope(
+                          node: _tabScopes[0],
+                          child: FocusTraversalGroup(
+                            policy: OrderedTraversalPolicy(),
+                            child: ListView(
+                              padding: _tabPadding(context),
+                              children: [
+                                _section(_tr(context, 'Appearance', 'Apariencia')),
+                                const AppearanceSettings(),
+
+                                _section(
+                                  _tr(
+                                    context,
+                                    'Launcher Appearance',
+                                    'Apariencia de inicio',
+                                  ),
+                                ),
                           _choiceTile(
                             context,
                             _tr(
@@ -1602,12 +1684,15 @@ class _SettingsScreenState extends State<SettingsScreen>
                     ),
                   ),
                 ],
-              );
-            },
-          ),
-        ),
-      ),
-    );
+              ),
+            ),
+          ],
+        );
+      },
+    ),
+  ),
+),
+);
   }
 
   Widget _buildNotificationMirrorControls(BuildContext context) {

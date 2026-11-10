@@ -46,6 +46,8 @@ class ThemeProvider extends ChangeNotifier {
   bool _performanceMode;
   String _artQuality;
   LauncherThemeId _launcherThemeId;
+  LauncherThemeId? _scopedLauncherThemeOverride;
+  Future<void> Function(LauncherThemeId id)? _onScopedLauncherThemeChanged;
   String _ambienceLayout;
   String _standbySound;
   String _ambienceEffect;
@@ -156,10 +158,28 @@ class ThemeProvider extends ChangeNotifier {
     }
   }
 
-  LauncherThemeId get launcherThemeId => _launcherThemeId;
+  LauncherThemeId get globalLauncherThemeId => _launcherThemeId;
+
+  LauncherThemeId get launcherThemeId =>
+      _scopedLauncherThemeOverride ?? _launcherThemeId;
 
   LauncherTheme get launcherTheme =>
-      LauncherThemeRegistry.get(_launcherThemeId);
+      LauncherThemeRegistry.get(launcherThemeId);
+
+  bool get hasScopedLauncherThemeOverride =>
+      _scopedLauncherThemeOverride != null;
+
+  void setScopedLauncherTheme({
+    LauncherThemeId? overrideId,
+    Future<void> Function(LauncherThemeId id)? onChanged,
+  }) {
+    final changed =
+        _scopedLauncherThemeOverride != overrideId ||
+        _onScopedLauncherThemeChanged != onChanged;
+    _scopedLauncherThemeOverride = overrideId;
+    _onScopedLauncherThemeChanged = onChanged;
+    if (changed) notifyListeners();
+  }
 
   String get ambienceLayout => _ambienceLayout;
 
@@ -220,6 +240,13 @@ class ThemeProvider extends ChangeNotifier {
   }
 
   Future<void> setLauncherTheme(LauncherThemeId id) async {
+    if (_onScopedLauncherThemeChanged != null) {
+      if (id == launcherThemeId && _scopedLauncherThemeOverride == id) return;
+      _scopedLauncherThemeOverride = id;
+      notifyListeners();
+      await _onScopedLauncherThemeChanged!(id);
+      return;
+    }
     if (id == _launcherThemeId) return;
     _launcherThemeId = id;
     notifyListeners();

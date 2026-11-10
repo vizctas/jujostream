@@ -7,6 +7,7 @@ import '../../services/preferences/launcher_preferences.dart';
 import '../../services/input/gamepad_button_helper.dart';
 import '../../ui/accessible_action.dart';
 import '../../ui/motion_scope.dart';
+import '../../widgets/settings/settings_scope_bar.dart';
 
 class AppViewPresentationSettingsScreen extends StatelessWidget {
   final LauncherPreferences preferences;
@@ -103,6 +104,10 @@ class AppViewPresentationSettingsScreen extends StatelessWidget {
             return ListView(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               children: [
+                SettingsScopeBar(
+                  fallbackServerId: preferences.serverHostId,
+                  padding: const EdgeInsets.only(bottom: 8),
+                ),
                 _sectionHeader(l.presSectionBackground),
                 _sliderTile(
                   icon: Icons.blur_on,

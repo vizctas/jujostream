@@ -49,6 +49,7 @@ import '../../widgets/poster_image.dart';
 import '../../widgets/game_backdrop_art.dart';
 import '../../widgets/launch_experience.dart';
 import '../game/game_stream_screen.dart';
+import '../settings/settings_screen.dart';
 import '../../models/stream_configuration.dart';
 import '../../ui/motion_policy.dart';
 import '../../ui/motion_scope.dart';
@@ -212,6 +213,31 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
   bool _isLaunching = false;
 
   bool _isDetailView = false;
+
+  SettingsProvider? _settingsProviderRef;
+  LauncherPreferences? _launcherPrefsRef;
+  ThemeProvider? _themeProviderRef;
+  bool _serverRuntimeScopeSynced = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _settingsProviderRef = context.read<SettingsProvider>();
+    _launcherPrefsRef = context.read<LauncherPreferences>();
+    _themeProviderRef = context.read<ThemeProvider>();
+    if (!_serverRuntimeScopeSynced) {
+      _serverRuntimeScopeSynced = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _settingsProviderRef?.syncRuntimeServerContext(
+          _hostId,
+          launcherPreferences: _launcherPrefsRef,
+          themeProvider: _themeProviderRef,
+          serverName: widget.computer.name,
+        );
+      });
+    }
+  }
 
   @override
   void initState() {
@@ -383,6 +409,18 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
 
   @override
   void dispose() {
+    final settings = _settingsProviderRef;
+    final launcherPrefs = _launcherPrefsRef;
+    final themeProvider = _themeProviderRef;
+    if (settings != null) {
+      unawaited(
+        settings.syncRuntimeServerContext(
+          null,
+          launcherPreferences: launcherPrefs,
+          themeProvider: themeProvider,
+        ),
+      );
+    }
     SchedulerBinding.instance.removeTimingsCallback(_onFrameTimings);
     WidgetsBinding.instance.removeObserver(this);
     _stopAutoRefreshTimer();
@@ -1690,6 +1728,25 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
                   },
                 ),
                 _sheetOption(
+                  Icons.settings_suggest_outlined,
+                  AppLocalizations.of(ctx).serverOptionsTitle,
+                  context.read<SettingsProvider>().hasServerOverride(_hostId)
+                      ? _tp.accentLight
+                      : Colors.white70,
+                  () {
+                    Navigator.pop(ctx);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => SettingsScreen(
+                          initialServerId: _hostId,
+                          initialServerName: widget.computer.name,
+                        ),
+                      ),
+                    );
+                  },
+                ),
+                _sheetOption(
                   Icons.auto_awesome_outlined,
                   AppLocalizations.of(ctx).smartFilters,
                   Colors.cyanAccent,
@@ -2630,7 +2687,7 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
     UiSoundService.playClick();
 
     _disposeVideoController();
-    final baseConfig = context.read<SettingsProvider>().config;
+    final baseConfig = context.read<SettingsProvider>().configForServer(_hostId);
     final profile =
         _profilesByAppId[app.appId] ??
         await _gamePreferencesStore.loadProfile(_hostId, app.appId);
@@ -2705,7 +2762,7 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
     _videoDelayTimer?.cancel();
     _disposeVideoController();
     final provider = context.read<AppListProvider>();
-    final baseConfig = context.read<SettingsProvider>().config;
+    final baseConfig = context.read<SettingsProvider>().configForServer(_hostId);
     final profile =
         _profilesByAppId[app.appId] ??
         await _gamePreferencesStore.loadProfile(_hostId, app.appId);

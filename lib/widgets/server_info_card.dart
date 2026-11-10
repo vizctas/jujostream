@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import '../../l10n/app_localizations.dart';
 import '../../models/computer_details.dart';
+import '../../providers/settings_provider.dart';
 import '../../providers/theme_provider.dart';
 
 class ServerInfoCard extends StatelessWidget {
@@ -101,6 +103,11 @@ class ServerInfoCard extends StatelessWidget {
               'Estado de emparejamiento',
               computer.isPaired ? 'Emparejado ✓' : 'No emparejado',
             ),
+            _row(
+              Icons.tune_rounded,
+              AppLocalizations.of(context).serverConfigScopeLabel,
+              _optionsProfileSummary(context),
+            ),
             if (computer.runningGameId > 0)
               _row(Icons.play_circle_outline, 'Juego activo',
                   'App ID: ${computer.runningGameId}'),
@@ -151,6 +158,26 @@ class ServerInfoCard extends StatelessWidget {
         : computer.localAddress;
     final port = computer.httpsPort > 0 ? computer.httpsPort : 47984;
     return '$addr:$port';
+  }
+
+  String _optionsProfileSummary(BuildContext context) {
+    final l = AppLocalizations.of(context);
+    final isEs = l.locale.languageCode == 'es';
+    final settings = context.read<SettingsProvider>();
+    final tp = context.read<ThemeProvider>();
+    final hasOverride = settings.hasServerOverride(computer.hostId);
+    if (!hasOverride) {
+      return isEs ? 'Global (compartido)' : 'Global (shared)';
+    }
+    final profile = settings.serverProfile(computer.hostId);
+    final badges = profile?.diffBadges(
+          settings.globalConfig,
+          globalLauncherThemeName: tp.globalLauncherThemeId.name,
+          isEs: isEs,
+        ) ??
+        const <String>[];
+    final prefix = isEs ? 'Override propio' : 'Custom override';
+    return badges.isEmpty ? prefix : '$prefix · ${badges.join(" · ")}';
   }
 
   String _sunshineVersion() {
