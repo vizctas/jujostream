@@ -109,6 +109,7 @@ class _SettingsScreenState extends State<SettingsScreen>
           launcherPreferences: _launcherPrefsRef,
           themeProvider: _themeProviderRef,
         );
+        _onTabChanged();
       });
     }
   }
@@ -306,37 +307,19 @@ class _SettingsScreenState extends State<SettingsScreen>
               final startupAnimation = context
                   .watch<StartupAnimationPreferences>();
 
-              final horizontalPadding = MediaQuery.of(context).size.width > 1200
-                  ? 64.0
-                  : MediaQuery.of(context).size.width > 800
-                  ? 32.0
-                  : 16.0;
-
-              return Column(
+              return TabBarView(
+                controller: _tabController,
                 children: [
-                  SettingsScopeBar(
-                    fallbackServerId: widget.initialServerId,
-                    fallbackServerName: widget.initialServerName,
-                    padding: EdgeInsets.fromLTRB(
-                      horizontalPadding,
-                      12,
-                      horizontalPadding,
-                      4,
-                    ),
-                  ),
-                  Expanded(
-                    child: TabBarView(
-                      controller: _tabController,
-                      children: [
-                        FocusScope(
-                          node: _tabScopes[0],
-                          child: FocusTraversalGroup(
-                            policy: OrderedTraversalPolicy(),
-                            child: ListView(
-                              padding: _tabPadding(context),
-                              children: [
-                                _section(_tr(context, 'Appearance', 'Apariencia')),
-                                const AppearanceSettings(),
+                  FocusScope(
+                    node: _tabScopes[0],
+                    child: FocusTraversalGroup(
+                      policy: OrderedTraversalPolicy(),
+                      child: ListView(
+                        padding: _tabPadding(context),
+                        children: [
+                          _scopeHeader(),
+                          _section(_tr(context, 'Appearance', 'Apariencia')),
+                          const AppearanceSettings(),
 
                                 _section(
                                   _tr(
@@ -512,6 +495,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                       child: ListView(
                         padding: _tabPadding(context),
                         children: [
+                          _scopeHeader(),
                           _section(_tr(context, 'Video', 'Video')),
                           _choiceTile(
                             context,
@@ -779,6 +763,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                       child: ListView(
                         padding: _tabPadding(context),
                         children: [
+                          _scopeHeader(),
                           _section(
                             _tr(context, 'Input / Touch', 'Entrada / táctil'),
                           ),
@@ -1332,6 +1317,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                       child: ListView(
                         padding: _tabPadding(context),
                         children: [
+                          _scopeHeader(),
                           _section(_tr(context, 'Desktop', 'Escritorio')),
                           _toggle(
                             _tr(
@@ -1362,6 +1348,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                       child: ListView(
                         padding: _tabPadding(context),
                         children: [
+                          _scopeHeader(),
                           _section(_tr(context, 'Host', 'Host')),
                           _toggle(
                             _tr(
@@ -1684,16 +1671,18 @@ class _SettingsScreenState extends State<SettingsScreen>
                     ),
                   ),
                 ],
-              ),
-            ),
-          ],
-        );
-      },
-    ),
-  ),
-),
-);
+              );
+            },
+          ),
+        ),
+      ),
+    );
   }
+
+  Widget _scopeHeader() => SettingsScopeBar(
+    fallbackServerId: widget.initialServerId,
+    fallbackServerName: widget.initialServerName,
+  );
 
   Widget _buildNotificationMirrorControls(BuildContext context) {
     final mirror = context.watch<NotificationMirrorController>();
@@ -2775,7 +2764,7 @@ class _SettingsScreenState extends State<SettingsScreen>
         onSelect: (value) async {
           if (value == 'custom') {
             Navigator.pop(dCtx);
-            final path = await _pickCustomWallpaperFile();
+            final path = await _pickCustomWallpaperFile(tp.serverHostId);
             if (path != null) await tp.setFocusWallpaper('file:$path');
             return;
           }
@@ -2790,7 +2779,7 @@ class _SettingsScreenState extends State<SettingsScreen>
   /// Picks an image from gallery/file system and copies it into the app's
   /// persistent backgrounds dir (same pattern as the per-server background
   /// picker in FocusModeScreen). Returns the saved path, or null on cancel.
-  Future<String?> _pickCustomWallpaperFile() async {
+  Future<String?> _pickCustomWallpaperFile([String? serverHostId]) async {
     try {
       String? pickedPath;
       if (io.Platform.isMacOS) {
@@ -2814,7 +2803,12 @@ class _SettingsScreenState extends State<SettingsScreen>
       final ext = p.extension(pickedPath).isNotEmpty
           ? p.extension(pickedPath)
           : '.jpg';
-      final destFile = io.File(p.join(bgDir.path, 'focus_wallpaper$ext'));
+      final suffix = (serverHostId != null && serverHostId.isNotEmpty)
+          ? '_${serverHostId.replaceAll(RegExp(r"[^a-zA-Z0-9_-]"), "_")}'
+          : '';
+      final destFile = io.File(
+        p.join(bgDir.path, 'focus_wallpaper$suffix$ext'),
+      );
       await io.File(pickedPath).copy(destFile.path);
       // Evict any stale decoded copy of a previous custom wallpaper at the
       // same path so the new image shows immediately.
@@ -2851,7 +2845,11 @@ class _SettingsScreenState extends State<SettingsScreen>
       final file = await openFile(acceptedTypeGroups: [typeGroup]);
       if (file == null) return; // cancelled
       final bytes = await file.readAsBytes();
-      final path = await UiSoundService.importStandbyTrack(bytes, file.name);
+      final path = await UiSoundService.importStandbyTrack(
+        bytes,
+        file.name,
+        serverHostId: tp.serverHostId,
+      );
       await tp.setStandbyCustomPath(path, file.name);
     } catch (e) {
       debugPrint('[Settings] custom standby track pick failed: $e');

@@ -180,6 +180,102 @@ void main() {
         expect(effective.enableHdr, isTrue);
       },
     );
+
+    test(
+      'Per-server wallpaper, ambience layout, background effect, and standby sound isolate per server page',
+      () async {
+        final settings = SettingsProvider();
+        await settings.loadSettings();
+        final tp = await ThemeProvider.load();
+        final lp = LauncherPreferences();
+        await lp.load(tp.launcherThemeId.name);
+
+        // Set Global wallpaper and layout
+        await settings.setScope(
+          null,
+          launcherPreferences: lp,
+          themeProvider: tp,
+        );
+        await tp.setFocusWallpaper('asset:assets/images/focus/default_focus000.jpg');
+        await tp.setAmbienceLayout('circular');
+        await tp.setAmbienceEffect('waves');
+
+        // Switch to Server 1 and customize wallpaper + layout + effect
+        await settings.setScope(
+          'srv-1',
+          serverName: 'Server 1',
+          launcherPreferences: lp,
+          themeProvider: tp,
+        );
+        await tp.setFocusWallpaper('asset:assets/images/focus/default_focus002.jpg');
+        await tp.setAmbienceLayout('card');
+        await tp.setAmbienceEffect('particles');
+        await tp.setStandbySound('Stars');
+
+        // Auto-enabled override for srv-1
+        expect(settings.hasServerOverride('srv-1'), isTrue);
+
+        // Return to Global scope (as happens when leaving SettingsScreen)
+        await settings.setScope(
+          null,
+          launcherPreferences: lp,
+          themeProvider: tp,
+        );
+
+        // Swiping between Server 1 (has override) and Server 2 (no override) in FocusModeScreen:
+        expect(
+          tp.focusWallpaperForServer(
+            'srv-1',
+            hasOverride: settings.hasServerOverride('srv-1'),
+          ),
+          'asset:assets/images/focus/default_focus002.jpg',
+        );
+        expect(
+          tp.ambienceLayoutForServer(
+            'srv-1',
+            hasOverride: settings.hasServerOverride('srv-1'),
+          ),
+          'card',
+        );
+        expect(
+          tp.ambienceEffectForServer(
+            'srv-1',
+            hasOverride: settings.hasServerOverride('srv-1'),
+          ),
+          'particles',
+        );
+        expect(
+          tp.standbySoundForServer(
+            'srv-1',
+            hasOverride: settings.hasServerOverride('srv-1'),
+          ),
+          'Stars',
+        );
+
+        // Server 2 has no override -> inherits Global values
+        expect(
+          tp.focusWallpaperForServer(
+            'srv-2',
+            hasOverride: settings.hasServerOverride('srv-2'),
+          ),
+          'asset:assets/images/focus/default_focus000.jpg',
+        );
+        expect(
+          tp.ambienceLayoutForServer(
+            'srv-2',
+            hasOverride: settings.hasServerOverride('srv-2'),
+          ),
+          'circular',
+        );
+        expect(
+          tp.ambienceEffectForServer(
+            'srv-2',
+            hasOverride: settings.hasServerOverride('srv-2'),
+          ),
+          'waves',
+        );
+      },
+    );
   });
 }
 

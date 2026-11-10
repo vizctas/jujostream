@@ -22,6 +22,9 @@ class UiSoundService {
   static bool _isStreaming = false;
   static double _ambienceVolume = 0.25;
   static Future<void>? _ambiencePlayFuture;
+  static String? _activeServerHostId;
+  static bool _activeServerHasOverride = false;
+  static String? _lastPlayedSoundSignature;
 
   /// Monotonically increasing generation counter.  Every call to
   /// [stopAmbience] or [restartAmbience] bumps this value.  Stale
@@ -342,17 +345,48 @@ class UiSoundService {
     await _ambiencePlayer?.setVolume(volume);
   }
 
+  /// Updates the active server context for standby ambience playback and
+  /// switches track/volume on the fly if the effective server setting differs.
+  static void syncServerAmbienceScope({
+    required String? hostId,
+    required bool hasOverride,
+    required String effectiveSound,
+    required String effectiveCustomPath,
+    required double effectiveVolume,
+  }) {
+    final normalized = (hostId != null && hostId.isNotEmpty) ? hostId : null;
+    _activeServerHostId = normalized;
+    _activeServerHasOverride = hasOverride && normalized != null;
+
+    final clampedVol = effectiveVolume.clamp(0.0, 1.0);
+    if ((_ambienceVolume - clampedVol).abs() > 0.005) {
+      unawaited(setAmbienceVolume(clampedVol));
+    }
+
+    final nextSig = '$effectiveSound|$effectiveCustomPath';
+    if (_ambiencePlaying &&
+        _lastPlayedSoundSignature != null &&
+        _lastPlayedSoundSignature != nextSig) {
+      restartAmbience();
+    }
+  }
+
   /// Imports a user-picked audio file as the custom stand-by track. Copies the
-  /// bytes into the app-support audio cache under a fixed name (one track at a
-  /// time) and returns the stable absolute path for playback.
+  /// bytes into the app-support audio cache under a fixed name (or scoped per
+  /// server when [serverHostId] is provided) and returns the stable absolute
+  /// path for playback.
   static Future<String> importStandbyTrack(
     Uint8List bytes,
-    String fileName,
-  ) async {
+    String fileName, {
+    String? serverHostId,
+  }) async {
     final dir = await _ensureAudioCacheDir();
     final ext = p.extension(fileName).toLowerCase();
     final safeExt = (ext.isEmpty || ext.length > 5) ? '.mp3' : ext;
-    final filePath = p.join(dir, 'standby_custom$safeExt');
+    final suffix = (serverHostId != null && serverHostId.isNotEmpty)
+        ? '_${serverHostId.replaceAll(RegExp(r"[^a-zA-Z0-9_-]"), "_")}'
+        : '';
+    final filePath = p.join(dir, 'standby_custom$suffix$safeExt');
     final file = io.File(filePath);
     await file.writeAsBytes(bytes, flush: true);
     return filePath;
@@ -363,11 +397,25 @@ class UiSoundService {
       if (!_ambiencePlaying) return;
 
       final prefs = await SharedPreferences.getInstance();
-      final soundKey = prefs.getString('standby_sound') ?? 'Alone';
-      final volume = (prefs.getDouble('standby_volume') ?? 0.25).clamp(
-        0.0,
-        1.0,
-      );
+      final hostId = _activeServerHostId;
+      final useSrv =
+          _activeServerHasOverride && hostId != null && hostId.isNotEmpty;
+      final soundKey =
+          (useSrv ? prefs.getString('srv_${hostId}_standby_sound') : null) ??
+          prefs.getString('standby_sound') ??
+          'Alone';
+      final volume =
+          ((useSrv ? prefs.getDouble('srv_${hostId}_standby_volume') : null) ??
+                  prefs.getDouble('standby_volume') ??
+                  0.25)
+              .clamp(0.0, 1.0);
+      final customPath =
+          (useSrv
+              ? prefs.getString('srv_${hostId}_standby_custom_path')
+              : null) ??
+          prefs.getString('standby_custom_path') ??
+          '';
+      _lastPlayedSoundSignature = '$soundKey|$customPath';
 
       final player = _getAmbiencePlayer();
       await setAmbienceVolume(volume);
@@ -376,7 +424,6 @@ class UiSoundService {
 
       // Custom track: play the imported file directly (already in the cache).
       if (soundKey == 'custom') {
-        final customPath = prefs.getString('standby_custom_path') ?? '';
         if (customPath.isNotEmpty && io.File(customPath).existsSync()) {
           filePath = customPath;
         } else {

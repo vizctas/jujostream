@@ -41,13 +41,12 @@ class ThemeProvider extends ChangeNotifier {
   static const _keyFocusMusicScale = 'focus_music_scale';
   static const _keyFocusMusicOpacity = 'focus_music_opacity';
 
+  final SharedPreferences _prefs;
   AppThemeId _themeId;
   bool _reduceEffects;
   bool _performanceMode;
   String _artQuality;
   LauncherThemeId _launcherThemeId;
-  LauncherThemeId? _scopedLauncherThemeOverride;
-  Future<void> Function(LauncherThemeId id)? _onScopedLauncherThemeChanged;
   String _ambienceLayout;
   String _standbySound;
   String _ambienceEffect;
@@ -58,7 +57,13 @@ class ThemeProvider extends ChangeNotifier {
   double _focusMusicScale;
   double _focusMusicOpacity;
 
+  String? _serverHostId;
+  bool _serverOverrideActive = false;
+  Future<void> Function(String hostId)? onAutoEnableServerOverride;
+  Future<void> Function(LauncherThemeId id)? _onScopedLauncherThemeChanged;
+
   ThemeProvider._({
+    required SharedPreferences prefs,
     required AppThemeId themeId,
     required bool reduceEffects,
     required bool performanceMode,
@@ -73,7 +78,8 @@ class ThemeProvider extends ChangeNotifier {
     required String focusWallpaper,
     required double focusMusicScale,
     required double focusMusicOpacity,
-  }) : _themeId = themeId,
+  }) : _prefs = prefs,
+       _themeId = themeId,
        _reduceEffects = reduceEffects,
        _performanceMode = performanceMode,
        _artQuality = artQuality,
@@ -96,6 +102,7 @@ class ThemeProvider extends ChangeNotifier {
     final artQuality = prefs.getString(_keyArtQuality) ?? 'high';
     final launcherName = prefs.getString(_keyLauncherTheme);
     return ThemeProvider._(
+      prefs: prefs,
       themeId: AppThemes.fromName(themeName),
       reduceEffects: reduce,
       performanceMode: perf,
@@ -121,34 +128,235 @@ class ThemeProvider extends ChangeNotifier {
     );
   }
 
-  AppThemeId get themeId => _themeId;
+  String? get serverHostId => _serverHostId;
+  bool get isServerScopeActive =>
+      _serverOverrideActive &&
+      _serverHostId != null &&
+      _serverHostId!.isNotEmpty;
+
+  String _srvKey(String base, [String? hostId]) =>
+      'srv_${hostId ?? _serverHostId}_$base';
+
+  void setServerScope({
+    String? hostId,
+    required bool overrideActive,
+    Future<void> Function(String hostId)? onAutoEnable,
+    Future<void> Function(LauncherThemeId id)? onLauncherThemeChanged,
+  }) {
+    final normalized = (hostId != null && hostId.isNotEmpty) ? hostId : null;
+    final active = overrideActive && normalized != null;
+    final changed =
+        _serverHostId != normalized ||
+        _serverOverrideActive != active ||
+        onAutoEnableServerOverride != onAutoEnable ||
+        _onScopedLauncherThemeChanged != onLauncherThemeChanged;
+    _serverHostId = normalized;
+    _serverOverrideActive = active;
+    onAutoEnableServerOverride = onAutoEnable;
+    _onScopedLauncherThemeChanged = onLauncherThemeChanged;
+    if (changed) notifyListeners();
+  }
+
+  void markServerOverrideActive(bool active) {
+    final normalized = (_serverHostId != null && _serverHostId!.isNotEmpty)
+        ? _serverHostId
+        : null;
+    final next = active && normalized != null;
+    if (_serverOverrideActive != next) {
+      _serverOverrideActive = next;
+      notifyListeners();
+    }
+  }
+
+  Future<void> setServerLauncherThemeKey(
+    String hostId,
+    LauncherThemeId id,
+  ) async {
+    if (hostId.isEmpty) return;
+    await _prefs.setString(_srvKey(_keyLauncherTheme, hostId), id.name);
+    if (_serverHostId == hostId) {
+      notifyListeners();
+    }
+  }
+
+  Future<void> _ensureServerOverrideBeforeWrite(String hostId) async {
+    if (!_serverOverrideActive) {
+      _serverOverrideActive = true;
+      if (onAutoEnableServerOverride != null) {
+        await onAutoEnableServerOverride!(hostId);
+      }
+    }
+  }
+
+  Future<void> clearServerOverrides(String hostId) async {
+    if (hostId.isEmpty) return;
+    final prefix = 'srv_${hostId}_';
+    final keys = _prefs.getKeys().where((k) => k.startsWith(prefix)).toList();
+    for (final k in keys) {
+      await _prefs.remove(k);
+    }
+    notifyListeners();
+  }
+
+  // ── Per-server lookup helpers (used by FocusModeScreen / PcViewScreen) ──
+
+  AppThemeId themeIdForServer(String? hostId, {required bool hasOverride}) {
+    if (hasOverride && hostId != null && hostId.isNotEmpty) {
+      final raw = _prefs.getString(_srvKey(_keyTheme, hostId));
+      if (raw != null && raw.isNotEmpty) return AppThemes.fromName(raw);
+    }
+    return _themeId;
+  }
+
+  AppThemeColors colorsForServer(String? hostId, {required bool hasOverride}) {
+    final id = themeIdForServer(hostId, hasOverride: hasOverride);
+    return AppThemes.presets[id] ?? AppThemes.presets[AppThemeId.oled]!;
+  }
+
+  LauncherThemeId launcherThemeIdForServer(
+    String? hostId, {
+    required bool hasOverride,
+  }) {
+    if (hasOverride && hostId != null && hostId.isNotEmpty) {
+      final raw = _prefs.getString(_srvKey(_keyLauncherTheme, hostId));
+      if (raw != null && raw.isNotEmpty) {
+        return LauncherThemeRegistry.fromName(raw);
+      }
+    }
+    return _launcherThemeId;
+  }
+
+  String focusWallpaperForServer(String? hostId, {required bool hasOverride}) {
+    if (hasOverride && hostId != null && hostId.isNotEmpty) {
+      final raw = _prefs.getString(_srvKey(_keyFocusWallpaper, hostId));
+      if (raw != null) return raw;
+    }
+    return _focusWallpaper;
+  }
+
+  String ambienceLayoutForServer(String? hostId, {required bool hasOverride}) {
+    if (hasOverride && hostId != null && hostId.isNotEmpty) {
+      final raw = _prefs.getString(_srvKey(_keyAmbienceLayout, hostId));
+      if (raw != null && raw.isNotEmpty) return raw;
+    }
+    return _ambienceLayout;
+  }
+
+  String ambienceEffectForServer(String? hostId, {required bool hasOverride}) {
+    if (hasOverride && hostId != null && hostId.isNotEmpty) {
+      final raw = _prefs.getString(_srvKey(_keyAmbienceEffect, hostId));
+      if (raw != null && raw.isNotEmpty) return raw;
+    }
+    return _ambienceEffect;
+  }
+
+  String standbySoundForServer(String? hostId, {required bool hasOverride}) {
+    if (hasOverride && hostId != null && hostId.isNotEmpty) {
+      final raw = _prefs.getString(_srvKey(_keyStandbySound, hostId));
+      if (raw != null && raw.isNotEmpty) return raw;
+    }
+    return _standbySound;
+  }
+
+  String standbyCustomNameForServer(
+    String? hostId, {
+    required bool hasOverride,
+  }) {
+    if (hasOverride && hostId != null && hostId.isNotEmpty) {
+      final raw = _prefs.getString(_srvKey(_keyStandbyCustomName, hostId));
+      if (raw != null && raw.isNotEmpty) return raw;
+    }
+    return _standbyCustomName;
+  }
+
+  String standbyCustomPathForServer(
+    String? hostId, {
+    required bool hasOverride,
+  }) {
+    if (hasOverride && hostId != null && hostId.isNotEmpty) {
+      final raw = _prefs.getString(_srvKey(_keyStandbyCustomPath, hostId));
+      if (raw != null && raw.isNotEmpty) return raw;
+    }
+    return _standbyCustomPath;
+  }
+
+  double standbyVolumeForServer(String? hostId, {required bool hasOverride}) {
+    if (hasOverride && hostId != null && hostId.isNotEmpty) {
+      final raw = _prefs.getDouble(_srvKey(_keyStandbyVolume, hostId));
+      if (raw != null) return raw.clamp(0.0, 1.0);
+    }
+    return _standbyVolume;
+  }
+
+  double focusMusicScaleForServer(String? hostId, {required bool hasOverride}) {
+    if (hasOverride && hostId != null && hostId.isNotEmpty) {
+      final raw = _prefs.getDouble(_srvKey(_keyFocusMusicScale, hostId));
+      if (raw != null) return raw.clamp(0.40, 1.50);
+    }
+    return _focusMusicScale;
+  }
+
+  double focusMusicOpacityForServer(
+    String? hostId, {
+    required bool hasOverride,
+  }) {
+    if (hasOverride && hostId != null && hostId.isNotEmpty) {
+      final raw = _prefs.getDouble(_srvKey(_keyFocusMusicOpacity, hostId));
+      if (raw != null) return raw.clamp(0.20, 1.00);
+    }
+    return _focusMusicOpacity;
+  }
+
+  bool reduceEffectsForServer(String? hostId, {required bool hasOverride}) {
+    if (hasOverride && hostId != null && hostId.isNotEmpty) {
+      final raw = _prefs.getBool(_srvKey(_keyReduceEffects, hostId));
+      if (raw != null) return raw;
+    }
+    return _reduceEffects;
+  }
+
+  bool performanceModeForServer(String? hostId, {required bool hasOverride}) {
+    if (hasOverride && hostId != null && hostId.isNotEmpty) {
+      final raw = _prefs.getBool(_srvKey(_keyPerformanceMode, hostId));
+      if (raw != null) return raw;
+    }
+    return _performanceMode;
+  }
+
+  String artQualityForServer(String? hostId, {required bool hasOverride}) {
+    if (hasOverride && hostId != null && hostId.isNotEmpty) {
+      final raw = _prefs.getString(_srvKey(_keyArtQuality, hostId));
+      if (raw != null && raw.isNotEmpty) return raw;
+    }
+    return _artQuality;
+  }
+
+  // ── Active Scope Getters ──
+
+  AppThemeId get globalThemeId => _themeId;
+
+  AppThemeId get themeId =>
+      themeIdForServer(_serverHostId, hasOverride: isServerScopeActive);
 
   AppThemeColors get colors =>
-      AppThemes.presets[_themeId] ?? AppThemes.presets[AppThemeId.oled]!;
+      AppThemes.presets[themeId] ?? AppThemes.presets[AppThemeId.oled]!;
 
-  bool get reduceEffects => _reduceEffects;
+  bool get reduceEffects =>
+      reduceEffectsForServer(_serverHostId, hasOverride: isServerScopeActive);
 
-  bool get performanceMode => _performanceMode;
+  bool get performanceMode =>
+      performanceModeForServer(_serverHostId, hasOverride: isServerScopeActive);
 
-  String get artQuality => _artQuality;
+  String get artQuality =>
+      artQualityForServer(_serverHostId, hasOverride: isServerScopeActive);
 
-  /// Selected-game backgrounds: 1080p target, 720p floor.
-  ///
-  /// TV boxes take the floor without being asked. A 1920-wide backdrop costs
-  /// ~8 MB decoded and the crossfade holds two at once — on a Fire TV Stick
-  /// with 1.7 GB of shared RAM that is what makes browsing feel heavy. The
-  /// backdrop sits behind a gradient at couch distance, so 1280 is invisible.
   int get backgroundArtCacheWidth {
-    // A TV backdrop sits behind a gradient at couch distance, so width buys
-    // nothing visible but costs the image cache dearly: 1280 decodes to ~3.7 MB
-    // and 40 games of them overflow the ~100 MB cache, evicting every grid
-    // poster. At 960 it is ~2 MB and the posters survive.
     if (TvDetector.instance.isTV) return 960;
-    return _performanceMode || _artQuality != 'high' ? 1280 : 1920;
+    return performanceMode || artQuality != 'high' ? 1280 : 1920;
   }
 
   int? get artQualityCacheWidth {
-    switch (_artQuality) {
+    switch (artQuality) {
       case 'medium':
         return 720;
       case 'low':
@@ -161,45 +369,46 @@ class ThemeProvider extends ChangeNotifier {
   LauncherThemeId get globalLauncherThemeId => _launcherThemeId;
 
   LauncherThemeId get launcherThemeId =>
-      _scopedLauncherThemeOverride ?? _launcherThemeId;
+      launcherThemeIdForServer(_serverHostId, hasOverride: isServerScopeActive);
 
   LauncherTheme get launcherTheme =>
       LauncherThemeRegistry.get(launcherThemeId);
 
-  bool get hasScopedLauncherThemeOverride =>
-      _scopedLauncherThemeOverride != null;
+  String get ambienceLayout =>
+      ambienceLayoutForServer(_serverHostId, hasOverride: isServerScopeActive);
 
-  void setScopedLauncherTheme({
-    LauncherThemeId? overrideId,
-    Future<void> Function(LauncherThemeId id)? onChanged,
-  }) {
-    final changed =
-        _scopedLauncherThemeOverride != overrideId ||
-        _onScopedLauncherThemeChanged != onChanged;
-    _scopedLauncherThemeOverride = overrideId;
-    _onScopedLauncherThemeChanged = onChanged;
-    if (changed) notifyListeners();
+  String get standbySound =>
+      standbySoundForServer(_serverHostId, hasOverride: isServerScopeActive);
+
+  String get ambienceEffect =>
+      ambienceEffectForServer(_serverHostId, hasOverride: isServerScopeActive);
+
+  String get standbyCustomPath {
+    if (isServerScopeActive) {
+      final raw = _prefs.getString(_srvKey(_keyStandbyCustomPath));
+      if (raw != null && raw.isNotEmpty) return raw;
+    }
+    return _standbyCustomPath;
   }
 
-  String get ambienceLayout => _ambienceLayout;
+  String get standbyCustomName => standbyCustomNameForServer(
+    _serverHostId,
+    hasOverride: isServerScopeActive,
+  );
 
-  String get standbySound => _standbySound;
+  double get standbyVolume =>
+      standbyVolumeForServer(_serverHostId, hasOverride: isServerScopeActive);
 
-  String get ambienceEffect => _ambienceEffect;
+  String get focusWallpaper =>
+      focusWallpaperForServer(_serverHostId, hasOverride: isServerScopeActive);
 
-  String get standbyCustomPath => _standbyCustomPath;
+  double get focusMusicScale =>
+      focusMusicScaleForServer(_serverHostId, hasOverride: isServerScopeActive);
 
-  String get standbyCustomName => _standbyCustomName;
-
-  double get standbyVolume => _standbyVolume;
-
-  /// Global Focus Mode wallpaper. '' = built-in default; `asset:path` = one of
-  /// the bundled wallpapers; `file:path` = user-imported image. A per-server
-  /// custom background (`computer_bg_(uuid)`) still takes priority over this.
-  String get focusWallpaper => _focusWallpaper;
-  double get focusMusicScale => _focusMusicScale;
-
-  double get focusMusicOpacity => _focusMusicOpacity;
+  double get focusMusicOpacity => focusMusicOpacityForServer(
+    _serverHostId,
+    hasOverride: isServerScopeActive,
+  );
 
   Color get background => colors.background;
   Color get surface => colors.surface;
@@ -211,130 +420,205 @@ class ThemeProvider extends ChangeNotifier {
   Color get muted => colors.muted;
   Color get warm => colors.warm;
 
+  // ── Setters (Write to active server override when scoped, or Global when null) ──
+
   Future<void> setTheme(AppThemeId id) async {
+    final hostId = _serverHostId;
+    if (hostId != null && hostId.isNotEmpty) {
+      await _ensureServerOverrideBeforeWrite(hostId);
+      await _prefs.setString(_srvKey(_keyTheme, hostId), id.name);
+      notifyListeners();
+      unawaited(AchievementService.instance.unlock('changed_theme'));
+      return;
+    }
     if (id == _themeId) return;
     _themeId = id;
     notifyListeners();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_keyTheme, id.name);
-
+    await _prefs.setString(_keyTheme, id.name);
     unawaited(AchievementService.instance.unlock('changed_theme'));
   }
 
   Future<void> setReduceEffects(bool value) async {
+    final hostId = _serverHostId;
+    if (hostId != null && hostId.isNotEmpty) {
+      await _ensureServerOverrideBeforeWrite(hostId);
+      await _prefs.setBool(_srvKey(_keyReduceEffects, hostId), value);
+      notifyListeners();
+      return;
+    }
     if (value == _reduceEffects) return;
     _reduceEffects = value;
-
     notifyListeners();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_keyReduceEffects, _reduceEffects);
-    await prefs.setBool(_keyPerformanceMode, _performanceMode);
+    await _prefs.setBool(_keyReduceEffects, _reduceEffects);
+    await _prefs.setBool(_keyPerformanceMode, _performanceMode);
   }
 
   Future<void> setArtQuality(String value) async {
+    final hostId = _serverHostId;
+    if (hostId != null && hostId.isNotEmpty) {
+      await _ensureServerOverrideBeforeWrite(hostId);
+      await _prefs.setString(_srvKey(_keyArtQuality, hostId), value);
+      notifyListeners();
+      return;
+    }
     if (value == _artQuality) return;
     _artQuality = value;
     notifyListeners();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_keyArtQuality, value);
+    await _prefs.setString(_keyArtQuality, value);
   }
 
   Future<void> setLauncherTheme(LauncherThemeId id) async {
-    if (_onScopedLauncherThemeChanged != null) {
-      if (id == launcherThemeId && _scopedLauncherThemeOverride == id) return;
-      _scopedLauncherThemeOverride = id;
+    final hostId = _serverHostId;
+    if (hostId != null && hostId.isNotEmpty) {
+      await _ensureServerOverrideBeforeWrite(hostId);
+      await _prefs.setString(_srvKey(_keyLauncherTheme, hostId), id.name);
+      if (_onScopedLauncherThemeChanged != null) {
+        await _onScopedLauncherThemeChanged!(id);
+      }
       notifyListeners();
-      await _onScopedLauncherThemeChanged!(id);
       return;
     }
     if (id == _launcherThemeId) return;
     _launcherThemeId = id;
     notifyListeners();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_keyLauncherTheme, id.name);
+    await _prefs.setString(_keyLauncherTheme, id.name);
   }
 
   Future<void> setAmbienceLayout(String layout) async {
+    final hostId = _serverHostId;
+    if (hostId != null && hostId.isNotEmpty) {
+      await _ensureServerOverrideBeforeWrite(hostId);
+      await _prefs.setString(_srvKey(_keyAmbienceLayout, hostId), layout);
+      notifyListeners();
+      return;
+    }
     if (layout == _ambienceLayout) return;
     _ambienceLayout = layout;
     notifyListeners();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_keyAmbienceLayout, layout);
+    await _prefs.setString(_keyAmbienceLayout, layout);
   }
 
   Future<void> setAmbienceEffect(String effect) async {
+    final hostId = _serverHostId;
+    if (hostId != null && hostId.isNotEmpty) {
+      await _ensureServerOverrideBeforeWrite(hostId);
+      await _prefs.setString(_srvKey(_keyAmbienceEffect, hostId), effect);
+      notifyListeners();
+      return;
+    }
     if (effect == _ambienceEffect) return;
     _ambienceEffect = effect;
     notifyListeners();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_keyAmbienceEffect, effect);
+    await _prefs.setString(_keyAmbienceEffect, effect);
   }
 
   Future<void> setStandbySound(String sound) async {
+    final hostId = _serverHostId;
+    if (hostId != null && hostId.isNotEmpty) {
+      await _ensureServerOverrideBeforeWrite(hostId);
+      await _prefs.setString(_srvKey(_keyStandbySound, hostId), sound);
+      notifyListeners();
+      return;
+    }
     if (sound == _standbySound) return;
     _standbySound = sound;
     notifyListeners();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_keyStandbySound, sound);
+    await _prefs.setString(_keyStandbySound, sound);
   }
 
-  /// Persists the imported custom stand-by track path + display name and
-  /// switches the active stand-by selection to 'custom'.
   Future<void> setStandbyCustomPath(String path, String name) async {
+    final hostId = _serverHostId;
+    if (hostId != null && hostId.isNotEmpty) {
+      await _ensureServerOverrideBeforeWrite(hostId);
+      await _prefs.setString(_srvKey(_keyStandbyCustomPath, hostId), path);
+      await _prefs.setString(_srvKey(_keyStandbyCustomName, hostId), name);
+      await _prefs.setString(_srvKey(_keyStandbySound, hostId), 'custom');
+      notifyListeners();
+      return;
+    }
     _standbyCustomPath = path;
     _standbyCustomName = name;
     _standbySound = 'custom';
     notifyListeners();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_keyStandbyCustomPath, path);
-    await prefs.setString(_keyStandbyCustomName, name);
-    await prefs.setString(_keyStandbySound, 'custom');
+    await _prefs.setString(_keyStandbyCustomPath, path);
+    await _prefs.setString(_keyStandbyCustomName, name);
+    await _prefs.setString(_keyStandbySound, 'custom');
   }
 
   Future<void> setFocusWallpaper(String value) async {
+    final hostId = _serverHostId;
+    if (hostId != null && hostId.isNotEmpty) {
+      await _ensureServerOverrideBeforeWrite(hostId);
+      await _prefs.setString(_srvKey(_keyFocusWallpaper, hostId), value);
+      notifyListeners();
+      return;
+    }
     if (value == _focusWallpaper) return;
     _focusWallpaper = value;
     notifyListeners();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_keyFocusWallpaper, value);
+    await _prefs.setString(_keyFocusWallpaper, value);
   }
 
   Future<void> setStandbyVolume(double value) async {
     final clamped = value.clamp(0.0, 1.0);
+    final hostId = _serverHostId;
+    if (hostId != null && hostId.isNotEmpty) {
+      await _ensureServerOverrideBeforeWrite(hostId);
+      await _prefs.setDouble(_srvKey(_keyStandbyVolume, hostId), clamped);
+      notifyListeners();
+      unawaited(UiSoundService.setAmbienceVolume(clamped));
+      return;
+    }
     if (clamped == _standbyVolume) return;
     _standbyVolume = clamped;
     notifyListeners();
     unawaited(UiSoundService.setAmbienceVolume(clamped));
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setDouble(_keyStandbyVolume, clamped);
+    await _prefs.setDouble(_keyStandbyVolume, clamped);
   }
 
   Future<void> setFocusMusicScale(double value) async {
     final clamped = value.clamp(0.40, 1.50);
+    final hostId = _serverHostId;
+    if (hostId != null && hostId.isNotEmpty) {
+      await _ensureServerOverrideBeforeWrite(hostId);
+      await _prefs.setDouble(_srvKey(_keyFocusMusicScale, hostId), clamped);
+      notifyListeners();
+      return;
+    }
     if (clamped == _focusMusicScale) return;
     _focusMusicScale = clamped;
     notifyListeners();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setDouble(_keyFocusMusicScale, clamped);
+    await _prefs.setDouble(_keyFocusMusicScale, clamped);
   }
 
   Future<void> setFocusMusicOpacity(double value) async {
     final clamped = value.clamp(0.20, 1.00);
+    final hostId = _serverHostId;
+    if (hostId != null && hostId.isNotEmpty) {
+      await _ensureServerOverrideBeforeWrite(hostId);
+      await _prefs.setDouble(_srvKey(_keyFocusMusicOpacity, hostId), clamped);
+      notifyListeners();
+      return;
+    }
     if (clamped == _focusMusicOpacity) return;
     _focusMusicOpacity = clamped;
     notifyListeners();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setDouble(_keyFocusMusicOpacity, clamped);
+    await _prefs.setDouble(_keyFocusMusicOpacity, clamped);
   }
 
   Future<void> setPerformanceMode(bool value) async {
+    final hostId = _serverHostId;
+    if (hostId != null && hostId.isNotEmpty) {
+      await _ensureServerOverrideBeforeWrite(hostId);
+      await _prefs.setBool(_srvKey(_keyPerformanceMode, hostId), value);
+      notifyListeners();
+      return;
+    }
     if (value == _performanceMode) return;
     _performanceMode = value;
-
     notifyListeners();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_keyPerformanceMode, _performanceMode);
-    await prefs.setBool(_keyReduceEffects, _reduceEffects);
+    await _prefs.setBool(_keyPerformanceMode, _performanceMode);
+    await _prefs.setBool(_keyReduceEffects, _reduceEffects);
   }
 
   ThemeData buildThemeData() {
@@ -346,14 +630,12 @@ class ThemeProvider extends ChangeNotifier {
     final Color onSurfaceMedium = light ? Colors.black54 : Colors.white70;
     final Color onSurfaceSubtle = light ? Colors.black38 : Colors.white54;
     final Color onSurfaceFaint = light ? Colors.black26 : Colors.white38;
-    final Color onSurfaceDivider = light ? Colors.black12 : Colors.white24;
     final Color onSurfaceOverlay = light ? Colors.black12 : Colors.white12;
 
     return ThemeData(
       brightness: brightness,
       primaryColor: c.accent,
       scaffoldBackgroundColor: c.background,
-
       focusColor: c.accent.withValues(alpha: 0.18),
       hoverColor: c.accent.withValues(alpha: 0.08),
       highlightColor: c.accent.withValues(alpha: 0.12),
@@ -377,7 +659,6 @@ class ThemeProvider extends ChangeNotifier {
         backgroundColor: c.surface,
         foregroundColor: onSurface,
         elevation: 0,
-
         surfaceTintColor: Colors.transparent,
         shadowColor: Colors.transparent,
       ),
@@ -385,7 +666,6 @@ class ThemeProvider extends ChangeNotifier {
         color: c.surface,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
-
       dialogTheme: DialogThemeData(
         backgroundColor: c.surface,
         titleTextStyle: TextStyle(
@@ -448,32 +728,9 @@ class ThemeProvider extends ChangeNotifier {
           }),
         ),
       ),
-      inputDecorationTheme: InputDecorationTheme(
+      inputDecorationTheme: const InputDecorationTheme(
         focusColor: Colors.transparent,
-        hoverColor: Colors.transparent,
-        focusedBorder: UnderlineInputBorder(
-          borderSide: BorderSide(color: c.accentLight),
-        ),
-        enabledBorder: UnderlineInputBorder(
-          borderSide: BorderSide(color: onSurfaceDivider),
-        ),
-        labelStyle: TextStyle(color: onSurfaceSubtle),
       ),
-
-      floatingActionButtonTheme: const FloatingActionButtonThemeData(
-        focusColor: Colors.transparent,
-        hoverColor: Colors.transparent,
-        splashColor: Colors.transparent,
-      ),
-
-      chipTheme: ChipThemeData(
-        backgroundColor: Colors.transparent,
-        selectedColor: c.accent.withValues(alpha: 0.2),
-        checkmarkColor: onSurface,
-        labelStyle: TextStyle(color: onSurface),
-        side: BorderSide.none,
-      ),
-      useMaterial3: true,
     );
   }
 }

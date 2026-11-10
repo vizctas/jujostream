@@ -25,12 +25,10 @@ class SettingsScopeEntry {
   bool get isGlobal => hostId == null || hostId!.isEmpty;
 }
 
-/// Modular scope selector & per-server override control bar for [SettingsScreen]
-/// and [AppViewPresentationSettingsScreen].
-///
-/// Follows "The Dark Room" design system: tonal surface steps (`tp.surface`,
-/// `tp.surfaceVariant`), rationed accent (`tp.accent`, `tp.accentLight`),
-/// and full gamepad/TV D-pad focus support.
+/// Minimalist, discrete, gamepad-focusable scope selector and per-server
+/// override toggle. Placed inside each Settings tab's scrollable list so it
+/// participates in the tab's [OrderedTraversalPolicy] focus index and never
+/// consumes permanent vertical screen space.
 class SettingsScopeBar extends StatefulWidget {
   final String? fallbackServerId;
   final String? fallbackServerName;
@@ -40,7 +38,7 @@ class SettingsScopeBar extends StatefulWidget {
     super.key,
     this.fallbackServerId,
     this.fallbackServerName,
-    this.padding = const EdgeInsets.fromLTRB(16, 12, 16, 6),
+    this.padding = EdgeInsets.zero,
   });
 
   @override
@@ -48,36 +46,17 @@ class SettingsScopeBar extends StatefulWidget {
 }
 
 class _SettingsScopeBarState extends State<SettingsScopeBar> {
-  bool _hasCustomLauncherKeys = false;
-  String? _lastCheckedHostId;
+  final FocusNode _scopeRowFocusNode = FocusNode(
+    debugLabel: 'settings-scope-row',
+  );
+  bool _scopeFocused = false;
+  bool _switchFocused = false;
+  bool _openingPicker = false;
 
   @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    _refreshLauncherCustomCheck();
-  }
-
-  Future<void> _refreshLauncherCustomCheck() async {
-    final settings = context.read<SettingsProvider>();
-    final launcherPrefs = context.read<LauncherPreferences>();
-    final hostId = settings.activeServerScopeId;
-    if (hostId == null || hostId.isEmpty) {
-      if (_hasCustomLauncherKeys || _lastCheckedHostId != null) {
-        setState(() {
-          _hasCustomLauncherKeys = false;
-          _lastCheckedHostId = null;
-        });
-      }
-      return;
-    }
-    final hasKeys = await launcherPrefs.hasServerCustomKeys(hostId);
-    if (!mounted) return;
-    if (_hasCustomLauncherKeys != hasKeys || _lastCheckedHostId != hostId) {
-      setState(() {
-        _hasCustomLauncherKeys = hasKeys;
-        _lastCheckedHostId = hostId;
-      });
-    }
+  void dispose() {
+    _scopeRowFocusNode.dispose();
+    super.dispose();
   }
 
   List<SettingsScopeEntry> _buildEntries(
@@ -129,32 +108,193 @@ class _SettingsScopeBarState extends State<SettingsScopeBar> {
     return entries;
   }
 
-  Future<void> _selectScope(
-    SettingsScopeEntry entry,
+  Future<void> _openScopePicker(
+    BuildContext context,
+    List<SettingsScopeEntry> entries,
+    SettingsScopeEntry activeEntry,
     SettingsProvider settings,
     LauncherPreferences launcherPrefs,
-    ThemeProvider themeProvider,
+    ThemeProvider tp,
+    AppLocalizations l,
   ) async {
-    await settings.setScope(
-      entry.hostId,
-      serverName: entry.isGlobal ? null : entry.label,
-      launcherPreferences: launcherPrefs,
-      themeProvider: themeProvider,
+    if (_openingPicker) return;
+    _openingPicker = true;
+
+    final isServerSelected = !activeEntry.isGlobal;
+    final overrideEnabled =
+        isServerSelected && settings.hasServerOverride(activeEntry.hostId);
+
+    final action = await showDialog<String>(
+      context: context,
+      builder: (dialogCtx) => CallbackShortcuts(
+        bindings: {
+          const SingleActivator(LogicalKeyboardKey.gameButtonB): () =>
+              Navigator.pop(dialogCtx),
+          const SingleActivator(LogicalKeyboardKey.escape): () =>
+              Navigator.pop(dialogCtx),
+          const SingleActivator(LogicalKeyboardKey.goBack): () =>
+              Navigator.pop(dialogCtx),
+        },
+        child: Shortcuts(
+          shortcuts: const {
+            SingleActivator(LogicalKeyboardKey.select): ActivateIntent(),
+            SingleActivator(LogicalKeyboardKey.gameButtonA): ActivateIntent(),
+          },
+          child: FocusTraversalGroup(
+            policy: WidgetOrderTraversalPolicy(),
+            child: SimpleDialog(
+              backgroundColor: tp.surface,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+              ),
+              title: Text(
+                l.serverConfigScopeLabel,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              children: [
+                for (final entry in entries)
+                  Builder(
+                    builder: (itemCtx) {
+                      final selected = entry.hostId == activeEntry.hostId;
+                      final valueToken = entry.isGlobal
+                          ? '__global__'
+                          : 'srv:${entry.hostId}';
+                      return ListTile(
+                        key: ValueKey(
+                          'scope-picker-${entry.hostId ?? "global"}',
+                        ),
+                        dense: true,
+                        autofocus: selected,
+                        selected: selected,
+                        focusColor: tp.accent.withValues(alpha: 0.22),
+                        leading: Icon(
+                          entry.isGlobal
+                              ? Icons.public_rounded
+                              : Icons.dns_rounded,
+                          size: 18,
+                          color: selected
+                              ? tp.accentLight
+                              : (entry.hasOverride
+                                    ? tp.accentLight.withValues(alpha: 0.8)
+                                    : Colors.white54),
+                        ),
+                        title: Text(
+                          entry.label,
+                          style: TextStyle(
+                            color: selected ? Colors.white : Colors.white70,
+                            fontWeight: selected
+                                ? FontWeight.w600
+                                : FontWeight.normal,
+                          ),
+                        ),
+                        subtitle: !entry.isGlobal && entry.hasOverride
+                            ? Text(
+                                l.serverOverrideBadgeCustom,
+                                style: TextStyle(
+                                  color: tp.accentLight.withValues(alpha: 0.85),
+                                  fontSize: 11,
+                                ),
+                              )
+                            : null,
+                        trailing: selected
+                            ? Icon(
+                                Icons.check_rounded,
+                                color: tp.accentLight,
+                                size: 18,
+                              )
+                            : null,
+                        onFocusChange: (focused) {
+                          if (!focused) return;
+                          WidgetsBinding.instance.addPostFrameCallback((_) {
+                            if (itemCtx.mounted) {
+                              Scrollable.ensureVisible(
+                                itemCtx,
+                                alignment: 0.5,
+                              );
+                            }
+                          });
+                        },
+                        onTap: () => Navigator.pop(dialogCtx, valueToken),
+                      );
+                    },
+                  ),
+                if (isServerSelected && overrideEnabled) ...[
+                  const Divider(color: Colors.white12, height: 12),
+                  ListTile(
+                    key: const ValueKey('scope-picker-reset'),
+                    dense: true,
+                    focusColor: Colors.redAccent.withValues(alpha: 0.18),
+                    leading: const Icon(
+                      Icons.restart_alt_rounded,
+                      size: 18,
+                      color: Colors.white54,
+                    ),
+                    title: Text(
+                      l.serverOverrideResetBtn,
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 13,
+                      ),
+                    ),
+                    onTap: () => Navigator.pop(dialogCtx, '__reset__'),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
     );
-    await _refreshLauncherCustomCheck();
+
+    _openingPicker = false;
+    if (!mounted) return;
+    _scopeRowFocusNode.requestFocus();
+
+    if (action == null) return;
+    if (action == '__reset__' && activeEntry.hostId != null) {
+      await settings.resetServerToGlobal(
+        activeEntry.hostId!,
+        serverName: activeEntry.label,
+        launcherPreferences: launcherPrefs,
+        themeProvider: tp,
+      );
+      return;
+    }
+
+    if (action == '__global__') {
+      await settings.setScope(
+        null,
+        launcherPreferences: launcherPrefs,
+        themeProvider: tp,
+      );
+    } else if (action.startsWith('srv:')) {
+      final targetId = action.substring(4);
+      final picked = entries.firstWhere(
+        (e) => e.hostId == targetId,
+        orElse: () => entries.first,
+      );
+      await settings.setScope(
+        picked.hostId,
+        serverName: picked.isGlobal ? null : picked.label,
+        launcherPreferences: launcherPrefs,
+        themeProvider: tp,
+      );
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context);
-    final isEs = l.locale.languageCode == 'es';
     final tp = context.watch<ThemeProvider>();
     final settings = context.watch<SettingsProvider>();
     final launcherPrefs = context.watch<LauncherPreferences>();
     final computers = context.watch<ComputerProvider>().computers;
 
     final entries = _buildEntries(l, settings, computers);
-    // If no servers exist yet and no server scope is active, keep UI minimal.
     if (entries.length <= 1 && !settings.isEditingServerScope) {
       return const SizedBox.shrink();
     }
@@ -167,547 +307,192 @@ class _SettingsScopeBarState extends State<SettingsScopeBar> {
     final isServerSelected = !activeEntry.isGlobal;
     final overrideEnabled =
         isServerSelected && settings.hasServerOverride(activeEntry.hostId);
-    final profile = isServerSelected
-        ? settings.serverProfile(activeEntry.hostId)
-        : null;
-    final diffBadges = (profile != null && overrideEnabled)
-        ? profile.diffBadges(
-            settings.globalConfig,
-            globalLauncherThemeName: tp.globalLauncherThemeId.name,
-            isEs: isEs,
-            hasCustomLauncherPrefs: _hasCustomLauncherKeys,
-          )
-        : const <String>[];
 
     return Padding(
       padding: widget.padding,
-      child: Container(
-        decoration: BoxDecoration(
-          color: tp.surface,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: overrideEnabled
-                ? tp.accent.withValues(alpha: 0.35)
-                : Colors.white.withValues(alpha: 0.08),
-            width: 1,
-          ),
-        ),
-        padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Row 1: Scope header + horizontal server scope selector pills
-            Row(
-              children: [
-                Icon(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Row 1: Discrete single-line scope selector tile
+          Focus(
+            focusNode: _scopeRowFocusNode,
+            onFocusChange: (f) => setState(() => _scopeFocused = f),
+            onKeyEvent: (_, event) {
+              if (event is! KeyDownEvent) return KeyEventResult.ignored;
+              final key = event.logicalKey;
+              if (key == LogicalKeyboardKey.enter ||
+                  key == LogicalKeyboardKey.select ||
+                  key == LogicalKeyboardKey.gameButtonA) {
+                _openScopePicker(
+                  context,
+                  entries,
+                  activeEntry,
+                  settings,
+                  launcherPrefs,
+                  tp,
+                  l,
+                );
+                return KeyEventResult.handled;
+              }
+              return KeyEventResult.ignored;
+            },
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 150),
+              decoration: BoxDecoration(
+                color: _scopeFocused
+                    ? Colors.white.withValues(alpha: 0.05)
+                    : Colors.transparent,
+                border: Border.all(
+                  color: _scopeFocused
+                      ? tp.accentLight.withValues(alpha: 0.3)
+                      : Colors.transparent,
+                  width: 1,
+                ),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: ListTile(
+                dense: true,
+                visualDensity: VisualDensity.compact,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+                leading: Icon(
                   isServerSelected
                       ? Icons.dns_rounded
                       : Icons.public_rounded,
-                  size: 16,
+                  size: 18,
                   color: overrideEnabled ? tp.accentLight : Colors.white54,
                 ),
-                const SizedBox(width: 8),
-                Text(
-                  l.serverConfigScopeLabel.toUpperCase(),
-                  style: const TextStyle(
-                    color: Colors.white54,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 0.9,
-                  ),
+                title: Text(
+                  l.serverConfigScopeLabel,
+                  style: const TextStyle(color: Colors.white, fontSize: 14),
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
-                      children: [
-                        for (int i = 0; i < entries.length; i++) ...[
-                          if (i > 0) const SizedBox(width: 8),
-                          _ScopePill(
-                            key: ValueKey(
-                              'settings-scope-${entries[i].hostId ?? "global"}',
-                            ),
-                            entry: entries[i],
-                            selected: entries[i].hostId == activeEntry.hostId,
-                            accent: tp.accent,
-                            accentLight: tp.accentLight,
-                            surfaceVariant: tp.surfaceVariant,
-                            onSelect: () => _selectScope(
-                              entries[i],
-                              settings,
-                              launcherPrefs,
-                              tp,
-                            ),
-                            onHorizontalMove: (delta) {
-                              final nextIdx = (i + delta).clamp(
-                                0,
-                                entries.length - 1,
-                              );
-                              if (nextIdx != i) {
-                                _selectScope(
-                                  entries[nextIdx],
-                                  settings,
-                                  launcherPrefs,
-                                  tp,
-                                );
-                              }
-                            },
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ),
-
-            const SizedBox(height: 10),
-
-            // Row 2: Active scope description or Server Override controls
-            if (!isServerSelected)
-              Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 3,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.07),
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                    child: Text(
-                      l.serverOverrideBadgeGlobal,
-                      style: const TextStyle(
-                        color: Colors.white70,
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 0.6,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      l.scopeGlobalDesc,
-                      style: const TextStyle(
-                        color: Colors.white60,
-                        fontSize: 12,
-                      ),
-                    ),
-                  ),
-                ],
-              )
-            else ...[
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 8,
-                ),
-                decoration: BoxDecoration(
-                  color: tp.surfaceVariant.withValues(alpha: 0.65),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 3,
-                          ),
-                          decoration: BoxDecoration(
-                            color: overrideEnabled
-                                ? tp.accent.withValues(alpha: 0.22)
-                                : Colors.white.withValues(alpha: 0.08),
-                            borderRadius: BorderRadius.circular(999),
-                          ),
-                          child: Text(
-                            overrideEnabled
-                                ? l.serverOverrideBadgeCustom
-                                : l.serverOverrideBadgeGlobal,
-                            style: TextStyle(
-                              color: overrideEnabled
-                                  ? tp.accentLight
-                                  : Colors.white60,
-                              fontSize: 10,
-                              fontWeight: FontWeight.w700,
-                              letterSpacing: 0.6,
-                            ),
-                          ),
+                    if (overrideEnabled) ...[
+                      Container(
+                        width: 6,
+                        height: 6,
+                        decoration: BoxDecoration(
+                          color: tp.accentLight,
+                          shape: BoxShape.circle,
                         ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                '${activeEntry.label} — ${l.serverOverrideToggleTitle}',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                overrideEnabled
-                                    ? l.serverOverrideToggleSubOn
-                                    : l.serverOverrideToggleSubOff,
-                                style: const TextStyle(
-                                  color: Colors.white54,
-                                  fontSize: 11,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        if (overrideEnabled) ...[
-                          const SizedBox(width: 8),
-                          _FocusableActionChip(
-                            icon: Icons.restart_alt_rounded,
-                            label: l.serverOverrideResetBtn,
-                            accentLight: tp.accentLight,
-                            onActivate: () async {
-                              final hostId = activeEntry.hostId;
-                              if (hostId == null) return;
-                              await settings.resetServerToGlobal(
-                                hostId,
-                                serverName: activeEntry.label,
-                                launcherPreferences: launcherPrefs,
-                                themeProvider: tp,
-                              );
-                              await _refreshLauncherCustomCheck();
-                              if (!context.mounted) return;
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text(l.serverOverrideResetDone),
-                                  duration: const Duration(seconds: 2),
-                                ),
-                              );
-                            },
-                          ),
-                        ],
-                        const SizedBox(width: 8),
-                        _FocusableOverrideSwitch(
-                          value: overrideEnabled,
-                          accent: tp.accent,
-                          accentLight: tp.accentLight,
-                          onChanged: (val) async {
-                            final hostId = activeEntry.hostId;
-                            if (hostId == null) return;
-                            await settings.setServerOverrideEnabled(
-                              hostId,
-                              val,
-                              serverName: activeEntry.label,
-                              launcherPreferences: launcherPrefs,
-                              themeProvider: tp,
-                            );
-                            await _refreshLauncherCustomCheck();
-                          },
-                        ),
-                      ],
-                    ),
-                    if (overrideEnabled && diffBadges.isNotEmpty) ...[
-                      const SizedBox(height: 8),
-                      Wrap(
-                        spacing: 6,
-                        runSpacing: 6,
-                        children: [
-                          for (final badge in diffBadges)
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 3,
-                              ),
-                              decoration: BoxDecoration(
-                                color: Colors.white.withValues(alpha: 0.06),
-                                borderRadius: BorderRadius.circular(6),
-                                border: Border.all(
-                                  color: Colors.white.withValues(alpha: 0.10),
-                                ),
-                              ),
-                              child: Text(
-                                badge,
-                                style: const TextStyle(
-                                  color: Colors.white70,
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ),
-                        ],
                       ),
+                      const SizedBox(width: 6),
                     ],
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 160),
+                      child: Text(
+                        activeEntry.label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: isServerSelected
+                              ? (overrideEnabled
+                                    ? tp.accentLight
+                                    : Colors.white70)
+                              : Colors.white54,
+                          fontSize: 13,
+                          fontWeight: isServerSelected
+                              ? FontWeight.w600
+                              : FontWeight.normal,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    Icon(
+                      Icons.unfold_more_rounded,
+                      size: 18,
+                      color: _scopeFocused ? Colors.white : Colors.white38,
+                    ),
                   ],
                 ),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _ScopePill extends StatefulWidget {
-  final SettingsScopeEntry entry;
-  final bool selected;
-  final Color accent;
-  final Color accentLight;
-  final Color surfaceVariant;
-  final VoidCallback onSelect;
-  final ValueChanged<int> onHorizontalMove;
-
-  const _ScopePill({
-    super.key,
-    required this.entry,
-    required this.selected,
-    required this.accent,
-    required this.accentLight,
-    required this.surfaceVariant,
-    required this.onSelect,
-    required this.onHorizontalMove,
-  });
-
-  @override
-  State<_ScopePill> createState() => _ScopePillState();
-}
-
-class _ScopePillState extends State<_ScopePill> {
-  bool _focused = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final isSelected = widget.selected;
-    final bgColor = isSelected
-        ? widget.accent
-        : (_focused
-              ? Colors.white.withValues(alpha: 0.12)
-              : widget.surfaceVariant);
-    final borderColor = _focused
-        ? Colors.white
-        : (isSelected
-              ? widget.accentLight.withValues(alpha: 0.6)
-              : Colors.white.withValues(alpha: 0.08));
-
-    return Focus(
-      onFocusChange: (f) {
-        setState(() => _focused = f);
-        if (f) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (context.mounted) {
-              Scrollable.ensureVisible(context, alignment: 0.5);
-            }
-          });
-        }
-      },
-      onKeyEvent: (_, event) {
-        if (event is! KeyDownEvent) return KeyEventResult.ignored;
-        final key = event.logicalKey;
-        if (key == LogicalKeyboardKey.enter ||
-            key == LogicalKeyboardKey.select ||
-            key == LogicalKeyboardKey.gameButtonA ||
-            key == LogicalKeyboardKey.space) {
-          widget.onSelect();
-          return KeyEventResult.handled;
-        }
-        if (key == LogicalKeyboardKey.arrowLeft) {
-          widget.onHorizontalMove(-1);
-          return KeyEventResult.handled;
-        }
-        if (key == LogicalKeyboardKey.arrowRight) {
-          widget.onHorizontalMove(1);
-          return KeyEventResult.handled;
-        }
-        return KeyEventResult.ignored;
-      },
-      child: GestureDetector(
-        onTap: widget.onSelect,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 150),
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-          decoration: BoxDecoration(
-            color: bgColor,
-            borderRadius: BorderRadius.circular(999),
-            border: Border.all(
-              color: borderColor,
-              width: _focused ? 1.5 : 1.0,
-            ),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                widget.entry.isGlobal
-                    ? Icons.public_rounded
-                    : Icons.computer_rounded,
-                size: 14,
-                color: isSelected ? Colors.white : Colors.white70,
-              ),
-              const SizedBox(width: 6),
-              Text(
-                widget.entry.label,
-                style: TextStyle(
-                  color: isSelected ? Colors.white : Colors.white70,
-                  fontSize: 12,
-                  fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                onTap: () => _openScopePicker(
+                  context,
+                  entries,
+                  activeEntry,
+                  settings,
+                  launcherPrefs,
+                  tp,
+                  l,
                 ),
               ),
-              if (!widget.entry.isGlobal && widget.entry.hasOverride) ...[
-                const SizedBox(width: 6),
-                Container(
-                  width: 7,
-                  height: 7,
-                  decoration: BoxDecoration(
-                    color: isSelected ? Colors.white : widget.accentLight,
-                    shape: BoxShape.circle,
+            ),
+          ),
+
+          // Row 2: Shown ONLY when a server is selected — discrete override switch
+          if (isServerSelected)
+            Focus(
+              onFocusChange: (f) => setState(() => _switchFocused = f),
+              onKeyEvent: (_, event) {
+                if (event is! KeyDownEvent) return KeyEventResult.ignored;
+                final key = event.logicalKey;
+                if (key == LogicalKeyboardKey.enter ||
+                    key == LogicalKeyboardKey.select ||
+                    key == LogicalKeyboardKey.gameButtonA) {
+                  settings.setServerOverrideEnabled(
+                    activeEntry.hostId!,
+                    !overrideEnabled,
+                    serverName: activeEntry.label,
+                    launcherPreferences: launcherPrefs,
+                    themeProvider: tp,
+                  );
+                  return KeyEventResult.handled;
+                }
+                return KeyEventResult.ignored;
+              },
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 150),
+                decoration: BoxDecoration(
+                  color: _switchFocused
+                      ? Colors.white.withValues(alpha: 0.05)
+                      : Colors.transparent,
+                  border: Border.all(
+                    color: _switchFocused
+                        ? tp.accentLight.withValues(alpha: 0.3)
+                        : Colors.transparent,
+                    width: 1,
+                  ),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: SwitchListTile(
+                  dense: true,
+                  visualDensity: VisualDensity.compact,
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+                  title: Text(
+                    '${l.serverOverrideToggleTitle} (${activeEntry.label})',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: Colors.white, fontSize: 13.5),
+                  ),
+                  subtitle: Text(
+                    overrideEnabled
+                        ? l.serverOverrideToggleSubOn
+                        : l.serverOverrideToggleSubOff,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: overrideEnabled
+                          ? tp.accentLight.withValues(alpha: 0.85)
+                          : Colors.white38,
+                      fontSize: 11.5,
+                    ),
+                  ),
+                  value: overrideEnabled,
+                  activeThumbColor: tp.accent,
+                  onChanged: (val) => settings.setServerOverrideEnabled(
+                    activeEntry.hostId!,
+                    val,
+                    serverName: activeEntry.label,
+                    launcherPreferences: launcherPrefs,
+                    themeProvider: tp,
                   ),
                 ),
-              ],
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _FocusableOverrideSwitch extends StatefulWidget {
-  final bool value;
-  final Color accent;
-  final Color accentLight;
-  final ValueChanged<bool> onChanged;
-
-  const _FocusableOverrideSwitch({
-    required this.value,
-    required this.accent,
-    required this.accentLight,
-    required this.onChanged,
-  });
-
-  @override
-  State<_FocusableOverrideSwitch> createState() =>
-      _FocusableOverrideSwitchState();
-}
-
-class _FocusableOverrideSwitchState extends State<_FocusableOverrideSwitch> {
-  bool _focused = false;
-
-  @override
-  Widget build(BuildContext context) {
-    return Focus(
-      onFocusChange: (f) => setState(() => _focused = f),
-      onKeyEvent: (_, event) {
-        if (event is! KeyDownEvent) return KeyEventResult.ignored;
-        final key = event.logicalKey;
-        if (key == LogicalKeyboardKey.enter ||
-            key == LogicalKeyboardKey.select ||
-            key == LogicalKeyboardKey.gameButtonA ||
-            key == LogicalKeyboardKey.space) {
-          widget.onChanged(!widget.value);
-          return KeyEventResult.handled;
-        }
-        return KeyEventResult.ignored;
-      },
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 140),
-        padding: const EdgeInsets.symmetric(horizontal: 4),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(999),
-          border: Border.all(
-            color: _focused ? widget.accentLight : Colors.transparent,
-            width: 1.5,
-          ),
-        ),
-        child: ExcludeFocus(
-          child: Switch(
-            value: widget.value,
-            activeThumbColor: widget.accent,
-            onChanged: widget.onChanged,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _FocusableActionChip extends StatefulWidget {
-  final IconData icon;
-  final String label;
-  final Color accentLight;
-  final VoidCallback onActivate;
-
-  const _FocusableActionChip({
-    required this.icon,
-    required this.label,
-    required this.accentLight,
-    required this.onActivate,
-  });
-
-  @override
-  State<_FocusableActionChip> createState() => _FocusableActionChipState();
-}
-
-class _FocusableActionChipState extends State<_FocusableActionChip> {
-  bool _focused = false;
-
-  @override
-  Widget build(BuildContext context) {
-    return Focus(
-      onFocusChange: (f) => setState(() => _focused = f),
-      onKeyEvent: (_, event) {
-        if (event is! KeyDownEvent) return KeyEventResult.ignored;
-        final key = event.logicalKey;
-        if (key == LogicalKeyboardKey.enter ||
-            key == LogicalKeyboardKey.select ||
-            key == LogicalKeyboardKey.gameButtonA ||
-            key == LogicalKeyboardKey.space) {
-          widget.onActivate();
-          return KeyEventResult.handled;
-        }
-        return KeyEventResult.ignored;
-      },
-      child: InkWell(
-        onTap: widget.onActivate,
-        borderRadius: BorderRadius.circular(8),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 140),
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          decoration: BoxDecoration(
-            color: _focused
-                ? Colors.white.withValues(alpha: 0.12)
-                : Colors.white.withValues(alpha: 0.06),
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(
-              color: _focused ? widget.accentLight : Colors.white12,
-              width: 1,
-            ),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(widget.icon, size: 14, color: Colors.white70),
-              const SizedBox(width: 5),
-              Text(
-                widget.label,
-                style: const TextStyle(
-                  color: Colors.white70,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                ),
               ),
-            ],
-          ),
-        ),
+            ),
+
+          const Divider(color: Colors.white10, height: 8),
+        ],
       ),
     );
   }
 }
-

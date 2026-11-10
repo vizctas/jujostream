@@ -16,6 +16,8 @@ class SettingsProvider extends ChangeNotifier {
   StreamConfiguration _globalConfig = const StreamConfiguration();
   final Map<String, ServerSettingsProfile> _serverProfiles = {};
   String? _activeServerScopeId;
+  LauncherPreferences? _scopedLauncherPreferences;
+  ThemeProvider? _scopedThemeProvider;
   bool _loaded = false;
 
   /// Returns the effective [StreamConfiguration] for the currently active
@@ -142,6 +144,12 @@ class SettingsProvider extends ChangeNotifier {
     ThemeProvider? themeProvider,
   }) async {
     final normalized = (hostId != null && hostId.isNotEmpty) ? hostId : null;
+    if (launcherPreferences != null) {
+      _scopedLauncherPreferences = launcherPreferences;
+    }
+    if (themeProvider != null) {
+      _scopedThemeProvider = themeProvider;
+    }
     if (normalized != null &&
         serverName != null &&
         serverName.isNotEmpty &&
@@ -153,8 +161,8 @@ class SettingsProvider extends ChangeNotifier {
     _activeServerScopeId = normalized;
     await syncRuntimeServerContext(
       normalized,
-      launcherPreferences: launcherPreferences,
-      themeProvider: themeProvider,
+      launcherPreferences: launcherPreferences ?? _scopedLauncherPreferences,
+      themeProvider: themeProvider ?? _scopedThemeProvider,
       allowEditingLauncherTheme: normalized != null,
       serverName: serverName,
     );
@@ -173,36 +181,56 @@ class SettingsProvider extends ChangeNotifier {
   }) async {
     final normalized = (hostId != null && hostId.isNotEmpty) ? hostId : null;
     final overrideActive = hasServerOverride(normalized);
+    final allowEditing = normalized != null && allowEditingLauncherTheme;
 
     if (themeProvider != null) {
-      final effectiveThemeId = launcherThemeForServer(
-        normalized,
-        themeProvider.globalLauncherThemeId,
-      );
-      if (normalized != null && (overrideActive || allowEditingLauncherTheme)) {
-        themeProvider.setScopedLauncherTheme(
-          overrideId: overrideActive ? effectiveThemeId : null,
-          onChanged: (LauncherThemeId newThemeId) async {
-            await setServerLauncherTheme(
-              normalized,
-              newThemeId,
-              serverName: serverName ?? '',
-              launcherPreferences: launcherPreferences,
-              themeProvider: themeProvider,
-            );
-          },
+      final profile = normalized != null ? _serverProfiles[normalized] : null;
+      if (normalized != null &&
+          overrideActive &&
+          profile?.launcherThemeName != null &&
+          profile!.launcherThemeName!.isNotEmpty) {
+        await themeProvider.setServerLauncherThemeKey(
+          normalized,
+          LauncherThemeRegistry.fromName(profile.launcherThemeName),
         );
-      } else {
-        themeProvider.setScopedLauncherTheme(overrideId: null, onChanged: null);
       }
 
-      if (launcherPreferences != null) {
-        launcherPreferences.onAutoEnableServerOverride =
-            (normalized != null && allowEditingLauncherTheme)
+      themeProvider.setServerScope(
+        hostId: normalized,
+        overrideActive: overrideActive,
+        onAutoEnable: allowEditing
             ? (String targetHostId) async {
-                await setServerOverrideEnabled(
+                await enableServerOverrideSilent(
                   targetHostId,
-                  true,
+                  serverName: serverName ?? '',
+                  launcherPreferences: launcherPreferences,
+                  themeProvider: themeProvider,
+                );
+              }
+            : null,
+        onLauncherThemeChanged: (normalized != null && (overrideActive || allowEditing))
+            ? (LauncherThemeId newThemeId) async {
+                await setServerLauncherTheme(
+                  normalized,
+                  newThemeId,
+                  serverName: serverName ?? '',
+                  launcherPreferences: launcherPreferences,
+                  themeProvider: themeProvider,
+                );
+              }
+            : null,
+      );
+
+      final effectiveThemeId = launcherThemeForServer(
+        normalized,
+        themeProvider.launcherThemeId,
+      );
+
+      if (launcherPreferences != null) {
+        launcherPreferences.onAutoEnableServerOverride = allowEditing
+            ? (String targetHostId) async {
+                await enableServerOverrideSilent(
+                  targetHostId,
                   serverName: serverName ?? '',
                   launcherPreferences: launcherPreferences,
                   themeProvider: themeProvider,
@@ -216,12 +244,10 @@ class SettingsProvider extends ChangeNotifier {
         );
       }
     } else if (launcherPreferences != null) {
-      launcherPreferences.onAutoEnableServerOverride =
-          (normalized != null && allowEditingLauncherTheme)
+      launcherPreferences.onAutoEnableServerOverride = allowEditing
           ? (String targetHostId) async {
-              await setServerOverrideEnabled(
+              await enableServerOverrideSilent(
                 targetHostId,
-                true,
                 serverName: serverName ?? '',
                 launcherPreferences: launcherPreferences,
                 themeProvider: themeProvider,
@@ -233,6 +259,45 @@ class SettingsProvider extends ChangeNotifier {
         overrideActive: overrideActive,
       );
     }
+  }
+
+  /// Silently marks [hostId] override as enabled without reloading
+  /// [LauncherPreferences] from disk (preventing in-flight writes from being
+  /// overwritten).
+  Future<void> enableServerOverrideSilent(
+    String hostId, {
+    String serverName = '',
+    LauncherPreferences? launcherPreferences,
+    ThemeProvider? themeProvider,
+  }) async {
+    if (hostId.isEmpty) return;
+    final lp = launcherPreferences ?? _scopedLauncherPreferences;
+    final tp = themeProvider ?? _scopedThemeProvider;
+    final existing = _serverProfiles[hostId];
+    final globalThemeName = tp?.globalLauncherThemeId.name;
+    final updated = (existing ??
+            ServerSettingsProfile(
+              hostId: hostId,
+              serverName: serverName,
+              streamConfig: _globalConfig,
+              launcherThemeName: globalThemeName,
+            ))
+        .copyWith(
+          serverName: serverName.isNotEmpty
+              ? serverName
+              : (existing?.serverName ?? ''),
+          overrideEnabled: true,
+        );
+    _serverProfiles[hostId] = updated;
+    if (lp?.serverHostId == hostId) {
+      lp!.markServerOverrideActive(true);
+    }
+    if (tp?.serverHostId == hostId) {
+      tp!.markServerOverrideActive(true);
+    }
+    await _persistServerProfiles();
+    _pushBlockedButtons();
+    notifyListeners();
   }
 
   /// Enables or disables custom per-server override for [hostId].
@@ -265,11 +330,12 @@ class SettingsProvider extends ChangeNotifier {
     await _persistServerProfiles();
 
     if (_activeServerScopeId == hostId ||
-        launcherPreferences?.serverHostId == hostId) {
+        launcherPreferences?.serverHostId == hostId ||
+        themeProvider?.serverHostId == hostId) {
       await syncRuntimeServerContext(
         hostId,
-        launcherPreferences: launcherPreferences,
-        themeProvider: themeProvider,
+        launcherPreferences: launcherPreferences ?? _scopedLauncherPreferences,
+        themeProvider: themeProvider ?? _scopedThemeProvider,
         allowEditingLauncherTheme: _activeServerScopeId == hostId,
         serverName: updated.serverName,
       );
@@ -305,8 +371,17 @@ class SettingsProvider extends ChangeNotifier {
     _serverProfiles[hostId] = updated;
     await _persistServerProfiles();
 
-    if (launcherPreferences != null) {
-      await launcherPreferences.setServerScope(
+    final tp = themeProvider ?? _scopedThemeProvider;
+    if (tp != null) {
+      await tp.setServerLauncherThemeKey(hostId, themeId);
+      if (tp.serverHostId == hostId) {
+        tp.markServerOverrideActive(true);
+      }
+    }
+
+    final lp = launcherPreferences ?? _scopedLauncherPreferences;
+    if (lp != null) {
+      await lp.setServerScope(
         hostId: hostId,
         overrideActive: true,
         profileId: themeId.name,
@@ -332,15 +407,21 @@ class SettingsProvider extends ChangeNotifier {
       streamConfig: _globalConfig,
     );
     await _persistServerProfiles();
-    if (launcherPreferences != null) {
-      await launcherPreferences.clearServerOverrides(hostId);
+    final lp = launcherPreferences ?? _scopedLauncherPreferences;
+    final tp = themeProvider ?? _scopedThemeProvider;
+    if (lp != null) {
+      await lp.clearServerOverrides(hostId);
+    }
+    if (tp != null) {
+      await tp.clearServerOverrides(hostId);
     }
     if (_activeServerScopeId == hostId ||
-        launcherPreferences?.serverHostId == hostId) {
+        lp?.serverHostId == hostId ||
+        tp?.serverHostId == hostId) {
       await syncRuntimeServerContext(
         hostId,
-        launcherPreferences: launcherPreferences,
-        themeProvider: themeProvider,
+        launcherPreferences: lp,
+        themeProvider: tp,
         allowEditingLauncherTheme: _activeServerScopeId == hostId,
         serverName: serverName,
       );
@@ -358,6 +439,8 @@ class SettingsProvider extends ChangeNotifier {
     ThemeProvider? themeProvider,
   }) async {
     if (hostId.isEmpty) return;
+    final lp = launcherPreferences ?? _scopedLauncherPreferences;
+    final tp = themeProvider ?? _scopedThemeProvider;
     _serverProfiles[hostId] = ServerSettingsProfile(
       hostId: hostId,
       serverName: serverName.isNotEmpty
@@ -365,18 +448,22 @@ class SettingsProvider extends ChangeNotifier {
           : (_serverProfiles[hostId]?.serverName ?? ''),
       overrideEnabled: true,
       streamConfig: _globalConfig,
-      launcherThemeName: themeProvider?.globalLauncherThemeId.name,
+      launcherThemeName: tp?.globalLauncherThemeId.name,
     );
     await _persistServerProfiles();
-    if (launcherPreferences != null) {
-      await launcherPreferences.clearServerOverrides(hostId);
+    if (lp != null) {
+      await lp.clearServerOverrides(hostId);
+    }
+    if (tp != null) {
+      await tp.clearServerOverrides(hostId);
     }
     if (_activeServerScopeId == hostId ||
-        launcherPreferences?.serverHostId == hostId) {
+        lp?.serverHostId == hostId ||
+        tp?.serverHostId == hostId) {
       await syncRuntimeServerContext(
         hostId,
-        launcherPreferences: launcherPreferences,
-        themeProvider: themeProvider,
+        launcherPreferences: lp,
+        themeProvider: tp,
         allowEditingLauncherTheme: _activeServerScopeId == hostId,
         serverName: serverName,
       );
@@ -396,6 +483,12 @@ class SettingsProvider extends ChangeNotifier {
                 streamConfig: newConfig,
               ))
           .copyWith(overrideEnabled: true, streamConfig: newConfig);
+      if (_scopedLauncherPreferences?.serverHostId == targetServerId) {
+        _scopedLauncherPreferences!.markServerOverrideActive(true);
+      }
+      if (_scopedThemeProvider?.serverHostId == targetServerId) {
+        _scopedThemeProvider!.markServerOverrideActive(true);
+      }
       _pushBlockedButtons();
       notifyListeners();
       await _persistServerProfiles();

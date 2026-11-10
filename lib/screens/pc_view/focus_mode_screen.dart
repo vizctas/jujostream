@@ -12,6 +12,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../l10n/app_localizations.dart';
 import '../../models/computer_details.dart';
 import '../../providers/computer_provider.dart';
+import '../../providers/settings_provider.dart';
 import '../../providers/theme_provider.dart';
 import '../../services/audio/ui_sound_service.dart';
 import '../../services/navigation/async_single_flight.dart';
@@ -389,7 +390,7 @@ class _FocusModeScreenState extends State<FocusModeScreen>
   @override
   Widget build(BuildContext context) {
     final tp = context.watch<ThemeProvider>();
-    final isLight = tp.colors.isLight;
+    final settings = context.watch<SettingsProvider>();
 
     return PopScope(
       canPop: false,
@@ -407,20 +408,70 @@ class _FocusModeScreenState extends State<FocusModeScreen>
                 computers.isNotEmpty && _currentPage < computers.length
                 ? computers[_currentPage]
                 : null;
-            // The wallpaper comes from Preferences only. The per-server image
-            // is a profile picture: it belongs inside the circle/card and used
-            // to hijack the whole screen, which made the wallpaper setting look
-            // broken whenever a server had one.
-            final globalWallpaper = tp.focusWallpaper;
+            final currentHostId = currentComputer?.hostId;
+            final currentHasOverride =
+                currentHostId != null &&
+                settings.hasServerOverride(currentHostId);
+            final serverColors = tp.colorsForServer(
+              currentHostId,
+              hasOverride: currentHasOverride,
+            );
+            final isLight = serverColors.isLight;
+            final serverEffect = tp.ambienceEffectForServer(
+              currentHostId,
+              hasOverride: currentHasOverride,
+            );
+            final serverReduceEffects = tp.reduceEffectsForServer(
+              currentHostId,
+              hasOverride: currentHasOverride,
+            );
+            final serverPerfMode = tp.performanceModeForServer(
+              currentHostId,
+              hasOverride: currentHasOverride,
+            );
+            final serverMusicScale = tp.focusMusicScaleForServer(
+              currentHostId,
+              hasOverride: currentHasOverride,
+            );
+            final serverMusicOpacity = tp.focusMusicOpacityForServer(
+              currentHostId,
+              hasOverride: currentHasOverride,
+            );
+            final serverSound = tp.standbySoundForServer(
+              currentHostId,
+              hasOverride: currentHasOverride,
+            );
+            final serverCustomPath = tp.standbyCustomPathForServer(
+              currentHostId,
+              hasOverride: currentHasOverride,
+            );
+            final serverVolume = tp.standbyVolumeForServer(
+              currentHostId,
+              hasOverride: currentHasOverride,
+            );
+            UiSoundService.syncServerAmbienceScope(
+              hostId: currentHostId,
+              hasOverride: currentHasOverride,
+              effectiveSound: serverSound,
+              effectiveCustomPath: serverCustomPath,
+              effectiveVolume: serverVolume,
+            );
+
+            // The wallpaper comes from Preferences (Global or per-server override).
+            // The per-server image is a profile picture inside the circle/card.
+            final resolvedWallpaper = tp.focusWallpaperForServer(
+              currentHostId,
+              hasOverride: currentHasOverride,
+            );
             String? effectiveFilePath;
             String effectiveAsset = currentComputer != null
                 ? _focusDefaultAsset(_currentPage)
                 : _focusDefaultAsset(0);
-            if (globalWallpaper.isNotEmpty) {
-              if (globalWallpaper.startsWith('asset:')) {
-                effectiveAsset = globalWallpaper.substring(6);
-              } else if (globalWallpaper.startsWith('file:')) {
-                effectiveFilePath = globalWallpaper.substring(5);
+            if (resolvedWallpaper.isNotEmpty) {
+              if (resolvedWallpaper.startsWith('asset:')) {
+                effectiveAsset = resolvedWallpaper.substring(6);
+              } else if (resolvedWallpaper.startsWith('file:')) {
+                effectiveFilePath = resolvedWallpaper.substring(5);
               }
             }
 
@@ -431,16 +482,19 @@ class _FocusModeScreenState extends State<FocusModeScreen>
                 _Wallpaper(
                   imagePath: effectiveFilePath,
                   assetPath: effectiveAsset,
-                  fallbackColor: tp.background,
-                  cacheWidth: tp.performanceMode ? 720 : 1920,
+                  fallbackColor: serverColors.background,
+                  cacheWidth: serverPerfMode ? 720 : 1920,
                 ),
 
                 // ── Particle or Wave overlay (background effect) ──
-                if (!tp.reduceEffects)
-                  if (tp.ambienceEffect == 'particles')
-                    _ParticleOverlay(color: tp.accent, isLight: isLight)
-                  else if (tp.ambienceEffect == 'waves')
-                    _WaveOverlay(color: tp.accent, isLight: isLight),
+                if (!serverReduceEffects)
+                  if (serverEffect == 'particles')
+                    _ParticleOverlay(
+                      color: serverColors.accent,
+                      isLight: isLight,
+                    )
+                  else if (serverEffect == 'waves')
+                    _WaveOverlay(color: serverColors.accent, isLight: isLight),
 
                 // ── Scrim overlay ──
                 Container(
@@ -469,7 +523,7 @@ class _FocusModeScreenState extends State<FocusModeScreen>
                       Expanded(
                         child: computers.isEmpty
                             ? _buildEmptyState(tp)
-                            : _buildPageView(computers, tp),
+                            : _buildPageView(computers, tp, settings),
                       ),
                       // Page indicator dots
                       if (computers.length > 1)
@@ -502,10 +556,14 @@ class _FocusModeScreenState extends State<FocusModeScreen>
                       MediaQuery.of(context).padding.bottom +
                       (provider.activeSessionApp == null ? 24 : 76),
                   child: FocusMusicMiniPlayer(
-                    trackName: _standbyTrackName(tp),
-                    colors: tp.colors,
-                    scale: tp.focusMusicScale,
-                    opacity: tp.focusMusicOpacity,
+                    trackName: _standbyTrackName(
+                      tp,
+                      currentHostId,
+                      currentHasOverride,
+                    ),
+                    colors: serverColors,
+                    scale: serverMusicScale,
+                    opacity: serverMusicOpacity,
                   ),
                 ),
                 NotificationMirrorOverlay(
@@ -521,11 +579,20 @@ class _FocusModeScreenState extends State<FocusModeScreen>
 
   // ── App Bar ──
 
-  String _standbyTrackName(ThemeProvider tp) {
-    if (tp.standbySound == 'custom') {
-      return tp.standbyCustomName.isNotEmpty ? tp.standbyCustomName : 'Custom';
+  String _standbyTrackName(
+    ThemeProvider tp,
+    String? hostId,
+    bool hasOverride,
+  ) {
+    final sound = tp.standbySoundForServer(hostId, hasOverride: hasOverride);
+    if (sound == 'custom') {
+      final name = tp.standbyCustomNameForServer(
+        hostId,
+        hasOverride: hasOverride,
+      );
+      return name.isNotEmpty ? name : 'Custom';
     }
-    return tp.standbySound;
+    return sound;
   }
 
   Widget _buildAppBar(ThemeProvider tp) {
@@ -732,7 +799,11 @@ class _FocusModeScreenState extends State<FocusModeScreen>
 
   // ── Page View ──
 
-  Widget _buildPageView(List<ComputerDetails> computers, ThemeProvider tp) {
+  Widget _buildPageView(
+    List<ComputerDetails> computers,
+    ThemeProvider tp,
+    SettingsProvider settings,
+  ) {
     return Focus(
       focusNode: _pageViewFocusNode,
       autofocus: true,
@@ -824,7 +895,11 @@ class _FocusModeScreenState extends State<FocusModeScreen>
           // Only show custom background when server is paired — avoids
           // flicker when server revokes pairing and poll toggles state.
           final bgPath = computer.isPaired ? _bgPaths[computer.uuid] : null;
-          final layout = tp.ambienceLayout;
+          final hasOverride = settings.hasServerOverride(computer.hostId);
+          final layout = tp.ambienceLayoutForServer(
+            computer.hostId,
+            hasOverride: hasOverride,
+          );
           if (layout == 'circular') {
             return _FocusServerCircle(
               computer: computer,

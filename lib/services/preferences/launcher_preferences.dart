@@ -72,6 +72,13 @@ class LauncherPreferences extends ChangeNotifier {
     await load();
   }
 
+  void markServerOverrideActive(bool active) {
+    final normalizedHost = (_serverHostId != null && _serverHostId!.isNotEmpty)
+        ? _serverHostId
+        : null;
+    _serverOverrideActive = active && normalizedHost != null;
+  }
+
   Future<bool> hasServerCustomKeys(String hostId) async {
     if (hostId.isEmpty) return false;
     final p = await SharedPreferences.getInstance();
