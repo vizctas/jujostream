@@ -66,123 +66,153 @@ class _AboutScreenState extends State<AboutScreen> {
     super.dispose();
   }
 
+  void _scrollToTop() {
+    if (!_scrollController.hasClients || _scrollController.offset <= 0) return;
+    _scrollController.animateTo(
+      0,
+      duration: const Duration(milliseconds: 240),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context);
     final tp = context.watch<ThemeProvider>();
-    return Focus(
-      autofocus: true,
-      onKeyEvent: (_, event) {
-        if (event is! KeyDownEvent) return KeyEventResult.ignored;
-        final key = event.logicalKey;
-        if (key == LogicalKeyboardKey.gameButtonB ||
-            key == LogicalKeyboardKey.escape ||
-            key == LogicalKeyboardKey.goBack) {
-          Navigator.maybePop(context);
-          return KeyEventResult.handled;
-        }
-
-        if (key == LogicalKeyboardKey.gameButtonLeft2) {
-          if (_scrollController.hasClients && _scrollController.offset > 0) {
-            _scrollController.animateTo(
-              0,
-              duration: const Duration(milliseconds: 320),
-              curve: Curves.easeOutCubic,
-            );
-            return KeyEventResult.handled;
-          }
-        }
-        return KeyEventResult.ignored;
+    return Actions(
+      actions: <Type, Action<Intent>>{
+        DismissIntent: CallbackAction<DismissIntent>(
+          onInvoke: (_) {
+            Navigator.maybePop(context);
+            return null;
+          },
+        ),
       },
-      child: FocusTraversalGroup(
-        policy: OrderedTraversalPolicy(),
-        child: Scaffold(
-          backgroundColor: tp.background,
-          extendBodyBehindAppBar: true,
-          appBar: AppBar(
-            backgroundColor: Colors.transparent,
-            surfaceTintColor: Colors.transparent,
-            foregroundColor: tp.colors.isLight ? Colors.black87 : Colors.white,
-            elevation: 0,
-            scrolledUnderElevation: 0,
-            iconTheme: IconThemeData(
-              shadows: [Shadow(color: Colors.black45, blurRadius: 8)],
+      child: FocusScope(
+        autofocus: true,
+        child: Focus(
+          skipTraversal: true,
+          canRequestFocus: false,
+          onKeyEvent: (_, event) {
+            if (event is! KeyDownEvent) return KeyEventResult.ignored;
+            final key = event.logicalKey;
+            if (key == LogicalKeyboardKey.gameButtonB ||
+                key == LogicalKeyboardKey.escape ||
+                key == LogicalKeyboardKey.goBack) {
+              Navigator.maybePop(context);
+              return KeyEventResult.handled;
+            }
+
+            if (key == LogicalKeyboardKey.gameButtonLeft2) {
+              if (_scrollController.hasClients && _scrollController.offset > 0) {
+                _scrollToTop();
+                return KeyEventResult.handled;
+              }
+            }
+            return KeyEventResult.ignored;
+          },
+          child: FocusTraversalGroup(
+            policy: OrderedTraversalPolicy(),
+            child: Scaffold(
+              backgroundColor: tp.background,
+              extendBodyBehindAppBar: true,
+              appBar: AppBar(
+                backgroundColor: Colors.transparent,
+                surfaceTintColor: Colors.transparent,
+                foregroundColor: tp.colors.isLight ? Colors.black87 : Colors.white,
+                elevation: 0,
+                scrolledUnderElevation: 0,
+                iconTheme: IconThemeData(
+                  shadows: [Shadow(color: Colors.black45, blurRadius: 8)],
+                ),
+                leading: Focus(
+                  onFocusChange: (focused) {
+                    if (focused) _scrollToTop();
+                  },
+                  child: BackButton(
+                    onPressed: () => Navigator.maybePop(context),
+                  ),
+                ),
+              ),
+              body: SingleChildScrollView(
+                controller: _scrollController,
+                padding: const EdgeInsets.only(top: 0, bottom: 48),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _buildHeroHeader(context),
+                    const SizedBox(height: 8),
+
+                    if (io.Platform.isAndroid) _buildUpdatePanel(context),
+
+                    _section(l.credits),
+                    _creditTile(
+                      icon: Icons.code,
+                      iconColor: context.read<ThemeProvider>().accentLight,
+                      title: l.developedBy,
+                      subtitle: 'Vizctas',
+                    ),
+                    _creditTile(
+                      icon: Icons.fork_right,
+                      iconColor: const Color(0xFF0F3460),
+                      title: l.basedOn,
+                      subtitle: 'ClassicOldSong (Artemis)',
+                    ),
+                    _linkTile(
+                      context: context,
+                      icon: Icons.fork_right,
+                      iconColor: const Color(0xFF0F3460),
+                      label: 'Artemis / moonlight-android',
+                      url: AboutScreen._artemisUrl,
+                    ),
+                    _linkTile(
+                      context: context,
+                      icon: Icons.fork_right,
+                      iconColor: Colors.white38,
+                      label: 'Moonlight Android (upstream)',
+                      url: AboutScreen._moonlightUrl,
+                    ),
+
+                    _section(_tr(context, 'Links', 'Enlaces')),
+                    _linkTile(
+                      context: context,
+                      icon: Icons.code,
+                      iconColor: context.read<ThemeProvider>().accentLight,
+                      label: _tr(
+                        context,
+                        'Source Code (GitHub)',
+                        'Código fuente (GitHub)',
+                      ),
+                      url: AboutScreen._repoUrl,
+                    ),
+
+                    _section(_tr(context, 'License', 'Licencia')),
+                    _creditTile(
+                      icon: Icons.gavel,
+                      iconColor: Colors.white54,
+                      title: _tr(
+                        context,
+                        'This project is open source',
+                        'Este proyecto es open source',
+                      ),
+                      subtitle: 'GNU General Public License v3.0',
+                    ),
+                    _linkTile(
+                      context: context,
+                      icon: Icons.open_in_new,
+                      iconColor: Colors.white38,
+                      label: _tr(
+                        context,
+                        'Read the full license',
+                        'Leer la licencia completa',
+                      ),
+                      subtitle: 'gnu.org/licenses/gpl-3.0',
+                      url: AboutScreen._licenseUrl,
+                    ),
+                  ],
+                ),
+              ),
             ),
-          ),
-          body: ListView(
-            controller: _scrollController,
-            padding: const EdgeInsets.only(top: 0, bottom: 48),
-            children: [
-              _buildHeroHeader(context),
-              const SizedBox(height: 8),
-
-              if (io.Platform.isAndroid) _buildUpdatePanel(context),
-
-              _section(l.credits),
-              _creditTile(
-                icon: Icons.code,
-                iconColor: context.read<ThemeProvider>().accentLight,
-                title: l.developedBy,
-                subtitle: 'Vizctas',
-              ),
-              _creditTile(
-                icon: Icons.fork_right,
-                iconColor: const Color(0xFF0F3460),
-                title: l.basedOn,
-                subtitle: 'ClassicOldSong (Artemis)',
-              ),
-              _linkTile(
-                context: context,
-                icon: Icons.fork_right,
-                iconColor: const Color(0xFF0F3460),
-                label: 'Artemis / moonlight-android',
-                url: AboutScreen._artemisUrl,
-              ),
-              _linkTile(
-                context: context,
-                icon: Icons.fork_right,
-                iconColor: Colors.white38,
-                label: 'Moonlight Android (upstream)',
-                url: AboutScreen._moonlightUrl,
-              ),
-
-              _section(_tr(context, 'Links', 'Enlaces')),
-              _linkTile(
-                context: context,
-                icon: Icons.code,
-                iconColor: context.read<ThemeProvider>().accentLight,
-                label: _tr(
-                  context,
-                  'Source Code (GitHub)',
-                  'Código fuente (GitHub)',
-                ),
-                url: AboutScreen._repoUrl,
-              ),
-
-              _section(_tr(context, 'License', 'Licencia')),
-              _creditTile(
-                icon: Icons.gavel,
-                iconColor: Colors.white54,
-                title: _tr(
-                  context,
-                  'This project is open source',
-                  'Este proyecto es open source',
-                ),
-                subtitle: 'GNU General Public License v3.0',
-              ),
-              _linkTile(
-                context: context,
-                icon: Icons.open_in_new,
-                iconColor: Colors.white38,
-                label: _tr(
-                  context,
-                  'Read the full license',
-                  'Leer la licencia completa',
-                ),
-                subtitle: 'gnu.org/licenses/gpl-3.0',
-                url: AboutScreen._licenseUrl,
-              ),
-            ],
           ),
         ),
       ),
@@ -516,38 +546,50 @@ class _AboutScreenState extends State<AboutScreen> {
             ],
           ),
           const SizedBox(height: 20),
-          Focus(
-            autofocus: false,
-            onKeyEvent: (_, ev) {
-              if (ev is! KeyDownEvent) return KeyEventResult.ignored;
-              if (ev.logicalKey == LogicalKeyboardKey.enter ||
-                  ev.logicalKey == LogicalKeyboardKey.select ||
-                  ev.logicalKey == LogicalKeyboardKey.gameButtonA) {
-                _launch(context, AboutScreen._kofiUrl);
-                return KeyEventResult.handled;
-              }
-              return KeyEventResult.ignored;
+          Actions(
+            actions: <Type, Action<Intent>>{
+              ActivateIntent: CallbackAction<ActivateIntent>(
+                onInvoke: (_) {
+                  _launch(context, AboutScreen._kofiUrl);
+                  return null;
+                },
+              ),
             },
-            child: Builder(
-              builder: (ctx) {
-                final focused = Focus.of(ctx).hasFocus;
-                return GestureDetector(
-                  onTap: () => _launch(context, AboutScreen._kofiUrl),
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 150),
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(8),
-                      boxShadow: focused
-                          ? [
-                              BoxShadow(
-                                color: const Color(
-                                  0xFF29abe0,
-                                ).withValues(alpha: 0.6),
-                                blurRadius: 16,
-                                spreadRadius: 4,
-                              ),
-                            ]
-                          : [],
+            child: Focus(
+              autofocus: false,
+              onFocusChange: (focused) {
+                if (focused) _scrollToTop();
+              },
+              onKeyEvent: (_, ev) {
+                if (ev is! KeyDownEvent) return KeyEventResult.ignored;
+                if (ev.logicalKey == LogicalKeyboardKey.enter ||
+                    ev.logicalKey == LogicalKeyboardKey.select ||
+                    ev.logicalKey == LogicalKeyboardKey.gameButtonA) {
+                  _launch(context, AboutScreen._kofiUrl);
+                  return KeyEventResult.handled;
+                }
+                return KeyEventResult.ignored;
+              },
+              child: Builder(
+                builder: (ctx) {
+                  final focused = Focus.of(ctx).hasFocus;
+                  return GestureDetector(
+                    onTap: () => _launch(context, AboutScreen._kofiUrl),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 150),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(8),
+                        boxShadow: focused
+                            ? [
+                                BoxShadow(
+                                  color: const Color(
+                                    0xFF29abe0,
+                                  ).withValues(alpha: 0.6),
+                                  blurRadius: 16,
+                                  spreadRadius: 4,
+                                ),
+                              ]
+                            : [],
                       border: focused
                           ? Border.all(color: Colors.white, width: 2)
                           : null,
@@ -576,6 +618,7 @@ class _AboutScreenState extends State<AboutScreen> {
                   ),
                 );
               },
+            ),
             ),
           ),
         ],
@@ -825,58 +868,75 @@ class _LinkTileState extends State<_LinkTile> {
 
   @override
   Widget build(BuildContext context) {
-    return Focus(
-      onFocusChange: (f) {
-        setState(() => _focused = f);
-        if (f) {
-          Scrollable.ensureVisible(
-            context,
-            alignment: 0.15,
-            duration: const Duration(milliseconds: 200),
-          );
-        }
-      },
-      onKeyEvent: (_, event) {
-        if (event is! KeyDownEvent) return KeyEventResult.ignored;
-        if (event.logicalKey == LogicalKeyboardKey.enter ||
-            event.logicalKey == LogicalKeyboardKey.gameButtonA) {
-          widget.onLaunch(widget.url);
-          return KeyEventResult.handled;
-        }
-        return KeyEventResult.ignored;
-      },
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        decoration: BoxDecoration(
-          color: _focused
-              ? Colors.white.withValues(alpha: 0.08)
-              : Colors.transparent,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(
-            color: _focused
-                ? context.read<ThemeProvider>().accentLight
-                : Colors.transparent,
-            width: _focused ? 1.5 : 1.0,
-          ),
+    return Actions(
+      actions: <Type, Action<Intent>>{
+        ActivateIntent: CallbackAction<ActivateIntent>(
+          onInvoke: (_) {
+            widget.onLaunch(widget.url);
+            return null;
+          },
         ),
-        child: ListTile(
-          leading: Icon(widget.icon, color: widget.iconColor),
-          title: Text(
-            widget.label,
-            style: const TextStyle(color: Colors.white),
+      },
+      child: Focus(
+        onFocusChange: (f) {
+          setState(() => _focused = f);
+          if (f) {
+            Scrollable.ensureVisible(
+              context,
+              alignment: 0.15,
+              duration: const Duration(milliseconds: 200),
+            );
+          }
+        },
+        onKeyEvent: (_, event) {
+          if (event is! KeyDownEvent) return KeyEventResult.ignored;
+          if (event.logicalKey == LogicalKeyboardKey.enter ||
+              event.logicalKey == LogicalKeyboardKey.select ||
+              event.logicalKey == LogicalKeyboardKey.gameButtonA) {
+            widget.onLaunch(widget.url);
+            return KeyEventResult.handled;
+          }
+          return KeyEventResult.ignored;
+        },
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          decoration: BoxDecoration(
+            color: _focused
+                ? Colors.white.withValues(alpha: 0.08)
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: _focused
+                  ? context.read<ThemeProvider>().accentLight
+                  : Colors.transparent,
+              width: _focused ? 1.5 : 1.0,
+            ),
           ),
-          subtitle: widget.subtitle != null
-              ? Text(
-                  widget.subtitle!,
-                  style: const TextStyle(color: Colors.white54, fontSize: 12),
-                )
-              : null,
-          trailing: const Icon(
-            Icons.open_in_new,
-            color: Colors.white38,
-            size: 18,
+          child: Material(
+            type: MaterialType.transparency,
+            child: ListTile(
+              leading: Icon(widget.icon, color: widget.iconColor),
+              title: Text(
+                widget.label,
+                style: const TextStyle(color: Colors.white),
+              ),
+              subtitle: widget.subtitle != null
+                  ? Text(
+                      widget.subtitle!,
+                      style: const TextStyle(
+                        color: Colors.white54,
+                        fontSize: 12,
+                      ),
+                    )
+                  : null,
+              trailing: const Icon(
+                Icons.open_in_new,
+                color: Colors.white38,
+                size: 18,
+              ),
+              onTap: () => widget.onLaunch(widget.url),
+            ),
           ),
-          onTap: () => widget.onLaunch(widget.url),
         ),
       ),
     );
@@ -936,26 +996,36 @@ class _HeroLinkChipState extends State<_HeroLinkChip> {
 
   @override
   Widget build(BuildContext context) {
-    return Focus(
-      onFocusChange: (focused) {
-        setState(() => _focused = focused);
-        if (focused) {
-          Scrollable.ensureVisible(
-            context,
-            alignment: 0.05,
-            duration: const Duration(milliseconds: 200),
-          );
-        }
+    return Actions(
+      actions: <Type, Action<Intent>>{
+        ActivateIntent: CallbackAction<ActivateIntent>(
+          onInvoke: (_) {
+            widget.onLaunch(widget.url);
+            return null;
+          },
+        ),
       },
-      onKeyEvent: (_, event) {
-        if (event is! KeyDownEvent) return KeyEventResult.ignored;
-        if (event.logicalKey == LogicalKeyboardKey.enter ||
-            event.logicalKey == LogicalKeyboardKey.gameButtonA) {
-          widget.onLaunch(widget.url);
-          return KeyEventResult.handled;
-        }
-        return KeyEventResult.ignored;
-      },
+      child: Focus(
+        onFocusChange: (focused) {
+          setState(() => _focused = focused);
+          if (focused) {
+            Scrollable.ensureVisible(
+              context,
+              alignment: 0.0,
+              duration: const Duration(milliseconds: 200),
+            );
+          }
+        },
+        onKeyEvent: (_, event) {
+          if (event is! KeyDownEvent) return KeyEventResult.ignored;
+          if (event.logicalKey == LogicalKeyboardKey.enter ||
+              event.logicalKey == LogicalKeyboardKey.select ||
+              event.logicalKey == LogicalKeyboardKey.gameButtonA) {
+            widget.onLaunch(widget.url);
+            return KeyEventResult.handled;
+          }
+          return KeyEventResult.ignored;
+        },
       child: GestureDetector(
         onTap: () => widget.onLaunch(widget.url),
         child: AnimatedContainer(
@@ -987,6 +1057,7 @@ class _HeroLinkChipState extends State<_HeroLinkChip> {
             ],
           ),
         ),
+      ),
       ),
     );
   }
@@ -1030,7 +1101,10 @@ class _FocusableStaticTileState extends State<_FocusableStaticTile> {
             width: _focused ? 1.5 : 1.0,
           ),
         ),
-        child: widget.child,
+        child: Material(
+          type: MaterialType.transparency,
+          child: widget.child,
+        ),
       ),
     );
   }

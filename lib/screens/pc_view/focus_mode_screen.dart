@@ -2240,10 +2240,40 @@ class _ParticlePainter extends CustomPainter {
       oldDelegate.particles != particles;
 }
 
-class _FocusModeMenuDialog extends StatelessWidget {
+@visibleForTesting
+Widget buildFocusModeMenuDialogForTest(BuildContext parentContext) =>
+    _FocusModeMenuDialog(parentContext: parentContext);
+
+class _FocusModeMenuDialog extends StatefulWidget {
   final BuildContext parentContext;
 
   const _FocusModeMenuDialog({required this.parentContext});
+
+  @override
+  State<_FocusModeMenuDialog> createState() => _FocusModeMenuDialogState();
+}
+
+class _FocusModeMenuDialogState extends State<_FocusModeMenuDialog> {
+  late final List<FocusNode> _tileNodes = List.generate(
+    3,
+    (i) => FocusNode(debugLabel: 'focus_menu_tile_$i'),
+  );
+
+  @override
+  void dispose() {
+    for (final node in _tileNodes) {
+      node.dispose();
+    }
+    super.dispose();
+  }
+
+  void _moveSelection(int delta) {
+    final currentIdx = _tileNodes.indexWhere((n) => n.hasFocus);
+    final nextIdx = currentIdx < 0
+        ? (delta >= 0 ? 0 : _tileNodes.length - 1)
+        : (currentIdx + delta + _tileNodes.length) % _tileNodes.length;
+    _tileNodes[nextIdx].requestFocus();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -2257,108 +2287,137 @@ class _FocusModeMenuDialog extends StatelessWidget {
         : (size.width - 36).clamp(300.0, 332.0).toDouble();
 
     return Center(
-      child: FocusTraversalGroup(
-        policy: OrderedTraversalPolicy(),
-        child: Focus(
-          onKeyEvent: (_, event) {
-            if (event is! KeyDownEvent) return KeyEventResult.ignored;
-            final key = event.logicalKey;
-            if (key == LogicalKeyboardKey.gameButtonB ||
-                key == LogicalKeyboardKey.escape ||
-                key == LogicalKeyboardKey.goBack) {
+      child: Actions(
+        actions: <Type, Action<Intent>>{
+          DismissIntent: CallbackAction<DismissIntent>(
+            onInvoke: (_) {
               Navigator.pop(context);
-              return KeyEventResult.handled;
-            }
-            return KeyEventResult.ignored;
-          },
-          child: Material(
-            color: Colors.transparent,
-            child: ConstrainedBox(
-              constraints: BoxConstraints(maxWidth: dialogWidth),
-              child: Container(
-                margin: EdgeInsets.symmetric(
-                  horizontal: compact ? 12 : 18,
-                  vertical: compact ? 10 : 14,
-                ),
-                decoration: BoxDecoration(
-                  color: tp.surface,
-                  borderRadius: BorderRadius.circular(24),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(
-                        alpha: isLight ? 0.22 : 0.48,
-                      ),
-                      blurRadius: 24,
-                      spreadRadius: 1,
-                      offset: const Offset(0, 8),
+              return null;
+            },
+          ),
+        },
+        child: FocusScope(
+          autofocus: true,
+          child: FocusTraversalGroup(
+            policy: OrderedTraversalPolicy(),
+            child: Focus(
+              skipTraversal: true,
+              canRequestFocus: false,
+              onKeyEvent: (_, event) {
+                if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
+                  return KeyEventResult.ignored;
+                }
+                final key = event.logicalKey;
+                if (key == LogicalKeyboardKey.arrowDown) {
+                  _moveSelection(1);
+                  return KeyEventResult.handled;
+                }
+                if (key == LogicalKeyboardKey.arrowUp) {
+                  _moveSelection(-1);
+                  return KeyEventResult.handled;
+                }
+                if (event is KeyDownEvent &&
+                    (key == LogicalKeyboardKey.gameButtonB ||
+                        key == LogicalKeyboardKey.escape ||
+                        key == LogicalKeyboardKey.goBack)) {
+                  Navigator.pop(context);
+                  return KeyEventResult.handled;
+                }
+                return KeyEventResult.ignored;
+              },
+              child: Material(
+                color: Colors.transparent,
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(maxWidth: dialogWidth),
+                  child: Container(
+                    margin: EdgeInsets.symmetric(
+                      horizontal: compact ? 12 : 18,
+                      vertical: compact ? 10 : 14,
                     ),
-                  ],
-                ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(24),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      SizedBox(height: compact ? 14 : 18),
-                      _FocusMenuTile(
-                        order: 0,
-                        autofocus: true,
-                        icon: Icons.grid_view_rounded,
-                        iconColor: tp.accent,
-                        label: l.focusModeDisabled,
-                        compact: compact,
-                        onTap: () async {
-                          Navigator.pop(context);
-                          await setFocusModeEnabled(false);
-                          if (parentContext.mounted) {
-                            Navigator.pushAndRemoveUntil(
-                              parentContext,
-                              MaterialPageRoute(
-                                builder: (_) => const PcViewScreen(),
-                              ),
-                              (_) => false,
-                            );
-                          }
-                        },
+                    decoration: BoxDecoration(
+                      color: tp.surface,
+                      borderRadius: BorderRadius.circular(24),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(
+                            alpha: isLight ? 0.22 : 0.48,
+                          ),
+                          blurRadius: 24,
+                          spreadRadius: 1,
+                          offset: const Offset(0, 8),
+                        ),
+                      ],
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(24),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          SizedBox(height: compact ? 14 : 18),
+                          _FocusMenuTile(
+                            order: 0,
+                            focusNode: _tileNodes[0],
+                            autofocus: true,
+                            icon: Icons.grid_view_rounded,
+                            iconColor: tp.accent,
+                            label: l.focusModeDisabled,
+                            compact: compact,
+                            onTap: () async {
+                              Navigator.pop(context);
+                              await setFocusModeEnabled(false);
+                              if (widget.parentContext.mounted) {
+                                Navigator.pushAndRemoveUntil(
+                                  widget.parentContext,
+                                  MaterialPageRoute(
+                                    builder: (_) => const PcViewScreen(),
+                                  ),
+                                  (_) => false,
+                                );
+                              }
+                            },
+                          ),
+                          _FocusMenuTile(
+                            order: 1,
+                            focusNode: _tileNodes[1],
+                            icon: Icons.person_rounded,
+                            iconColor: Colors.blueAccent,
+                            label: l.myProfile,
+                            compact: compact,
+                            onTap: () async {
+                              Navigator.pop(context);
+                              if (widget.parentContext.mounted) {
+                                await Navigator.push(
+                                  widget.parentContext,
+                                  MaterialPageRoute(
+                                    builder: (_) => const ProfileScreen(),
+                                  ),
+                                );
+                              }
+                            },
+                          ),
+                          _FocusMenuTile(
+                            order: 2,
+                            focusNode: _tileNodes[2],
+                            icon: Icons.info_outline_rounded,
+                            iconColor: Colors.tealAccent,
+                            label: l.aboutAndCredits,
+                            compact: compact,
+                            onTap: () async {
+                              Navigator.pop(context);
+                              if (widget.parentContext.mounted) {
+                                await Navigator.push(
+                                  widget.parentContext,
+                                  MaterialPageRoute(
+                                    builder: (_) => const AboutScreen(),
+                                  ),
+                                );
+                              }
+                            },
+                          ),
+                          SizedBox(height: compact ? 14 : 18),
+                        ],
                       ),
-                      _FocusMenuTile(
-                        order: 1,
-                        icon: Icons.person_rounded,
-                        iconColor: Colors.blueAccent,
-                        label: l.myProfile,
-                        compact: compact,
-                        onTap: () async {
-                          Navigator.pop(context);
-                          if (parentContext.mounted) {
-                            await Navigator.push(
-                              parentContext,
-                              MaterialPageRoute(
-                                builder: (_) => const ProfileScreen(),
-                              ),
-                            );
-                          }
-                        },
-                      ),
-                      _FocusMenuTile(
-                        order: 2,
-                        icon: Icons.info_outline_rounded,
-                        iconColor: Colors.tealAccent,
-                        label: l.aboutAndCredits,
-                        compact: compact,
-                        onTap: () async {
-                          Navigator.pop(context);
-                          if (parentContext.mounted) {
-                            await Navigator.push(
-                              parentContext,
-                              MaterialPageRoute(
-                                builder: (_) => const AboutScreen(),
-                              ),
-                            );
-                          }
-                        },
-                      ),
-                      SizedBox(height: compact ? 14 : 18),
-                    ],
+                    ),
                   ),
                 ),
               ),
@@ -2372,6 +2431,7 @@ class _FocusModeMenuDialog extends StatelessWidget {
 
 class _FocusMenuTile extends StatefulWidget {
   final int order;
+  final FocusNode? focusNode;
   final IconData icon;
   final Color iconColor;
   final String label;
@@ -2385,6 +2445,7 @@ class _FocusMenuTile extends StatefulWidget {
     required this.iconColor,
     required this.label,
     required this.onTap,
+    this.focusNode,
     this.compact = false,
     this.autofocus = false,
   });
@@ -2404,22 +2465,33 @@ class _FocusMenuTileState extends State<_FocusMenuTile> {
 
     return FocusTraversalOrder(
       order: NumericFocusOrder(widget.order.toDouble()),
-      child: Focus(
-        autofocus: widget.autofocus,
-        onFocusChange: (f) => setState(() => _focused = f),
-        onKeyEvent: (_, event) {
-          if (event is! KeyDownEvent) return KeyEventResult.ignored;
-          if (event.logicalKey == LogicalKeyboardKey.gameButtonA ||
-              event.logicalKey == LogicalKeyboardKey.enter ||
-              event.logicalKey == LogicalKeyboardKey.select) {
-            widget.onTap();
-            return KeyEventResult.handled;
-          }
-          return KeyEventResult.ignored;
+      child: Actions(
+        actions: <Type, Action<Intent>>{
+          ActivateIntent: CallbackAction<ActivateIntent>(
+            onInvoke: (_) {
+              widget.onTap();
+              return null;
+            },
+          ),
         },
-        child: GestureDetector(
-          onTap: widget.onTap,
-          behavior: HitTestBehavior.opaque,
+        child: Focus(
+          focusNode: widget.focusNode,
+          autofocus: widget.autofocus,
+          onFocusChange: (f) => setState(() => _focused = f),
+          onKeyEvent: (_, event) {
+            if (event is! KeyDownEvent) return KeyEventResult.ignored;
+            if (event.logicalKey == LogicalKeyboardKey.gameButtonA ||
+                event.logicalKey == LogicalKeyboardKey.enter ||
+                event.logicalKey == LogicalKeyboardKey.select ||
+                event.logicalKey == LogicalKeyboardKey.space) {
+              widget.onTap();
+              return KeyEventResult.handled;
+            }
+            return KeyEventResult.ignored;
+          },
+          child: GestureDetector(
+            onTap: widget.onTap,
+            behavior: HitTestBehavior.opaque,
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 140),
             margin: EdgeInsets.fromLTRB(16, 0, 16, compact ? 6 : 8),
@@ -2490,6 +2562,7 @@ class _FocusMenuTileState extends State<_FocusMenuTile> {
               ],
             ),
           ),
+        ),
         ),
       ),
     );

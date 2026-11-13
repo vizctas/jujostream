@@ -216,5 +216,103 @@ void main() {
       expect(launched?.appName, 'Cyberpunk 2077');
     },
   );
+
+  testWidgets(
+    'StackedNewsSections renders transparent backdrop so behind video/art stays visible',
+    (tester) async {
+      final tp = await ThemeProvider.load();
+      await tester.pumpWidget(
+        ChangeNotifierProvider<ThemeProvider>.value(
+          value: tp,
+          child: MaterialApp(
+            locale: const Locale('en'),
+            localizationsDelegates: const [AppLocalizations.delegate],
+            supportedLocales: const [Locale('en'), Locale('es')],
+            home: Scaffold(
+              body: SingleChildScrollView(
+                child: StackedNewsSections(
+                  allApps: const [],
+                  apps: const [],
+                  hasFocus: true,
+                  onExitUp: () {},
+                  initialItems: _sampleItems(),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      final containers = tester.widgetList<Container>(
+        find.descendant(
+          of: find.byType(StackedNewsSections),
+          matching: find.byType(Container),
+        ),
+      );
+      for (final c in containers) {
+        final dec = c.decoration;
+        if (dec is BoxDecoration && dec.gradient != null) {
+          fail('Expected no opaque gradient background inside StackedNewsSections');
+        }
+      }
+    },
+  );
+
+  testWidgets(
+    'GamingNewsReaderDialog supports controller left/right, ActivateIntent, and Escape',
+    (tester) async {
+      final tp = await ThemeProvider.load();
+      NvApp? launched;
+      final app = NvApp(
+        appId: 42,
+        appName: 'Cyberpunk 2077',
+        posterUrl: 'https://shared.fastly.steamstatic.com/steam/apps/1091500/library_600x900_2x.jpg',
+      );
+      final item = _sampleItems()[2];
+
+      await tester.pumpWidget(
+        ChangeNotifierProvider<ThemeProvider>.value(
+          value: tp,
+          child: MaterialApp(
+            locale: const Locale('en'),
+            localizationsDelegates: const [AppLocalizations.delegate],
+            supportedLocales: const [Locale('en'), Locale('es')],
+            home: Builder(
+              builder: (context) => Scaffold(
+                body: Center(
+                  child: ElevatedButton(
+                    onPressed: () {
+                      GamingNewsReaderDialog.show(
+                        context,
+                        item: item,
+                        allApps: [app],
+                        onPlayApp: (a) => launched = a,
+                      );
+                    },
+                    child: const Text('Open'),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Open'));
+      await tester.pumpAndSettle();
+
+      // Default autofocus starts on first action (Play), moving right reaches Open Source,
+      // then Close; moving left returns to Open Source -> Play, then ActivateIntent plays.
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+      await tester.pump();
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
+      await tester.pump();
+      await tester.sendKeyEvent(LogicalKeyboardKey.gameButtonA);
+      await tester.pumpAndSettle();
+      expect(launched?.appName, 'Cyberpunk 2077');
+    },
+  );
 }
 

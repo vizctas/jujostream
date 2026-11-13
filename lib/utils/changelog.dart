@@ -2,6 +2,18 @@
 /// version. Add an entry with every release bump (kAppVersion); a version with
 /// no entry simply shows nothing.
 const Map<String, ({List<String> es, List<String> en})> kChangelog = {
+  '1.1.40': (
+    es: [
+      'Más fuentes de noticias gaming, próximos lanzamientos y juegos gratis (Epic Games, Steam, CheapShark e IGN/GameSpot/Gematsu).',
+      'Secciones con fondo transparente para mantener visible el artwork o video preview del juego seleccionado.',
+      'Mejor navegación con mando dentro del lector de noticias, el menú de Modo Focus y la pantalla Acerca de.',
+    ],
+    en: [
+      'Expanded gaming news, upcoming releases, and free game sources (Epic Games, Steam, CheapShark, IGN/GameSpot/Gematsu).',
+      'Transparent shelf backdrop so selected game artwork or video preview remains visible.',
+      'Improved controller navigation in the news reader dialog, Focus Mode menu, and About screen.',
+    ],
+  ),
   '1.1.39': (
     es: [
       'Secciones apiladas de noticias, actualizaciones, eventos, parches y ofertas en todos los temas con lector integrado.',

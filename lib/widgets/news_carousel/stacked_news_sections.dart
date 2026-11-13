@@ -387,22 +387,8 @@ class StackedNewsSectionsState extends State<StackedNewsSections> {
     final tp = context.watch<ThemeProvider>();
     final sections = _visibleSections();
 
-    return Container(
-      width: double.infinity,
+    return Padding(
       padding: widget.padding,
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            Colors.black.withValues(alpha: 0.72),
-            tp.background.withValues(alpha: 0.96),
-          ],
-        ),
-        border: Border(
-          top: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
-        ),
-      ),
       child: _loading && sections.isEmpty
           ? _buildSkeletonSections(tp)
           : sections.isEmpty
@@ -479,20 +465,22 @@ class StackedNewsSectionsState extends State<StackedNewsSections> {
             Text(
               labels.title,
               style: TextStyle(
-                color: isRowActive ? Colors.white : Colors.white.withValues(alpha: 0.85),
+                color: isRowActive ? Colors.white : Colors.white.withValues(alpha: 0.88),
                 fontSize: 14,
                 fontWeight: FontWeight.w900,
                 letterSpacing: 1.2,
+                shadows: const [Shadow(color: Colors.black87, blurRadius: 8)],
               ),
             ),
             const SizedBox(width: 10),
             Text(
               labels.subtitle,
               style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.36),
+                color: Colors.white.withValues(alpha: 0.56),
                 fontSize: 11,
                 fontWeight: FontWeight.w600,
                 letterSpacing: 0.8,
+                shadows: const [Shadow(color: Colors.black87, blurRadius: 6)],
               ),
             ),
             const Spacer(),
@@ -642,7 +630,7 @@ class _SectionNewsCard extends StatelessWidget {
           width: spec.cardWidth,
           height: spec.cardHeight,
           decoration: BoxDecoration(
-            color: tp.surface,
+            color: tp.surface.withValues(alpha: focused ? 0.90 : 0.72),
             borderRadius: BorderRadius.circular(10),
             border: Border.all(
               color: focused

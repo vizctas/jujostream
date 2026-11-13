@@ -66,21 +66,37 @@ class GamingNewsReaderDialog extends StatefulWidget {
 }
 
 class _GamingNewsReaderDialogState extends State<GamingNewsReaderDialog> {
-  final FocusNode _focusNode = FocusNode(debugLabel: 'news_reader_dialog');
+  final ScrollController _scrollController = ScrollController();
+  final List<FocusNode> _actionNodes = [];
   int _selectedIdx = 0;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _focusNode.requestFocus();
+      if (mounted && _actionNodes.isNotEmpty) {
+        _actionNodes.first.requestFocus();
+      }
     });
   }
 
   @override
   void dispose() {
-    _focusNode.dispose();
+    _scrollController.dispose();
+    for (final node in _actionNodes) {
+      node.dispose();
+    }
     super.dispose();
+  }
+
+  void _syncActionNodes(int count) {
+    while (_actionNodes.length < count) {
+      final idx = _actionNodes.length;
+      _actionNodes.add(FocusNode(debugLabel: 'news_reader_action_$idx'));
+    }
+    while (_actionNodes.length > count) {
+      _actionNodes.removeLast().dispose();
+    }
   }
 
   NvApp? get _linkedApp {
@@ -145,6 +161,44 @@ class _GamingNewsReaderDialogState extends State<GamingNewsReaderDialog> {
     if (!TvDetector.instance.isTV) HapticFeedback.lightImpact();
   }
 
+  void _moveSelection(int delta, List<_ReaderAction> actions) {
+    if (actions.isEmpty) return;
+    final current = _selectedIdx.clamp(0, actions.length - 1);
+    final next = (current + delta).clamp(0, actions.length - 1);
+    if (next == current && _actionNodes[next].hasFocus) return;
+    _navFeedback();
+    setState(() => _selectedIdx = next);
+    _actionNodes[next].requestFocus();
+    final ctx = _actionNodes[next].context;
+    if (ctx != null) {
+      unawaited(
+        Scrollable.ensureVisible(
+          ctx,
+          alignment: 0.85,
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOutCubic,
+        ),
+      );
+    }
+  }
+
+  bool _scrollBody(double delta) {
+    if (!_scrollController.hasClients) return false;
+    final pos = _scrollController.position;
+    if (pos.maxScrollExtent <= 0) return false;
+    final target = (pos.pixels + delta).clamp(0.0, pos.maxScrollExtent);
+    if ((target - pos.pixels).abs() < 0.5) return false;
+    _navFeedback();
+    unawaited(
+      _scrollController.animateTo(
+        target,
+        duration: const Duration(milliseconds: 160),
+        curve: Curves.easeOutCubic,
+      ),
+    );
+    return true;
+  }
+
   KeyEventResult _handleKey(
     FocusNode node,
     KeyEvent event,
@@ -162,22 +216,29 @@ class _GamingNewsReaderDialogState extends State<GamingNewsReaderDialog> {
       return KeyEventResult.handled;
     }
     if (key == LogicalKeyboardKey.arrowLeft && actions.isNotEmpty) {
-      _navFeedback();
-      setState(
-        () => _selectedIdx = (_selectedIdx - 1).clamp(0, actions.length - 1),
-      );
+      _moveSelection(-1, actions);
       return KeyEventResult.handled;
     }
     if (key == LogicalKeyboardKey.arrowRight && actions.isNotEmpty) {
-      _navFeedback();
-      setState(
-        () => _selectedIdx = (_selectedIdx + 1).clamp(0, actions.length - 1),
-      );
+      _moveSelection(1, actions);
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.arrowDown) {
+      if (!_scrollBody(120) && actions.isNotEmpty) {
+        _moveSelection(1, actions);
+      }
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.arrowUp) {
+      if (!_scrollBody(-120) && actions.isNotEmpty) {
+        _moveSelection(-1, actions);
+      }
       return KeyEventResult.handled;
     }
     if ((key == LogicalKeyboardKey.gameButtonA ||
             key == LogicalKeyboardKey.enter ||
-            key == LogicalKeyboardKey.select) &&
+            key == LogicalKeyboardKey.select ||
+            key == LogicalKeyboardKey.space) &&
         actions.isNotEmpty) {
       UiSoundService.playClick();
       actions[_selectedIdx.clamp(0, actions.length - 1)].onActivate();
@@ -191,29 +252,44 @@ class _GamingNewsReaderDialogState extends State<GamingNewsReaderDialog> {
     final tp = context.watch<ThemeProvider>();
     final l = AppLocalizations.of(context);
     final actions = _buildActions(l);
+    _syncActionNodes(actions.length);
     final safeIdx = actions.isEmpty ? 0 : _selectedIdx.clamp(0, actions.length - 1);
 
-    return Focus(
-      focusNode: _focusNode,
-      autofocus: true,
-      onKeyEvent: (n, e) => _handleKey(n, e, actions),
-      child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 640, maxHeight: 560),
-          child: Material(
-            color: tp.surface,
-            borderRadius: BorderRadius.circular(18),
-            clipBehavior: Clip.antiAlias,
-            elevation: 24,
-            child: Container(
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(18),
-                border: Border.all(
-                  color: Colors.white.withValues(alpha: 0.10),
-                ),
-              ),
-              child: SingleChildScrollView(
-                child: Column(
+    return Actions(
+      actions: <Type, Action<Intent>>{
+        DismissIntent: CallbackAction<DismissIntent>(
+          onInvoke: (_) {
+            _navFeedback();
+            Navigator.pop(context);
+            return null;
+          },
+        ),
+      },
+      child: FocusScope(
+        autofocus: true,
+        child: FocusTraversalGroup(
+          policy: OrderedTraversalPolicy(),
+          child: Focus(
+            skipTraversal: true,
+            onKeyEvent: (n, e) => _handleKey(n, e, actions),
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 640, maxHeight: 560),
+                child: Material(
+                  color: tp.surface,
+                  borderRadius: BorderRadius.circular(18),
+                  clipBehavior: Clip.antiAlias,
+                  elevation: 24,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.10),
+                      ),
+                    ),
+                    child: SingleChildScrollView(
+                      controller: _scrollController,
+                      child: Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
@@ -320,6 +396,8 @@ class _GamingNewsReaderDialogState extends State<GamingNewsReaderDialog> {
                               for (int i = 0; i < actions.length; i++)
                                 _buildActionButton(
                                   actions[i],
+                                  index: i,
+                                  focusNode: _actionNodes[i],
                                   focused: i == safeIdx,
                                   tp: tp,
                                   onSelect: () => setState(() => _selectedIdx = i),
@@ -335,12 +413,17 @@ class _GamingNewsReaderDialogState extends State<GamingNewsReaderDialog> {
             ),
           ),
         ),
+            ),
+          ),
+        ),
       ),
     );
   }
 
   Widget _buildActionButton(
     _ReaderAction action, {
+    required int index,
+    required FocusNode focusNode,
     required bool focused,
     required ThemeProvider tp,
     required VoidCallback onSelect,
@@ -350,38 +433,62 @@ class _GamingNewsReaderDialogState extends State<GamingNewsReaderDialog> {
         : action.primary
         ? tp.accent.withValues(alpha: 0.35)
         : Colors.white.withValues(alpha: 0.08);
-    return GestureDetector(
-      onTap: () {
-        onSelect();
-        action.onActivate();
-      },
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 140),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-        decoration: BoxDecoration(
-          color: bg,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(
-            color: focused
-                ? Colors.white.withValues(alpha: 0.85)
-                : Colors.white.withValues(alpha: 0.14),
-            width: focused ? 1.5 : 1,
+    return FocusTraversalOrder(
+      order: NumericFocusOrder(index.toDouble()),
+      child: Actions(
+        actions: <Type, Action<Intent>>{
+          ActivateIntent: CallbackAction<ActivateIntent>(
+            onInvoke: (_) {
+              onSelect();
+              UiSoundService.playClick();
+              action.onActivate();
+              return null;
+            },
           ),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(action.icon, color: Colors.white, size: 17),
-            const SizedBox(width: 7),
-            Text(
-              action.label,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 12.5,
-                fontWeight: FontWeight.w700,
+        },
+        child: Focus(
+          focusNode: focusNode,
+          autofocus: index == 0,
+          onFocusChange: (hasFocus) {
+            if (hasFocus && mounted) {
+              setState(() => _selectedIdx = index);
+            }
+          },
+          child: GestureDetector(
+            onTap: () {
+              onSelect();
+              action.onActivate();
+            },
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 140),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              decoration: BoxDecoration(
+                color: bg,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                  color: focused
+                      ? Colors.white.withValues(alpha: 0.85)
+                      : Colors.white.withValues(alpha: 0.14),
+                  width: focused ? 1.5 : 1,
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(action.icon, color: Colors.white, size: 17),
+                  const SizedBox(width: 7),
+                  Text(
+                    action.label,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
               ),
             ),
-          ],
+          ),
         ),
       ),
     );

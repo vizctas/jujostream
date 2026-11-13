@@ -12,8 +12,18 @@ class GamingNewsService {
   static final Uri _dealsUri = Uri.https(
     'www.cheapshark.com',
     '/api/1.0/deals',
-    {'sortBy': 'Deal Rating', 'pageSize': '20', 'onSale': '1'},
+    {'sortBy': 'Deal Rating', 'pageSize': '25', 'onSale': '1'},
   );
+  static const List<int> _fallbackPopularSteamAppIds = [
+    730,
+    570,
+    1245620,
+    1091500,
+    553850,
+    1086940,
+    1172470,
+    2694490,
+  ];
   static final Uri _giveawaysUri = Uri.https(
     'www.gamerpower.com',
     '/api/giveaways',
@@ -49,16 +59,18 @@ class GamingNewsService {
           .map((app) => app.steamAppId)
           .whereType<int>()
           .where((id) => id > 0),
-    }.take(8).toList(growable: false);
+      ..._fallbackPopularSteamAppIds,
+    }.take(12).toList(growable: false);
 
     final results = await Future.wait([
       OpenGamingFeedsProvider.fetchOpenRssNews(client: client),
       OpenGamingFeedsProvider.fetchSteamFeatured(client: client),
+      OpenGamingFeedsProvider.fetchEpicFreeGames(client: client),
       fetchDeals(client: client),
       fetchGiveaways(client: client),
       fetchSteamNewsForApps(steamAppIds: ids, client: client),
     ]);
-    return combineDashboardItems(results, maxPerType: 12, maxTotal: 48);
+    return combineDashboardItems(results, maxPerType: 18, maxTotal: 75);
   }
 
   static List<GamingNewsItem> combineDashboardItems(
@@ -264,15 +276,21 @@ class GamingNewsService {
     final salePrice = json['salePrice']?.toString().trim();
     final normalPrice = json['normalPrice']?.toString().trim();
     final savings = double.tryParse(json['savings']?.toString() ?? '');
-    final savingsLabel = savings == null ? null : '${savings.round()}% OFF';
+    final isFree = salePrice == '0.00' || (savings != null && savings >= 99.5);
+    final savingsLabel = isFree
+        ? 'FREE · 100% OFF'
+        : savings == null
+        ? null
+        : '${savings.round()}% OFF';
     final thumb = json['thumb']?.toString().trim();
     final steamAppId = int.tryParse(json['steamAppID']?.toString() ?? '');
 
-    final subtitle =
-        salePrice != null &&
-            salePrice.isNotEmpty &&
-            normalPrice != null &&
-            normalPrice.isNotEmpty
+    final subtitle = isFree && normalPrice != null && normalPrice.isNotEmpty
+        ? 'FREE  -  was \$$normalPrice'
+        : salePrice != null &&
+              salePrice.isNotEmpty &&
+              normalPrice != null &&
+              normalPrice.isNotEmpty
         ? '\$$salePrice  -  was \$$normalPrice'
         : 'Discount available';
 

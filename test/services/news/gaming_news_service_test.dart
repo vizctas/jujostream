@@ -365,6 +365,160 @@ void main() {
         expect(items.last.subtitle, r'$1.99  -  was $9.99');
       },
     );
+
+    test(
+      'OpenGamingFeedsProvider.parseSteamFeaturedJson includes coming soon and 100% free items',
+      () {
+        final items = OpenGamingFeedsProvider.parseSteamFeaturedJson({
+          'specials': {
+            'items': [
+              {
+                'id': 730,
+                'name': 'Free Weekend Drop',
+                'discount_percent': 100,
+                'final_price': 0,
+                'original_price': 1499,
+                'currency': 'USD',
+              },
+            ],
+          },
+          'coming_soon': {
+            'items': [
+              {
+                'id': 553850,
+                'name': 'Upcoming Expansion',
+                'large_capsule_image': 'https://example.com/upcoming.jpg',
+              },
+            ],
+          },
+        });
+
+        expect(items, hasLength(2));
+        expect(items.first.type, GamingNewsType.update);
+        expect(items.first.dateLabel, 'STEAM · COMING SOON');
+        expect(items.first.relatedAppId, 553850);
+        expect(items.last.type, GamingNewsType.recommended);
+        expect(items.last.dateLabel, 'STEAM · FREE');
+        expect(items.last.subtitle, r'FREE  -  was $14.99');
+      },
+    );
+
+    test(
+      'OpenGamingFeedsProvider.parseEpicFreeGamesJson extracts current and upcoming free games',
+      () {
+        final now = DateTime.now().toUtc();
+        final activeStart = now
+            .subtract(const Duration(days: 1))
+            .toIso8601String();
+        final activeEnd = now.add(const Duration(days: 5)).toIso8601String();
+        final nextStart = now.add(const Duration(days: 5)).toIso8601String();
+        final nextEnd = now.add(const Duration(days: 12)).toIso8601String();
+
+        final items = OpenGamingFeedsProvider.parseEpicFreeGamesJson({
+          'data': {
+            'Catalog': {
+              'searchStore': {
+                'elements': [
+                  {
+                    'id': 'epic-1',
+                    'title': 'Control Ultimate Edition',
+                    'description': 'Claim it free this week on Epic Games.',
+                    'productSlug': 'control',
+                    'price': {
+                      'totalPrice': {'discountPrice': 0},
+                    },
+                    'keyImages': [
+                      {
+                        'type': 'OfferImageWide',
+                        'url': 'https://example.com/control.jpg',
+                      },
+                    ],
+                    'promotions': {
+                      'promotionalOffers': [
+                        {
+                          'promotionalOffers': [
+                            {
+                              'startDate': activeStart,
+                              'endDate': activeEnd,
+                              'discountSetting': {'discountPercentage': 0},
+                            },
+                          ],
+                        },
+                      ],
+                    },
+                  },
+                  {
+                    'id': 'epic-2',
+                    'title': 'Alan Wake Remastered',
+                    'description': 'Next week free mystery giveaway.',
+                    'urlSlug': 'alan-wake-remastered',
+                    'keyImages': [
+                      {
+                        'type': 'Thumbnail',
+                        'url': 'https://example.com/alan.jpg',
+                      },
+                    ],
+                    'promotions': {
+                      'upcomingPromotionalOffers': [
+                        {
+                          'promotionalOffers': [
+                            {
+                              'startDate': nextStart,
+                              'endDate': nextEnd,
+                              'discountSetting': {'discountPercentage': 0},
+                            },
+                          ],
+                        },
+                      ],
+                    },
+                  },
+                ],
+              },
+            },
+          },
+        });
+
+        expect(items, hasLength(2));
+        expect(items.first.type, GamingNewsType.event);
+        expect(items.first.dateLabel, 'EPIC GAMES · FREE NOW');
+        expect(
+          items.first.sourceUrl,
+          'https://store.epicgames.com/en-US/p/control',
+        );
+        expect(items.last.type, GamingNewsType.event);
+        expect(items.last.dateLabel, 'EPIC GAMES · UPCOMING FREE');
+        expect(
+          items.last.sourceUrl,
+          'https://store.epicgames.com/en-US/p/alan-wake-remastered',
+        );
+      },
+    );
+
+    test(
+      'fetchDeals formats 100% CheapShark discounts as FREE · 100% OFF',
+      () async {
+        final client = _FakeClient(
+          http.Response(
+            jsonEncode([
+              {
+                'dealID': 'free123',
+                'title': 'Mystery Freebie',
+                'salePrice': '0.00',
+                'normalPrice': '19.99',
+                'savings': '100.0',
+              },
+            ]),
+            200,
+          ),
+        );
+
+        final items = await GamingNewsService.fetchDeals(client: client);
+
+        expect(items, hasLength(1));
+        expect(items.single.dateLabel, 'CHEAPSHARK - FREE · 100% OFF');
+        expect(items.single.subtitle, r'FREE  -  was $19.99');
+      },
+    );
   });
 }
 
