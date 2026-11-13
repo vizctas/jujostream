@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io' show HandshakeException;
 import 'dart:math';
 import 'package:flutter/foundation.dart' show visibleForTesting;
@@ -264,6 +265,19 @@ class NvHttpClient {
       'ServerAbrActive',
     )?.toLowerCase();
     computer.serverAbrActive = serverAbr == 'true' || serverAbr == '1';
+    final watchdogSupported = extractXmlValue(
+      xmlBody,
+      'WatchdogSupported',
+    )?.toLowerCase();
+    computer.watchdogSupported =
+        watchdogSupported == '1' || watchdogSupported == 'true';
+    final watchdogEnabled = extractXmlValue(
+      xmlBody,
+      'WatchdogEnabled',
+    )?.toLowerCase();
+    computer.watchdogEnabled = watchdogEnabled == null
+        ? true
+        : (watchdogEnabled == '1' || watchdogEnabled == 'true');
     final codecValue =
         extractXmlValue(xmlBody, 'ServerCodecModeSupport') ??
         extractXmlValue(xmlBody, 'serverCodecModeSupport') ??
@@ -669,6 +683,12 @@ class NvHttpClient {
               .get(Uri.parse(url))
               .timeout(const Duration(seconds: 10));
 
+          if (response.statusCode == 410) {
+            return LaunchResult.gameClosedOnHost(
+              'The game was closed on the host',
+            );
+          }
+
           if (response.statusCode != 200) {
             if (_isTransientStatus(response.statusCode) &&
                 attempt < _maxLaunchRetries) {
@@ -680,7 +700,25 @@ class NvHttpClient {
 
           final resumeStatus = extractXmlValue(response.body, 'resume') ?? '0';
           if (resumeStatus == '0') {
-            return LaunchResult.fail('Resume rejected (resume=0)');
+            final xmlStatusCode =
+                _extractRootAttribute(response.body, 'status_code');
+            final xmlStatusMsg =
+                _extractRootAttribute(response.body, 'status_message');
+            final gameClosed = extractXmlValue(response.body, 'GameClosed');
+            if (gameClosed == '1' ||
+                xmlStatusCode == '410' ||
+                xmlStatusMsg.toLowerCase().contains('no running app to resume')) {
+              return LaunchResult.gameClosedOnHost(
+                xmlStatusMsg.isNotEmpty
+                    ? xmlStatusMsg
+                    : 'The game was closed on the host',
+              );
+            }
+            return LaunchResult.fail(
+              xmlStatusMsg.isNotEmpty
+                  ? xmlStatusMsg
+                  : 'Resume rejected (resume=0)',
+            );
           }
 
           final serverRiKey =
@@ -899,6 +937,65 @@ class NvHttpClient {
     return match?.group(1)?.trim() ?? '';
   }
 
+  Future<WatchdogStatus?> fetchWatchdogStatus(
+    String address, {
+    int port = defaultHttpsPort,
+    String? expectedServerCert,
+    Duration timeout = const Duration(seconds: 2),
+  }) async {
+    final resolvedAddress = await _resolveAddress(address);
+    final url = '${_baseUrl(resolvedAddress, port)}/watchdog-status';
+    final client = _newHttpsClient(expectedServerCert);
+    try {
+      final response = await client.get(Uri.parse(url)).timeout(timeout);
+      if (response.statusCode != 200 || response.body.isEmpty) {
+        return null;
+      }
+      final decoded = jsonDecode(response.body);
+      if (decoded is Map<String, dynamic>) {
+        return WatchdogStatus.fromJson(decoded);
+      }
+    } catch (e) {
+      _log.d('Watchdog status unavailable (fail-open): $e');
+    } finally {
+      client.close();
+    }
+    return null;
+  }
+
+  Future<WatchdogStatus?> cleanupWatchdog(
+    String address,
+    List<String> targets, {
+    int port = defaultHttpsPort,
+    String? expectedServerCert,
+    Duration timeout = const Duration(seconds: 4),
+  }) async {
+    final resolvedAddress = await _resolveAddress(address);
+    final url = '${_baseUrl(resolvedAddress, port)}/watchdog-cleanup';
+    final client = _newHttpsClient(expectedServerCert);
+    try {
+      final response = await client
+          .post(
+            Uri.parse(url),
+            headers: const {'Content-Type': 'application/json'},
+            body: jsonEncode({'targets': targets}),
+          )
+          .timeout(timeout);
+      if (response.statusCode != 200 || response.body.isEmpty) {
+        return null;
+      }
+      final decoded = jsonDecode(response.body);
+      if (decoded is Map<String, dynamic>) {
+        return WatchdogStatus.fromJson(decoded);
+      }
+    } catch (e) {
+      _log.w('Watchdog cleanup failed (fail-open): $e');
+    } finally {
+      client.close();
+    }
+    return null;
+  }
+
   void dispose() {
     _httpClient.close();
   }
@@ -910,6 +1007,7 @@ class LaunchResult {
   final int riKeyId;
   final String? sessionUrl;
   final String error;
+  final bool sessionClosedOnHost;
   final int readinessVersion;
   final bool readinessRequired;
   final String readinessToken;
@@ -922,6 +1020,7 @@ class LaunchResult {
     this.riKeyId = 0,
     this.sessionUrl,
     this.error = '',
+    this.sessionClosedOnHost = false,
     this.readinessVersion = 0,
     this.readinessRequired = false,
     this.readinessToken = '',
@@ -952,6 +1051,14 @@ class LaunchResult {
 
   factory LaunchResult.fail(String error) =>
       LaunchResult._(success: false, error: error);
+
+  factory LaunchResult.gameClosedOnHost([
+    String error = 'The game was closed on the host',
+  ]) => LaunchResult._(
+    success: false,
+    error: error,
+    sessionClosedOnHost: true,
+  );
 }
 
 class GameLaunchState {
@@ -989,4 +1096,98 @@ class GameLaunchState {
     statusCode: statusCode,
     error: error,
   );
+}
+
+class WatchdogCandidate {
+  final String id;
+  final String name;
+  final String category;
+  final bool recommended;
+  final int processCount;
+  final int ramBytes;
+  final double cpuPercent;
+
+  const WatchdogCandidate({
+    required this.id,
+    required this.name,
+    required this.category,
+    required this.recommended,
+    required this.processCount,
+    required this.ramBytes,
+    required this.cpuPercent,
+  });
+
+  factory WatchdogCandidate.fromJson(Map<String, dynamic> json) {
+    return WatchdogCandidate(
+      id: (json['id'] as String?) ?? '',
+      name: (json['name'] as String?) ?? '',
+      category: (json['category'] as String?) ?? 'other',
+      recommended: (json['recommended'] as bool?) ?? false,
+      processCount: (json['processCount'] as num?)?.toInt() ?? 1,
+      ramBytes: (json['ramBytes'] as num?)?.toInt() ?? 0,
+      cpuPercent: (json['cpuPercent'] as num?)?.toDouble() ?? 0,
+    );
+  }
+}
+
+class WatchdogStatus {
+  final bool supported;
+  final bool enabled;
+  final int sensitivity;
+  final bool ready;
+  final bool rawReady;
+  final bool cpuPressure;
+  final bool ramPressure;
+  final double cpuUsagePercent;
+  final double maxCpuPercent;
+  final int memoryLoadPercent;
+  final double maxMemoryLoadPercent;
+  final int totalRamBytes;
+  final int availRamBytes;
+  final int minAvailRamBytes;
+  final List<WatchdogCandidate> candidates;
+
+  const WatchdogStatus({
+    this.supported = false,
+    this.enabled = true,
+    this.sensitivity = 50,
+    this.ready = true,
+    this.rawReady = true,
+    this.cpuPressure = false,
+    this.ramPressure = false,
+    this.cpuUsagePercent = 0,
+    this.maxCpuPercent = 67.5,
+    this.memoryLoadPercent = 0,
+    this.maxMemoryLoadPercent = 83,
+    this.totalRamBytes = 0,
+    this.availRamBytes = 0,
+    this.minAvailRamBytes = 0,
+    this.candidates = const [],
+  });
+
+  factory WatchdogStatus.fromJson(Map<String, dynamic> json) {
+    final cpu = (json['cpu'] as Map<String, dynamic>?) ?? const {};
+    final mem = (json['memory'] as Map<String, dynamic>?) ?? const {};
+    final rawCandidates = (json['candidates'] as List?) ?? const [];
+    return WatchdogStatus(
+      supported: (json['supported'] as bool?) ?? false,
+      enabled: (json['enabled'] as bool?) ?? true,
+      sensitivity: (json['sensitivity'] as num?)?.toInt() ?? 50,
+      ready: (json['ready'] as bool?) ?? true,
+      rawReady: (json['rawReady'] as bool?) ?? true,
+      cpuPressure: (json['cpuPressure'] as bool?) ?? false,
+      ramPressure: (json['ramPressure'] as bool?) ?? false,
+      cpuUsagePercent: (cpu['usagePercent'] as num?)?.toDouble() ?? 0,
+      maxCpuPercent: (cpu['maxPercent'] as num?)?.toDouble() ?? 67.5,
+      memoryLoadPercent: (mem['loadPercent'] as num?)?.toInt() ?? 0,
+      maxMemoryLoadPercent: (mem['maxLoadPercent'] as num?)?.toDouble() ?? 83,
+      totalRamBytes: (mem['totalBytes'] as num?)?.toInt() ?? 0,
+      availRamBytes: (mem['availBytes'] as num?)?.toInt() ?? 0,
+      minAvailRamBytes: (mem['minAvailBytes'] as num?)?.toInt() ?? 0,
+      candidates: [
+        for (final item in rawCandidates)
+          if (item is Map<String, dynamic>) WatchdogCandidate.fromJson(item),
+      ],
+    );
+  }
 }

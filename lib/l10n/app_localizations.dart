@@ -295,6 +295,57 @@ class AppLocalizations {
     },
     'starting': {'en': 'Starting…', 'es': 'Iniciando…'},
     'launchFailed': {'en': 'Launch failed', 'es': 'Error al iniciar'},
+    'watchdogTitle': {'en': 'Server Watchdog', 'es': 'Server Watchdog'},
+    'watchdogToggleTitle': {
+      'en': 'Pre-launch Server Watchdog check',
+      'es': 'Validación previa Server Watchdog',
+    },
+    'watchdogToggleSubtitle': {
+      'en':
+          'Check host CPU and RAM headroom before starting a game and offer to close heavy background apps',
+      'es':
+          'Verifica CPU y RAM disponible en el servidor antes de iniciar y ofrece cerrar apps de alto consumo',
+    },
+    'watchdogPressureTitle': {
+      'en': 'Host resources under heavy load',
+      'es': 'Servidor con alto consumo de recursos',
+    },
+    'watchdogPressureBody': {
+      'en':
+          'Closing safe heavy background apps frees CPU and RAM without affecting your stream or OS.',
+      'es':
+          'Cerrar aplicaciones de segundo plano libera CPU y RAM sin afectar el streaming ni el servidor.',
+    },
+    'watchdogCloseAndLaunch': {
+      'en': 'Close & Launch',
+      'es': 'Cerrar e iniciar',
+    },
+    'watchdogClosingAndLaunching': {
+      'en': 'Closing apps…',
+      'es': 'Cerrando apps…',
+    },
+    'watchdogLaunchAnyway': {
+      'en': 'Launch Anyway',
+      'es': 'Iniciar igual',
+    },
+    'watchdogNoClosableApps': {
+      'en': 'No safe heavy background apps were found to close.',
+      'es': 'No se detectaron aplicaciones seguras de alto consumo para cerrar.',
+    },
+    'sessionClosedOnHostTitle': {
+      'en': 'Game closed on host',
+      'es': 'Juego cerrado en el servidor',
+    },
+    'sessionClosedOnHostBody': {
+      'en':
+          'The game was closed and the stream cannot resume. Do you want to start a new session?',
+      'es':
+          'El juego fue cerrado y no puede iniciar el stream. ¿Quieres iniciar una sesión nueva?',
+    },
+    'startNewSession': {
+      'en': 'Start new session',
+      'es': 'Iniciar sesión nueva',
+    },
     'clear': {'en': 'Clear', 'es': 'Limpiar'},
     'apply': {'en': 'Apply', 'es': 'Aplicar'},
     'skip': {'en': 'Skip', 'es': 'Saltar'},
@@ -1238,6 +1289,18 @@ class AppLocalizations {
   String get updatingMetadata => _s('updatingMetadata');
   String get starting => _s('starting');
   String get launchFailed => _s('launchFailed');
+  String get watchdogTitle => _s('watchdogTitle');
+  String get watchdogToggleTitle => _s('watchdogToggleTitle');
+  String get watchdogToggleSubtitle => _s('watchdogToggleSubtitle');
+  String get watchdogPressureTitle => _s('watchdogPressureTitle');
+  String get watchdogPressureBody => _s('watchdogPressureBody');
+  String get watchdogCloseAndLaunch => _s('watchdogCloseAndLaunch');
+  String get watchdogClosingAndLaunching => _s('watchdogClosingAndLaunching');
+  String get watchdogLaunchAnyway => _s('watchdogLaunchAnyway');
+  String get watchdogNoClosableApps => _s('watchdogNoClosableApps');
+  String get sessionClosedOnHostTitle => _s('sessionClosedOnHostTitle');
+  String get sessionClosedOnHostBody => _s('sessionClosedOnHostBody');
+  String get startNewSession => _s('startNewSession');
   String get clear => _s('clear');
   String get apply => _s('apply');
   String get skip => _s('skip');

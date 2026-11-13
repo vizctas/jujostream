@@ -2,6 +2,16 @@
 /// version. Add an entry with every release bump (kAppVersion); a version with
 /// no entry simply shows nothing.
 const Map<String, ({List<String> es, List<String> en})> kChangelog = {
+  '1.1.41': (
+    es: [
+      'Server Watchdog (Jujo Labs): valida CPU y RAM del servidor antes de iniciar y ofrece cerrar apps pesadas de segundo plano sin afectar el stream.',
+      'Recuperación de sesión: detecta cuando un juego pausado fue cerrado en el servidor y permite iniciar una sesión nueva con un clic.',
+    ],
+    en: [
+      'Server Watchdog (Jujo Labs): checks host CPU and RAM headroom before launch and offers to close heavy background apps without impacting the stream.',
+      'Session recovery: detects when a paused game was closed on the host and lets you start a fresh session right away.',
+    ],
+  ),
   '1.1.40': (
     es: [
       'Más fuentes de noticias gaming, próximos lanzamientos y juegos gratis (Epic Games, Steam, CheapShark e IGN/GameSpot/Gematsu).',

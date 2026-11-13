@@ -21,7 +21,8 @@ import '../services/notifications/notification_service.dart';
 import '../services/sync/cloud_sync_service.dart';
 import 'plugins_provider.dart';
 
-export '../services/http_api/nv_http_client.dart' show LaunchResult;
+export '../services/http_api/nv_http_client.dart'
+    show LaunchResult, WatchdogCandidate, WatchdogStatus;
 export '../services/http_api/vibepollo_cfg_client.dart'
     show PlayniteCategory, PlayniteStatus;
 
@@ -1088,6 +1089,7 @@ class AppListProvider extends ChangeNotifier {
   Future<LaunchResult> launchApp(
     NvApp app, {
     required StreamConfiguration streamConfig,
+    bool forceNewSession = false,
   }) async {
     if (_currentComputer == null) {
       return LaunchResult.fail('No computer selected');
@@ -1101,11 +1103,17 @@ class AppListProvider extends ChangeNotifier {
         ? _currentComputer!.httpsPort
         : NvHttpClient.defaultHttpsPort;
 
+    if (forceNewSession) {
+      clearRunningAppState();
+    }
+
     NvApp? runningApp;
-    for (final a in _apps) {
-      if (a.isRunning) {
-        runningApp = a;
-        break;
+    if (!forceNewSession) {
+      for (final a in _apps) {
+        if (a.isRunning) {
+          runningApp = a;
+          break;
+        }
       }
     }
 
@@ -1196,6 +1204,47 @@ class AppListProvider extends ChangeNotifier {
     await Future.delayed(const Duration(milliseconds: 500));
     await refresh();
     return result;
+  }
+
+  /// Clears cached running state when the host reports the game has closed.
+  void clearRunningAppState() {
+    _apps = _apps
+        .map((a) => a.isRunning ? a.copyWith(isRunning: false) : a)
+        .toList(growable: false);
+    _currentComputer?.runningGameId = 0;
+    if (!_disposed) notifyListeners();
+  }
+
+  Future<WatchdogStatus?> fetchWatchdogStatus() async {
+    final host = _hostEndpoint();
+    if (host == null) return null;
+    return _httpClient.fetchWatchdogStatus(
+      host.address,
+      port: host.port,
+      expectedServerCert: _currentComputer!.serverCert,
+    );
+  }
+
+  Future<WatchdogStatus?> cleanupWatchdog(List<String> targets) async {
+    final host = _hostEndpoint();
+    if (host == null) return null;
+    return _httpClient.cleanupWatchdog(
+      host.address,
+      targets,
+      port: host.port,
+      expectedServerCert: _currentComputer!.serverCert,
+    );
+  }
+
+  ({String address, int port})? _hostEndpoint() {
+    if (_currentComputer == null) return null;
+    final address = _currentComputer!.activeAddress.isNotEmpty
+        ? _currentComputer!.activeAddress
+        : _currentComputer!.localAddress;
+    final httpsPort = _currentComputer!.httpsPort > 0
+        ? _currentComputer!.httpsPort
+        : NvHttpClient.defaultHttpsPort;
+    return (address: address, port: httpsPort);
   }
 
   Future<GameLaunchState> getGameLaunchState(

@@ -1463,6 +1463,14 @@ class _SettingsScreenState extends State<SettingsScreen>
                                   ? _tr(context, 'Off', 'Desactivado')
                                   : '${v.toInt()}s',
                             ),
+                          _toggle(
+                            AppLocalizations.of(context).watchdogToggleTitle,
+                            AppLocalizations.of(context).watchdogToggleSubtitle,
+                            c.enableWatchdogCheck,
+                            (v) => settings.updateConfig(
+                              c.copyWith(enableWatchdogCheck: v),
+                            ),
+                          ),
 
                           _choiceTile(
                             context,

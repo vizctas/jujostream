@@ -30,6 +30,7 @@ import '../../services/preferences/hidden_apps_store.dart';
 import '../../services/preferences/launcher_preferences.dart';
 import 'app_details_screen.dart';
 import 'app_view_presentation_settings_screen.dart';
+import 'watchdog_dialogs.dart';
 import '../../services/audio/ui_sound_service.dart';
 import '../../services/input/gamepad_button_helper.dart';
 import '../../services/database/app_override_service.dart';
@@ -2780,7 +2781,7 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
     if (mounted) _startAutoRefreshTimer();
   }
 
-  void _launchApp(NvApp app) async {
+  void _launchApp(NvApp app, {bool forceNewSession = false}) async {
     // before navigation to stream screen. This prevents poster downloads
     unawaited(AchievementService.instance.unlock('first_launch'));
 
@@ -2826,6 +2827,49 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
       effectiveConfig = effectiveConfig
           .resolveMatchDisplay(displayWidth, displayHeight)
           .resolveAspectRatio(displayWidth, displayHeight);
+    }
+
+    final hasOtherRunningApp =
+        !forceNewSession &&
+        provider.apps.any((a) => a.isRunning && a.appId != app.appId);
+    final isResumingSameApp =
+        !forceNewSession &&
+        provider.apps.any((a) => a.isRunning && a.appId == app.appId);
+    if (!hasOtherRunningApp &&
+        !isResumingSameApp &&
+        effectiveConfig.enableWatchdogCheck &&
+        widget.computer.watchdogSupported &&
+        widget.computer.watchdogEnabled) {
+      final watchdog = await provider.fetchWatchdogStatus();
+      if (!mounted) {
+        _abortPendingLaunch();
+        return;
+      }
+      if (watchdog != null && !watchdog.ready) {
+        final decision = await showWatchdogPreLaunchDialog(
+          context: context,
+          status: watchdog,
+          surface: _tp.surface,
+          accent: _tp.accent,
+        );
+        if (!mounted) {
+          _abortPendingLaunch();
+          return;
+        }
+        if (decision == null ||
+            decision.outcome == WatchdogDialogOutcome.cancel) {
+          _abortPendingLaunch();
+          return;
+        }
+        if (decision.outcome == WatchdogDialogOutcome.closeAndLaunch &&
+            decision.selectedIds.isNotEmpty) {
+          await provider.cleanupWatchdog(decision.selectedIds);
+          if (!mounted) {
+            _abortPendingLaunch();
+            return;
+          }
+        }
+      }
     }
 
     var startingOverlayVisible = false;
@@ -2935,7 +2979,11 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
 
     LaunchResult launch;
     try {
-      launch = await provider.launchApp(app, streamConfig: effectiveConfig);
+      launch = await provider.launchApp(
+        app,
+        streamConfig: effectiveConfig,
+        forceNewSession: forceNewSession,
+      );
     } catch (error) {
       if (mounted && startingOverlayVisible) {
         Navigator.of(context, rootNavigator: true).pop();
@@ -2962,6 +3010,20 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
     }
 
     if (!launch.success) {
+      if (launch.sessionClosedOnHost && !forceNewSession) {
+        provider.clearRunningAppState();
+        _abortPendingLaunch();
+        final startNew = await showGameClosedOnHostDialog(
+          context: context,
+          surface: _tp.surface,
+          accent: _tp.accent,
+        );
+        if (!mounted) return;
+        if (startNew) {
+          _launchApp(app, forceNewSession: true);
+        }
+        return;
+      }
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(

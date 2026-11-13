@@ -75,6 +75,7 @@ class StreamConfiguration {
 
   final bool dynamicBitrateEnabled;
   final int dynamicBitrateSensitivity;
+  final bool enableWatchdogCheck;
 
   final bool hapticOverlay;
   final bool streamNotification;
@@ -239,6 +240,7 @@ class StreamConfiguration {
     this.metricsDismissSec = 20,
     this.dynamicBitrateEnabled = false,
     this.dynamicBitrateSensitivity = 2,
+    this.enableWatchdogCheck = true,
     this.hapticOverlay = true,
     this.streamNotification = true,
     this.screenshotEnabled = true,
@@ -328,6 +330,7 @@ class StreamConfiguration {
     int? metricsDismissSec,
     bool? dynamicBitrateEnabled,
     int? dynamicBitrateSensitivity,
+    bool? enableWatchdogCheck,
     bool? hapticOverlay,
     bool? streamNotification,
     bool? screenshotEnabled,
@@ -425,6 +428,7 @@ class StreamConfiguration {
           dynamicBitrateEnabled ?? this.dynamicBitrateEnabled,
       dynamicBitrateSensitivity:
           dynamicBitrateSensitivity ?? this.dynamicBitrateSensitivity,
+      enableWatchdogCheck: enableWatchdogCheck ?? this.enableWatchdogCheck,
       hapticOverlay: hapticOverlay ?? this.hapticOverlay,
       streamNotification: streamNotification ?? this.streamNotification,
       screenshotEnabled: screenshotEnabled ?? this.screenshotEnabled,
@@ -520,6 +524,7 @@ class StreamConfiguration {
     'metricsDismissSec': metricsDismissSec,
     'dynamicBitrateEnabled': dynamicBitrateEnabled,
     'dynamicBitrateSensitivity': dynamicBitrateSensitivity,
+    'enableWatchdogCheck': enableWatchdogCheck,
     'hapticOverlay': hapticOverlay,
     'streamNotification': streamNotification,
     'screenshotEnabled': screenshotEnabled,
@@ -661,6 +666,7 @@ class StreamConfiguration {
       metricsDismissSec: json['metricsDismissSec'] ?? 20,
       dynamicBitrateEnabled: json['dynamicBitrateEnabled'] ?? false,
       dynamicBitrateSensitivity: json['dynamicBitrateSensitivity'] ?? 2,
+      enableWatchdogCheck: json['enableWatchdogCheck'] ?? true,
       hapticOverlay: json['hapticOverlay'] ?? true,
       streamNotification: json['streamNotification'] ?? true,
       screenshotEnabled: json['screenshotEnabled'] ?? true,

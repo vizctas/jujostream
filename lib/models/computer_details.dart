@@ -20,6 +20,8 @@ class ComputerDetails {
   String gpuName;
   String encoderName;
   bool serverAbrActive;
+  bool watchdogSupported;
+  bool watchdogEnabled;
   bool pairStatusFromHttps = false;
   bool isCloud = false;
 
@@ -45,6 +47,8 @@ class ComputerDetails {
     this.gpuName = '',
     this.encoderName = '',
     this.serverAbrActive = false,
+    this.watchdogSupported = false,
+    this.watchdogEnabled = true,
     this.isCloud = false,
   });
 
@@ -69,6 +73,8 @@ class ComputerDetails {
     'gpuName': gpuName,
     'encoderName': encoderName,
     'serverAbrActive': serverAbrActive,
+    'watchdogSupported': watchdogSupported,
+    'watchdogEnabled': watchdogEnabled,
     'isCloud': isCloud,
   };
 
@@ -109,6 +115,8 @@ class ComputerDetails {
       gpuName: json['gpuName'] ?? '',
       encoderName: json['encoderName'] ?? '',
       serverAbrActive: json['serverAbrActive'] ?? false,
+      watchdogSupported: json['watchdogSupported'] ?? false,
+      watchdogEnabled: json['watchdogEnabled'] ?? true,
       isCloud: json['isCloud'] ?? false,
     );
   }
