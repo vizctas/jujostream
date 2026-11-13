@@ -2,16 +2,22 @@
 /// version. Add an entry with every release bump (kAppVersion); a version with
 /// no entry simply shows nothing.
 const Map<String, ({List<String> es, List<String> en})> kChangelog = {
-  '1.1.38': (
+  '1.1.39': (
     es: [
-      'Opciones globales y overrides independientes por servidor.',
       'Secciones apiladas de noticias, actualizaciones, eventos, parches y ofertas en todos los temas con lector integrado.',
       'Barra de categorías limpia y centrada en Classic.',
     ],
     en: [
-      'Global options with independent per-server overrides.',
       'Stacked gaming news, updates, events, patch notes, and deals shelves across all themes with a built-in reader.',
       'Clean centered category strip in Classic mode.',
+    ],
+  ),
+  '1.1.38': (
+    es: [
+      'Opciones globales y overrides independientes por servidor.',
+    ],
+    en: [
+      'Global options with independent per-server overrides.',
     ],
   ),
   '1.1.35': (
