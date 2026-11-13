@@ -979,6 +979,54 @@ class AppLocalizations {
       'en': 'Options Profile',
       'es': 'Perfil de opciones',
     },
+    'openArticleSource': {
+      'en': 'Open Source',
+      'es': 'Abrir fuente',
+    },
+    'newsEmptyState': {
+      'en': 'No live gaming updates available right now.',
+      'es': 'No hay novedades de gaming disponibles ahora.',
+    },
+    'newsSectionNewsTitle': {
+      'en': 'GAMING NEWS',
+      'es': 'NOTICIAS GAMING',
+    },
+    'newsSectionNewsSub': {
+      'en': 'HEADLINES & PRESS',
+      'es': 'TITULARES Y PRENSA',
+    },
+    'newsSectionUpdatesTitle': {
+      'en': 'UPDATES & RELEASES',
+      'es': 'ACTUALIZACIONES Y LANZAMIENTOS',
+    },
+    'newsSectionUpdatesSub': {
+      'en': 'LIBRARY & STEAM SPOTLIGHT',
+      'es': 'BIBLIOTECA Y DESTACADOS STEAM',
+    },
+    'newsSectionEventsTitle': {
+      'en': 'EVENTS & GIVEAWAYS',
+      'es': 'EVENTOS Y REGALOS',
+    },
+    'newsSectionEventsSub': {
+      'en': 'LIVE DROPS & FREEBIES',
+      'es': 'DROPS Y GRATIS',
+    },
+    'newsSectionPatchesTitle': {
+      'en': 'PATCH NOTES',
+      'es': 'NOTAS DE PARCHE',
+    },
+    'newsSectionPatchesSub': {
+      'en': 'HOTFIXES & CHANGELOGS',
+      'es': 'CORRECCIONES Y CAMBIOS',
+    },
+    'newsSectionDealsTitle': {
+      'en': 'DEALS & RECOMMENDED',
+      'es': 'OFERTAS Y RECOMENDADOS',
+    },
+    'newsSectionDealsSub': {
+      'en': 'SPECIAL OFFERS',
+      'es': 'OFERTAS ESPECIALES',
+    },
   };
 
   String _s(String key) {
@@ -1485,6 +1533,18 @@ class AppLocalizations {
   String get serverOverrideBadgeCustom => _s('serverOverrideBadgeCustom');
   String get serverOverrideBadgeGlobal => _s('serverOverrideBadgeGlobal');
   String get serverConfigScopeLabel => _s('serverConfigScopeLabel');
+  String get openArticleSource => _s('openArticleSource');
+  String get newsEmptyState => _s('newsEmptyState');
+  String get newsSectionNewsTitle => _s('newsSectionNewsTitle');
+  String get newsSectionNewsSub => _s('newsSectionNewsSub');
+  String get newsSectionUpdatesTitle => _s('newsSectionUpdatesTitle');
+  String get newsSectionUpdatesSub => _s('newsSectionUpdatesSub');
+  String get newsSectionEventsTitle => _s('newsSectionEventsTitle');
+  String get newsSectionEventsSub => _s('newsSectionEventsSub');
+  String get newsSectionPatchesTitle => _s('newsSectionPatchesTitle');
+  String get newsSectionPatchesSub => _s('newsSectionPatchesSub');
+  String get newsSectionDealsTitle => _s('newsSectionDealsTitle');
+  String get newsSectionDealsSub => _s('newsSectionDealsSub');
   String unlockedOf(int unlocked, int total) =>
       '$unlocked / $total ${_s('unlockedCount')}';
   String completedPercentLabel(double pct) =>

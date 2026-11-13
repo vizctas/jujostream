@@ -436,15 +436,7 @@ mixin _AppViewGridMixin on _AppViewScreenBase {
         _buildTransparentAppBar(apps),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12),
-          child: Row(
-            children: [
-              _hintChip('LT', ''),
-              const SizedBox(width: 4),
-              Expanded(
-                child: _buildCategoryBar(apps, insertRtAfterFavorites: true),
-              ),
-            ],
-          ),
+          child: _buildCategoryBar(apps),
         ),
         const SizedBox(height: 4),
         Expanded(

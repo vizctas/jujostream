@@ -10,7 +10,7 @@ import '../../providers/theme_provider.dart';
 import '../../ui/motion_scope.dart';
 import '../../services/audio/ui_sound_service.dart';
 import '../../services/input/gamepad_button_helper.dart';
-import '../../widgets/news_carousel/news_carousel_widget.dart';
+import '../../widgets/news_carousel/stacked_news_sections.dart';
 import '../../widgets/game_backdrop_art.dart';
 import '../../widgets/poster_image.dart';
 import '../../widgets/trailer_modal.dart';
@@ -89,7 +89,7 @@ class Ps5Theme extends LauncherTheme {
   }
 }
 
-enum _Ps5Area { icons, buttons, news }
+enum _Ps5Area { icons, news }
 
 class _Ps5Body extends StatefulWidget {
   final List<NvApp> apps;
@@ -137,14 +137,13 @@ class _Ps5Body extends StatefulWidget {
 class _Ps5BodyState extends State<_Ps5Body> {
   int _idx = 0;
   late ScrollController _iconSc;
+  final ScrollController _vSc = ScrollController();
   final FocusNode _fn = FocusNode(debugLabel: 'ps5');
-  final GlobalKey<NewsCarouselWidgetState> _newsKey = GlobalKey();
+  final GlobalKey<StackedNewsSectionsState> _sectionsKey =
+      GlobalKey<StackedNewsSectionsState>();
   _Ps5Area _area = _Ps5Area.icons;
   Timer? _bgDebounce;
   int? _bgAppId;
-  int _btnIdx = 0;
-  int _newsRotation = 0;
-  static const int _btnCount = 2;
 
   static const double _iconSize = 80;
   static const double _iconSelSize = 100;
@@ -173,6 +172,7 @@ class _Ps5BodyState extends State<_Ps5Body> {
   @override
   void dispose() {
     _iconSc.dispose();
+    _vSc.dispose();
     _fn.dispose();
     _bgDebounce?.cancel();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
@@ -290,15 +290,8 @@ class _Ps5BodyState extends State<_Ps5Body> {
     final k = e.logicalKey;
 
     if (_area == _Ps5Area.news) {
-      final consumed = _newsKey.currentState?.handleKeyEvent(k) ?? false;
+      final consumed = _sectionsKey.currentState?.handleKeyEvent(k) ?? false;
       if (consumed) return KeyEventResult.handled;
-      if (k == LogicalKeyboardKey.gameButtonB ||
-          k == LogicalKeyboardKey.escape ||
-          k == LogicalKeyboardKey.goBack) {
-        _tap();
-        setState(() => _area = _Ps5Area.icons);
-        return KeyEventResult.handled;
-      }
       return KeyEventResult.ignored;
     }
 
@@ -312,17 +305,13 @@ class _Ps5BodyState extends State<_Ps5Body> {
         return KeyEventResult.handled;
       }
       if (k == LogicalKeyboardKey.arrowUp) {
-        _tap();
-        _newsRotation++;
-        _newsKey.currentState?.resetFocus();
-        setState(() => _area = _Ps5Area.news);
         return KeyEventResult.handled;
       }
       if (k == LogicalKeyboardKey.arrowDown) {
         _tap();
-        setState(() {
-          _area = _Ps5Area.buttons;
-          _btnIdx = 0;
+        setState(() => _area = _Ps5Area.news);
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _sectionsKey.currentState?.enterFromTop();
         });
         return KeyEventResult.handled;
       }
@@ -382,70 +371,7 @@ class _Ps5BodyState extends State<_Ps5Body> {
       }
     }
 
-    if (_area == _Ps5Area.buttons) {
-      if (k == LogicalKeyboardKey.arrowUp ||
-          k == LogicalKeyboardKey.gameButtonB ||
-          k == LogicalKeyboardKey.escape ||
-          k == LogicalKeyboardKey.goBack) {
-        _tap();
-        setState(() => _area = _Ps5Area.icons);
-        return KeyEventResult.handled;
-      }
-      if (k == LogicalKeyboardKey.arrowLeft) {
-        setState(() => _btnIdx = (_btnIdx - 1).clamp(0, _btnCount - 1));
-        return KeyEventResult.handled;
-      }
-      if (k == LogicalKeyboardKey.arrowRight) {
-        setState(() => _btnIdx = (_btnIdx + 1).clamp(0, _btnCount - 1));
-        return KeyEventResult.handled;
-      }
-      if (k == LogicalKeyboardKey.gameButtonA ||
-          k == LogicalKeyboardKey.enter) {
-        _activateBtn();
-        return KeyEventResult.handled;
-      }
-
-      if (k == LogicalKeyboardKey.gameButtonX) {
-        _tap();
-        widget.onToggleView?.call();
-        return KeyEventResult.handled;
-      }
-      if (k == LogicalKeyboardKey.gameButtonY) {
-        _tap();
-        if (_sel != null) widget.onAppDetails(_sel!);
-        return KeyEventResult.handled;
-      }
-      if (k == LogicalKeyboardKey.gameButtonRight1) {
-        _tap();
-        if (_sel != null) _openTrailer(_sel!);
-        return KeyEventResult.handled;
-      }
-      if (k == LogicalKeyboardKey.gameButtonSelect) {
-        _tap();
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => AppViewPresentationSettingsScreen(
-              preferences: context.read<LauncherPreferences>(),
-            ),
-          ),
-        );
-        return KeyEventResult.handled;
-      }
-    }
     return KeyEventResult.ignored;
-  }
-
-  void _activateBtn() {
-    _tap();
-    final s = _sel;
-    if (s == null) return;
-    switch (_btnIdx) {
-      case 0:
-        widget.onAppSelected(s);
-      case 1:
-        _showMoreMenu(s);
-    }
   }
 
   @override
@@ -476,27 +402,25 @@ class _Ps5BodyState extends State<_Ps5Body> {
         },
         onVerticalDragEnd: (d) {
           final v = d.primaryVelocity ?? 0;
-          if (v > 300) {
-            if (_area == _Ps5Area.news) {
-              _tap();
-              setState(() => _area = _Ps5Area.icons);
-            } else if (_area == _Ps5Area.icons) {
-              _tap();
-              setState(() {
-                _area = _Ps5Area.buttons;
-                _btnIdx = 0;
-              });
-            }
-          } else if (v < -300) {
-            if (_area == _Ps5Area.buttons) {
-              _tap();
-              setState(() => _area = _Ps5Area.icons);
-            } else if (_area == _Ps5Area.icons) {
-              _tap();
-              _newsRotation++;
-              _newsKey.currentState?.resetFocus();
-              setState(() => _area = _Ps5Area.news);
-            }
+          if (v < -300 && _area == _Ps5Area.icons) {
+            _tap();
+            setState(() => _area = _Ps5Area.news);
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              _sectionsKey.currentState?.enterFromTop();
+            });
+          } else if (v > 300 &&
+              _area == _Ps5Area.news &&
+              _vSc.hasClients &&
+              _vSc.offset <= 24) {
+            _tap();
+            unawaited(
+              _vSc.animateTo(
+                0.0,
+                duration: const Duration(milliseconds: 260),
+                curve: Curves.easeOutCubic,
+              ),
+            );
+            setState(() => _area = _Ps5Area.icons);
           }
         },
         child: Stack(
@@ -555,40 +479,51 @@ class _Ps5BodyState extends State<_Ps5Body> {
               ),
             ),
 
-            if (_area == _Ps5Area.news)
-              Column(
-                key: const ValueKey('ps5_news'),
-                children: [
-                  Expanded(
-                    child: NewsCarouselWidget(
-                      key: _newsKey,
-                      allApps: widget.allApps,
-                      apps: widget.apps,
-                      visible: _area == _Ps5Area.news,
-                      hasFocus: _area == _Ps5Area.news,
-                      rotationSeed: _newsRotation,
-                      onDismiss: () {
-                        _tap();
-                        setState(() => _area = _Ps5Area.icons);
-                      },
-                    ),
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final vh = constraints.maxHeight;
+                return SingleChildScrollView(
+                  controller: _vSc,
+                  physics: const ClampingScrollPhysics(),
+                  child: Column(
+                    children: [
+                      SizedBox(
+                        height: vh,
+                        child: Column(
+                          children: [
+                            _buildStatusBar(tp, l),
+                            if (widget.apps.isEmpty)
+                              _buildEmpty(tp, l)
+                            else ...[
+                              _buildIconStrip(tp, s),
+                              const Spacer(),
+                              if (s != null) _buildBottomPanel(tp, s, l),
+                              if (context
+                                  .watch<LauncherPreferences>()
+                                  .showButtonHints)
+                                _buildHints(tp, s, l),
+                            ],
+                          ],
+                        ),
+                      ),
+                      StackedNewsSections(
+                        key: _sectionsKey,
+                        allApps: widget.allApps,
+                        apps: widget.apps,
+                        hasFocus: _area == _Ps5Area.news,
+                        parentScrollController: _vSc,
+                        onPlayApp: widget.onAppSelected,
+                        onAppDetails: widget.onAppDetails,
+                        onExitUp: () {
+                          _tap();
+                          setState(() => _area = _Ps5Area.icons);
+                        },
+                      ),
+                    ],
                   ),
-                ],
-              )
-            else
-              Column(
-                children: [
-                  _buildStatusBar(tp, l),
-                  if (widget.apps.isEmpty)
-                    _buildEmpty(tp, l)
-                  else ...[
-                    _buildIconStrip(tp, s),
-                    const Spacer(),
-                    if (s != null) _buildBottomPanel(tp, s, l),
-                    if (context.watch<LauncherPreferences>().showButtonHints) _buildHints(tp, s, l),
-                  ],
-                ],
-              ),
+                );
+              },
+            ),
           ],
         ),
       ),
@@ -904,7 +839,6 @@ class _Ps5BodyState extends State<_Ps5Body> {
   Widget _buildBottomPanel(ThemeProvider tp, NvApp s, AppLocalizations l) {
     final isFav = widget.favoriteIds.contains(s.appId.toString());
     final hasDesc = s.description != null && s.description!.isNotEmpty;
-    final inBtns = _area == _Ps5Area.buttons;
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(40, 0, 40, 4),
@@ -979,24 +913,13 @@ class _Ps5BodyState extends State<_Ps5Body> {
                                   vertical: 12,
                                 ),
                                 decoration: BoxDecoration(
-                                  color: inBtns && _btnIdx == 0
-                                      ? Colors.white
-                                      : Colors.white.withValues(alpha: 0.85),
+                                  color: Colors.white.withValues(alpha: 0.90),
                                   borderRadius: BorderRadius.circular(8),
                                   boxShadow: [
                                     BoxShadow(
-                                      color: Colors.black.withValues(
-                                        alpha: inBtns && _btnIdx == 0
-                                            ? 0.32
-                                            : 0.18,
-                                      ),
-                                      blurRadius: inBtns && _btnIdx == 0
-                                          ? 18
-                                          : 10,
-                                      offset: Offset(
-                                        0,
-                                        inBtns && _btnIdx == 0 ? 8 : 4,
-                                      ),
+                                      color: Colors.black.withValues(alpha: 0.22),
+                                      blurRadius: 12,
+                                      offset: const Offset(0, 5),
                                     ),
                                   ],
                                 ),
@@ -1031,9 +954,7 @@ class _Ps5BodyState extends State<_Ps5Body> {
                               width: 44,
                               height: 44,
                               decoration: BoxDecoration(
-                                color: inBtns && _btnIdx == 1
-                                    ? Colors.white.withValues(alpha: 0.25)
-                                    : Colors.white.withValues(alpha: 0.08),
+                                color: Colors.white.withValues(alpha: 0.08),
                                 borderRadius: BorderRadius.circular(8),
                                 border: Border.all(
                                   color: Colors.white.withValues(alpha: 0.12),

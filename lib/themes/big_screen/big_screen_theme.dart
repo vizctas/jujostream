@@ -6,7 +6,6 @@ import 'package:provider/provider.dart';
 import '../../services/preferences/launcher_preferences.dart';
 
 import '../../l10n/app_localizations.dart';
-import '../../models/gaming_news_item.dart';
 import '../../models/nv_app.dart';
 import '../../providers/theme_provider.dart';
 import '../../ui/motion_scope.dart';
@@ -15,8 +14,9 @@ import '../../services/audio/ui_sound_service.dart';
 import '../../services/input/gamepad_button_helper.dart';
 import '../../services/library/launcher_artwork_budget.dart';
 import '../../services/metadata/steam_video_client.dart';
-import '../../services/news/gaming_news_service.dart';
+import '../../services/tv/tv_detector.dart';
 import '../../widgets/game_backdrop_art.dart';
+import '../../widgets/news_carousel/stacked_news_sections.dart';
 import '../../widgets/poster_image.dart';
 import '../launcher_theme.dart';
 
@@ -74,7 +74,7 @@ class BigScreenTheme extends LauncherTheme {
   }
 }
 
-enum _BigScreenArea { carousel, tabs, news }
+enum _BigScreenArea { carousel, news }
 
 class _BigScreenBody extends StatefulWidget {
   final List<NvApp> apps;
@@ -122,7 +122,6 @@ class _BigScreenBodyState extends State<_BigScreenBody> {
   double _screenWidth = 1920;
   double get _selectedCardWidth => (_screenWidth * 0.292).clamp(360.0, 600.0);
   double get _posterCardWidth => (_screenWidth * 0.092).clamp(130.0, 190.0);
-  double get _newsCardWidth => (_screenWidth * 0.203).clamp(300.0, 420.0);
 
   late int _idx;
   final FocusNode _focusNode = FocusNode(debugLabel: 'big-screen-theme');
@@ -130,28 +129,15 @@ class _BigScreenBodyState extends State<_BigScreenBody> {
   final ScrollController _pageScrollController = ScrollController(
     initialScrollOffset: _headerHeight,
   );
-  final ScrollController _newsScrollController = ScrollController();
   final GlobalKey _carouselRowKey = GlobalKey();
-  final GlobalKey _newsTabsKey = GlobalKey();
-  final GlobalKey _newsCardsKey = GlobalKey();
+  final GlobalKey<StackedNewsSectionsState> _newsSectionsKey =
+      GlobalKey<StackedNewsSectionsState>();
   final SteamVideoClient _steamClient = const SteamVideoClient();
   final Map<int, String> _posterOverrides = <int, String>{};
   final Set<int> _posterLookups = <int>{};
   final Set<int> _failedPosterIds = <int>{};
   Timer? _selectionSyncDebounce;
   _BigScreenArea _area = _BigScreenArea.carousel;
-  GamingNewsType? _activeNewsType;
-  int _newsIndex = 0;
-  bool _newsLoading = true;
-  List<GamingNewsItem> _newsItems = const <GamingNewsItem>[];
-
-  static const List<(String, GamingNewsType?)> _newsTabs = [
-    ("WHAT'S NEW", null),
-    ('UPDATES', GamingNewsType.update),
-    ('EVENTS', GamingNewsType.event),
-    ('PATCHES', GamingNewsType.patch),
-    ('RECOMMENDED', GamingNewsType.recommended),
-  ];
 
   NvApp? get _selected => widget.apps.isNotEmpty
       ? widget.apps[_idx.clamp(0, widget.apps.length - 1)]
@@ -170,7 +156,6 @@ class _BigScreenBodyState extends State<_BigScreenBody> {
       _scrollGamesToSelection(animate: false);
       _schedulePageScroll(_BigScreenArea.carousel);
     });
-    _loadNews();
     _recoverMissingPosterArtwork();
   }
 
@@ -189,7 +174,6 @@ class _BigScreenBodyState extends State<_BigScreenBody> {
     _focusNode.dispose();
     _gameScrollController.dispose();
     _pageScrollController.dispose();
-    _newsScrollController.dispose();
     super.dispose();
   }
 
@@ -208,66 +192,6 @@ class _BigScreenBodyState extends State<_BigScreenBody> {
     } else {
       _gameScrollController.jumpTo(target);
     }
-  }
-
-  Future<void> _loadNews() async {
-    setState(() => _newsLoading = true);
-    final steamAppIds = await _steamAppIdsForNewsWithFallback();
-    if (!mounted) return;
-    final items = await GamingNewsService.fetchDashboardItems(
-      steamAppIds: steamAppIds,
-    );
-    if (!mounted) return;
-    setState(() {
-      _newsItems = items;
-      _newsLoading = false;
-    });
-  }
-
-  List<int> _directSteamAppIdsForNews() {
-    return widget.allApps
-        .followedBy(widget.apps)
-        .map((app) => app.steamAppId)
-        .whereType<int>()
-        .where((appId) => appId > 0)
-        .toSet()
-        .take(6)
-        .toList(growable: false);
-  }
-
-  Future<List<int>> _steamAppIdsForNewsWithFallback() async {
-    final ids = _directSteamAppIdsForNews().toSet();
-    if (ids.length >= 6) return ids.take(6).toList(growable: false);
-
-    final candidates = widget.allApps
-        .followedBy(widget.apps)
-        .where((app) => app.steamAppId == null && app.appName.trim().isNotEmpty)
-        .take(8)
-        .toList(growable: false);
-    final lookups = await Future.wait(
-      candidates.map(
-        (app) async =>
-            (app: app, result: await _steamClient.searchApp(app.appName)),
-      ),
-    );
-    final posterUpdates = <int, String>{};
-    for (final lookup in lookups) {
-      if (ids.length >= 6) break;
-      final app = lookup.app;
-      final result = lookup.result;
-      if (result == null) continue;
-      ids.add(result.appId);
-      final imageUrl = result.imageUrl;
-      if ((app.posterUrl == null || app.posterUrl!.isEmpty) &&
-          imageUrl != null &&
-          imageUrl.isNotEmpty) {
-        posterUpdates[app.appId] = imageUrl;
-      }
-    }
-    if (mounted && posterUpdates.isNotEmpty) {
-      setState(() => _posterOverrides.addAll(posterUpdates));
-    }
-    return ids.take(6).toList(growable: false);
   }
 
   Future<void> _recoverMissingPosterArtwork() async {
@@ -333,55 +257,24 @@ class _BigScreenBodyState extends State<_BigScreenBody> {
     _selectIndex((_idx + delta).clamp(0, widget.apps.length - 1));
   }
 
-  void _moveNews(int delta) {
-    final items = GamingNewsService.filterByType(_newsItems, _activeNewsType);
-    if (items.isEmpty) return;
-    final next = (_newsIndex + delta).clamp(0, items.length - 1);
-    if (next == _newsIndex) return;
-    UiSoundService.playClick();
-    HapticFeedback.lightImpact();
-    setState(() => _newsIndex = next);
-    if (_newsScrollController.hasClients) {
-      final pos = _newsScrollController.position;
-      final target =
-          (next * (_newsCardWidth + 16.0) -
-                  (pos.viewportDimension - _newsCardWidth) / 2)
-              .clamp(0.0, pos.maxScrollExtent);
-      _newsScrollController.animateTo(
-        target,
-        duration: MotionScope.read(context).focusDuration,
-        curve: MotionScope.read(context).standardCurve,
-      );
-    }
-  }
-
-  void _moveTab(int delta) {
-    final current = _newsTabs.indexWhere((tab) => tab.$2 == _activeNewsType);
-    final next = (current + delta).clamp(0, _newsTabs.length - 1);
-    if (next == current) return;
-    UiSoundService.playClick();
-    HapticFeedback.lightImpact();
-    setState(() {
-      _activeNewsType = _newsTabs[next].$2;
-      _newsIndex = 0;
-    });
-  }
-
   void _setArea(_BigScreenArea area) {
     if (_area != area) {
       setState(() => _area = area);
     }
-    _schedulePageScroll(area);
+    if (area == _BigScreenArea.news) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _newsSectionsKey.currentState?.enterFromTop();
+      });
+    } else {
+      _schedulePageScroll(area);
+    }
   }
 
   void _schedulePageScroll(_BigScreenArea area) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      final ctx = switch (area) {
-        _BigScreenArea.carousel => _carouselRowKey.currentContext,
-        _BigScreenArea.tabs => _newsTabsKey.currentContext,
-        _BigScreenArea.news => _newsCardsKey.currentContext,
-      };
+      if (area != _BigScreenArea.carousel) return;
+      final ctx = _carouselRowKey.currentContext;
       if (ctx == null) return;
       Scrollable.ensureVisible(
         ctx,
@@ -408,39 +301,15 @@ class _BigScreenBodyState extends State<_BigScreenBody> {
         return KeyEventResult.handled;
       }
       if (key == LogicalKeyboardKey.arrowDown) {
-        _setArea(_BigScreenArea.tabs);
-        return KeyEventResult.handled;
-      }
-    } else if (_area == _BigScreenArea.tabs) {
-      if (key == LogicalKeyboardKey.arrowRight) {
-        _moveTab(1);
-        return KeyEventResult.handled;
-      }
-      if (key == LogicalKeyboardKey.arrowLeft) {
-        _moveTab(-1);
-        return KeyEventResult.handled;
-      }
-      if (key == LogicalKeyboardKey.arrowUp) {
-        _setArea(_BigScreenArea.carousel);
-        return KeyEventResult.handled;
-      }
-      if (key == LogicalKeyboardKey.arrowDown) {
+        UiSoundService.playClick();
+        if (!TvDetector.instance.isTV) HapticFeedback.lightImpact();
         _setArea(_BigScreenArea.news);
         return KeyEventResult.handled;
       }
     } else if (_area == _BigScreenArea.news) {
-      if (key == LogicalKeyboardKey.arrowRight) {
-        _moveNews(1);
-        return KeyEventResult.handled;
-      }
-      if (key == LogicalKeyboardKey.arrowLeft) {
-        _moveNews(-1);
-        return KeyEventResult.handled;
-      }
-      if (key == LogicalKeyboardKey.arrowUp) {
-        _setArea(_BigScreenArea.tabs);
-        return KeyEventResult.handled;
-      }
+      final consumed =
+          _newsSectionsKey.currentState?.handleKeyEvent(key) ?? false;
+      if (consumed) return KeyEventResult.handled;
     }
 
     if (key == LogicalKeyboardKey.gameButtonA ||
@@ -777,316 +646,19 @@ class _BigScreenBodyState extends State<_BigScreenBody> {
   }
 
   Widget _buildNewsArea(BuildContext context) {
-    final items = GamingNewsService.filterByType(_newsItems, _activeNewsType);
-    return Container(
-      constraints: const BoxConstraints(minHeight: 380),
-      decoration: BoxDecoration(
-        color: const Color(0xCC0A1824),
-        border: Border(
-          top: BorderSide(color: Colors.white.withValues(alpha: 0.06)),
-        ),
-      ),
-      child: Column(
-        children: [
-          _buildNewsTabs(),
-          if (_newsLoading)
-            _buildNewsSkeletons()
-          else if (items.isEmpty)
-            _buildNewsSkeletons()
-          else
-            _buildNewsCards(items),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildNewsTabs() {
-    return SizedBox(
-      key: _newsTabsKey,
-      height: 70,
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          for (final tab in _newsTabs) ...[
-            _newsTab(tab.$1, tab.$2),
-            const SizedBox(width: 10),
-          ],
-        ],
-      ),
-    );
-  }
-
-  Widget _newsTab(String label, GamingNewsType? type) {
-    final active = _activeNewsType == type;
-    final focused = _area == _BigScreenArea.tabs && active;
-    void activate() {
-      setState(() {
-        _activeNewsType = type;
-        _newsIndex = 0;
-      });
-      _setArea(_BigScreenArea.tabs);
-    }
-
-    return Semantics(
-      button: true,
-      label: label,
-      selected: active,
-      onTap: activate,
-      child: GestureDetector(
-        onTap: activate,
-        child: AnimatedContainer(
-          duration: MotionScope.of(context).microDuration,
-          padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 11),
-          decoration: BoxDecoration(
-            color: active
-                ? Colors.white.withValues(alpha: 0.18)
-                : Colors.transparent,
-            borderRadius: BorderRadius.circular(999),
-            border: focused
-                ? Border.all(color: Colors.white.withValues(alpha: 0.72))
-                : null,
-          ),
-          child: Text(
-            label,
-            style: TextStyle(
-              color: active ? Colors.white : Colors.white54,
-              fontSize: 14,
-              fontWeight: active ? FontWeight.w800 : FontWeight.w600,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildNewsCards(List<GamingNewsItem> items) {
-    return SizedBox(
-      key: _newsCardsKey,
-      height: 320,
-      child: ListView.separated(
-        controller: _newsScrollController,
-        scrollDirection: Axis.horizontal,
-        // Keep off-screen cards built so their posters are already
-        // decoded when fast D-pad movement arrives.
-        scrollCacheExtent: const ScrollCacheExtent.pixels(1600),
-        padding: const EdgeInsets.fromLTRB(28, 14, 28, 24),
-        itemCount: items.length,
-        separatorBuilder: (_, _) => const SizedBox(width: 16),
-        itemBuilder: (context, index) {
-          final item = items[index];
-          void activate() {
-            setState(() => _newsIndex = index);
-            _setArea(_BigScreenArea.news);
-          }
-
-          return Semantics(
-            button: true,
-            label: item.title,
-            selected: _area == _BigScreenArea.news && index == _newsIndex,
-            onTap: activate,
-            child: GestureDetector(
-              onTap: activate,
-              child: _buildNewsCard(
-                item,
-                _area == _BigScreenArea.news && index == _newsIndex,
-              ),
-            ),
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _buildNewsCard(GamingNewsItem item, bool focused) {
-    return AnimatedContainer(
-      duration: MotionScope.of(context).focusDuration,
-      width: _newsCardWidth,
-      decoration: BoxDecoration(
-        color: const Color(0xFF0D1823),
-        borderRadius: BorderRadius.circular(3),
-        border: Border.all(
-          color: focused
-              ? const Color(0xFF66C0F4).withValues(alpha: 0.58)
-              : Colors.white.withValues(alpha: 0.08),
-          width: focused ? 2 : 1,
-        ),
-        boxShadow: focused
-            ? [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.38),
-                  blurRadius: 14,
-                  offset: const Offset(0, 8),
-                ),
-              ]
-            : null,
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(3),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            SizedBox(height: 150, child: _buildNewsImage(item)),
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.all(14),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      item.typeLabel,
-                      style: const TextStyle(
-                        color: Color(0xFFD2D6B8),
-                        fontSize: 12,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      item.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 17,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      item.dateLabel,
-                      style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.42),
-                        fontSize: 12,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildNewsImage(GamingNewsItem item) {
-    // For news tied to a game: prefer the poster we already have in the library
-    // so the card banner matches the game the user knows.
-    final relatedAppId = item.relatedAppId;
-    if (relatedAppId != null && relatedAppId > 0) {
-      final linkedApp = widget.apps
-          .followedBy(widget.allApps)
-          .where((app) => app.steamAppId == relatedAppId)
-          .firstOrNull;
-      if (linkedApp != null) {
-        final posterUrl = _posterUrlForApp(linkedApp);
-        if (posterUrl != null && posterUrl.isNotEmpty) {
-          return PosterImage(
-            url: posterUrl,
-            cacheKey: linkedApp.artCacheKey('poster'),
-            fit: BoxFit.cover,
-            width: double.infinity,
-            memCacheWidth: 720,
-            errorWidget: (_, _, _) => _buildNewsImageUrl(item),
-          );
-        }
-      }
-    }
-    return _buildNewsImageUrl(item);
-  }
-
-  Widget _buildNewsImageUrl(GamingNewsItem item) {
-    if (item.imageAsset != null && item.imageAsset!.isNotEmpty) {
-      return Image.asset(
-        item.imageAsset!,
-        fit: BoxFit.cover,
-        width: double.infinity,
-        errorBuilder: (_, _, _) => _buildNewsFallbackImage(),
-      );
-    }
-    if (item.imageUrl != null && item.imageUrl!.isNotEmpty) {
-      return PosterImage(
-        url: item.imageUrl!,
-        fit: BoxFit.cover,
-        width: double.infinity,
-        memCacheWidth: 720,
-        errorWidget: (_, _, _) => _buildNewsFallbackImage(),
-      );
-    }
-    return _buildNewsFallbackImage();
-  }
-
-  Widget _buildNewsFallbackImage() {
-    return Image.asset(
-      'assets/images/news_placeholder.png',
-      fit: BoxFit.cover,
-      width: double.infinity,
-      errorBuilder: (_, _, _) => const _SkeletonBlock(),
-    );
-  }
-
-  Widget _buildNewsSkeletons() {
-    return SizedBox(
-      key: _newsCardsKey,
-      height: 320,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        // Keep off-screen cards built so their posters are already
-        // decoded when fast D-pad movement arrives.
-        scrollCacheExtent: const ScrollCacheExtent.pixels(1600),
-        padding: const EdgeInsets.fromLTRB(28, 14, 28, 24),
-        itemCount: 4,
-        separatorBuilder: (_, _) => const SizedBox(width: 16),
-        itemBuilder: (_, index) {
-          return Container(
-            width: _newsCardWidth,
-            decoration: BoxDecoration(
-              color: const Color(0xFF0D1823),
-              borderRadius: BorderRadius.circular(3),
-              border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
-            ),
-            child: Column(
-              children: [
-                Expanded(
-                  flex: 3,
-                  child: _SkeletonBlock(
-                    delay: Duration(milliseconds: index * 90),
-                  ),
-                ),
-                Expanded(
-                  flex: 2,
-                  child: Padding(
-                    padding: const EdgeInsets.all(14),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        SizedBox(
-                          width: 70,
-                          height: 12,
-                          child: _SkeletonBlock(),
-                        ),
-                        const SizedBox(height: 12),
-                        SizedBox(
-                          width: 240,
-                          height: 16,
-                          child: _SkeletonBlock(),
-                        ),
-                        const SizedBox(height: 12),
-                        SizedBox(
-                          width: 120,
-                          height: 12,
-                          child: _SkeletonBlock(),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          );
-        },
-      ),
+    return StackedNewsSections(
+      key: _newsSectionsKey,
+      allApps: widget.allApps,
+      apps: widget.apps,
+      hasFocus: _area == _BigScreenArea.news,
+      parentScrollController: _pageScrollController,
+      onPlayApp: widget.onAppSelected,
+      onAppDetails: widget.onAppDetails,
+      onExitUp: () {
+        UiSoundService.playClick();
+        if (!TvDetector.instance.isTV) HapticFeedback.lightImpact();
+        _setArea(_BigScreenArea.carousel);
+      },
     );
   }
 
@@ -1192,23 +764,6 @@ class _StatusDot extends StatelessWidget {
         boxShadow: [
           BoxShadow(color: color.withValues(alpha: 0.85), blurRadius: 14),
         ],
-      ),
-    );
-  }
-}
-
-class _SkeletonBlock extends StatelessWidget {
-  final Duration delay;
-
-  const _SkeletonBlock({this.delay = Duration.zero});
-
-  @override
-  Widget build(BuildContext context) {
-    final tint = 0.05 + ((delay.inMilliseconds ~/ 90) % 3) * 0.025;
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: tint),
-        borderRadius: BorderRadius.circular(3),
       ),
     );
   }

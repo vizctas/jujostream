@@ -10,7 +10,7 @@ import '../../providers/theme_provider.dart';
 import '../../ui/motion_scope.dart';
 import '../../services/audio/ui_sound_service.dart';
 import '../../services/input/gamepad_button_helper.dart';
-import '../../widgets/news_carousel/news_carousel_widget.dart';
+import '../../widgets/news_carousel/stacked_news_sections.dart';
 import '../../widgets/game_backdrop_art.dart';
 import '../../widgets/poster_image.dart';
 import '../../widgets/trailer_modal.dart';
@@ -91,7 +91,7 @@ class BackboneTheme extends LauncherTheme {
   }
 }
 
-enum _View { carousel, detail, news }
+enum _View { carousel, detail, sections }
 
 class _Body extends StatefulWidget {
   final List<NvApp> apps;
@@ -139,14 +139,15 @@ class _Body extends StatefulWidget {
 class _BodyState extends State<_Body> {
   late int _idx;
   late ScrollController _sc;
+  final ScrollController _vSc = ScrollController();
   final FocusNode _fn = FocusNode(debugLabel: 'backbone');
-  final GlobalKey<NewsCarouselWidgetState> _newsKey = GlobalKey();
+  final GlobalKey<StackedNewsSectionsState> _sectionsKey =
+      GlobalKey<StackedNewsSectionsState>();
   _View _view = _View.carousel;
   Timer? _bgDebounce;
   int? _bgAppId;
   Timer? _idleTimer;
   bool _isIdle = false;
-  int _newsRotation = 0;
 
   static const double _cw = 140, _ch = 80, _gap = 16;
   static const double _selW = 168, _selH = 96;
@@ -178,6 +179,7 @@ class _BodyState extends State<_Body> {
   @override
   void dispose() {
     _sc.dispose();
+    _vSc.dispose();
     _fn.dispose();
     _bgDebounce?.cancel();
     _idleTimer?.cancel();
@@ -257,16 +259,10 @@ class _BodyState extends State<_Body> {
           return KeyEventResult.ignored;
         }
         final k = e.logicalKey;
-        if (_view == _View.news) {
-          final consumed = _newsKey.currentState?.handleKeyEvent(k) ?? false;
+        if (_view == _View.sections) {
+          final consumed =
+              _sectionsKey.currentState?.handleKeyEvent(k) ?? false;
           if (consumed) return KeyEventResult.handled;
-          if (k == LogicalKeyboardKey.gameButtonB ||
-              k == LogicalKeyboardKey.escape ||
-              k == LogicalKeyboardKey.goBack) {
-            _action();
-            setState(() => _view = _View.carousel);
-            return KeyEventResult.handled;
-          }
           return KeyEventResult.ignored;
         }
         if (_view == _View.carousel) {
@@ -279,10 +275,6 @@ class _BodyState extends State<_Body> {
             return KeyEventResult.handled;
           }
           if (k == LogicalKeyboardKey.arrowUp) {
-            _action();
-            _newsRotation++;
-            _newsKey.currentState?.resetFocus();
-            setState(() => _view = _View.news);
             return KeyEventResult.handled;
           }
           if (k == LogicalKeyboardKey.arrowDown) {
@@ -357,6 +349,14 @@ class _BodyState extends State<_Body> {
             widget.onDetailViewChanged?.call(false);
             return KeyEventResult.handled;
           }
+          if (k == LogicalKeyboardKey.arrowDown) {
+            _action();
+            setState(() => _view = _View.sections);
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              _sectionsKey.currentState?.enterFromTop();
+            });
+            return KeyEventResult.handled;
+          }
           if (k == LogicalKeyboardKey.arrowLeft) {
             _move(-1);
             return KeyEventResult.handled;
@@ -416,26 +416,38 @@ class _BodyState extends State<_Body> {
           _resetIdleTimer();
           final v = details.primaryVelocity ?? 0;
           if (v > 300) {
-            if (_view == _View.news) {
+            if (_view == _View.sections &&
+                _vSc.hasClients &&
+                _vSc.offset <= 24) {
+              _action();
+              unawaited(
+                _vSc.animateTo(
+                  0.0,
+                  duration: const Duration(milliseconds: 260),
+                  curve: Curves.easeOutCubic,
+                ),
+              );
+              setState(() => _view = _View.detail);
+            } else if (_view == _View.detail) {
               _action();
               setState(() => _view = _View.carousel);
+              widget.onDetailViewChanged?.call(false);
             } else if (_view == _View.carousel) {
               _action();
               setState(() => _view = _View.detail);
               widget.onDetailViewChanged?.call(true);
             }
           } else if (v < -300) {
-            if (_view == _View.detail) {
+            if (_view == _View.carousel) {
               _action();
-              setState(() => _view = _View.carousel);
-              widget.onDetailViewChanged?.call(false);
-            } else if (_view == _View.carousel) {
+              setState(() => _view = _View.detail);
+              widget.onDetailViewChanged?.call(true);
+            } else if (_view == _View.detail) {
               _action();
-              _newsRotation++;
-              _newsKey.currentState?.resetFocus();
-              setState(() => _view = _View.news);
-            } else if (_view == _View.news) {
-              // Already at top — no-op
+              setState(() => _view = _View.sections);
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                _sectionsKey.currentState?.enterFromTop();
+              });
             }
           }
         },
@@ -483,13 +495,42 @@ class _BodyState extends State<_Body> {
                       ),
                     ),
                   ),
-                  AnimatedSwitcher(
-                    duration: MotionScope.of(context).backgroundDuration,
-                    child: _view == _View.news
-                        ? _newsView(tp)
-                        : _view == _View.carousel
-                        ? _carousel(tp, s, l)
-                        : _detail(tp, s, l),
+                  LayoutBuilder(
+                    builder: (context, constraints) {
+                      final vh = constraints.maxHeight;
+                      return SingleChildScrollView(
+                        controller: _vSc,
+                        physics: const ClampingScrollPhysics(),
+                        child: Column(
+                          children: [
+                            SizedBox(
+                              height: vh,
+                              child: AnimatedSwitcher(
+                                duration: MotionScope.of(
+                                  context,
+                                ).backgroundDuration,
+                                child: _view == _View.carousel
+                                    ? _carousel(tp, s, l)
+                                    : _detail(tp, s, l),
+                              ),
+                            ),
+                            StackedNewsSections(
+                              key: _sectionsKey,
+                              allApps: widget.allApps,
+                              apps: widget.apps,
+                              hasFocus: _view == _View.sections,
+                              parentScrollController: _vSc,
+                              onPlayApp: widget.onAppSelected,
+                              onAppDetails: widget.onAppDetails,
+                              onExitUp: () {
+                                _action();
+                                setState(() => _view = _View.detail);
+                              },
+                            ),
+                          ],
+                        ),
+                      );
+                    },
                   ),
                 ],
               ),
@@ -898,28 +939,6 @@ class _BodyState extends State<_Body> {
             ),
           ),
         ],
-      ],
-    );
-  }
-
-  Widget _newsView(ThemeProvider tp) {
-    return Column(
-      key: const ValueKey('n'),
-      children: [
-        Expanded(
-          child: NewsCarouselWidget(
-            key: _newsKey,
-            allApps: widget.allApps,
-            apps: widget.apps,
-            visible: _view == _View.news,
-            hasFocus: _view == _View.news,
-            rotationSeed: _newsRotation,
-            onDismiss: () {
-              _action();
-              setState(() => _view = _View.carousel);
-            },
-          ),
-        ),
       ],
     );
   }

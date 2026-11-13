@@ -46,6 +46,7 @@ import '../../themes/launcher_theme.dart';
 import '../../themes/classic/classic_tokens.dart';
 import '../../ui/input_idle.dart';
 import '../../widgets/poster_image.dart';
+import '../../widgets/news_carousel/stacked_news_sections.dart';
 import '../../widgets/game_backdrop_art.dart';
 import '../../widgets/launch_experience.dart';
 import '../game/game_stream_screen.dart';
@@ -113,10 +114,7 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
   void _focusRail();
   void _showClassicGameDialog(NvApp app);
   void _centerOnIndex(int index, int total, {bool animate = true});
-  Widget _buildCategoryBar(
-    List<NvApp> apps, {
-    bool insertRtAfterFavorites = false,
-  });
+  Widget _buildCategoryBar(List<NvApp> apps);
   Widget _buildInlineFilterBar(List<NvApp> apps);
   List<NvApp> _visibleApps(List<NvApp> apps);
   List<_CategoryItem> _categoryItems(List<NvApp> apps);
@@ -136,7 +134,6 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
   String? _previewUrlFor(NvApp app);
   void _disposeVideoController();
   KeyEventResult _onKeyEvent(KeyEvent event, List<NvApp> apps, NvApp selected);
-  void _moveSelection(List<NvApp> apps, int delta);
   Timer? _refreshTimer;
   DateTime _lastLibraryInteraction = DateTime.fromMillisecondsSinceEpoch(0);
   static const _libraryRefreshInterval = Duration(seconds: 30);
@@ -206,9 +203,31 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
 
   final ScrollController _discoveryController = ScrollController();
 
-  bool _showBottomFilterBar = false;
+  final ScrollController _classicPageScrollController = ScrollController();
 
-  bool _postersHidden = false;
+  final GlobalKey<StackedNewsSectionsState> _classicNewsSectionsKey =
+      GlobalKey<StackedNewsSectionsState>();
+
+  bool _inClassicNewsSections = false;
+
+  void _enterClassicNewsSections() {
+    _feedbackNavigate();
+    setState(() {
+      _inClassicNewsSections = true;
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _classicNewsSectionsKey.currentState?.enterFromTop();
+    });
+  }
+
+  void _exitClassicNewsSections() {
+    _feedbackNavigate();
+    setState(() => _inClassicNewsSections = false);
+    final node =
+        (_selectedAppId != null ? _cardFocusNodes[_selectedAppId] : null) ??
+        _screenFocusNode;
+    node.requestFocus();
+  }
 
   bool _isLaunching = false;
 
@@ -436,6 +455,7 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
     _carouselController.dispose();
     _gridScrollController.dispose();
     _discoveryController.dispose();
+    _classicPageScrollController.dispose();
     _screenFocusNode.dispose();
     for (final node in _cardFocusNodes.values) {
       node.dispose();
@@ -990,33 +1010,16 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
         onVerticalDragEnd: (details) {
           if (_viewMode != _ViewMode.carousel) return;
           final v = details.primaryVelocity ?? 0;
-          if (v < -300) {
-            if (!_postersHidden) {
-              _feedbackNavigate();
-              setState(() => _postersHidden = true);
-            }
-          } else if (v > 300) {
-            if (_postersHidden) {
-              _feedbackNavigate();
-              setState(() => _postersHidden = false);
-            } else if (!_showBottomFilterBar) {
-              setState(() => _showBottomFilterBar = true);
-            }
+          if (v < -300 && !_inClassicNewsSections) {
+            _enterClassicNewsSections();
+          } else if (v > 300 &&
+              _inClassicNewsSections &&
+              _classicPageScrollController.hasClients &&
+              _classicPageScrollController.offset <= 24) {
+            _exitClassicNewsSections();
           }
         },
-        onHorizontalDragEnd: (details) {
-          if (_viewMode != _ViewMode.carousel || !_postersHidden) return;
-          final v = details.primaryVelocity ?? 0;
-          if (v < -300) {
-            _feedbackNavigate();
-            setState(() => _postersHidden = false);
-            _moveSelection(visibleApps, 1);
-          } else if (v > 300) {
-            _feedbackNavigate();
-            setState(() => _postersHidden = false);
-            _moveSelection(visibleApps, -1);
-          }
-        },
+        onHorizontalDragEnd: null,
         child: Stack(
           fit: StackFit.expand,
           children: [
@@ -1098,14 +1101,41 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
             SafeArea(
               child: _viewMode == _ViewMode.grid
                   ? _buildGridLayout(apps, visibleApps, selected)
-                  : cinematic
-                  ? _buildCinematicLayout(apps, visibleApps, selected)
-                  : isLandscape
-                  ? _buildLandscapeLayout(apps, visibleApps, selected)
-                  : _buildPortraitLayout(apps, visibleApps, selected),
+                  : LayoutBuilder(
+                      builder: (context, constraints) {
+                        final pageLayout = cinematic
+                            ? _buildCinematicLayout(apps, visibleApps, selected)
+                            : isLandscape
+                            ? _buildLandscapeLayout(apps, visibleApps, selected)
+                            : _buildPortraitLayout(apps, visibleApps, selected);
+                        return SingleChildScrollView(
+                          controller: _classicPageScrollController,
+                          physics: const ClampingScrollPhysics(),
+                          child: Column(
+                            children: [
+                              SizedBox(
+                                height: constraints.maxHeight,
+                                child: pageLayout,
+                              ),
+                              StackedNewsSections(
+                                key: _classicNewsSectionsKey,
+                                allApps: apps,
+                                apps: visibleApps,
+                                hasFocus: _inClassicNewsSections,
+                                parentScrollController:
+                                    _classicPageScrollController,
+                                onPlayApp: _handleAppTap,
+                                onAppDetails: _openDetailsScreen,
+                                onExitUp: _exitClassicNewsSections,
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
             ),
 
-            _buildFloatingNavRow(apps, selected),
+            if (!_inClassicNewsSections) _buildFloatingNavRow(apps, selected),
           ],
         ),
       ),
@@ -1237,6 +1267,11 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _buildTransparentAppBar(apps),
+
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+          child: _buildCategoryBar(apps),
+        ),
 
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
@@ -1474,9 +1509,7 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
       duration: const Duration(milliseconds: 300),
       curve: Curves.easeOutCubic,
       alignment: Alignment.bottomCenter,
-      child: _postersHidden
-          ? const SizedBox(width: double.infinity)
-          : visibleApps.isEmpty
+      child: visibleApps.isEmpty
           ? Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 32),
               child: Text(

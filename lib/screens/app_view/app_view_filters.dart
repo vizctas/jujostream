@@ -2,76 +2,7 @@ part of 'app_view_screen.dart';
 
 mixin _AppViewFiltersMixin on _AppViewScreenBase {
   @override
-  Widget _buildInlineFilterBar(List<NvApp> apps) {
-    final categories = _categoryItems(apps);
-    return AnimatedSize(
-      duration: MotionScope.of(context).microDuration,
-      curve: MotionScope.of(context).standardCurve,
-      child: _showBottomFilterBar
-          ? Container(
-              height: 48,
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              child: Row(
-                children: [
-                  _hintChip('LT', ''),
-                  Expanded(
-                    child: SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: Row(
-                        children: [
-                          for (int i = 0; i < categories.length; i++) ...[
-                            _inlineFilterChip(categories[i]),
-                          ],
-                        ],
-                      ),
-                    ),
-                  ),
-                  _hintChip('RT', ''),
-                ],
-              ),
-            )
-          : const SizedBox.shrink(),
-    );
-  }
-
-  Widget _inlineFilterChip(_CategoryItem cat) {
-    final active =
-        cat.filter == _activeFilter &&
-        (cat.playniteCategory == null ||
-            cat.playniteCategory == _activePlayniteCategory) &&
-        (cat.filter != _AppFilter.collection ||
-            cat.collectionId == _activeCollectionId);
-    return Padding(
-      padding: const EdgeInsets.only(right: 6),
-      child: AccessibleAction(
-        label: '${cat.label}, ${cat.count}',
-        selected: active,
-        onActivate: () => _applyFilter(
-          cat.filter,
-          playniteCategory: cat.playniteCategory,
-          collectionId: cat.collectionId,
-        ),
-        child: AnimatedContainer(
-          duration: MotionScope.of(context).microDuration,
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          decoration: BoxDecoration(
-            color: active
-                ? (_accentColor ?? _tp.accent)
-                : Colors.white.withValues(alpha: 0.08),
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Text(
-            '${cat.label} (${cat.count})',
-            style: TextStyle(
-              color: active ? Colors.white : Colors.white60,
-              fontSize: 11,
-              fontWeight: active ? FontWeight.w700 : FontWeight.normal,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
+  Widget _buildInlineFilterBar(List<NvApp> apps) => const SizedBox.shrink();
 
   @override
   Future<void> _openSearch() async {
@@ -943,10 +874,7 @@ mixin _AppViewFiltersMixin on _AppViewScreenBase {
   }
 
   @override
-  Widget _buildCategoryBar(
-    List<NvApp> apps, {
-    bool insertRtAfterFavorites = false,
-  }) {
+  Widget _buildCategoryBar(List<NvApp> apps) {
     final categories = _categoryItems(apps);
     final lp = context.read<LauncherPreferences>();
 
@@ -969,23 +897,23 @@ mixin _AppViewFiltersMixin on _AppViewScreenBase {
 
     final accent = _accentColor ?? _tp.accent;
 
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: Row(
-        children: [
-          _hintChip('LT', ''),
-          const SizedBox(width: 4),
-          for (int index = 0; index < categories.length; index++) ...[
-            _buildCategoryChip(
-              categories[index],
-              index,
-              categories.length,
-              accent,
-            ),
+    return Center(
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            for (int index = 0; index < categories.length; index++) ...[
+              _buildCategoryChip(
+                categories[index],
+                index,
+                categories.length,
+                accent,
+              ),
+            ],
           ],
-          const SizedBox(width: 4),
-          _hintChip('RT', ''),
-        ],
+        ),
       ),
     );
   }
@@ -1006,66 +934,69 @@ mixin _AppViewFiltersMixin on _AppViewScreenBase {
         _browseSection == _BrowseSection.categories &&
         _selectedCategoryIndex == index;
     final lp = context.read<LauncherPreferences>();
-    return Padding(
-      padding: EdgeInsets.only(right: index < total - 1 ? 4 : 0),
-      child: InkWell(
-        onTap: item.isLoadingPlaceholder
-            ? null
-            : () => _applyFilter(
-                item.filter,
-                playniteCategory: item.playniteCategory,
-                collectionId: item.collectionId,
-              ),
-        borderRadius: BorderRadius.circular(999),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 160),
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-          decoration: BoxDecoration(
-            color: focused
-                ? _tp.accentLight.withValues(alpha: 0.18)
-                : active
-                ? accent.withValues(alpha: 0.22)
-                : Colors.transparent,
-            borderRadius: BorderRadius.circular(999),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (item.isLoadingPlaceholder) ...[
-                const SizedBox(
-                  width: 10,
-                  height: 10,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 1.5,
-                    color: Colors.white38,
-                  ),
-                ),
-                const SizedBox(width: 6),
-              ],
-              Text(
-                item.label,
-                style: TextStyle(
-                  color: active || focused ? Colors.white : Colors.white54,
-                  fontWeight: active || focused
-                      ? FontWeight.w600
-                      : FontWeight.w400,
-                  fontSize: 13,
+    final highlighted = active || focused;
+    return InkWell(
+      onTap: item.isLoadingPlaceholder
+          ? null
+          : () => _applyFilter(
+              item.filter,
+              playniteCategory: item.playniteCategory,
+              collectionId: item.collectionId,
+            ),
+      child: Padding(
+        padding: EdgeInsets.symmetric(
+          horizontal: index == 0 || index == total - 1 ? 10 : 12,
+          vertical: 6,
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (item.isLoadingPlaceholder) ...[
+              const SizedBox(
+                width: 10,
+                height: 10,
+                child: CircularProgressIndicator(
+                  strokeWidth: 1.5,
+                  color: Colors.white38,
                 ),
               ),
-              if (!item.isLoadingPlaceholder &&
-                  lp.showCategoryCounts &&
-                  item.count > 0) ...[
-                const SizedBox(width: 4),
-                Text(
-                  '${item.count}',
-                  style: TextStyle(
-                    color: active || focused ? Colors.white60 : Colors.white30,
-                    fontSize: 11,
-                  ),
-                ),
-              ],
+              const SizedBox(width: 6),
             ],
-          ),
+            Text(
+              item.label.toUpperCase(),
+              style: TextStyle(
+                color: highlighted
+                    ? Colors.white
+                    : Colors.white.withValues(alpha: 0.44),
+                fontWeight: highlighted ? FontWeight.w800 : FontWeight.w500,
+                fontSize: 13,
+                letterSpacing: 0.9,
+                shadows: highlighted
+                    ? [
+                        Shadow(
+                          color: accent.withValues(alpha: 0.75),
+                          blurRadius: 10,
+                        ),
+                      ]
+                    : null,
+              ),
+            ),
+            if (!item.isLoadingPlaceholder &&
+                lp.showCategoryCounts &&
+                item.count > 0) ...[
+              const SizedBox(width: 4),
+              Text(
+                '${item.count}',
+                style: TextStyle(
+                  color: highlighted
+                      ? Colors.white.withValues(alpha: 0.65)
+                      : Colors.white.withValues(alpha: 0.28),
+                  fontSize: 11,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ],
         ),
       ),
     );

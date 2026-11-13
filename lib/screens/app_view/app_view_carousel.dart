@@ -85,25 +85,6 @@ mixin _AppViewCarouselMixin on _AppViewScreenBase {
                   }
                 },
               ),
-              // The cinematic layout sends ↑ to the icon rail instead.
-              if (!_postersHidden && !_useCinematicLayout)
-                _hintChip(
-                  '↑',
-                  'Hide posters',
-                  onTap: () {
-                    _feedbackNavigate();
-                    setState(() => _postersHidden = true);
-                  },
-                ),
-              if (_postersHidden)
-                _hintChip(
-                  '↓',
-                  'Show posters',
-                  onTap: () {
-                    _feedbackNavigate();
-                    setState(() => _postersHidden = false);
-                  },
-                ),
             ],
           ),
         ),

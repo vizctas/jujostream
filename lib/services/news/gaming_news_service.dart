@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import '../../models/gaming_news_item.dart';
+import '../../models/nv_app.dart';
+import 'open_gaming_feeds_provider.dart';
 
 class GamingNewsService {
   GamingNewsService._();
@@ -35,24 +37,45 @@ class GamingNewsService {
   }
 
   static Future<List<GamingNewsItem>> fetchDashboardItems({
-    required List<int> steamAppIds,
+    List<int> steamAppIds = const <int>[],
+    List<NvApp> allApps = const <NvApp>[],
+    List<NvApp> visibleApps = const <NvApp>[],
+    http.Client? client,
   }) async {
+    final ids = <int>{
+      ...steamAppIds.where((id) => id > 0),
+      ...allApps
+          .followedBy(visibleApps)
+          .map((app) => app.steamAppId)
+          .whereType<int>()
+          .where((id) => id > 0),
+    }.take(8).toList(growable: false);
+
     final results = await Future.wait([
-      fetchDeals(),
-      fetchGiveaways(),
-      fetchSteamNewsForApps(steamAppIds: steamAppIds),
+      OpenGamingFeedsProvider.fetchOpenRssNews(client: client),
+      OpenGamingFeedsProvider.fetchSteamFeatured(client: client),
+      fetchDeals(client: client),
+      fetchGiveaways(client: client),
+      fetchSteamNewsForApps(steamAppIds: ids, client: client),
     ]);
-    return combineDashboardItems(results);
+    return combineDashboardItems(results, maxPerType: 12, maxTotal: 48);
   }
 
   static List<GamingNewsItem> combineDashboardItems(
-    List<List<GamingNewsItem>> sources,
-  ) {
+    List<List<GamingNewsItem>> sources, {
+    int maxPerType = 12,
+    int? maxTotal,
+  }) {
     final grouped = <GamingNewsType, List<GamingNewsItem>>{
       for (final type in GamingNewsType.values) type: <GamingNewsItem>[],
     };
+    final seenIds = <String>{};
     for (final item in sources.expand((items) => items)) {
-      grouped[item.type]?.add(item);
+      final bucket = grouped[item.type];
+      if (bucket == null || bucket.length >= maxPerType) continue;
+      if (seenIds.add(item.id)) {
+        bucket.add(item);
+      }
     }
 
     const order = [
@@ -71,6 +94,9 @@ class GamingNewsService {
         if (cursor < items.length) {
           combined.add(items[cursor]);
           added = true;
+          if (maxTotal != null && combined.length >= maxTotal) {
+            return combined.toList(growable: false);
+          }
         }
       }
       if (!added) break;

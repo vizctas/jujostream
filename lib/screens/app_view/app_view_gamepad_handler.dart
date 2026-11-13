@@ -30,6 +30,13 @@ mixin _AppViewGamepadMixin on _AppViewScreenBase {
 
     final logical = event.logicalKey;
 
+    if (_inClassicNewsSections && _viewMode == _ViewMode.carousel) {
+      final handled =
+          _classicNewsSectionsKey.currentState?.handleKeyEvent(logical) ??
+          false;
+      if (handled) return KeyEventResult.handled;
+    }
+
     // Only the LB/RB tab-switch branches need the category list, but it was
     // computed up front — four full-library passes on EVERY keypress, arrows
     // included. Held D-pad repeat paid it dozens of times per second.
@@ -58,13 +65,7 @@ mixin _AppViewGamepadMixin on _AppViewScreenBase {
         final cols = _gridCrossAxisCount();
         _moveSelection(apps, cols);
       } else {
-
-        if (_postersHidden) {
-          _feedbackNavigate();
-          setState(() => _postersHidden = false);
-        } else if (!_showBottomFilterBar) {
-          setState(() => _showBottomFilterBar = true);
-        }
+        _enterClassicNewsSections();
       }
       return KeyEventResult.handled;
     }
@@ -72,18 +73,8 @@ mixin _AppViewGamepadMixin on _AppViewScreenBase {
       if (_viewMode == _ViewMode.grid) {
         final cols = _gridCrossAxisCount();
         _moveSelection(apps, -cols);
-      } else {
-
-        if (_showBottomFilterBar) {
-          setState(() => _showBottomFilterBar = false);
-        } else if (_useCinematicLayout) {
-          // Up from the poster row reaches the icon rail; the reading column
-          // is not focusable and hiding posters has no place in this layout.
-          _focusRail();
-        } else if (!_postersHidden) {
-          _feedbackNavigate();
-          setState(() => _postersHidden = true);
-        }
+      } else if (_useCinematicLayout) {
+        _focusRail();
       }
       return KeyEventResult.handled;
     }
@@ -213,7 +204,6 @@ mixin _AppViewGamepadMixin on _AppViewScreenBase {
     return KeyEventResult.ignored;
   }
 
-  @override
   void _moveSelection(List<NvApp> apps, int delta) {
     if (apps.isEmpty) return;
     final currentIndex = apps.indexWhere((a) => a.appId == _selectedAppId);

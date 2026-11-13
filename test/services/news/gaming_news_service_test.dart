@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:jujostream/models/gaming_news_item.dart';
 import 'package:jujostream/services/news/gaming_news_service.dart';
+import 'package:jujostream/services/news/open_gaming_feeds_provider.dart';
 
 void main() {
   group('GamingNewsService', () {
@@ -293,6 +294,77 @@ void main() {
 
       expect(items, isEmpty);
     });
+
+    test('OpenGamingFeedsProvider.parseRssXml parses RSS articles cleanly', () {
+      const xml = '''
+        <rss version="2.0" xmlns:media="http://search.yahoo.com/mrss/">
+          <channel>
+            <item>
+              <title><![CDATA[Indie &amp; RPG Showcase 2026]]></title>
+              <link>https://example.com/news/indie-2026</link>
+              <description><![CDATA[<p>Big reveal &quot;soon&quot;.</p>]]></description>
+              <pubDate>Tue, 10 Nov 2026 14:00:00 GMT</pubDate>
+              <media:thumbnail url="https://example.com/cover.jpg" />
+            </item>
+          </channel>
+        </rss>
+      ''';
+
+      final items = OpenGamingFeedsProvider.parseRssXml(
+        xml,
+        sourceLabel: 'PC GAMER',
+      );
+
+      expect(items, hasLength(1));
+      expect(items.single.type, GamingNewsType.news);
+      expect(items.single.title, 'Indie & RPG Showcase 2026');
+      expect(items.single.subtitle, 'Big reveal "soon".');
+      expect(items.single.imageUrl, 'https://example.com/cover.jpg');
+      expect(items.single.sourceUrl, 'https://example.com/news/indie-2026');
+      expect(items.single.dateLabel, 'PC GAMER · 10 NOV 2026');
+    });
+
+    test(
+      'OpenGamingFeedsProvider.parseSteamFeaturedJson extracts updates and specials',
+      () {
+        final items = OpenGamingFeedsProvider.parseSteamFeaturedJson({
+          'new_releases': {
+            'items': [
+              {
+                'id': 620,
+                'name': 'Portal 2',
+                'discount_percent': 0,
+                'final_price': 999,
+                'currency': 'USD',
+                'large_capsule_image': 'https://example.com/p2.jpg',
+              },
+            ],
+          },
+          'specials': {
+            'items': [
+              {
+                'id': 400,
+                'name': 'Portal',
+                'discount_percent': 80,
+                'final_price': 199,
+                'original_price': 999,
+                'currency': 'USD',
+                'header_image': 'https://example.com/p1.jpg',
+              },
+            ],
+          },
+        });
+
+        expect(items, hasLength(2));
+        expect(items.first.type, GamingNewsType.update);
+        expect(items.first.relatedAppId, 620);
+        expect(items.first.dateLabel, 'STEAM · NEW RELEASE');
+        expect(items.last.type, GamingNewsType.recommended);
+        expect(items.last.relatedAppId, 400);
+        expect(items.last.dateLabel, 'STEAM · -80%');
+        expect(items.last.subtitle, r'$1.99  -  was $9.99');
+      },
+    );
   });
 }
 

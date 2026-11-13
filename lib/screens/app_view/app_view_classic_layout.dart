@@ -35,14 +35,10 @@ mixin _AppViewClassicMixin on _AppViewScreenBase {
     List<NvApp> visibleApps,
     NvApp selected,
   ) {
-    final l = AppLocalizations.of(context);
     final size = MediaQuery.sizeOf(context);
     final columnWidth = (size.width * ClassicTokens.readingColumnFraction)
         .clamp(0.0, ClassicTokens.readingColumnMaxWidth);
     final compact = size.height < ClassicTokens.compactHeight;
-    final rowLabel = _activeFilter == _AppFilter.all
-        ? l.libraryLabel
-        : _filterLabel(_activeFilter);
     NvApp? running;
     for (final app in apps) {
       if (app.isRunning) {
@@ -98,11 +94,11 @@ mixin _AppViewClassicMixin on _AppViewScreenBase {
               const SizedBox(height: ClassicTokens.s24),
               _buildCarouselHintsRow(),
               Padding(
-                padding: const EdgeInsets.only(left: ClassicTokens.s16),
-                child: Text(
-                  '${rowLabel.toUpperCase()}  ·  ${visibleApps.length}',
-                  style: ClassicTokens.label,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: ClassicTokens.s24,
+                  vertical: 4,
                 ),
+                child: _buildCategoryBar(apps),
               ),
               _buildCollapsibleCarousel(visibleApps, selected),
               _buildDiscoveryBoostSection(selected, apps),

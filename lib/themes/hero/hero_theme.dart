@@ -11,11 +11,9 @@ import '../../ui/motion_scope.dart';
 import '../../services/audio/ui_sound_service.dart';
 import '../../services/tv/tv_detector.dart';
 import '../../services/input/gamepad_button_helper.dart';
-import '../../widgets/news_carousel/news_carousel_widget.dart';
+import '../../widgets/news_carousel/stacked_news_sections.dart';
 import '../../widgets/game_backdrop_art.dart';
 import '../../widgets/poster_image.dart';
-import '../../widgets/trailer_modal.dart';
-import '../../services/metadata/steam_video_client.dart';
 import '../../services/preferences/launcher_preferences.dart';
 import '../../screens/app_view/app_view_presentation_settings_screen.dart';
 import '../launcher_theme.dart';
@@ -91,7 +89,7 @@ class HeroTheme extends LauncherTheme {
   }
 }
 
-enum _HeroView { home, detail, news }
+enum _HeroView { home, news }
 
 class _HeroBody extends StatefulWidget {
   final List<NvApp> apps;
@@ -140,8 +138,10 @@ class _HeroBodyState extends State<_HeroBody>
     with SingleTickerProviderStateMixin {
   late int _idx;
   late ScrollController _iconSc;
+  final ScrollController _vSc = ScrollController();
   final FocusNode _fn = FocusNode(debugLabel: 'hero');
-  final GlobalKey<NewsCarouselWidgetState> _newsKey = GlobalKey();
+  final GlobalKey<StackedNewsSectionsState> _sectionsKey =
+      GlobalKey<StackedNewsSectionsState>();
   _HeroView _view = _HeroView.home;
   Timer? _bgDebounce;
   // The header clock is read in build; nothing rebuilt the home view after
@@ -149,9 +149,6 @@ class _HeroBodyState extends State<_HeroBody>
   Timer? _clockTimer;
   int _clockMinute = -1;
   int? _bgAppId;
-  int _detailBtnIdx = 0;
-  int _newsRotation = 0;
-  static const int _detailBtnCount = 4;
 
   static const double _iconSize = 64;
   static const double _iconSelSize = 80;
@@ -190,6 +187,7 @@ class _HeroBodyState extends State<_HeroBody>
   @override
   void dispose() {
     _iconSc.dispose();
+    _vSc.dispose();
     _fn.dispose();
     _bgDebounce?.cancel();
     _clockTimer?.cancel();
@@ -241,40 +239,6 @@ class _HeroBodyState extends State<_HeroBody>
     HapticFeedback.mediumImpact();
   }
 
-  Future<void> _openTrailer(NvApp app) async {
-    int? steamId = app.steamAppId;
-    if (steamId == null) {
-      try {
-        steamId = await SteamVideoClient().searchAppId(app.appName);
-      } catch (_) {}
-    }
-    List<SteamMovie> movies = const [];
-    if (steamId != null && steamId > 0) {
-      try {
-        movies = await SteamVideoClient().getMovies(steamId);
-      } catch (_) {}
-    }
-    if (!mounted) return;
-    showDialog(
-      context: context,
-      barrierColor: Colors.black87,
-      builder: (_) => Dialog(
-        backgroundColor: Colors.transparent,
-        insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 40),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(20),
-          child: TrailerModal(
-            gameName: app.appName,
-            steamMovies: movies,
-            preferredSource: movies.isNotEmpty
-                ? TrailerSource.steam
-                : TrailerSource.youtube,
-          ),
-        ),
-      ),
-    );
-  }
-
   KeyEventResult _onKey(FocusNode node, KeyEvent e) {
     if (e is! KeyDownEvent && e is! KeyRepeatEvent) {
       return KeyEventResult.ignored;
@@ -282,15 +246,8 @@ class _HeroBodyState extends State<_HeroBody>
     final k = e.logicalKey;
 
     if (_view == _HeroView.news) {
-      final consumed = _newsKey.currentState?.handleKeyEvent(k) ?? false;
+      final consumed = _sectionsKey.currentState?.handleKeyEvent(k) ?? false;
       if (consumed) return KeyEventResult.handled;
-      if (k == LogicalKeyboardKey.gameButtonB ||
-          k == LogicalKeyboardKey.escape ||
-          k == LogicalKeyboardKey.goBack) {
-        _action();
-        setState(() => _view = _HeroView.home);
-        return KeyEventResult.handled;
-      }
       return KeyEventResult.ignored;
     }
 
@@ -304,19 +261,14 @@ class _HeroBodyState extends State<_HeroBody>
         return KeyEventResult.handled;
       }
       if (k == LogicalKeyboardKey.arrowUp) {
-        _action();
-        _newsRotation++;
-        _newsKey.currentState?.resetFocus();
-        setState(() => _view = _HeroView.news);
         return KeyEventResult.handled;
       }
       if (k == LogicalKeyboardKey.arrowDown) {
         _action();
-        setState(() {
-          _view = _HeroView.detail;
-          _detailBtnIdx = 0;
+        setState(() => _view = _HeroView.news);
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _sectionsKey.currentState?.enterFromTop();
         });
-        widget.onDetailViewChanged?.call(true);
         return KeyEventResult.handled;
       }
       // DPAD_CENTER on a TV remote arrives as `select`, not `enter`; without
@@ -378,85 +330,7 @@ class _HeroBodyState extends State<_HeroBody>
       }
     }
 
-    if (_view == _HeroView.detail) {
-      if (k == LogicalKeyboardKey.arrowUp ||
-          k == LogicalKeyboardKey.gameButtonB ||
-          k == LogicalKeyboardKey.escape ||
-          k == LogicalKeyboardKey.goBack) {
-        _action();
-        setState(() => _view = _HeroView.home);
-        widget.onDetailViewChanged?.call(false);
-        return KeyEventResult.handled;
-      }
-
-      if (k == LogicalKeyboardKey.arrowLeft) {
-        setState(
-          () =>
-              _detailBtnIdx = (_detailBtnIdx - 1).clamp(0, _detailBtnCount - 1),
-        );
-        return KeyEventResult.handled;
-      }
-      if (k == LogicalKeyboardKey.arrowRight) {
-        setState(
-          () =>
-              _detailBtnIdx = (_detailBtnIdx + 1).clamp(0, _detailBtnCount - 1),
-        );
-        return KeyEventResult.handled;
-      }
-
-      // DPAD_CENTER on a TV remote arrives as `select`, not `enter`; without
-      // it the centre button did nothing in this theme.
-      if (k == LogicalKeyboardKey.gameButtonA ||
-          k == LogicalKeyboardKey.enter ||
-          k == LogicalKeyboardKey.select) {
-        _activateDetailButton();
-        return KeyEventResult.handled;
-      }
-      if (k == LogicalKeyboardKey.gameButtonX) {
-        _action();
-        if (_sel != null) widget.onToggleFavorite(_sel!);
-        return KeyEventResult.handled;
-      }
-      if (k == LogicalKeyboardKey.gameButtonY) {
-        _action();
-        if (_sel != null) widget.onAppDetails(_sel!);
-        return KeyEventResult.handled;
-      }
-      if (k == LogicalKeyboardKey.gameButtonRight1) {
-        _action();
-        if (_sel != null) _openTrailer(_sel!);
-        return KeyEventResult.handled;
-      }
-      if (k == LogicalKeyboardKey.gameButtonSelect) {
-        _action();
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => AppViewPresentationSettingsScreen(
-              preferences: context.read<LauncherPreferences>(),
-            ),
-          ),
-        );
-        return KeyEventResult.handled;
-      }
-    }
     return KeyEventResult.ignored;
-  }
-
-  void _activateDetailButton() {
-    _action();
-    final s = _sel;
-    if (s == null) return;
-    switch (_detailBtnIdx) {
-      case 0:
-        widget.onAppSelected(s);
-      case 1:
-        widget.onAppDetails(s);
-      case 2:
-        _openTrailer(s);
-      case 3:
-        widget.onToggleFavorite(s);
-    }
   }
 
   @override
@@ -502,29 +376,25 @@ class _HeroBodyState extends State<_HeroBody>
         },
         onVerticalDragEnd: (d) {
           final v = d.primaryVelocity ?? 0;
-          if (v > 300) {
-            if (_view == _HeroView.news) {
-              _action();
-              setState(() => _view = _HeroView.home);
-            } else if (_view == _HeroView.home) {
-              _action();
-              setState(() {
-                _view = _HeroView.detail;
-                _detailBtnIdx = 0;
-              });
-              widget.onDetailViewChanged?.call(true);
-            }
-          } else if (v < -300) {
-            if (_view == _HeroView.detail) {
-              _action();
-              setState(() => _view = _HeroView.home);
-              widget.onDetailViewChanged?.call(false);
-            } else if (_view == _HeroView.home) {
-              _action();
-              _newsRotation++;
-              _newsKey.currentState?.resetFocus();
-              setState(() => _view = _HeroView.news);
-            }
+          if (v < -300 && _view == _HeroView.home) {
+            _action();
+            setState(() => _view = _HeroView.news);
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              _sectionsKey.currentState?.enterFromTop();
+            });
+          } else if (v > 300 &&
+              _view == _HeroView.news &&
+              _vSc.hasClients &&
+              _vSc.offset <= 24) {
+            _action();
+            unawaited(
+              _vSc.animateTo(
+                0.0,
+                duration: const Duration(milliseconds: 260),
+                curve: Curves.easeOutCubic,
+              ),
+            );
+            setState(() => _view = _HeroView.home);
           }
         },
         child: Stack(
@@ -569,13 +439,32 @@ class _HeroBodyState extends State<_HeroBody>
               ),
             ),
 
-            AnimatedSwitcher(
-              duration: MotionScope.of(context).backgroundDuration,
-              child: _view == _HeroView.news
-                  ? _buildNews()
-                  : _view == _HeroView.home
-                  ? _buildHome(tp, s, l)
-                  : _buildDetail(tp, s, l),
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final vh = constraints.maxHeight;
+                return SingleChildScrollView(
+                  controller: _vSc,
+                  physics: const ClampingScrollPhysics(),
+                  child: Column(
+                    children: [
+                      SizedBox(height: vh, child: _buildHome(tp, s, l)),
+                      StackedNewsSections(
+                        key: _sectionsKey,
+                        allApps: widget.allApps,
+                        apps: widget.apps,
+                        hasFocus: _view == _HeroView.news,
+                        parentScrollController: _vSc,
+                        onPlayApp: widget.onAppSelected,
+                        onAppDetails: widget.onAppDetails,
+                        onExitUp: () {
+                          _action();
+                          setState(() => _view = _HeroView.home);
+                        },
+                      ),
+                    ],
+                  ),
+                );
+              },
             ),
           ],
         ),
@@ -974,407 +863,6 @@ class _HeroBodyState extends State<_HeroBody>
     );
   }
 
-  Widget _buildNews() {
-    return Column(
-      key: const ValueKey('hero_news'),
-      children: [
-        Expanded(
-          child: NewsCarouselWidget(
-            key: _newsKey,
-            allApps: widget.allApps,
-            apps: widget.apps,
-            visible: _view == _HeroView.news,
-            hasFocus: _view == _HeroView.news,
-            rotationSeed: _newsRotation,
-            onDismiss: () {
-              _action();
-              setState(() => _view = _HeroView.home);
-            },
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildDetail(ThemeProvider tp, NvApp? s, AppLocalizations l) {
-    if (s == null) return const SizedBox.shrink();
-    final isFav = widget.favoriteIds.contains(s.appId.toString());
-    final hasDesc = s.description != null && s.description!.isNotEmpty;
-
-    return Column(
-      key: const ValueKey('hero_detail'),
-      children: [
-        Container(
-          height: 56,
-          padding: const EdgeInsets.only(top: 8),
-          child: ListView.builder(
-            controller: _iconSc,
-            scrollDirection: Axis.horizontal,
-            // Keep off-screen cards built so their posters are already
-            // decoded when fast D-pad movement arrives.
-            scrollCacheExtent: const ScrollCacheExtent.pixels(800),
-            padding: const EdgeInsets.symmetric(horizontal: 24),
-            itemCount: widget.apps.length,
-            itemBuilder: (_, i) {
-              final a = widget.apps[i];
-              final sel = i == _idx;
-              return AnimatedContainer(
-                duration: MotionScope.of(context).focusDuration,
-                width: sel ? 48 : 40,
-                height: sel ? 48 : 40,
-                margin: EdgeInsets.only(right: 8, top: sel ? 0 : 8),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(
-                    color: Colors.white.withValues(alpha: sel ? 0.0 : 0.06),
-                    width: 1,
-                  ),
-                ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(sel ? 6 : 7),
-                  child: a.posterUrl != null && a.posterUrl!.isNotEmpty
-                      ? PosterImage(
-                          url: a.posterUrl!,
-                          cacheKey: a.artCacheKey('poster'),
-                          fit: BoxFit.cover,
-                          memCacheWidth: 100,
-                          errorWidget: (_, _, _) =>
-                              Container(color: tp.surface),
-                        )
-                      : Container(color: tp.surface),
-                ),
-              );
-            },
-          ),
-        ),
-
-        const Spacer(flex: 5),
-
-        Padding(
-          padding: const EdgeInsets.fromLTRB(40, 0, 40, 28),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(10),
-                    child: SizedBox(
-                      width: 72,
-                      height: 72,
-                      child: s.posterUrl != null && s.posterUrl!.isNotEmpty
-                          ? PosterImage(
-                              url: s.posterUrl!,
-                              cacheKey: s.artCacheKey('poster'),
-                              fit: BoxFit.cover,
-                              memCacheWidth: 160,
-                              errorWidget: (_, _, _) => Container(
-                                color: tp.surface,
-                                child: Center(
-                                  child: Icon(
-                                    Icons.videogame_asset_outlined,
-                                    color: Colors.white24,
-                                    size: 18,
-                                  ),
-                                ),
-                              ),
-                            )
-                          : Container(
-                              color: tp.surface,
-                              child: Center(
-                                child: Icon(
-                                  Icons.videogame_asset_outlined,
-                                  color: Colors.white24,
-                                  size: 18,
-                                ),
-                              ),
-                            ),
-                    ),
-                  ),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          s.appName,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 22,
-                            fontWeight: FontWeight.w800,
-                            height: 1.1,
-                            shadows: [
-                              Shadow(color: Colors.black87, blurRadius: 12),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        Wrap(
-                          spacing: 6,
-                          runSpacing: 4,
-                          children: [
-                            if (s.isRunning)
-                              _chip('● ${l.running}', Colors.greenAccent),
-                            if (isFav) _chip('★', Colors.amberAccent),
-                            if (s.isHdrSupported)
-                              _chip('HDR', tp.colors.accentLight),
-                            if (s.pluginName != null)
-                              _chip(s.pluginName!, tp.accentLight),
-                            ...s.metadataGenres
-                                .take(2)
-                                .map((g) => _chip(g, Colors.white38)),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-
-              SizedBox(
-                height: 100,
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Expanded(
-                      flex: 6,
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Expanded(
-                            child: _detailActionBtn(
-                              icon: Icons.play_arrow_rounded,
-                              label: s.isRunning ? l.resume : l.play,
-                              badge: 'A',
-                              color: tp.accent,
-                              focused: _detailBtnIdx == 0,
-                              onTap: () {
-                                _action();
-                                widget.onAppSelected(s);
-                              },
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-
-                          Row(
-                            children: [
-                              Expanded(
-                                child: _detailActionBtn(
-                                  icon: Icons.library_books_outlined,
-                                  label: l.details,
-                                  badge: 'Y',
-                                  focused: _detailBtnIdx == 1,
-                                  onTap: () {
-                                    _action();
-                                    widget.onAppDetails(s);
-                                  },
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: _detailActionBtn(
-                                  icon: Icons.movie_outlined,
-                                  label: l.watchTrailer,
-                                  badge: 'RB',
-                                  focused: _detailBtnIdx == 2,
-                                  onTap: () {
-                                    _action();
-                                    _openTrailer(s);
-                                  },
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: _detailActionBtn(
-                                  icon: isFav ? Icons.star : Icons.star_outline,
-                                  label: isFav ? l.removeFav : l.fav,
-                                  badge: 'X',
-                                  focused: _detailBtnIdx == 3,
-                                  onTap: () {
-                                    _action();
-                                    widget.onToggleFavorite(s);
-                                  },
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 20),
-
-                    Expanded(
-                      flex: 4,
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(14),
-                        child: Container(
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: Colors.black.withValues(alpha: 0.45),
-                            borderRadius: BorderRadius.circular(14),
-                            border: Border.all(
-                              color: Colors.white.withValues(alpha: 0.08),
-                            ),
-                          ),
-                          child: hasDesc
-                              ? SingleChildScrollView(
-                                  child: Text(
-                                    s.description!.length > 300
-                                        ? '${s.description!.substring(0, 300)}…'
-                                        : s.description!,
-                                    style: const TextStyle(
-                                      color: Colors.white70,
-                                      fontSize: 12,
-                                      height: 1.7,
-                                    ),
-                                  ),
-                                )
-                              : Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Icon(
-                                      Icons.info_outline_rounded,
-                                      color: Colors.white24,
-                                      size: 18,
-                                    ),
-                                    const SizedBox(height: 8),
-                                    Text(
-                                      l.noDescription,
-                                      style: const TextStyle(
-                                        color: Colors.white30,
-                                        fontSize: 11,
-                                        height: 1.5,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-
-        if (context.watch<LauncherPreferences>().showButtonHints)
-        Padding(
-          padding: const EdgeInsets.fromLTRB(40, 4, 40, 12),
-          child: Row(
-            children: [
-              _tappableHint('A', l.play, () {
-                _action();
-                widget.onAppSelected(s);
-              }),
-              const SizedBox(width: 14),
-              _tappableHint('X', l.fav, () {
-                _action();
-                widget.onToggleFavorite(s);
-              }),
-              const SizedBox(width: 14),
-              _tappableHint('Y', l.options, () {
-                _action();
-                widget.onAppDetails(s);
-              }),
-              const SizedBox(width: 14),
-              _tappableHint('B', l.back, () {
-                _action();
-                setState(() => _view = _HeroView.home);
-                widget.onDetailViewChanged?.call(false);
-              }),
-              const Spacer(),
-              _badgeMini('◀▶'),
-              const SizedBox(width: 4),
-              Text(
-                'Navigate',
-                style: const TextStyle(color: Colors.white, fontSize: 9),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _detailActionBtn({
-    required IconData icon,
-    required String label,
-    required String badge,
-    Color? color,
-    bool focused = false,
-    required VoidCallback onTap,
-  }) {
-    final tp = context.read<ThemeProvider>();
-    final btnColor = color ?? Colors.white.withValues(alpha: 0.06);
-    final isCta = color != null;
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: MotionScope.of(context).microDuration,
-        width: double.infinity,
-        padding: EdgeInsets.symmetric(
-          vertical: isCta ? 14 : 10,
-          horizontal: 12,
-        ),
-        decoration: BoxDecoration(
-          color: isCta
-              ? (focused ? btnColor : btnColor.withValues(alpha: 0.8))
-              : (focused
-                    ? tp.accent.withValues(alpha: 0.18)
-                    : Colors.white.withValues(alpha: 0.06)),
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(
-            color: focused
-                ? (isCta ? Colors.white.withValues(alpha: 0.5) : tp.accent)
-                : (isCta
-                      ? Colors.transparent
-                      : Colors.white.withValues(alpha: 0.08)),
-            width: focused ? 2 : 1,
-          ),
-          boxShadow: null,
-        ),
-        child: Stack(
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  icon,
-                  color: isCta || focused ? Colors.white : Colors.white60,
-                  size: isCta ? 20 : 15,
-                ),
-                const SizedBox(width: 6),
-                Flexible(
-                  child: Text(
-                    label,
-                    overflow: TextOverflow.ellipsis,
-                    maxLines: 1,
-                    style: TextStyle(
-                      color: isCta || focused ? Colors.white : Colors.white60,
-                      fontSize: isCta ? 15 : 10,
-                      fontWeight: isCta || focused
-                          ? FontWeight.w800
-                          : FontWeight.w500,
-                      letterSpacing: isCta ? 0.5 : 0,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            Positioned(right: 2, bottom: 0, child: _badgeMini(badge)),
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _chip(String t, Color c) => Container(
     padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
     decoration: BoxDecoration(
@@ -1386,28 +874,6 @@ class _HeroBodyState extends State<_HeroBody>
       style: TextStyle(color: c, fontSize: 9, fontWeight: FontWeight.w700),
     ),
   );
-
-  Widget _badgeMini(String t) {
-    if (t == '◀▶') {
-      return const GamepadDirectionalHint(size: 15, forceVisible: true);
-    }
-    return GamepadHintIcon(t, size: 15, forceVisible: true);
-  }
-
-  Widget _tappableHint(String badge, String label, VoidCallback onTap) {
-    return GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          _badgeMini(badge),
-          const SizedBox(width: 4),
-          Text(label, style: const TextStyle(color: Colors.white, fontSize: 9)),
-        ],
-      ),
-    );
-  }
 
   Widget _gpBtn(String badge, IconData icon, String label, VoidCallback onTap) {
     return GestureDetector(
