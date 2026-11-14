@@ -1090,6 +1090,7 @@ class AppListProvider extends ChangeNotifier {
     NvApp app, {
     required StreamConfiguration streamConfig,
     bool forceNewSession = false,
+    String? coopRole,
   }) async {
     if (_currentComputer == null) {
       return LaunchResult.fail('No computer selected');
@@ -1123,6 +1124,12 @@ class AppListProvider extends ChangeNotifier {
       _ => '1',
     };
     final hostPresetParams = buildHostPresetLaunchParams(streamConfig);
+    final launchParams = <String, String>{
+      ...hostPresetParams,
+      if (_currentComputer!.fecControlVersion >= 1)
+        'rlFecPercentage': 'auto',
+      if (coopRole != null && coopRole.isNotEmpty) 'coop_role': coopRole,
+    };
 
     if (runningApp != null) {
       if (runningApp.appId == app.appId) {
@@ -1143,7 +1150,7 @@ class AppListProvider extends ChangeNotifier {
           videoPacingSlackMs: streamConfig.videoPacingSlackMs,
           videoMaxFrameAgeMs: streamConfig.videoMaxFrameAgeMs,
           surroundAudioInfo: audioStr,
-          extraLaunchParams: hostPresetParams,
+          extraLaunchParams: launchParams,
           expectedServerCert: _currentComputer!.serverCert,
         );
       } else {
@@ -1170,7 +1177,7 @@ class AppListProvider extends ChangeNotifier {
       videoPacingSlackMs: streamConfig.videoPacingSlackMs,
       videoMaxFrameAgeMs: streamConfig.videoMaxFrameAgeMs,
       surroundAudioInfo: audioStr,
-      extraLaunchParams: hostPresetParams,
+      extraLaunchParams: launchParams,
       expectedServerCert: _currentComputer!.serverCert,
     );
   }
@@ -1267,6 +1274,35 @@ class AppListProvider extends ChangeNotifier {
       port: httpsPort,
       expectedServerCert: computer.serverCert,
       retryFocus: retryFocus,
+    );
+  }
+
+  Future<List<CoopSessionEntry>> getCoopSessions() async {
+    final target = _hostEndpoint();
+    if (target == null) return const [];
+    return _httpClient.getCoopSessions(
+      target.address,
+      port: target.port,
+      expectedServerCert: _currentComputer?.serverCert,
+    );
+  }
+
+  Future<List<CoopSessionEntry>?> controlCoopSession({
+    required String sessionId,
+    String? role,
+    bool? paused,
+    bool? kick,
+  }) async {
+    final target = _hostEndpoint();
+    if (target == null) return null;
+    return _httpClient.controlCoopSession(
+      target.address,
+      sessionId: sessionId,
+      role: role,
+      paused: paused,
+      kick: kick,
+      port: target.port,
+      expectedServerCert: _currentComputer?.serverCert,
     );
   }
 

@@ -41,6 +41,7 @@ extern jmethodID g_onRumble;
 extern jmethodID g_onRumbleTriggers;
 extern jmethodID g_onSetMotionEventState;
 extern jmethodID g_onSetControllerLED;
+extern jmethodID g_onSetAdaptiveTriggers;
 extern jobject g_videoFrameBuffer;
 void* g_videoFrameData = NULL;
 int g_videoFrameCapacity = 0;
@@ -360,7 +361,10 @@ void BridgeStageFailed(int stage, int errorCode) {
     LOGE("Stage %d failed: %d", stage, errorCode);
 }
 
+extern void moonlightAndroidOnConnectionStarted(void);
+
 void BridgeConnectionStarted(void) {
+    moonlightAndroidOnConnectionStarted();
     JNIEnv* env = GetThreadEnv();
     if (!env || !g_bridgeClass) return;
     (*env)->CallStaticVoidMethod(env, g_bridgeClass, g_onConnectionStarted);
@@ -414,6 +418,47 @@ void BridgeSetControllerLED(uint16_t controllerNumber, uint8_t r, uint8_t g, uin
     if (!env || !g_bridgeClass || !g_onSetControllerLED) return;
     (*env)->CallStaticVoidMethod(env, g_bridgeClass, g_onSetControllerLED,
         (jshort)controllerNumber, (jbyte)r, (jbyte)g, (jbyte)b);
+}
+
+void BridgeSetAdaptiveTriggers(
+    uint16_t controllerNumber,
+    uint8_t eventFlags,
+    uint8_t typeLeft,
+    uint8_t typeRight,
+    uint8_t* left,
+    uint8_t* right) {
+    JNIEnv* env = GetThreadEnv();
+    if (!env || !g_bridgeClass || !g_onSetAdaptiveTriggers) return;
+
+    jbyteArray leftArr = (*env)->NewByteArray(env, DS_EFFECT_PAYLOAD_SIZE);
+    jbyteArray rightArr = (*env)->NewByteArray(env, DS_EFFECT_PAYLOAD_SIZE);
+    if (!leftArr || !rightArr) {
+        if (leftArr) (*env)->DeleteLocalRef(env, leftArr);
+        if (rightArr) (*env)->DeleteLocalRef(env, rightArr);
+        if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
+        return;
+    }
+
+    if (left) {
+        (*env)->SetByteArrayRegion(env, leftArr, 0, DS_EFFECT_PAYLOAD_SIZE, (const jbyte*)left);
+    }
+    if (right) {
+        (*env)->SetByteArrayRegion(env, rightArr, 0, DS_EFFECT_PAYLOAD_SIZE, (const jbyte*)right);
+    }
+
+    (*env)->CallStaticVoidMethod(
+        env,
+        g_bridgeClass,
+        g_onSetAdaptiveTriggers,
+        (jshort)controllerNumber,
+        (jbyte)eventFlags,
+        (jbyte)typeLeft,
+        (jbyte)typeRight,
+        leftArr,
+        rightArr);
+
+    (*env)->DeleteLocalRef(env, leftArr);
+    (*env)->DeleteLocalRef(env, rightArr);
 }
 
 void BridgeLogMessage(const char* format, ...) {

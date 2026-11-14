@@ -120,6 +120,10 @@ void GamepadMethodHandler::handleMethodCall(
         if (args) input::XInputHandler::instance().setResponseCurve(getDouble(*args, "curve", 1.0));
         result->Success();
 
+    } else if (m == "setPollingRate") {
+        if (args) input::XInputHandler::instance().setPollingRate(getInt(*args, "hz", 500));
+        result->Success();
+
     } else if (m == "setMouseEmulationSpeed") {
         if (args) input::XInputHandler::instance().setMouseEmulationSpeed(
             getDouble(*args, "factor", 1.0));

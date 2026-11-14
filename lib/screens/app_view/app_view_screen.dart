@@ -2441,13 +2441,19 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
               ),
               Padding(
                 padding: const EdgeInsets.fromLTRB(20, 8, 20, 10),
-                child: Text(
-                  app.appName,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      app.appName,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    ?_buildCoopRoleNotice(ctx),
+                  ],
                 ),
               ),
               Divider(height: 1, color: Colors.white.withValues(alpha: 0.07)),
@@ -2477,6 +2483,39 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget? _buildCoopRoleNotice(BuildContext ctx) {
+    if (!widget.computer.isCoopTemporary) return null;
+    final l = AppLocalizations.of(ctx);
+    final isViewer = widget.computer.coopRole == 'viewer';
+    final color = isViewer ? Colors.amberAccent : Colors.tealAccent;
+    return Padding(
+      padding: const EdgeInsets.only(top: 6),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            isViewer
+                ? Icons.visibility_outlined
+                : Icons.sports_esports_rounded,
+            size: 14,
+            color: color,
+          ),
+          const SizedBox(width: 6),
+          Text(
+            isViewer
+                ? l.coopViewerOnly
+                : '${l.coopGuestBadge} · ${l.coopRoleLabel(widget.computer.coopRole!)}',
+            style: TextStyle(
+              color: color,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -2574,6 +2613,7 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
                           ],
                         ),
                       ],
+                      ?_buildCoopRoleNotice(ctx),
                     ],
                   ),
                 ),
@@ -2590,6 +2630,19 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
                     },
                     autofocus: true,
                     trailing: _hintChip('X', ''),
+                  ),
+                  _sheetOption(
+                    Icons.sports_esports_rounded,
+                    widget.computer.coopRole == 'viewer'
+                        ? '${AppLocalizations.of(ctx).joinCoopGamepad} (${AppLocalizations.of(ctx).coopRoleViewer})'
+                        : AppLocalizations.of(ctx).joinCoopGamepad,
+                    Colors.tealAccent,
+                    widget.computer.coopRole == 'viewer'
+                        ? null
+                        : () {
+                            Navigator.pop(ctx);
+                            _launchApp(app, coopRole: 'coop_pad');
+                          },
                   ),
                   _sheetOption(
                     Icons.stop_rounded,
@@ -2637,14 +2690,18 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
     IconData icon,
     String label,
     Color color,
-    VoidCallback onTap, {
+    VoidCallback? onTap, {
     bool autofocus = false,
     Widget? trailing,
   }) {
+    final enabled = onTap != null;
+    final effectiveColor = enabled ? color : Colors.white24;
     return Focus(
-      autofocus: autofocus,
+      autofocus: enabled && autofocus,
+      canRequestFocus: enabled,
+      skipTraversal: !enabled,
       onKeyEvent: (_, event) {
-        if (event is! KeyDownEvent) return KeyEventResult.ignored;
+        if (!enabled || event is! KeyDownEvent) return KeyEventResult.ignored;
         final key = event.logicalKey;
         if (key == LogicalKeyboardKey.gameButtonA ||
             key == LogicalKeyboardKey.select) {
@@ -2656,19 +2713,24 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
       },
       child: Semantics(
         button: true,
+        enabled: enabled,
         label: label,
-        onTap: () {
-          _feedbackNavigate();
-          onTap();
-        },
+        onTap: enabled
+            ? () {
+                _feedbackNavigate();
+                onTap();
+              }
+            : null,
         child: Builder(
           builder: (ctx) {
             final hasFocus = Focus.of(ctx).hasFocus;
             return GestureDetector(
-              onTap: () {
-                _feedbackNavigate();
-                onTap();
-              },
+              onTap: enabled
+                  ? () {
+                      _feedbackNavigate();
+                      onTap();
+                    }
+                  : null,
               behavior: HitTestBehavior.opaque,
               child: AnimatedContainer(
                 duration: MotionScope.of(context).microDuration,
@@ -2685,14 +2747,16 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
                       height: 36,
                       decoration: hasFocus
                           ? BoxDecoration(
-                              color: color.withValues(alpha: 0.22),
+                              color: effectiveColor.withValues(alpha: 0.22),
                               shape: BoxShape.circle,
                             )
                           : null,
                       alignment: Alignment.center,
                       child: Icon(
                         icon,
-                        color: hasFocus ? color : color.withValues(alpha: 0.7),
+                        color: hasFocus
+                            ? effectiveColor
+                            : effectiveColor.withValues(alpha: 0.7),
                         size: 22,
                       ),
                     ),
@@ -2700,8 +2764,8 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
                     Expanded(
                       child: Text(
                         label,
-                        style: const TextStyle(
-                          color: Colors.white,
+                        style: TextStyle(
+                          color: enabled ? Colors.white : Colors.white38,
                           fontWeight: FontWeight.w500,
                         ),
                       ),
@@ -2781,7 +2845,11 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
     if (mounted) _startAutoRefreshTimer();
   }
 
-  void _launchApp(NvApp app, {bool forceNewSession = false}) async {
+  void _launchApp(
+    NvApp app, {
+    bool forceNewSession = false,
+    String? coopRole,
+  }) async {
     // before navigation to stream screen. This prevents poster downloads
     unawaited(AchievementService.instance.unlock('first_launch'));
 
@@ -2978,11 +3046,15 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
     ImageLoadThrottle.pauseForStream();
 
     LaunchResult launch;
+    final effectiveCoopRole = (coopRole != null && coopRole.isNotEmpty)
+        ? coopRole
+        : widget.computer.coopRole;
     try {
       launch = await provider.launchApp(
         app,
         streamConfig: effectiveConfig,
         forceNewSession: forceNewSession,
+        coopRole: effectiveCoopRole,
       );
     } catch (error) {
       if (mounted && startingOverlayVisible) {
@@ -3073,6 +3145,10 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
           readinessToken: launch.readinessToken,
           readinessInitialState: launch.readinessInitialState,
           readinessGeneration: launch.readinessGeneration,
+          turboInputPort: launch.turboInputPort,
+          turboInputTcpPort: launch.turboInputTcpPort,
+          turboInputSessionId: launch.turboInputSessionId,
+          turboInputKey: launch.turboInputKey,
         ),
         transitionsBuilder: (_, animation, secondaryAnimation, child) {
           return FadeTransition(

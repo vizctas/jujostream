@@ -1137,6 +1137,28 @@ int performRtspHandshake(PSERVER_INFORMATION serverInfo) {
 
         // Look for the SDP attribute that indicates we're dealing with a server that supports RFI
         ReferenceFrameInvalidationSupported = strstr(response.payload, "x-nv-video[0].refPicInvalidation") != NULL;
+        RlFecReportSupported = false;
+        RlClockSyncSupported = false;
+        RlRoamingSupported = strstr(response.payload, "x-rl-roaming:1") != NULL;
+        {
+            const char* cursor = response.payload;
+            while ((cursor = strstr(cursor, "x-rl-control:")) != NULL) {
+                const char* val = cursor + sizeof("x-rl-control:") - 1;
+                const char* end = val;
+                while (*end != '\0' && *end != '\r' && *end != '\n') {
+                    end++;
+                }
+                for (const char* p = val; p + 6 <= end; p++) {
+                    bool leftOk = (p == val || p[-1] == ',' || p[-1] == ' ');
+                    bool rightOk = (p + 6 == end || p[6] == ',' || p[6] == ' ');
+                    if (leftOk && rightOk) {
+                        if (memcmp(p, "0x5539", 6) == 0) RlFecReportSupported = true;
+                        else if (memcmp(p, "0x5537", 6) == 0) RlClockSyncSupported = true;
+                    }
+                }
+                cursor = end;
+            }
+        }
         if (!ReferenceFrameInvalidationSupported) {
             Limelog("Reference frame invalidation is not supported by this host\n");
         }

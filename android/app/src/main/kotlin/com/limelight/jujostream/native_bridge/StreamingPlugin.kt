@@ -286,6 +286,10 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
         val enableVrr = call.argument<Boolean>("enableVrr") ?: false
         val directSubmit = call.argument<Boolean>("directSubmit") ?: false
         val lowLatencyFrameBalance = call.argument<Boolean>("lowLatencyFrameBalance") ?: false
+        val turboInputPort = call.argument<Int>("turboInputPort") ?: 0
+        val turboInputTcpPort = call.argument<Int>("turboInputTcpPort") ?: 0
+        val turboInputSessionId = call.argument<Number>("turboInputSessionId")?.toLong() ?: 0L
+        val turboInputKey = call.argument<String>("turboInputKey") ?: ""
 
         val framePacingMode = when (framePacingStr) {
             "latency"    -> VideoDecoderRenderer.FRAME_PACING_LATENCY
@@ -354,7 +358,19 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
             false
         } else lowLatencyFrameBalance
 
-        val videoCapabilities = 0
+        val enableRfi = call.argument<Boolean>("enableRfi") ?: false
+        val effectiveMime = StreamConstants.mimeTypeForFormat(StreamConstants.videoFormatFor(effectiveCodec, enableHdr)) ?: ""
+        val effectiveDecoder = decodersByMime[effectiveMime] ?: ""
+        val videoCapabilities = RfiCompatibilityPolicy.capabilityMask(
+            enableRfi = enableRfi,
+            codec = effectiveCodec,
+            decoderName = effectiveDecoder,
+            mimeType = effectiveMime,
+            hardware = Build.HARDWARE ?: "",
+            board = Build.BOARD ?: "",
+            sdkInt = Build.VERSION.SDK_INT,
+            isHdr = enableHdr,
+        )
 
         Log.i(TAG, "═══ NATIVE STREAM CONFIG DIAGNOSTIC ═══")
         Log.i(TAG, "Host: $host")
@@ -453,6 +469,16 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
             nativeStart = {
                 val packetDuration = if (weakDevice) 20 else 5
 
+                StreamingBridge.nativeConfigureTurboInput(
+                    turboInputPort,
+                    turboInputTcpPort,
+                    turboInputSessionId,
+                    turboInputKey,
+                )
+
+                val effectiveCapabilities = videoCapabilities or
+                    SliceDeliveryPolicy.capabilityMask(width, height, effectiveCodec)
+
                 StreamingBridge.nativeStartConnection(
                     address = host,
                     appVersion = appVersion,
@@ -470,7 +496,7 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
                     clientRefreshRateX100 = fps * 100,
                     riAesKey = riAesKey,
                     riAesIv = riAesIv,
-                    videoCapabilities = videoCapabilities,
+                    videoCapabilities = effectiveCapabilities,
                     colorSpace = colorSpace,
                     colorRange = colorRange,
                     slowOpusDecoder = (audioQuality != "high"),
@@ -750,7 +776,19 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
         )) + ("nativeVideoQueueFrames" to runCatching {
             StreamingBridge.nativeGetPendingVideoFrames().coerceAtLeast(0)
         }.getOrDefault(0))
-        result.success(stats)
+        val turboStats = runCatching { StreamingBridge.nativeGetTurboInputStats() }.getOrNull()
+        val finalStats = if (turboStats != null && turboStats.size >= 5) {
+            stats + mapOf(
+                "turboActive" to (turboStats[0] != 0L),
+                "turboUsingTcp" to (turboStats[1] != 0L),
+                "turboRttUs" to turboStats[2],
+                "turboPacketsSent" to turboStats[3],
+                "turboPacketsRecv" to turboStats[4],
+            )
+        } else {
+            stats
+        }
+        result.success(finalStats)
     }
 
     private fun handleProbeCodec(call: MethodCall, result: MethodChannel.Result) {
@@ -870,6 +908,8 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
                     val resolution = "${renderer.initialWidth}x${renderer.initialHeight}"
                     val nativeStats = statsGuard.runIfActive {
                         val rttInfo = StreamingBridge.getEstimatedRtt()
+                        val vrrSync = StreamingBridge.getVrrClockSyncStats()
+                        val roamStats = StreamingBridge.getRoamingStats()
                         val audioMetrics = StreamingBridge.nativeGetAudioRendererMetrics()
                         longArrayOf(
                             StreamingBridge.nativeGetPendingAudioDuration().coerceAtLeast(0).toLong(),
@@ -879,6 +919,11 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
                             audioMetrics.getOrElse(1) { 0L },
                             audioMetrics.getOrElse(2) { 0L },
                             StreamingBridge.nativeGetPendingVideoFrames().coerceAtLeast(0).toLong(),
+                            vrrSync?.first ?: 0L,
+                            vrrSync?.second ?: -1L,
+                            vrrSync?.third ?: 0L,
+                            if (roamStats?.first == true) 1L else 0L,
+                            roamStats?.second ?: 0L,
                         )
                     } ?: return
                     val pendingAudioMs = nativeStats[0]
@@ -888,6 +933,11 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
                     val audioOverflowPackets = nativeStats[4]
                     val audioUnderrunCallbacks = nativeStats[5]
                     val nativeVideoQueueFrames = nativeStats[6]
+                    val vrrClockOffsetUs = nativeStats[7]
+                    val vrrClockRttUs = nativeStats[8]
+                    val vrrClockSamples = nativeStats[9]
+                    val roamSupported = nativeStats[10] != 0L
+                    val roamMigrations = nativeStats[11]
 
                     val statsMap = renderer.getStats()
                     val queueDepth = statsMap["queueDepth"] as? Int ?: 0
@@ -903,7 +953,9 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
                             "recv=$currentReceived rend=$currentFrames drop=$currentDropped fps=$fps " +
                                 "rtt=$rttMs var=$rttVarianceMs if50=${statsMap["interFrameP50"]} " +
                                 "if95=${statsMap["interFrameP95"]} if99=${statsMap["interFrameP99"]} " +
-                                "dec95=${statsMap["p95"]} q=$queueDepth nq=$nativeVideoQueueFrames codec=$activeCodecName"
+                                "dec95=${statsMap["p95"]} q=$queueDepth nq=$nativeVideoQueueFrames " +
+                                "vrrOff=$vrrClockOffsetUs vrrRtt=$vrrClockRttUs vrrN=$vrrClockSamples " +
+                                "roamSup=$roamSupported roamMig=$roamMigrations codec=$activeCodecName"
                         )
                     }
 
@@ -1040,6 +1092,26 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
                 r.toInt() and 0xFF,
                 g.toInt() and 0xFF,
                 b.toInt() and 0xFF
+            )
+        }
+    }
+
+    override fun onSetAdaptiveTriggers(
+        controllerNumber: Short,
+        eventFlags: Byte,
+        typeLeft: Byte,
+        typeRight: Byte,
+        left: ByteArray,
+        right: ByteArray
+    ) {
+        feedbackGuard("adaptiveTriggers") {
+            GamepadHandler.instance?.handleSetAdaptiveTriggers(
+                controllerNumber.toInt(),
+                eventFlags.toInt() and 0xFF,
+                typeLeft.toInt() and 0xFF,
+                typeRight.toInt() and 0xFF,
+                left,
+                right
             )
         }
     }

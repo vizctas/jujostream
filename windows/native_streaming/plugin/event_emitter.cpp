@@ -7,6 +7,7 @@
  */
 #include "event_emitter.h"
 #include <cstdio>
+#include <vector>
 
 namespace jujostream {
 
@@ -126,6 +127,34 @@ void EventEmitter::emitRumbleTriggers(int controllerNumber, int left, int right)
     m[flutter::EncodableValue("controllerNumber")] = flutter::EncodableValue(controllerNumber);
     m[flutter::EncodableValue("leftTrigger")]      = flutter::EncodableValue(left);
     m[flutter::EncodableValue("rightTrigger")]     = flutter::EncodableValue(right);
+    emitEvent(std::move(m));
+}
+
+void EventEmitter::emitControllerLED(int controllerNumber, int r, int g, int b) {
+    flutter::EncodableMap m;
+    m[flutter::EncodableValue("type")]             = flutter::EncodableValue("controllerLED");
+    m[flutter::EncodableValue("controllerNumber")] = flutter::EncodableValue(controllerNumber);
+    m[flutter::EncodableValue("r")]                = flutter::EncodableValue(r);
+    m[flutter::EncodableValue("g")]                = flutter::EncodableValue(g);
+    m[flutter::EncodableValue("b")]                = flutter::EncodableValue(b);
+    emitEvent(std::move(m));
+}
+
+void EventEmitter::emitAdaptiveTriggers(
+    int controllerNumber, int eventFlags, int typeLeft, int typeRight,
+    const uint8_t *left, const uint8_t *right) {
+    flutter::EncodableMap m;
+    m[flutter::EncodableValue("type")]             = flutter::EncodableValue("adaptiveTriggers");
+    m[flutter::EncodableValue("controllerNumber")] = flutter::EncodableValue(controllerNumber);
+    m[flutter::EncodableValue("eventFlags")]       = flutter::EncodableValue(eventFlags);
+    m[flutter::EncodableValue("typeLeft")]         = flutter::EncodableValue(typeLeft);
+    m[flutter::EncodableValue("typeRight")]        = flutter::EncodableValue(typeRight);
+    if (left) {
+        m[flutter::EncodableValue("left")]  = flutter::EncodableValue(std::vector<uint8_t>(left, left + 10));
+    }
+    if (right) {
+        m[flutter::EncodableValue("right")] = flutter::EncodableValue(std::vector<uint8_t>(right, right + 10));
+    }
     emitEvent(std::move(m));
 }
 

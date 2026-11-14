@@ -17,6 +17,8 @@ static unsigned short lastSeq;
 static bool pingThreadStarted;
 static bool receivedDataFromPeer;
 static uint64_t firstReceiveTime;
+static PLT_MUTEX audioSocketMutex;
+static uint32_t audioPingCount = 0;
 
 #ifdef LC_DEBUG
 #define INVALID_OPUS_HEADER 0x00
@@ -35,8 +37,45 @@ typedef struct _QUEUED_AUDIO_PACKET {
     char data[MAX_PACKET_SIZE];
 } QUEUED_AUDIO_PACKET, *PQUEUED_AUDIO_PACKET;
 
-static void AudioPingThreadProc(void* context) {
+static void sendAudioPingLocked(const LC_SOCKADDR* saddr) {
     char legacyPingData[] = { 0x50, 0x49, 0x4E, 0x47 };
+    if (rtpSocket == INVALID_SOCKET) {
+        return;
+    }
+    if (AudioPingPayload.payload[0] != 0) {
+        audioPingCount++;
+        AudioPingPayload.sequenceNumber = BE32(audioPingCount);
+        sendto(rtpSocket, (char*)&AudioPingPayload, sizeof(AudioPingPayload), 0, (struct sockaddr*)saddr, AddrLen);
+    }
+    else {
+        sendto(rtpSocket, legacyPingData, sizeof(legacyPingData), 0, (struct sockaddr*)saddr, AddrLen);
+    }
+}
+
+static bool rebindAudioSocketWildcard(bool* useSelectOut) {
+    LC_SOCKADDR saddr;
+    SOCKET newSock = bindUdpSocket(RemoteAddr.ss_family, NULL, 0, 0, SOCK_QOS_TYPE_AUDIO);
+    if (newSock == INVALID_SOCKET) {
+        return false;
+    }
+
+    *useSelectOut = (setNonFatalRecvTimeoutMs(newSock, UDP_RECV_POLL_TIMEOUT_MS) < 0);
+    memcpy(&saddr, &RemoteAddr, sizeof(saddr));
+    SET_PORT(&saddr, AudioPortNumber);
+
+    PltLockMutex(&audioSocketMutex);
+    SOCKET oldSock = rtpSocket;
+    rtpSocket = newSock;
+    sendAudioPingLocked(&saddr);
+    PltUnlockMutex(&audioSocketMutex);
+
+    if (oldSock != INVALID_SOCKET) {
+        closeSocket(oldSock);
+    }
+    return true;
+}
+
+static void AudioPingThreadProc(void* context) {
     LC_SOCKADDR saddr;
 
     LC_ASSERT(AudioPortNumber != 0);
@@ -48,17 +87,10 @@ static void AudioPingThreadProc(void* context) {
     // on the read-side in ReceiveThreadProc(). This avoids potential
     // issues related to receiving ICMP port unreachable messages due
     // to sending a packet prior to the host PC binding to that port.
-    int pingCount = 0;
     while (!PltIsThreadInterrupted(&udpPingThread)) {
-        if (AudioPingPayload.payload[0] != 0) {
-            pingCount++;
-            AudioPingPayload.sequenceNumber = BE32(pingCount);
-
-            sendto(rtpSocket, (char*)&AudioPingPayload, sizeof(AudioPingPayload), 0, (struct sockaddr*)&saddr, AddrLen);
-        }
-        else {
-            sendto(rtpSocket, legacyPingData, sizeof(legacyPingData), 0, (struct sockaddr*)&saddr, AddrLen);
-        }
+        PltLockMutex(&audioSocketMutex);
+        sendAudioPingLocked(&saddr);
+        PltUnlockMutex(&audioSocketMutex);
 
         PltSleepMsInterruptible(&udpPingThread, 500);
     }
@@ -68,6 +100,8 @@ static void AudioPingThreadProc(void* context) {
 int initializeAudioStream(void) {
     LbqInitializeLinkedBlockingQueue(&packetQueue, 30);
     RtpaInitializeQueue(&rtpAudioQueue);
+    PltCreateMutex(&audioSocketMutex);
+    audioPingCount = 0;
     lastSeq = 0;
     receivedDataFromPeer = false;
     pingThreadStarted = false;
@@ -135,6 +169,7 @@ void destroyAudioStream(void) {
     }
 
     PltDestroyCryptoContext(audioDecryptionCtx);
+    PltDeleteMutex(&audioSocketMutex);
     freePacketList(LbqDestroyLinkedBlockingQueue(&packetQueue));
     RtpaCleanupQueue(&rtpAudioQueue);
 }
@@ -257,7 +292,17 @@ static void AudioReceiveThreadProc(void* context) {
     }
 
     waitingForAudioMs = 0;
+    uint32_t observedRoamGen = (uint32_t)RoamGeneration;
+    uint64_t errRecoverStartMs = 0;
+    uint64_t lastErrRebindMs = 0;
     while (!PltIsThreadInterrupted(&receiveThread)) {
+        uint32_t currentRoamGen = (uint32_t)RoamGeneration;
+        if (currentRoamGen != observedRoamGen) {
+            if (rebindAudioSocketWildcard(&useSelect)) {
+                observedRoamGen = currentRoamGen;
+            }
+        }
+
         if (packet == NULL) {
             packet = (PQUEUED_AUDIO_PACKET)malloc(sizeof(*packet));
             if (packet == NULL) {
@@ -269,6 +314,21 @@ static void AudioReceiveThreadProc(void* context) {
 
         packet->header.size = recvUdpSocket(rtpSocket, &packet->data[0], MAX_PACKET_SIZE, useSelect);
         if (packet->header.size < 0) {
+            if (RlRoamingSupported && !PltIsThreadInterrupted(&receiveThread)) {
+                uint64_t nowMs = PltGetMillis();
+                if (errRecoverStartMs == 0) {
+                    errRecoverStartMs = nowMs;
+                    LiTriggerConnectionRoam();
+                }
+                if (nowMs >= errRecoverStartMs && (nowMs - errRecoverStartMs) <= 12000) {
+                    if (lastErrRebindMs == 0 || (nowMs >= lastErrRebindMs && (nowMs - lastErrRebindMs) >= 500)) {
+                        rebindAudioSocketWildcard(&useSelect);
+                        lastErrRebindMs = nowMs;
+                    }
+                    PltSleepMs(200);
+                    continue;
+                }
+            }
             Limelog("Audio Receive: recvUdpSocket() failed: %d\n", (int)LastSocketError());
             ListenerCallbacks.connectionTerminated(LastSocketFail());
             break;
@@ -286,6 +346,8 @@ static void AudioReceiveThreadProc(void* context) {
             }
             continue;
         }
+        errRecoverStartMs = 0;
+        lastErrRebindMs = 0;
 
         if (packet->header.size < (int)sizeof(RTP_PACKET)) {
             // Runt packet

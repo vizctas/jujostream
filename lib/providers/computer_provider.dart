@@ -43,6 +43,9 @@ bool isComputerVisible({
   required bool cloudSignedIn,
   required bool lanDiscovered,
 }) {
+  if (computer.isCoopTemporary && computer.isCoopExpired) {
+    return false;
+  }
   return cloudSignedIn ||
       !computer.isCloud ||
       lanDiscovered ||
@@ -948,7 +951,8 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
       '${c.uuid}|${c.name}|${c.state}|${c.pairState}|${c.runningGameId}'
       '|${c.activeAddress}|${c.localAddress}|${c.remoteAddress}'
       '|${c.httpsPort}|${c.configHttpsPort}|${c.externalPort}'
-      '|${c.serverCert.length}|${c.pairStatusFromHttps}|${c.isCloud}';
+      '|${c.serverCert.length}|${c.pairStatusFromHttps}|${c.isCloud}'
+      '|${c.coopRole}|${c.coopExpiresAt?.millisecondsSinceEpoch}';
 
   void _addOrUpdateComputer(ComputerDetails computer) {
     // Match by UUID first (most reliable), then by localAddress or activeAddress.
@@ -994,6 +998,10 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
       }
       if (existing.isCloud) {
         computer.isCloud = true;
+      }
+      if (computer.coopRole == null && existing.coopRole != null) {
+        computer.coopRole = existing.coopRole;
+        computer.coopExpiresAt ??= existing.coopExpiresAt;
       }
       if ((computer.name.isEmpty || computer.name.toLowerCase() == 'unknown') &&
           existing.name.isNotEmpty &&

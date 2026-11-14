@@ -421,10 +421,11 @@ static PSDP_OPTION getAttributesList(char*urlSafeAddr) {
     if (AppVersionQuad[0] >= 4) {
         unsigned char slicesPerFrame;
 
-        // Use slicing for increased performance on some decoders
+        // Use slicing for increased performance on some decoders (>= 3/4 4K, H.264/HEVC only)
         slicesPerFrame = (unsigned char)(VideoCallbacks.capabilities >> 24);
-        if (slicesPerFrame == 0) {
-            // If not using slicing, we request 1 slice per frame
+        if (slicesPerFrame == 0 ||
+            (NegotiatedVideoFormat & VIDEO_FORMAT_MASK_AV1) ||
+            ((int64_t)StreamConfig.width * (int64_t)StreamConfig.height < 6220800LL)) {
             slicesPerFrame = 1;
         }
         snprintf(payloadStr, sizeof(payloadStr), "%d", slicesPerFrame);

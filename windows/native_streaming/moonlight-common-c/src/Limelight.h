@@ -569,6 +569,16 @@ const char* LiGetStageName(int stage);
 // This function may only be called between LiStartConnection() and LiStopConnection().
 bool LiGetEstimatedRttInfo(uint32_t* estimatedRtt, uint32_t* estimatedRttVariance);
 
+// Returns the latest NTP-style 0x5537 VRR clock sync estimate between client and host.
+// Returns false before any sample has been received.
+bool LiGetVrrClockSyncStats(int64_t* offsetUs, uint64_t* rttUs, uint32_t* sampleCount);
+
+// Requests immediate encrypted connection roaming recovery on active sockets.
+bool LiTriggerConnectionRoam(void);
+
+// Returns roaming support and successful migration metrics for the current session.
+bool LiGetRoamingStats(bool* supported, uint32_t* migrations, uint64_t* lastMigrationUs);
+
 // This function queues a relative mouse move event to be sent to the remote server.
 int LiSendMouseMoveEvent(short deltaX, short deltaY);
 

@@ -62,6 +62,7 @@ set(BRIDGE_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/bridge/callbacks.c
     ${CMAKE_CURRENT_SOURCE_DIR}/bridge/OboeAudioRenderer.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/bridge/OboeMicCapturer.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../../../../windows/native_streaming/input/turbo_input_client.cpp
 )
 
 # ============================================================================
@@ -77,6 +78,7 @@ target_include_directories(jujostream_native PRIVATE
     ${MOONLIGHT_DIR}/enet/include
     ${MOONLIGHT_DIR}/reedsolomon
     ${CMAKE_CURRENT_SOURCE_DIR}/bridge
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../../../../windows/native_streaming/input
 )
 
 # reedsolomon: enable vectorization for FEC performance

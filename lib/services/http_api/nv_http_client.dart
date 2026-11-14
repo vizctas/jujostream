@@ -265,6 +265,8 @@ class NvHttpClient {
       'ServerAbrActive',
     )?.toLowerCase();
     computer.serverAbrActive = serverAbr == 'true' || serverAbr == '1';
+    computer.fecControlVersion =
+        int.tryParse(extractXmlValue(xmlBody, 'FecControlVersion') ?? '') ?? 0;
     final watchdogSupported = extractXmlValue(
       xmlBody,
       'WatchdogSupported',
@@ -558,32 +560,11 @@ class NvHttpClient {
           _log.d(
             'Launch response rikey=$serverRiKey rikeyid=$serverRiKeyId sessionUrl=$sessionUrl',
           );
-          return LaunchResult.ok(
+          return _launchResultFromXml(
+            response.body,
             riKey: serverRiKey,
             riKeyId: serverRiKeyId,
             sessionUrl: sessionUrl,
-            readinessVersion:
-                int.tryParse(
-                  extractXmlValue(
-                        response.body,
-                        'GameLaunchReadinessVersion',
-                      ) ??
-                      '0',
-                ) ??
-                0,
-            readinessRequired:
-                extractXmlValue(response.body, 'GameLaunchReadinessRequired') ==
-                '1',
-            readinessToken:
-                extractXmlValue(response.body, 'GameLaunchStateToken') ?? '',
-            readinessInitialState:
-                extractXmlValue(response.body, 'GameLaunchState') ?? '',
-            readinessGeneration:
-                int.tryParse(
-                  extractXmlValue(response.body, 'GameLaunchStateGeneration') ??
-                      '0',
-                ) ??
-                0,
           );
         } finally {
           client.close();
@@ -731,32 +712,11 @@ class NvHttpClient {
           final sessionUrl = extractXmlValue(response.body, 'sessionUrl0');
 
           _log.d('Resume response rikey=$serverRiKey rikeyid=$serverRiKeyId');
-          return LaunchResult.ok(
+          return _launchResultFromXml(
+            response.body,
             riKey: serverRiKey,
             riKeyId: serverRiKeyId,
             sessionUrl: sessionUrl,
-            readinessVersion:
-                int.tryParse(
-                  extractXmlValue(
-                        response.body,
-                        'GameLaunchReadinessVersion',
-                      ) ??
-                      '0',
-                ) ??
-                0,
-            readinessRequired:
-                extractXmlValue(response.body, 'GameLaunchReadinessRequired') ==
-                '1',
-            readinessToken:
-                extractXmlValue(response.body, 'GameLaunchStateToken') ?? '',
-            readinessInitialState:
-                extractXmlValue(response.body, 'GameLaunchState') ?? '',
-            readinessGeneration:
-                int.tryParse(
-                  extractXmlValue(response.body, 'GameLaunchStateGeneration') ??
-                      '0',
-                ) ??
-                0,
           );
         } finally {
           client.close();
@@ -775,6 +735,34 @@ class NvHttpClient {
       'Failed to connect to $address:$port after $_maxLaunchRetries retries',
     );
   }
+
+  LaunchResult _launchResultFromXml(
+    String body, {
+    required String riKey,
+    required int riKeyId,
+    String? sessionUrl,
+  }) => LaunchResult.ok(
+    riKey: riKey,
+    riKeyId: riKeyId,
+    sessionUrl: sessionUrl,
+    readinessVersion:
+        int.tryParse(extractXmlValue(body, 'GameLaunchReadinessVersion') ?? '0') ??
+        0,
+    readinessRequired:
+        extractXmlValue(body, 'GameLaunchReadinessRequired') == '1',
+    readinessToken: extractXmlValue(body, 'GameLaunchStateToken') ?? '',
+    readinessInitialState: extractXmlValue(body, 'GameLaunchState') ?? '',
+    readinessGeneration:
+        int.tryParse(extractXmlValue(body, 'GameLaunchStateGeneration') ?? '0') ??
+        0,
+    turboInputPort:
+        int.tryParse(extractXmlValue(body, 'TurboInputPort') ?? '0') ?? 0,
+    turboInputTcpPort:
+        int.tryParse(extractXmlValue(body, 'TurboInputTcpPort') ?? '0') ?? 0,
+    turboInputSessionId:
+        int.tryParse(extractXmlValue(body, 'TurboInputSessionId') ?? '0') ?? 0,
+    turboInputKey: extractXmlValue(body, 'TurboInputKey') ?? '',
+  );
 
   /// Returns true for transient network errors that are worth retrying
   /// (connection refused, reset, timeout, host unreachable).
@@ -996,6 +984,74 @@ class NvHttpClient {
     return null;
   }
 
+  Future<List<CoopSessionEntry>> getCoopSessions(
+    String address, {
+    int port = defaultHttpsPort,
+    String? expectedServerCert,
+    Duration timeout = const Duration(seconds: 3),
+  }) async {
+    final resolvedAddress = await _resolveAddress(address);
+    final url = '${_baseUrl(resolvedAddress, port)}/coopsessions';
+    final client = _newHttpsClient(expectedServerCert);
+    try {
+      final response = await client.get(Uri.parse(url)).timeout(timeout);
+      if (response.statusCode != 200 || response.body.isEmpty) {
+        return const [];
+      }
+      final decoded = jsonDecode(response.body);
+      if (decoded is Map<String, dynamic>) {
+        return CoopSessionEntry.listFromPayload(decoded);
+      }
+    } catch (e) {
+      _log.d('Co-Op sessions unavailable: $e');
+    } finally {
+      client.close();
+    }
+    return const [];
+  }
+
+  Future<List<CoopSessionEntry>?> controlCoopSession(
+    String address, {
+    required String sessionId,
+    String? role,
+    bool? paused,
+    bool? kick,
+    int port = defaultHttpsPort,
+    String? expectedServerCert,
+    Duration timeout = const Duration(seconds: 3),
+  }) async {
+    final resolvedAddress = await _resolveAddress(address);
+    final url = '${_baseUrl(resolvedAddress, port)}/coopcontrol';
+    final client = _newHttpsClient(expectedServerCert);
+    try {
+      final payload = <String, dynamic>{
+        'session_id': sessionId,
+        'role': ?role,
+        'paused': ?paused,
+        'kick': ?kick,
+      };
+      final response = await client
+          .post(
+            Uri.parse(url),
+            headers: const {'Content-Type': 'application/json'},
+            body: jsonEncode(payload),
+          )
+          .timeout(timeout);
+      if (response.statusCode != 200 || response.body.isEmpty) {
+        return null;
+      }
+      final decoded = jsonDecode(response.body);
+      if (decoded is Map<String, dynamic>) {
+        return CoopSessionEntry.listFromPayload(decoded);
+      }
+    } catch (e) {
+      _log.w('Co-Op control failed: $e');
+    } finally {
+      client.close();
+    }
+    return null;
+  }
+
   void dispose() {
     _httpClient.close();
   }
@@ -1013,6 +1069,10 @@ class LaunchResult {
   final String readinessToken;
   final String readinessInitialState;
   final int readinessGeneration;
+  final int turboInputPort;
+  final int turboInputTcpPort;
+  final int turboInputSessionId;
+  final String turboInputKey;
 
   const LaunchResult._({
     required this.success,
@@ -1026,6 +1086,10 @@ class LaunchResult {
     this.readinessToken = '',
     this.readinessInitialState = '',
     this.readinessGeneration = 0,
+    this.turboInputPort = 0,
+    this.turboInputTcpPort = 0,
+    this.turboInputSessionId = 0,
+    this.turboInputKey = '',
   });
 
   factory LaunchResult.ok({
@@ -1037,6 +1101,10 @@ class LaunchResult {
     String readinessToken = '',
     String readinessInitialState = '',
     int readinessGeneration = 0,
+    int turboInputPort = 0,
+    int turboInputTcpPort = 0,
+    int turboInputSessionId = 0,
+    String turboInputKey = '',
   }) => LaunchResult._(
     success: true,
     riKey: riKey,
@@ -1047,6 +1115,10 @@ class LaunchResult {
     readinessToken: readinessToken,
     readinessInitialState: readinessInitialState,
     readinessGeneration: readinessGeneration,
+    turboInputPort: turboInputPort,
+    turboInputTcpPort: turboInputTcpPort,
+    turboInputSessionId: turboInputSessionId,
+    turboInputKey: turboInputKey,
   );
 
   factory LaunchResult.fail(String error) =>
@@ -1189,5 +1261,55 @@ class WatchdogStatus {
           if (item is Map<String, dynamic>) WatchdogCandidate.fromJson(item),
       ],
     );
+  }
+}
+
+class CoopSessionEntry {
+  final String sessionId;
+  final String clientUuid;
+  final String displayName;
+  final String role;
+  final String transport;
+  final int assignedSlot;
+  final bool isOwner;
+  final bool paused;
+  final bool connected;
+  final int graceRemainingMs;
+
+  const CoopSessionEntry({
+    required this.sessionId,
+    required this.clientUuid,
+    required this.displayName,
+    required this.role,
+    required this.transport,
+    required this.assignedSlot,
+    required this.isOwner,
+    required this.paused,
+    required this.connected,
+    required this.graceRemainingMs,
+  });
+
+  factory CoopSessionEntry.fromJson(Map<String, dynamic> json) {
+    return CoopSessionEntry(
+      sessionId: (json['session_id'] as String?) ?? '',
+      clientUuid: (json['client_uuid'] as String?) ?? '',
+      displayName: (json['display_name'] as String?) ?? '',
+      role: (json['role'] as String?) ?? 'viewer',
+      transport: (json['transport'] as String?) ?? 'rtsp',
+      assignedSlot: (json['assigned_slot'] as num?)?.toInt() ?? 0,
+      isOwner: (json['is_owner'] as bool?) ?? false,
+      paused: (json['paused'] as bool?) ?? false,
+      connected: (json['connected'] as bool?) ?? true,
+      graceRemainingMs: (json['grace_remaining_ms'] as num?)?.toInt() ?? 0,
+    );
+  }
+
+  static List<CoopSessionEntry> listFromPayload(Map<String, dynamic> payload) {
+    final raw = payload['sessions'];
+    if (raw is! List) return const [];
+    return [
+      for (final item in raw)
+        if (item is Map<String, dynamic>) CoopSessionEntry.fromJson(item),
+    ];
   }
 }

@@ -468,3 +468,185 @@ void PltGenerateRandomData(unsigned char* data, int length) {
     RAND_bytes(data, length);
 #endif
 }
+
+bool PltEncryptAesEcbBlock(const unsigned char* key, int keyLength,
+                           const unsigned char* inputBlock, unsigned char* outputBlock) {
+    if (!key || !inputBlock || !outputBlock || keyLength != 16) {
+        return false;
+    }
+#ifdef USE_MBEDTLS
+    mbedtls_cipher_context_t c;
+    mbedtls_cipher_init(&c);
+    size_t olen = 0;
+    size_t flen = 0;
+    bool ok =
+        mbedtls_cipher_setup(&c, mbedtls_cipher_info_from_values(MBEDTLS_CIPHER_ID_AES, keyLength * 8, MBEDTLS_MODE_ECB)) == 0 &&
+        mbedtls_cipher_setkey(&c, key, keyLength * 8, MBEDTLS_ENCRYPT) == 0 &&
+        mbedtls_cipher_update(&c, inputBlock, 16, outputBlock, &olen) == 0 &&
+        olen == 16 &&
+        mbedtls_cipher_finish(&c, outputBlock + olen, &flen) == 0;
+    mbedtls_cipher_free(&c);
+    return ok;
+#else
+    EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
+    if (!ctx) {
+        return false;
+    }
+    int outLen = 0;
+    int finalLen = 0;
+    bool ok =
+        EVP_EncryptInit_ex(ctx, EVP_aes_128_ecb(), NULL, key, NULL) == 1 &&
+        EVP_CIPHER_CTX_set_padding(ctx, 0) == 1 &&
+        EVP_EncryptUpdate(ctx, outputBlock, &outLen, inputBlock, 16) == 1 &&
+        outLen == 16 &&
+        EVP_EncryptFinal_ex(ctx, outputBlock + outLen, &finalLen) == 1;
+    EVP_CIPHER_CTX_free(ctx);
+    return ok;
+#endif
+}
+
+bool PltEncryptAesGcmAad(const unsigned char* key, int keyLength,
+                         const unsigned char* iv, int ivLength,
+                         const unsigned char* aad, int aadLength,
+                         const unsigned char* plaintext, int plaintextLength,
+                         unsigned char* tagOut, int tagLength,
+                         unsigned char* ciphertextOut) {
+    if (!key || !iv || !tagOut || !ciphertextOut || keyLength != 16 || ivLength <= 0 ||
+        aadLength < 0 || plaintextLength < 0 || tagLength <= 0 || tagLength > 16 ||
+        (aadLength > 0 && !aad) || (plaintextLength > 0 && !plaintext)) {
+        return false;
+    }
+#ifdef USE_MBEDTLS
+    mbedtls_cipher_context_t c;
+    mbedtls_cipher_init(&c);
+    bool ok =
+        mbedtls_cipher_setup(&c, mbedtls_cipher_info_from_values(MBEDTLS_CIPHER_ID_AES, keyLength * 8, MBEDTLS_MODE_GCM)) == 0 &&
+        mbedtls_cipher_setkey(&c, key, keyLength * 8, MBEDTLS_ENCRYPT) == 0;
+    if (ok) {
+#ifdef USE_MBEDTLS_CRYPTO_EXT
+        unsigned char* combined = (unsigned char*)malloc((size_t)(plaintextLength + tagLength));
+        size_t olen = 0;
+        ok = combined != NULL &&
+             mbedtls_cipher_auth_encrypt_ext(&c, iv, (size_t)ivLength, aad, (size_t)aadLength,
+                                             plaintext, (size_t)plaintextLength,
+                                             combined, (size_t)(plaintextLength + tagLength),
+                                             &olen, (size_t)tagLength) == 0 &&
+             olen == (size_t)(plaintextLength + tagLength);
+        if (ok) {
+            if (plaintextLength > 0) {
+                memcpy(ciphertextOut, combined, (size_t)plaintextLength);
+            }
+            memcpy(tagOut, combined + plaintextLength, (size_t)tagLength);
+        }
+        free(combined);
+#else
+        size_t olen = 0;
+        ok = mbedtls_cipher_auth_encrypt(&c, iv, (size_t)ivLength, aad, (size_t)aadLength,
+                                         plaintext, (size_t)plaintextLength,
+                                         ciphertextOut, &olen, tagOut, (size_t)tagLength) == 0 &&
+             olen == (size_t)plaintextLength;
+#endif
+    }
+    mbedtls_cipher_free(&c);
+    return ok;
+#else
+    EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
+    if (!ctx) {
+        return false;
+    }
+    int len = 0;
+    int total = 0;
+    bool ok =
+        EVP_EncryptInit_ex(ctx, EVP_aes_128_gcm(), NULL, NULL, NULL) == 1 &&
+        EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_IVLEN, ivLength, NULL) == 1 &&
+        EVP_EncryptInit_ex(ctx, NULL, NULL, key, iv) == 1;
+    if (ok && aadLength > 0) {
+        ok = EVP_EncryptUpdate(ctx, NULL, &len, aad, aadLength) == 1;
+    }
+    if (ok && plaintextLength > 0) {
+        ok = EVP_EncryptUpdate(ctx, ciphertextOut, &len, plaintext, plaintextLength) == 1;
+        total = len;
+    }
+    if (ok) {
+        ok = EVP_EncryptFinal_ex(ctx, ciphertextOut + total, &len) == 1 &&
+             (total + len) == plaintextLength &&
+             EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, tagLength, tagOut) == 1;
+    }
+    EVP_CIPHER_CTX_free(ctx);
+    return ok;
+#endif
+}
+
+bool PltDecryptAesGcmAad(const unsigned char* key, int keyLength,
+                         const unsigned char* iv, int ivLength,
+                         const unsigned char* aad, int aadLength,
+                         const unsigned char* ciphertext, int ciphertextLength,
+                         const unsigned char* tag, int tagLength,
+                         unsigned char* plaintextOut) {
+    if (!key || !iv || !tag || !plaintextOut || keyLength != 16 || ivLength <= 0 ||
+        aadLength < 0 || ciphertextLength < 0 || tagLength <= 0 || tagLength > 16 ||
+        (aadLength > 0 && !aad) || (ciphertextLength > 0 && !ciphertext)) {
+        return false;
+    }
+#ifdef USE_MBEDTLS
+    mbedtls_cipher_context_t c;
+    mbedtls_cipher_init(&c);
+    bool ok =
+        mbedtls_cipher_setup(&c, mbedtls_cipher_info_from_values(MBEDTLS_CIPHER_ID_AES, keyLength * 8, MBEDTLS_MODE_GCM)) == 0 &&
+        mbedtls_cipher_setkey(&c, key, keyLength * 8, MBEDTLS_DECRYPT) == 0;
+    if (ok) {
+#ifdef USE_MBEDTLS_CRYPTO_EXT
+        unsigned char* combined = (unsigned char*)malloc((size_t)(ciphertextLength + tagLength));
+        size_t olen = 0;
+        if (combined != NULL) {
+            if (ciphertextLength > 0) {
+                memcpy(combined, ciphertext, (size_t)ciphertextLength);
+            }
+            memcpy(combined + ciphertextLength, tag, (size_t)tagLength);
+            ok = mbedtls_cipher_auth_decrypt_ext(&c, iv, (size_t)ivLength, aad, (size_t)aadLength,
+                                                 combined, (size_t)(ciphertextLength + tagLength),
+                                                 plaintextOut, (size_t)ciphertextLength,
+                                                 &olen, (size_t)tagLength) == 0 &&
+                 olen == (size_t)ciphertextLength;
+            free(combined);
+        }
+        else {
+            ok = false;
+        }
+#else
+        size_t olen = 0;
+        ok = mbedtls_cipher_auth_decrypt(&c, iv, (size_t)ivLength, aad, (size_t)aadLength,
+                                         ciphertext, (size_t)ciphertextLength,
+                                         plaintextOut, &olen, tag, (size_t)tagLength) == 0 &&
+             olen == (size_t)ciphertextLength;
+#endif
+    }
+    mbedtls_cipher_free(&c);
+    return ok;
+#else
+    EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
+    if (!ctx) {
+        return false;
+    }
+    int len = 0;
+    int total = 0;
+    bool ok =
+        EVP_DecryptInit_ex(ctx, EVP_aes_128_gcm(), NULL, NULL, NULL) == 1 &&
+        EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_IVLEN, ivLength, NULL) == 1 &&
+        EVP_DecryptInit_ex(ctx, NULL, NULL, key, iv) == 1;
+    if (ok && aadLength > 0) {
+        ok = EVP_DecryptUpdate(ctx, NULL, &len, aad, aadLength) == 1;
+    }
+    if (ok && ciphertextLength > 0) {
+        ok = EVP_DecryptUpdate(ctx, plaintextOut, &len, ciphertext, ciphertextLength) == 1;
+        total = len;
+    }
+    if (ok) {
+        ok = EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_TAG, tagLength, (void*)tag) == 1 &&
+             EVP_DecryptFinal_ex(ctx, plaintextOut + total, &len) > 0 &&
+             (total + len) == ciphertextLength;
+    }
+    EVP_CIPHER_CTX_free(ctx);
+    return ok;
+#endif
+}

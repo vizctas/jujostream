@@ -38,6 +38,7 @@ typedef struct {
     void (*onRumbleTriggers)(uint16_t controllerNumber, uint16_t leftTrigger, uint16_t rightTrigger);
     void (*onSetMotionEventState)(uint16_t controllerNumber, uint8_t motionType, uint16_t reportRateHz);
     void (*onSetControllerLED)(uint16_t controllerNumber, uint8_t r, uint8_t g, uint8_t b);
+    void (*onSetAdaptiveTriggers)(uint16_t controllerNumber, uint8_t eventFlags, uint8_t typeLeft, uint8_t typeRight, const uint8_t *left, const uint8_t *right);
     void (*onSetHdrMode)(bool enabled);
 } JujostreamWinCallbacks;
 
@@ -75,6 +76,9 @@ int  moonlightWinSendControllerInput(
 int  moonlightWinSendControllerArrival(
     short controllerNumber, short activeGamepadMask,
     uint8_t controllerType, short capabilities, int supportedButtonFlags);
+void moonlightWinConfigureTurboInput(
+    int udpPort, int tcpPort, uint32_t sessionId, const char *keyHex);
+void moonlightWinOnConnectionStarted(void);
 void moonlightWinSendUtf8Text(const char *text);
 
 // Touch event — normalized coords [0,1] relative to stream output area.
@@ -86,6 +90,10 @@ int  moonlightWinSendTouchEvent(uint8_t eventType, uint32_t pointerId,
                                  float contactAreaMajor,
                                  float contactAreaMinor,
                                  uint16_t rotation);
+
+int  moonlightWinGetVrrClockSyncStats(int64_t *offsetUs, uint64_t *rttUs, uint32_t *sampleCount);
+int  moonlightWinTriggerRoam(void);
+int  moonlightWinGetRoamingStats(int *supported, uint32_t *migrations, uint64_t *lastMigrationUs);
 
 #ifdef __cplusplus
 }

@@ -35,7 +35,7 @@ public:
 
     void pollRawControllers(
         int startingSlot,
-        std::function<void(int slot, int moonlightButtons, uint8_t lt, uint8_t rt, int16_t lx, int16_t ly, int16_t rx, int16_t ry)> callback);
+        std::function<void(int slot, uint16_t vid, uint16_t pid, int moonlightButtons, uint8_t lt, uint8_t rt, int16_t lx, int16_t ly, int16_t rx, int16_t ry)> callback);
 
 private:
     WgiHandler() = default;

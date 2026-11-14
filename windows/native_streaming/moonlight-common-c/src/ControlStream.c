@@ -297,6 +297,210 @@ static bool supportsIdrFrameRequest;
 #define LOSS_REPORT_INTERVAL_MS 50
 #define PERIODIC_PING_INTERVAL_MS 100
 
+#define RL_VRR_CLOCK_SYNC_PTYPE 0x5537
+#define RL_VRR_CLOCK_SYNC_REQ_LEN 16
+#define RL_VRR_CLOCK_SYNC_REP_LEN 32
+
+static int64_t vrrClockOffsetUs = 0;
+static uint64_t vrrClockRttUs = 0;
+static uint32_t vrrClockSamples = 0;
+static bool vrrClockStateReady = false;
+
+#define RL_ROAM_VERSION 1
+#define RL_ROAM_HEADER_BYTES 20
+#define RL_ROAM_TAG_BYTES 16
+#define RL_ROAM_PLAINTEXT_BYTES 16
+#define RL_ROAM_PACKET_BYTES (RL_ROAM_HEADER_BYTES + RL_ROAM_TAG_BYTES + RL_ROAM_PLAINTEXT_BYTES)
+#define RL_ROAM_TYPE_PROBE 1
+#define RL_ROAM_TYPE_CHALLENGE 2
+#define RL_ROAM_TYPE_CONFIRM 3
+#define RL_ROAM_TYPE_MIGRATED 4
+#define RL_ROAM_DIR_C2H 1
+#define RL_ROAM_DIR_H2C 2
+#define RL_ROAM_SILENCE_MS 2000
+#define RL_ROAM_RETRY_MS 500
+#define RL_ROAM_RECOVERY_BUDGET_MS 12000
+
+static const uint8_t RL_ROAM_MAGIC[4] = { 0x0F, 0xFE, 0x52, 0x4D };
+static uint8_t roamingKey[16];
+static uint8_t roamingSessionTag[8];
+static bool roamingCryptoReady = false;
+static uint32_t roamTxSeq = 0;
+static uint32_t activeProbeSeq = 0;
+static uint32_t activeConfirmSeq = 0;
+static uint8_t activeProbeNonce[8];
+static uint8_t activeChallenge[8];
+static bool roamInFlight = false;
+static bool roamHasChallenge = false;
+static volatile bool roamRequested = false;
+static bool disconnectInterceptCleared = false;
+static uint64_t lastControlRxMs = 0;
+static uint64_t lastRoamAttemptMs = 0;
+static uint64_t roamRecoveryStartMs = 0;
+static uint32_t roamMigrations = 0;
+static uint64_t lastRoamSuccessUs = 0;
+static uint32_t roamSilenceAttempts = 0;
+
+static uint32_t roamReadU32Le(const uint8_t* p) {
+    return (uint32_t)p[0] |
+           ((uint32_t)p[1] << 8) |
+           ((uint32_t)p[2] << 16) |
+           ((uint32_t)p[3] << 24);
+}
+
+static void roamWriteU32Le(uint8_t* p, uint32_t v) {
+    p[0] = (uint8_t)(v & 0xFFu);
+    p[1] = (uint8_t)((v >> 8) & 0xFFu);
+    p[2] = (uint8_t)((v >> 16) & 0xFFu);
+    p[3] = (uint8_t)((v >> 24) & 0xFFu);
+}
+
+static bool roamConstTimeEqual8(const uint8_t* a, const uint8_t* b) {
+    uint8_t diff = 0;
+    for (int i = 0; i < 8; i++) {
+        diff |= (uint8_t)(a[i] ^ b[i]);
+    }
+    return diff == 0;
+}
+
+static void roamBuildNonce(uint8_t type, uint8_t dir, uint32_t seq, uint8_t ivOut[12]) {
+    memset(ivOut, 0, 12);
+    ivOut[0] = type;
+    ivOut[1] = dir;
+    roamWriteU32Le(ivOut + 4, seq);
+}
+
+static void deriveControlRoamingCrypto(void) {
+    static const uint8_t keyLabel[16] = {
+        'R', 'L', 'R', 'O', 'A', 'M', '-', 'K', 'E', 'Y', '-', 'v', '1', 0, 0, 0
+    };
+    static const uint8_t tagLabel[16] = {
+        'R', 'L', 'R', 'O', 'A', 'M', '-', 'T', 'A', 'G', '-', 'v', '1', 0, 0, 0
+    };
+    uint8_t tagBlock[16];
+    roamingCryptoReady = false;
+    if (!PltEncryptAesEcbBlock((const unsigned char*)StreamConfig.remoteInputAesKey, 16, keyLabel, roamingKey) ||
+        !PltEncryptAesEcbBlock((const unsigned char*)StreamConfig.remoteInputAesKey, 16, tagLabel, tagBlock)) {
+        memset(roamingKey, 0, sizeof(roamingKey));
+        memset(roamingSessionTag, 0, sizeof(roamingSessionTag));
+        return;
+    }
+    memcpy(roamingSessionTag, tagBlock, sizeof(roamingSessionTag));
+    roamingCryptoReady = true;
+}
+
+static bool sendRoamDatagramLocked(uint8_t type, uint32_t seq, const uint8_t plaintext[RL_ROAM_PLAINTEXT_BYTES]) {
+    uint8_t pkt[RL_ROAM_PACKET_BYTES];
+    uint8_t iv[12];
+    ENetBuffer buf;
+
+    if (!roamingCryptoReady || client == NULL || client->socket == ENET_SOCKET_NULL || peer == NULL) {
+        return false;
+    }
+
+    memcpy(pkt, RL_ROAM_MAGIC, sizeof(RL_ROAM_MAGIC));
+    pkt[4] = RL_ROAM_VERSION;
+    pkt[5] = type;
+    pkt[6] = 0;
+    pkt[7] = 0;
+    memcpy(pkt + 8, roamingSessionTag, sizeof(roamingSessionTag));
+    roamWriteU32Le(pkt + 16, seq);
+    roamBuildNonce(type, RL_ROAM_DIR_C2H, seq, iv);
+
+    if (!PltEncryptAesGcmAad(roamingKey, sizeof(roamingKey),
+                             iv, sizeof(iv),
+                             pkt, RL_ROAM_HEADER_BYTES,
+                             plaintext, RL_ROAM_PLAINTEXT_BYTES,
+                             pkt + RL_ROAM_HEADER_BYTES, RL_ROAM_TAG_BYTES,
+                             pkt + RL_ROAM_HEADER_BYTES + RL_ROAM_TAG_BYTES)) {
+        return false;
+    }
+
+    buf.data = pkt;
+    buf.dataLength = sizeof(pkt);
+    return enet_socket_send(client->socket, &peer->address, NULL, &buf, 1) == (int)sizeof(pkt);
+}
+
+static bool rebindControlSocketWildcardLocked(void) {
+    ENetSocket newSock;
+    ENetAddress wildAddr;
+    LC_SOCKADDR wildSa;
+    socklen_t wildLen;
+
+    if (client == NULL) {
+        return false;
+    }
+
+    newSock = enet_socket_create(RemoteAddr.ss_family, ENET_SOCKET_TYPE_DATAGRAM);
+    if (newSock == ENET_SOCKET_NULL) {
+        return false;
+    }
+
+    memset(&wildSa, 0, sizeof(wildSa));
+    SET_FAMILY(&wildSa, RemoteAddr.ss_family);
+    SET_PORT(&wildSa, 0);
+#ifdef AF_INET6
+    wildLen = (socklen_t)(RemoteAddr.ss_family == AF_INET ? sizeof(struct sockaddr_in) : sizeof(struct sockaddr_in6));
+#else
+    wildLen = (socklen_t)sizeof(struct sockaddr_in);
+#endif
+    memset(&wildAddr, 0, sizeof(wildAddr));
+    enet_address_set_address(&wildAddr, (struct sockaddr*)&wildSa, wildLen);
+    if (enet_socket_bind(newSock, &wildAddr) < 0) {
+        enet_socket_destroy(newSock);
+        return false;
+    }
+
+    enet_socket_set_option(newSock, ENET_SOCKOPT_NONBLOCK, 1);
+    enet_socket_set_option(newSock, ENET_SOCKOPT_RCVBUF, ENET_HOST_RECEIVE_BUFFER_SIZE);
+    enet_socket_set_option(newSock, ENET_SOCKOPT_SNDBUF, ENET_HOST_SEND_BUFFER_SIZE);
+    enet_socket_set_option(newSock, ENET_SOCKOPT_QOS, 1);
+
+    if (client->socket != ENET_SOCKET_NULL) {
+        enet_socket_destroy(client->socket);
+    }
+    client->socket = newSock;
+    client->wildcardBind = 0;
+    if (enet_socket_get_address(newSock, &client->address) < 0) {
+        client->address = wildAddr;
+    }
+    if (peer != NULL) {
+        memset(&peer->localAddress, 0, sizeof(peer->localAddress));
+    }
+    return true;
+}
+
+static bool sendRoamProbeLocked(uint64_t nowMs) {
+    uint8_t plaintext[RL_ROAM_PLAINTEXT_BYTES];
+
+    if (!RlRoamingSupported || !roamingCryptoReady || client == NULL || peer == NULL) {
+        return false;
+    }
+
+    PltGenerateRandomData(activeProbeNonce, sizeof(activeProbeNonce));
+    memset(plaintext, 0, sizeof(plaintext));
+    memcpy(plaintext, activeProbeNonce, sizeof(activeProbeNonce));
+
+    activeProbeSeq = ++roamTxSeq;
+    activeConfirmSeq = 0;
+    roamHasChallenge = false;
+    roamInFlight = true;
+    lastRoamAttemptMs = nowMs;
+
+    return sendRoamDatagramLocked(RL_ROAM_TYPE_PROBE, activeProbeSeq, plaintext);
+}
+
+static void attemptControlRoamLocked(bool forceSocketRebind) {
+    uint64_t nowMs = PltGetMillis();
+    if (roamRecoveryStartMs == 0) {
+        roamRecoveryStartMs = nowMs;
+    }
+    if (forceSocketRebind) {
+        rebindControlSocketWildcardLocked();
+    }
+    sendRoamProbeLocked(nowMs);
+}
+
 // Initializes the control stream
 int initializeControlStream(void) {
     stopping = false;
@@ -356,6 +560,27 @@ int initializeControlStream(void) {
     decryptionCtx = PltCreateCryptoContext();
     hdrEnabled = false;
     memset(&hdrMetadata, 0, sizeof(hdrMetadata));
+    vrrClockOffsetUs = 0;
+    vrrClockRttUs = 0;
+    vrrClockSamples = 0;
+    vrrClockStateReady = true;
+    roamTxSeq = 0;
+    activeProbeSeq = 0;
+    activeConfirmSeq = 0;
+    memset(activeProbeNonce, 0, sizeof(activeProbeNonce));
+    memset(activeChallenge, 0, sizeof(activeChallenge));
+    roamInFlight = false;
+    roamHasChallenge = false;
+    roamRequested = false;
+    disconnectInterceptCleared = false;
+    lastControlRxMs = PltGetMillis();
+    lastRoamAttemptMs = 0;
+    roamRecoveryStartMs = 0;
+    roamMigrations = 0;
+    lastRoamSuccessUs = 0;
+    roamSilenceAttempts = 0;
+    RoamGeneration = 0;
+    deriveControlRoamingCrypto();
 
     return 0;
 }
@@ -380,6 +605,10 @@ void destroyControlStream(void) {
     freeBasicLbqList(LbqDestroyLinkedBlockingQueue(&frameFecStatusQueue));
     freeBasicLbqList(LbqDestroyLinkedBlockingQueue(&asyncCallbackQueue));
 
+    vrrClockStateReady = false;
+    roamingCryptoReady = false;
+    memset(roamingKey, 0, sizeof(roamingKey));
+    memset(roamingSessionTag, 0, sizeof(roamingSessionTag));
     PltDeleteMutex(&enetMutex);
 }
 
@@ -886,8 +1115,69 @@ static bool sendMessageAndDiscardReply(short ptype, short paylen, const void* pa
 // This intercept function drops disconnect events to allow us to process
 // pending receives first. It works around what appears to be a bug in ENet
 // where pending disconnects can cause loss of unprocessed received data.
-static int ignoreDisconnectIntercept(ENetHost* host, ENetEvent* event) {
-    if (host->receivedDataLength == sizeof(ENetProtocolHeader) + sizeof(ENetProtocolDisconnect)) {
+static int controlInterceptCallback(ENetHost* host, ENetEvent* event) {
+    if (host->receivedDataLength == RL_ROAM_PACKET_BYTES &&
+        memcmp(host->receivedData, RL_ROAM_MAGIC, sizeof(RL_ROAM_MAGIC)) == 0) {
+        if (event) {
+            event->type = ENET_EVENT_TYPE_NONE;
+        }
+        if (RlRoamingSupported && roamingCryptoReady && !stopping &&
+            host->receivedData[4] == RL_ROAM_VERSION &&
+            roamConstTimeEqual8(host->receivedData + 8, roamingSessionTag)) {
+            uint8_t type = host->receivedData[5];
+            uint32_t seq = roamReadU32Le(host->receivedData + 16);
+            uint8_t iv[12];
+            uint8_t plaintext[RL_ROAM_PLAINTEXT_BYTES];
+
+            if (seq != 0 && (type == RL_ROAM_TYPE_CHALLENGE || type == RL_ROAM_TYPE_MIGRATED)) {
+                roamBuildNonce(type, RL_ROAM_DIR_H2C, seq, iv);
+                if (PltDecryptAesGcmAad(roamingKey, sizeof(roamingKey),
+                                        iv, sizeof(iv),
+                                        host->receivedData, RL_ROAM_HEADER_BYTES,
+                                        host->receivedData + RL_ROAM_HEADER_BYTES + RL_ROAM_TAG_BYTES, RL_ROAM_PLAINTEXT_BYTES,
+                                        host->receivedData + RL_ROAM_HEADER_BYTES, RL_ROAM_TAG_BYTES,
+                                        plaintext)) {
+                    if (type == RL_ROAM_TYPE_CHALLENGE &&
+                        roamInFlight &&
+                        seq == activeProbeSeq &&
+                        roamConstTimeEqual8(plaintext, activeProbeNonce)) {
+                        uint8_t confirmPt[RL_ROAM_PLAINTEXT_BYTES];
+                        uint32_t confirmSeq = ++roamTxSeq;
+
+                        memcpy(activeChallenge, plaintext + 8, sizeof(activeChallenge));
+                        roamHasChallenge = true;
+                        activeConfirmSeq = confirmSeq;
+                        lastControlRxMs = PltGetMillis();
+
+                        memset(confirmPt, 0, sizeof(confirmPt));
+                        memcpy(confirmPt, activeChallenge, sizeof(activeChallenge));
+                        sendRoamDatagramLocked(RL_ROAM_TYPE_CONFIRM, confirmSeq, confirmPt);
+                    }
+                    else if (type == RL_ROAM_TYPE_MIGRATED &&
+                             roamInFlight &&
+                             roamHasChallenge &&
+                             seq == activeConfirmSeq &&
+                             roamConstTimeEqual8(plaintext, activeChallenge)) {
+                        if (peer != NULL) {
+                            peer->localAddress = host->receivedLocalAddress;
+                        }
+                        roamInFlight = false;
+                        roamHasChallenge = false;
+                        roamRecoveryStartMs = 0;
+                        roamSilenceAttempts = 0;
+                        lastControlRxMs = PltGetMillis();
+                        lastRoamSuccessUs = PltGetMicroseconds();
+                        roamMigrations++;
+                        RoamGeneration++;
+                    }
+                }
+            }
+        }
+        return 1;
+    }
+
+    if (!disconnectInterceptCleared &&
+        host->receivedDataLength == sizeof(ENetProtocolHeader) + sizeof(ENetProtocolDisconnect)) {
         ENetProtocolHeader* protoHeader = (ENetProtocolHeader*)host->receivedData;
         ENetProtocolDisconnect* disconnect = (ENetProtocolDisconnect*)(protoHeader + 1);
 
@@ -1109,6 +1399,8 @@ static void controlReceiveThreadFunc(void* context) {
         return;
     }
 
+    lastControlRxMs = PltGetMillis();
+
     while (!PltIsThreadInterrupted(&controlReceiveThread)) {
         ENetEvent event;
         enet_uint32 waitTimeMs;
@@ -1159,15 +1451,16 @@ static void controlReceiveThreadFunc(void* context) {
                 // Wait 100 ms for pending receives after a disconnect and
                 // 1 second for the pending disconnect to be processed after
                 // removing the intercept callback.
-                err = serviceEnetHost(client, &event, client->intercept ? 100 : 1000);
+                err = serviceEnetHost(client, &event, !disconnectInterceptCleared ? 100 : 1000);
                 if (err == 0) {
-                    if (client->intercept) {
+                    if (!disconnectInterceptCleared) {
                         // Now that no pending receive events remain, we can
-                        // remove our intercept hook and allow the server's
-                        // disconnect to be processed as expected. We will wait
-                        // 1 second for this disconnect to be processed before
-                        // we tear down the connection anyway.
-                        client->intercept = NULL;
+                        // allow the server's disconnect to be processed while
+                        // still keeping roaming interception active if needed.
+                        disconnectInterceptCleared = true;
+                        if (!RlRoamingSupported) {
+                            client->intercept = NULL;
+                        }
                         PltUnlockMutex(&enetMutex);
                         continue;
                     }
@@ -1186,6 +1479,42 @@ static void controlReceiveThreadFunc(void* context) {
                 }
             }
             else {
+                if (RlRoamingSupported && roamingCryptoReady && !stopping) {
+                    uint64_t nowMs = PltGetMillis();
+                    PltLockMutex(&enetMutex);
+                    bool needTrigger = roamRequested;
+                    bool isSilent = (!needTrigger &&
+                                     lastControlRxMs != 0 &&
+                                     nowMs >= lastControlRxMs &&
+                                     (nowMs - lastControlRxMs) >= RL_ROAM_SILENCE_MS &&
+                                     (lastRoamAttemptMs == 0 ||
+                                      (nowMs >= lastRoamAttemptMs && (nowMs - lastRoamAttemptMs) >= RL_ROAM_RETRY_MS)));
+                    if (needTrigger) {
+                        roamRequested = false;
+                        roamSilenceAttempts = 0;
+                        attemptControlRoamLocked(true);
+                        waitTimeMs = MIN(waitTimeMs, 100);
+                    }
+                    else if (isSilent) {
+                        bool shouldRebind = (roamSilenceAttempts == 0) || ((roamSilenceAttempts % 2) == 0);
+                        roamSilenceAttempts++;
+                        attemptControlRoamLocked(shouldRebind);
+                        waitTimeMs = MIN(waitTimeMs, 100);
+                    }
+                    else {
+                        waitTimeMs = MIN(waitTimeMs, 250);
+                    }
+                    ENetSocket sock = client->socket;
+                    PltUnlockMutex(&enetMutex);
+                    if (sock == ENET_SOCKET_NULL) {
+                        PltSleepMs(50);
+                    }
+                    else {
+                        enet_uint32 condition = ENET_SOCKET_WAIT_RECEIVE;
+                        enet_socket_wait(sock, &condition, waitTimeMs);
+                    }
+                    continue;
+                }
                 // No events ready - wait for readability or a local RTO timer to expire
                 enet_uint32 condition = ENET_SOCKET_WAIT_RECEIVE;
                 enet_socket_wait(client->socket, &condition, waitTimeMs);
@@ -1198,6 +1527,25 @@ static void controlReceiveThreadFunc(void* context) {
             LC_ASSERT(err == -1);
 
             err = LastSocketFail();
+            if (RlRoamingSupported && roamingCryptoReady && !stopping && !disconnectPending) {
+                uint64_t nowMs = PltGetMillis();
+                PltLockMutex(&enetMutex);
+                if (roamRecoveryStartMs == 0) {
+                    roamRecoveryStartMs = nowMs;
+                }
+                bool withinBudget = (nowMs >= roamRecoveryStartMs) &&
+                                    ((nowMs - roamRecoveryStartMs) <= RL_ROAM_RECOVERY_BUDGET_MS);
+                if (withinBudget) {
+                    if (lastRoamAttemptMs == 0 ||
+                        (nowMs >= lastRoamAttemptMs && (nowMs - lastRoamAttemptMs) >= 300)) {
+                        attemptControlRoamLocked(true);
+                    }
+                    PltUnlockMutex(&enetMutex);
+                    PltSleepMs(200);
+                    continue;
+                }
+                PltUnlockMutex(&enetMutex);
+            }
             Limelog("Control stream connection failed: %d\n", err);
             ListenerCallbacks.connectionTerminated(err);
             return;
@@ -1206,6 +1554,10 @@ static void controlReceiveThreadFunc(void* context) {
         if (event.type == ENET_EVENT_TYPE_RECEIVE) {
             PNVCTL_ENET_PACKET_HEADER_V1 ctlHdr;
             int packetLength;
+
+            lastControlRxMs = PltGetMillis();
+            roamRecoveryStartMs = 0;
+            roamSilenceAttempts = 0;
 
             if (event.packet->dataLength < sizeof(*ctlHdr)) {
                 Limelog("Discarding runt control packet: %d < %d\n", event.packet->dataLength, (int)sizeof(*ctlHdr));
@@ -1292,8 +1644,50 @@ static void controlReceiveThreadFunc(void* context) {
                 hdrEnabled = (enableByte != 0);
             }
 
+            if (ctlHdr->type == RL_VRR_CLOCK_SYNC_PTYPE) {
+                if (packetLength >= (int)sizeof(*ctlHdr) + RL_VRR_CLOCK_SYNC_REP_LEN) {
+                    BYTE_BUFFER bb;
+                    uint8_t version = 0, rsv0 = 0;
+                    uint16_t rsv1 = 0;
+                    uint32_t seq = 0;
+                    uint64_t t1 = 0, t2 = 0, t3 = 0;
+                    uint64_t t4 = PltGetMicroseconds();
+
+                    BbInitializeWrappedBuffer(&bb, (char*)ctlHdr, sizeof(*ctlHdr), packetLength - sizeof(*ctlHdr), BYTE_ORDER_LITTLE);
+                    BbGet8(&bb, &version);
+                    BbGet8(&bb, &rsv0);
+                    BbGet16(&bb, &rsv1);
+                    BbGet32(&bb, &seq);
+                    BbGet64(&bb, &t1);
+                    BbGet64(&bb, &t2);
+                    BbGet64(&bb, &t3);
+
+                    if (version == 1 && t4 >= t1 && t3 >= t2) {
+                        uint64_t rawDelay = t4 - t1;
+                        uint64_t procDelay = t3 - t2;
+                        if (rawDelay >= procDelay) {
+                            uint64_t rtt = rawDelay - procDelay;
+                            int64_t d1 = (int64_t)(t2 - t1);
+                            int64_t d2 = (int64_t)(t3 - t4);
+                            int64_t offset = d1 + ((d2 - d1) / 2);
+
+                            PltLockMutex(&enetMutex);
+                            if (vrrClockSamples == 0 || rtt <= vrrClockRttUs) {
+                                vrrClockOffsetUs = offset;
+                                vrrClockRttUs = rtt;
+                            } else {
+                                vrrClockOffsetUs = vrrClockOffsetUs + ((offset - vrrClockOffsetUs) / 8);
+                                vrrClockRttUs = (uint64_t)((int64_t)vrrClockRttUs + (((int64_t)rtt - (int64_t)vrrClockRttUs) / 8));
+                            }
+                            vrrClockSamples++;
+                            PltUnlockMutex(&enetMutex);
+                        }
+                    }
+                }
+                free(ctlHdr);
+            }
             // Process client callbacks in a separate thread
-            if (needsAsyncCallback(ctlHdr->type)) {
+            else if (needsAsyncCallback(ctlHdr->type)) {
                 queueAsyncCallback(ctlHdr, packetLength);
             }
             else if (ctlHdr->type == packetTypes[IDX_TERMINATION]) {
@@ -1390,6 +1784,11 @@ static void lossStatsThreadFunc(void* context) {
 
     if (usePeriodicPing) {
         char periodicPingPayload[8];
+        uint64_t lastFecReportMs = PltGetMillis();
+        uint32_t fecReportSeq = 0;
+        uint64_t lastClockSyncMs = 0;
+        uint32_t clockSyncSeq = 1;
+        uint32_t clockProbeCount = 0;
 
         BbInitializeWrappedBuffer(&byteBuffer, periodicPingPayload, 0, sizeof(periodicPingPayload), BYTE_ORDER_LITTLE);
         BbPut16(&byteBuffer, 4); // Length of payload
@@ -1419,6 +1818,68 @@ static void lossStatsThreadFunc(void* context) {
 
                     free(queuedFrameStatus);
                 }
+
+                if (RlFecReportSupported) {
+                    uint64_t nowMs = PltGetMillis();
+                    if (nowMs >= lastFecReportMs && nowMs - lastFecReportMs >= 1000) {
+                        uint32_t dataShards = 0;
+                        uint32_t parityShards = 0;
+                        uint32_t missingShards = 0;
+                        uint16_t unrecoveredBlocks = 0;
+                        uint64_t elapsedMs = nowMs - lastFecReportMs;
+                        uint16_t intervalMs = (uint16_t)(elapsedMs > 5000 ? 5000 : (elapsedMs < 250 ? 250 : elapsedMs));
+                        uint8_t reportPayload[24] = { 0 };
+                        BYTE_BUFFER reportBuf;
+
+                        videoStreamTakeFecReport(&dataShards, &parityShards, &missingShards, &unrecoveredBlocks);
+                        BbInitializeWrappedBuffer(&reportBuf, (char*)reportPayload, 0, sizeof(reportPayload), BYTE_ORDER_LITTLE);
+                        BbPut8(&reportBuf, 1);
+                        BbPut8(&reportBuf, 0);
+                        BbPut16(&reportBuf, 0);
+                        BbPut32(&reportBuf, fecReportSeq++);
+                        BbPut32(&reportBuf, dataShards);
+                        BbPut32(&reportBuf, parityShards);
+                        BbPut32(&reportBuf, missingShards);
+                        BbPut16(&reportBuf, unrecoveredBlocks);
+                        BbPut16(&reportBuf, intervalMs);
+
+                        if (sendMessageEnet(0x5539,
+                                            sizeof(reportPayload),
+                                            reportPayload,
+                                            CTRL_CHANNEL_GENERIC,
+                                            ENET_PACKET_FLAG_UNSEQUENCED,
+                                            false)) {
+                            lastFecReportMs = nowMs;
+                        }
+                    }
+                }
+
+                if (RlClockSyncSupported) {
+                    uint64_t nowMs = PltGetMillis();
+                    uint64_t probeIntervalMs = clockProbeCount < 3 ? 500 : 2000;
+                    if (lastClockSyncMs == 0 || (nowMs >= lastClockSyncMs && nowMs - lastClockSyncMs >= probeIntervalMs)) {
+                        uint8_t clockPayload[RL_VRR_CLOCK_SYNC_REQ_LEN] = { 0 };
+                        BYTE_BUFFER clockBuf;
+                        uint64_t t1 = PltGetMicroseconds();
+
+                        BbInitializeWrappedBuffer(&clockBuf, (char*)clockPayload, 0, sizeof(clockPayload), BYTE_ORDER_LITTLE);
+                        BbPut8(&clockBuf, 1);
+                        BbPut8(&clockBuf, 0);
+                        BbPut16(&clockBuf, 0);
+                        BbPut32(&clockBuf, clockSyncSeq++);
+                        BbPut64(&clockBuf, t1);
+
+                        if (sendMessageEnet(RL_VRR_CLOCK_SYNC_PTYPE,
+                                            sizeof(clockPayload),
+                                            clockPayload,
+                                            CTRL_CHANNEL_GENERIC,
+                                            ENET_PACKET_FLAG_UNSEQUENCED,
+                                            false)) {
+                            lastClockSyncMs = nowMs;
+                            clockProbeCount++;
+                        }
+                    }
+                }
             }
 
             // Send the message (and don't expect a response)
@@ -1433,6 +1894,21 @@ static void lossStatsThreadFunc(void* context) {
                                       CTRL_CHANNEL_GENERIC,
                                       ENET_PACKET_FLAG_RELIABLE,
                                       false)) {
+                if (RlRoamingSupported && roamingCryptoReady && !stopping && !disconnectPending) {
+                    uint64_t nowMs = PltGetMillis();
+                    PltLockMutex(&enetMutex);
+                    if (roamRecoveryStartMs == 0) {
+                        roamRecoveryStartMs = nowMs;
+                    }
+                    bool withinBudget = (nowMs >= roamRecoveryStartMs) &&
+                                        ((nowMs - roamRecoveryStartMs) <= RL_ROAM_RECOVERY_BUDGET_MS);
+                    roamRequested = true;
+                    PltUnlockMutex(&enetMutex);
+                    if (withinBudget) {
+                        PltSleepMsInterruptible(&lossStatsThread, 250);
+                        continue;
+                    }
+                }
                 Limelog("Loss Stats: Transaction failed: %d\n", (int)LastSocketError());
                 ListenerCallbacks.connectionTerminated(LastSocketFail());
                 return;
@@ -1746,6 +2222,60 @@ bool LiGetEstimatedRttInfo(uint32_t* estimatedRtt, uint32_t* estimatedRttVarianc
     return ret;
 }
 
+bool LiGetVrrClockSyncStats(int64_t* offsetUs, uint64_t* rttUs, uint32_t* sampleCount) {
+    bool hasSample = false;
+    if (!vrrClockStateReady || stopping) {
+        return false;
+    }
+    PltLockMutex(&enetMutex);
+    if (vrrClockSamples > 0) {
+        if (offsetUs != NULL) {
+            *offsetUs = vrrClockOffsetUs;
+        }
+        if (rttUs != NULL) {
+            *rttUs = vrrClockRttUs;
+        }
+        if (sampleCount != NULL) {
+            *sampleCount = vrrClockSamples;
+        }
+        hasSample = true;
+    }
+    PltUnlockMutex(&enetMutex);
+    return hasSample;
+}
+
+bool LiTriggerConnectionRoam(void) {
+    if (!RlRoamingSupported || !roamingCryptoReady || stopping || disconnectPending) {
+        return false;
+    }
+    roamRequested = true;
+    return true;
+}
+
+bool LiGetRoamingStats(bool* supported, uint32_t* migrations, uint64_t* lastMigrationUs) {
+    if (supported != NULL) {
+        *supported = RlRoamingSupported && roamingCryptoReady;
+    }
+    if (!vrrClockStateReady || stopping) {
+        if (migrations != NULL) {
+            *migrations = 0;
+        }
+        if (lastMigrationUs != NULL) {
+            *lastMigrationUs = 0;
+        }
+        return RlRoamingSupported && roamingCryptoReady;
+    }
+    PltLockMutex(&enetMutex);
+    if (migrations != NULL) {
+        *migrations = roamMigrations;
+    }
+    if (lastMigrationUs != NULL) {
+        *lastMigrationUs = lastRoamSuccessUs;
+    }
+    PltUnlockMutex(&enetMutex);
+    return RlRoamingSupported && roamingCryptoReady;
+}
+
 // Starts the control stream
 int startControlStream(void) {
     int err;
@@ -1776,7 +2306,7 @@ int startControlStream(void) {
             return -1;
         }
 
-        client->intercept = ignoreDisconnectIntercept;
+        client->intercept = controlInterceptCallback;
 
         // Enable high priority QoS marking on control stream traffic
         //

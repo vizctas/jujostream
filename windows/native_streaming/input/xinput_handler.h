@@ -16,12 +16,14 @@ class XInputHandler {
 public:
     static XInputHandler &instance();
 
-    // Start/stop 125Hz polling thread
+    // Start/stop high-frequency polling thread (configurable 60..1000Hz, default 500Hz)
     void startPolling();
     void stopPolling();
 
     void setDeadzone(int percent);
     void setResponseCurve(double curve);
+    void setPollingRate(int hz);
+    int  getPollingRate() const { return poll_hz_.load(); }
     void setMouseEmulationSpeed(double factor) { mouse_emu_speed_ = factor; }
     void setStreamingActive(bool active)       { streaming_active_.store(active); }
     void setOverlayVisible(bool visible)       { overlay_visible_.store(visible); }
@@ -56,11 +58,30 @@ private:
     ~XInputHandler() { stopPolling(); }
 
     void pollLoop();
+    void dispatchSlotOverlayAndNav(int slot, int liButtons);
+    void sendSlotIfChanged(
+        int slot, short activeMask, uint8_t controllerType, short capabilities,
+        int supportedButtons, int liButtons, uint8_t lt, uint8_t rt,
+        int16_t lx, int16_t ly, int16_t rx, int16_t ry);
+
+    struct SentControllerState {
+        bool     valid = false;
+        short    activeMask = 0;
+        int      buttons = 0;
+        uint8_t  lt = 0;
+        uint8_t  rt = 0;
+        int16_t  lx = 0;
+        int16_t  ly = 0;
+        int16_t  rx = 0;
+        int16_t  ry = 0;
+        uint64_t lastSentMs = 0;
+    };
 
     std::thread       poll_thread_;
     std::atomic<bool> poll_running_{false};
     std::atomic<bool> streaming_active_{false};
     std::atomic<bool> overlay_visible_{false};
+    std::atomic<int>  poll_hz_{500};
 
     int    deadzone_percent_  = 10;
     double response_curve_    = 1.0;
@@ -70,6 +91,8 @@ private:
     uint32_t prev_buttons_[8] = {};
     uint32_t prev_li_buttons_[8] = {};
     bool     prev_connected_[8] = {};
+    bool     arrival_sent_[8] = {};
+    SentControllerState last_sent_[8] = {};
 
     std::function<void(const std::string&)> overlay_dpad_cb_;
     std::function<void(const std::string&)> nav_input_cb_;

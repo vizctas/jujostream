@@ -48,6 +48,57 @@ String cloudPairDeviceName() {
   return suffix.isEmpty ? '$platform client' : '$platform · $suffix';
 }
 
+/// Pending server share (`server_members`) or 4h Co-Op guest (`coop_session_invites`)
+/// invitation addressed to the authenticated Supabase user.
+class CloudPendingInvite {
+  final bool isCoop;
+  final String inviteId;
+  final String ownerEmail;
+  final String serverName;
+  final String serverUrl;
+  final String role;
+  final DateTime? invitedAt;
+  final DateTime? expiresAt;
+
+  const CloudPendingInvite({
+    required this.isCoop,
+    required this.inviteId,
+    required this.ownerEmail,
+    required this.serverName,
+    required this.serverUrl,
+    required this.role,
+    this.invitedAt,
+    this.expiresAt,
+  });
+
+  bool get isExpired =>
+      expiresAt != null && !expiresAt!.isAfter(DateTime.now().toUtc());
+
+  factory CloudPendingInvite.fromJson(
+    Map<String, dynamic> json, {
+    required bool isCoop,
+  }) {
+    final url = (json['server_url'] ?? '').toString().trim();
+    final rawName = (json['server_name'] ?? '').toString().trim();
+    return CloudPendingInvite(
+      isCoop: isCoop,
+      inviteId: (json['id'] ?? '').toString().trim(),
+      ownerEmail: (json['owner_email'] ?? '').toString().trim(),
+      serverName: rawName.isNotEmpty ? rawName : url,
+      serverUrl: url,
+      role: (json['role'] ?? (isCoop ? 'coop_pad' : 'viewer'))
+          .toString()
+          .trim(),
+      invitedAt: json['invited_at'] != null
+          ? DateTime.tryParse(json['invited_at'].toString())?.toUtc()
+          : null,
+      expiresAt: json['expires_at'] != null
+          ? DateTime.tryParse(json['expires_at'].toString())?.toUtc()
+          : null,
+    );
+  }
+}
+
 class CloudSyncService {
   CloudSyncService._();
   static final instance = CloudSyncService._();
@@ -413,6 +464,113 @@ class CloudSyncService {
     }
   }
 
+  /// Fetches pending permanent (`my_server_invites`) and temporary 4h Co-Op
+  /// (`my_coop_invites`) invitations for the signed-in Supabase user.
+  Future<List<CloudPendingInvite>> fetchPendingInvites() async {
+    SupabaseClient client;
+    try {
+      client = Supabase.instance.client;
+    } catch (_) {
+      return const [];
+    }
+    if (client.auth.currentSession == null ||
+        client.auth.currentUser == null) {
+      return const [];
+    }
+
+    final invites = <CloudPendingInvite>[];
+
+    Future<void> loadRpc(String rpcName, {required bool isCoop}) async {
+      try {
+        final rows = await client.rpc(rpcName);
+        if (rows is List) {
+          for (final row in rows) {
+            if (row is! Map) continue;
+            final invite = CloudPendingInvite.fromJson(
+              row.cast<String, dynamic>(),
+              isCoop: isCoop,
+            );
+            if (invite.inviteId.isNotEmpty && !invite.isExpired) {
+              invites.add(invite);
+            }
+          }
+        }
+      } catch (e) {
+        _log.w('fetchPendingInvites($rpcName) unavailable: $e');
+      }
+    }
+
+    await Future.wait([
+      loadRpc('my_coop_invites', isCoop: true),
+      loadRpc('my_server_invites', isCoop: false),
+    ]);
+
+    invites.sort((a, b) {
+      if (a.isCoop != b.isCoop) return a.isCoop ? -1 : 1;
+      final at = a.invitedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+      final bt = b.invitedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+      return bt.compareTo(at);
+    });
+    return invites;
+  }
+
+  /// Accepts or declines a pending permanent or 4h Co-Op invite.
+  /// On accept, pulls updated cloud profiles and triggers auto-pairing.
+  Future<bool> respondToInvite(
+    CloudPendingInvite invite, {
+    required bool accept,
+  }) async {
+    lastError = null;
+    SupabaseClient client;
+    try {
+      client = Supabase.instance.client;
+    } catch (_) {
+      lastError = 'Supabase is not configured.';
+      return false;
+    }
+    if (client.auth.currentSession == null ||
+        client.auth.currentUser == null) {
+      lastError = 'Not authenticated with Supabase.';
+      return false;
+    }
+    if (invite.inviteId.isEmpty) {
+      lastError = 'Invalid invite id.';
+      return false;
+    }
+
+    final rpcName = invite.isCoop
+        ? 'respond_coop_invite'
+        : 'respond_server_invite';
+    try {
+      final raw = await client.rpc(
+        rpcName,
+        params: {'p_invite_id': invite.inviteId, 'p_accept': accept},
+      );
+      Map<String, dynamic>? result;
+      if (raw is Map<String, dynamic>) {
+        result = raw;
+      } else if (raw is Map) {
+        result = raw.cast<String, dynamic>();
+      } else if (raw is String && raw.trim().startsWith('{')) {
+        final decoded = jsonDecode(raw);
+        if (decoded is Map) result = decoded.cast<String, dynamic>();
+      }
+      if (result != null && result['success'] == false) {
+        lastError =
+            result['error']?.toString() ?? 'Failed to respond to invite.';
+        return false;
+      }
+      if (accept) {
+        await pullConfigFromSupabase();
+      }
+      return true;
+    } catch (e, stack) {
+      _log.e('respondToInvite($rpcName) failed: $e\n$stack');
+      lastError = e is PostgrestException ? e.message : e.toString();
+      return false;
+    }
+  }
+
   Future<bool> pullConfigFromSupabase() async {
     lastError = null;
     final client = Supabase.instance.client;
@@ -438,7 +596,32 @@ class CloudSyncService {
       } catch (e) {
         _log.w('pullConfigFromSupabase: shared servers unavailable: $e');
       }
-      final cloudProfiles = [...response as List<dynamic>, ...shared];
+
+      // Ephemeral 4h Co-Op guest servers (accepted coop_session_invites).
+      List<dynamic> coopShared = const [];
+      var coopRpcOk = false;
+      try {
+        coopShared =
+            await client.rpc('active_coop_shared_servers') as List<dynamic>;
+        coopRpcOk = true;
+      } catch (e) {
+        _log.w('pullConfigFromSupabase: coop shared servers unavailable: $e');
+      }
+
+      final nowUtc = DateTime.now().toUtc();
+      final validCoopShared = <Map<String, dynamic>>[];
+      for (final row in coopShared) {
+        if (row is! Map) continue;
+        final map = row.cast<String, dynamic>();
+        final expiresAt = map['expires_at'] != null
+            ? DateTime.tryParse(map['expires_at'].toString())?.toUtc()
+            : null;
+        if (expiresAt != null && !expiresAt.isAfter(nowUtc)) continue;
+        validCoopShared.add(map);
+      }
+
+      final permanentProfiles = [...response as List<dynamic>, ...shared];
+      final cloudProfiles = [...permanentProfiles, ...validCoopShared];
 
       final prefs = await SharedPreferences.getInstance();
       final savedComputers = prefs.getStringList(_kSavedComputers) ?? const [];
@@ -452,18 +635,18 @@ class CloudSyncService {
       }
 
       String? primaryServerUuid = prefs.getString(_kPrimaryServerKey);
+      final permanentMatched = Set<ComputerDetails>.identity();
 
-      for (final row in cloudProfiles) {
-        final cloudMap = row as Map<String, dynamic>;
+      void mergeProfile(Map<String, dynamic> cloudMap, {required bool isCoop}) {
         final String serverUrl = cloudMap['server_url'] ?? '';
-        if (serverUrl.isEmpty) continue;
+        if (serverUrl.isEmpty) return;
 
         final cloudHost = _getHostFromUrl(serverUrl);
         final cloudPort = _getPortFromUrl(serverUrl);
         final String? cloudName = cloudMap['server_name'];
         final String? certFingerprint = cloudMap['cert_fingerprint'];
         final String? externalAddress = cloudMap['external_address'];
-        final bool isDefault = cloudMap['is_default'] ?? false;
+        final bool isDefault = !isCoop && (cloudMap['is_default'] ?? false);
 
         // Rows without a cert fingerprint are not maintained by the server's
         // cloud agent (stale rows from older client versions, or localhost
@@ -475,8 +658,17 @@ class CloudSyncService {
           _log.w(
             'pullConfigFromSupabase: skipping profile without cert: $serverUrl',
           );
-          continue;
+          return;
         }
+
+        final String? coopRole = isCoop
+            ? ((cloudMap['role']?.toString().trim().isNotEmpty == true)
+                  ? cloudMap['role'].toString().trim()
+                  : 'coop_pad')
+            : null;
+        final DateTime? coopExpiresAt = isCoop && cloudMap['expires_at'] != null
+            ? DateTime.tryParse(cloudMap['expires_at'].toString())?.toUtc()
+            : null;
 
         int matchIdx = -1;
         for (int i = 0; i < localComputers.length; i++) {
@@ -507,6 +699,14 @@ class CloudSyncService {
           // reach the confighttp server (port base+1) rather than nvhttp (base-5).
           if (cloudPort > 0) {
             local.configHttpsPort = cloudPort;
+          }
+          if (!isCoop) {
+            local.coopRole = null;
+            local.coopExpiresAt = null;
+            permanentMatched.add(local);
+          } else if (!permanentMatched.contains(local)) {
+            local.coopRole = coopRole;
+            local.coopExpiresAt = coopExpiresAt;
           }
 
           if (isDefault) {
@@ -544,14 +744,26 @@ class CloudSyncService {
             state: ComputerState.unknown,
             pairState: PairState.notPaired,
             isCloud: true,
+            coopRole: coopRole,
+            coopExpiresAt: coopExpiresAt,
           );
 
           localComputers.add(computer);
+          if (!isCoop) {
+            permanentMatched.add(computer);
+          }
 
           if (isDefault) {
             primaryServerUuid = computer.uuid;
           }
         }
+      }
+
+      for (final row in permanentProfiles) {
+        mergeProfile(row as Map<String, dynamic>, isCoop: false);
+      }
+      for (final row in validCoopShared) {
+        mergeProfile(row, isCoop: true);
       }
 
       // Only the server registers itself in the cloud (via its cloud agent).
@@ -560,6 +772,8 @@ class CloudSyncService {
       // produced stale duplicate rows that cloud pairing could never satisfy.
       // Local computers that match no cloud profile are local-only: clear the
       // flag so the chip reflects genuine cloud registration.
+      // Ephemeral Co-Op guest servers that expired or were revoked are removed.
+      final staleCoopServers = <ComputerDetails>[];
       for (final local in localComputers) {
         bool matchedInCloud = false;
         for (final row in cloudProfiles) {
@@ -572,8 +786,17 @@ class CloudSyncService {
           }
         }
         if (!matchedInCloud) {
-          local.isCloud = false;
+          if (local.isCoopTemporary) {
+            if (coopRpcOk || local.isCoopExpired) {
+              staleCoopServers.add(local);
+            }
+          } else {
+            local.isCloud = false;
+          }
         }
+      }
+      if (staleCoopServers.isNotEmpty) {
+        localComputers.removeWhere(staleCoopServers.contains);
       }
 
       final jsonList = localComputers
@@ -581,8 +804,9 @@ class CloudSyncService {
           .toList();
       await prefs.setStringList(_kSavedComputers, jsonList);
 
-      if (primaryServerUuid != null && primaryServerUuid.isNotEmpty) {
-        await prefs.setString(_kPrimaryServerKey, primaryServerUuid);
+      final resolvedPrimary = primaryServerUuid;
+      if (resolvedPrimary != null && resolvedPrimary.isNotEmpty) {
+        await prefs.setString(_kPrimaryServerKey, resolvedPrimary);
       }
 
       _syncCompletedController.add(null);

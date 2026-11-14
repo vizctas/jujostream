@@ -19,6 +19,7 @@
 void RtpvInitializeQueue(PRTP_VIDEO_QUEUE queue) {
     reed_solomon_init();
     memset(queue, 0, sizeof(*queue));
+    PltCreateMutex(&queue->fecReportMutex);
 
     queue->currentFrameNumber = 1;
     queue->multiFecCapable = APP_VERSION_AT_LEAST(7, 1, 431);
@@ -38,6 +39,36 @@ static void purgeListEntries(PRTPV_QUEUE_LIST list) {
 void RtpvCleanupQueue(PRTP_VIDEO_QUEUE queue) {
     purgeListEntries(&queue->pendingFecBlockList);
     purgeListEntries(&queue->completedFecBlockList);
+    PltDeleteMutex(&queue->fecReportMutex);
+}
+
+static void recordFecBlockStats(PRTP_VIDEO_QUEUE queue, bool unrecovered) {
+    if (queue->blockStatsRecorded || queue->bufferDataPackets == 0) {
+        return;
+    }
+    queue->blockStatsRecorded = true;
+
+    uint32_t totalSent = queue->bufferDataPackets + queue->bufferParityPackets;
+    uint32_t missing;
+    if (unrecovered) {
+        uint32_t totalRecvd = queue->receivedDataPackets + queue->receivedParityPackets;
+        missing = totalSent > totalRecvd ? (totalSent - totalRecvd) : 0;
+    }
+    else {
+        missing = queue->missingPackets;
+        if (missing > totalSent) {
+            missing = totalSent;
+        }
+    }
+
+    PltLockMutex(&queue->fecReportMutex);
+    queue->fecReportDataShards += queue->bufferDataPackets;
+    queue->fecReportParityShards += queue->bufferParityPackets;
+    queue->fecReportMissingShards += missing;
+    if (unrecovered && queue->fecReportUnrecoveredBlocks < 0xFFFF) {
+        queue->fecReportUnrecoveredBlocks++;
+    }
+    PltUnlockMutex(&queue->fecReportMutex);
 }
 
 static void insertEntryIntoList(PRTPV_QUEUE_LIST list, PRTPV_QUEUE_ENTRY entry) {
@@ -465,6 +496,8 @@ cleanup:
 static void stageCompleteFecBlock(PRTP_VIDEO_QUEUE queue) {
     unsigned int nextSeqNum = queue->bufferLowestSequenceNumber;
 
+    recordFecBlockStats(queue, false);
+
     while (queue->pendingFecBlockList.count > 0) {
         PRTPV_QUEUE_ENTRY entry = queue->pendingFecBlockList.head;
 
@@ -594,6 +627,7 @@ int RtpvAddPacket(PRTP_VIDEO_QUEUE queue, PRTP_PACKET packet, int length, PRTPV_
             queue->multiFecCurrentBlockNumber != fecCurrentBlockNumber) {
         if (queue->pendingFecBlockList.count != 0) {
             // Report the final status of the FEC queue before dropping this frame
+            recordFecBlockStats(queue, true);
             reportFinalFrameFecStatus(queue);
 
             if (queue->multiFecLastBlockNumber != 0) {
@@ -638,6 +672,7 @@ int RtpvAddPacket(PRTP_VIDEO_QUEUE queue, PRTP_PACKET packet, int length, PRTPV_
         uint8_t expectedFecBlockNumber = (queue->currentFrameNumber == nvPacket->frameIndex ? queue->multiFecCurrentBlockNumber : 0);
         if (fecCurrentBlockNumber != expectedFecBlockNumber) {
             // Report the final status of the FEC queue before dropping this frame
+            recordFecBlockStats(queue, true);
             reportFinalFrameFecStatus(queue);
 
             Limelog("Unrecoverable frame %d: lost FEC blocks %d to %d\n",
@@ -710,6 +745,7 @@ int RtpvAddPacket(PRTP_VIDEO_QUEUE queue, PRTP_PACKET packet, int length, PRTPV_
 
         queue->stats.packetCountVideo += queue->bufferDataPackets;
         queue->stats.packetCountFec += queue->bufferParityPackets;
+        queue->blockStatsRecorded = false;
     }
 
     // Reject packets above our FEC queue valid sequence number range
@@ -801,5 +837,18 @@ int RtpvAddPacket(PRTP_VIDEO_QUEUE queue, PRTP_PACKET packet, int length, PRTPV_
 
         return RTPF_RET_QUEUED;
     }
+}
+
+void RtpvTakeFecReport(PRTP_VIDEO_QUEUE queue, uint32_t* dataShards, uint32_t* parityShards, uint32_t* missingShards, uint16_t* unrecoveredBlocks) {
+    PltLockMutex(&queue->fecReportMutex);
+    *dataShards = queue->fecReportDataShards;
+    *parityShards = queue->fecReportParityShards;
+    *missingShards = queue->fecReportMissingShards;
+    *unrecoveredBlocks = queue->fecReportUnrecoveredBlocks;
+    queue->fecReportDataShards = 0;
+    queue->fecReportParityShards = 0;
+    queue->fecReportMissingShards = 0;
+    queue->fecReportUnrecoveredBlocks = 0;
+    PltUnlockMutex(&queue->fecReportMutex);
 }
 

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Video.h"
+#include "PlatformThreads.h"
 
 typedef struct _RTPV_QUEUE_ENTRY {
     struct _RTPV_QUEUE_ENTRY* next;
@@ -48,6 +49,13 @@ typedef struct _RTP_VIDEO_QUEUE {
     bool receivedOosData;
 
     RTP_VIDEO_STATS stats; // the above values are short-lived, this tracks stats for the life of the queue
+
+    PLT_MUTEX fecReportMutex;
+    uint32_t fecReportDataShards;
+    uint32_t fecReportParityShards;
+    uint32_t fecReportMissingShards;
+    uint16_t fecReportUnrecoveredBlocks;
+    bool blockStatsRecorded;
 } RTP_VIDEO_QUEUE, *PRTP_VIDEO_QUEUE;
 
 #define RTPF_RET_QUEUED    0
@@ -58,3 +66,4 @@ void RtpvCleanupQueue(PRTP_VIDEO_QUEUE queue);
 int RtpvAddPacket(PRTP_VIDEO_QUEUE queue, PRTP_PACKET packet, int length, PRTPV_QUEUE_ENTRY packetEntry);
 uint32_t RtpvGetCurrentFrameNumber(PRTP_VIDEO_QUEUE queue);
 void RtpvSubmitQueuedPackets(PRTP_VIDEO_QUEUE queue);
+void RtpvTakeFecReport(PRTP_VIDEO_QUEUE queue, uint32_t* dataShards, uint32_t* parityShards, uint32_t* missingShards, uint16_t* unrecoveredBlocks);

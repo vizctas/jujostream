@@ -20,10 +20,13 @@ class ComputerDetails {
   String gpuName;
   String encoderName;
   bool serverAbrActive;
+  int fecControlVersion;
   bool watchdogSupported;
   bool watchdogEnabled;
   bool pairStatusFromHttps = false;
   bool isCloud = false;
+  String? coopRole;
+  DateTime? coopExpiresAt;
 
   ComputerDetails({
     this.uuid = '',
@@ -47,9 +50,12 @@ class ComputerDetails {
     this.gpuName = '',
     this.encoderName = '',
     this.serverAbrActive = false,
+    this.fecControlVersion = 0,
     this.watchdogSupported = false,
     this.watchdogEnabled = true,
     this.isCloud = false,
+    this.coopRole,
+    this.coopExpiresAt,
   });
 
   Map<String, dynamic> toJson() => {
@@ -73,9 +79,13 @@ class ComputerDetails {
     'gpuName': gpuName,
     'encoderName': encoderName,
     'serverAbrActive': serverAbrActive,
+    'fecControlVersion': fecControlVersion,
     'watchdogSupported': watchdogSupported,
     'watchdogEnabled': watchdogEnabled,
     'isCloud': isCloud,
+    if (coopRole != null) 'coopRole': coopRole,
+    if (coopExpiresAt != null)
+      'coopExpiresAt': coopExpiresAt!.toUtc().toIso8601String(),
   };
 
   /// Reads an enum by index without throwing on an out-of-range value.
@@ -86,6 +96,8 @@ class ComputerDetails {
   }
 
   factory ComputerDetails.fromJson(Map<String, dynamic> json) {
+    final rawRole = json['coopRole']?.toString().trim();
+    final rawExpires = json['coopExpiresAt']?.toString().trim();
     return ComputerDetails(
       uuid: json['uuid'] ?? '',
       name: json['name'] ?? 'Unknown',
@@ -115,14 +127,23 @@ class ComputerDetails {
       gpuName: json['gpuName'] ?? '',
       encoderName: json['encoderName'] ?? '',
       serverAbrActive: json['serverAbrActive'] ?? false,
+      fecControlVersion: json['fecControlVersion'] ?? 0,
       watchdogSupported: json['watchdogSupported'] ?? false,
       watchdogEnabled: json['watchdogEnabled'] ?? true,
       isCloud: json['isCloud'] ?? false,
+      coopRole: (rawRole != null && rawRole.isNotEmpty) ? rawRole : null,
+      coopExpiresAt: (rawExpires != null && rawExpires.isNotEmpty)
+          ? DateTime.tryParse(rawExpires)?.toUtc()
+          : null,
     );
   }
 
   bool get isReachable => state == ComputerState.online;
   bool get isPaired => pairState == PairState.paired;
+  bool get isCoopTemporary => coopRole != null;
+  bool get isCoopExpired =>
+      coopExpiresAt != null &&
+      !coopExpiresAt!.isAfter(DateTime.now().toUtc());
 
   /// nvhttp HTTPS port, never zero. Cloud-synced records land here with
   /// `httpsPort = 0` until the first successful /serverinfo fills it in.

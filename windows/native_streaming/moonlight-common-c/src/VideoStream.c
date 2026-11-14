@@ -19,6 +19,8 @@ static PLT_THREAD decoderThread;
 static bool receivedDataFromPeer;
 static uint64_t firstDataTimeMs;
 static bool receivedFullFrame;
+static PLT_MUTEX videoSocketMutex;
+static uint32_t videoPingCount = 0;
 
 // We can't request an IDR frame until the depacketizer knows
 // that a packet was lost. This timeout bounds the time that
@@ -39,6 +41,8 @@ void initializeVideoStream(void) {
     initializeVideoDepacketizer(StreamConfig.packetSize);
     RtpvInitializeQueue(&rtpQueue);
     decryptionCtx = PltCreateCryptoContext();
+    PltCreateMutex(&videoSocketMutex);
+    videoPingCount = 0;
     receivedDataFromPeer = false;
     firstDataTimeMs = 0;
     receivedFullFrame = false;
@@ -47,13 +51,53 @@ void initializeVideoStream(void) {
 // Clean up the video stream
 void destroyVideoStream(void) {
     PltDestroyCryptoContext(decryptionCtx);
+    PltDeleteMutex(&videoSocketMutex);
     destroyVideoDepacketizer();
     RtpvCleanupQueue(&rtpQueue);
 }
 
+static void sendVideoPingLocked(const LC_SOCKADDR* saddr) {
+    char legacyPingData[] = { 0x50, 0x49, 0x4E, 0x47 };
+    if (rtpSocket == INVALID_SOCKET) {
+        return;
+    }
+    if (VideoPingPayload.payload[0] != 0) {
+        videoPingCount++;
+        VideoPingPayload.sequenceNumber = BE32(videoPingCount);
+        sendto(rtpSocket, (char*)&VideoPingPayload, sizeof(VideoPingPayload), 0, (struct sockaddr*)saddr, AddrLen);
+    }
+    else {
+        sendto(rtpSocket, legacyPingData, sizeof(legacyPingData), 0, (struct sockaddr*)saddr, AddrLen);
+    }
+}
+
+static bool rebindVideoSocketWildcard(bool* useSelectOut) {
+    LC_SOCKADDR saddr;
+    SOCKET newSock = bindUdpSocket(RemoteAddr.ss_family, NULL, 0,
+                                   RTP_RECV_PACKETS_BUFFERED * StreamConfig.packetSize,
+                                   SOCK_QOS_TYPE_VIDEO);
+    if (newSock == INVALID_SOCKET) {
+        return false;
+    }
+
+    *useSelectOut = (setNonFatalRecvTimeoutMs(newSock, UDP_RECV_POLL_TIMEOUT_MS) < 0);
+    memcpy(&saddr, &RemoteAddr, sizeof(saddr));
+    SET_PORT(&saddr, VideoPortNumber);
+
+    PltLockMutex(&videoSocketMutex);
+    SOCKET oldSock = rtpSocket;
+    rtpSocket = newSock;
+    sendVideoPingLocked(&saddr);
+    PltUnlockMutex(&videoSocketMutex);
+
+    if (oldSock != INVALID_SOCKET) {
+        closeSocket(oldSock);
+    }
+    return true;
+}
+
 // UDP Ping proc
 static void VideoPingThreadProc(void* context) {
-    char legacyPingData[] = { 0x50, 0x49, 0x4E, 0x47 };
     LC_SOCKADDR saddr;
 
     LC_ASSERT(VideoPortNumber != 0);
@@ -65,17 +109,10 @@ static void VideoPingThreadProc(void* context) {
     // on the read-side in ReceiveThreadProc(). This avoids potential
     // issues related to receiving ICMP port unreachable messages due
     // to sending a packet prior to the host PC binding to that port.
-    int pingCount = 0;
     while (!PltIsThreadInterrupted(&udpPingThread)) {
-        if (VideoPingPayload.payload[0] != 0) {
-            pingCount++;
-            VideoPingPayload.sequenceNumber = BE32(pingCount);
-
-            sendto(rtpSocket, (char*)&VideoPingPayload, sizeof(VideoPingPayload), 0, (struct sockaddr*)&saddr, AddrLen);
-        }
-        else {
-            sendto(rtpSocket, legacyPingData, sizeof(legacyPingData), 0, (struct sockaddr*)&saddr, AddrLen);
-        }
+        PltLockMutex(&videoSocketMutex);
+        sendVideoPingLocked(&saddr);
+        PltUnlockMutex(&videoSocketMutex);
 
         PltSleepMsInterruptible(&udpPingThread, 500);
     }
@@ -122,8 +159,17 @@ static void VideoReceiveThreadProc(void* context) {
     }
 
     waitingForVideoMs = 0;
+    uint32_t observedRoamGen = (uint32_t)RoamGeneration;
+    uint64_t errRecoverStartMs = 0;
+    uint64_t lastErrRebindMs = 0;
     while (!PltIsThreadInterrupted(&receiveThread)) {
         PRTP_PACKET packet;
+        uint32_t currentRoamGen = (uint32_t)RoamGeneration;
+        if (currentRoamGen != observedRoamGen) {
+            if (rebindVideoSocketWildcard(&useSelect)) {
+                observedRoamGen = currentRoamGen;
+            }
+        }
 
         if (buffer == NULL) {
             buffer = (char*)malloc(bufferSize);
@@ -139,6 +185,21 @@ static void VideoReceiveThreadProc(void* context) {
                             receiveSize,
                             useSelect);
         if (err < 0) {
+            if (RlRoamingSupported && !PltIsThreadInterrupted(&receiveThread)) {
+                uint64_t nowMs = PltGetMillis();
+                if (errRecoverStartMs == 0) {
+                    errRecoverStartMs = nowMs;
+                    LiTriggerConnectionRoam();
+                }
+                if (nowMs >= errRecoverStartMs && (nowMs - errRecoverStartMs) <= 12000) {
+                    if (lastErrRebindMs == 0 || (nowMs >= lastErrRebindMs && (nowMs - lastErrRebindMs) >= 500)) {
+                        rebindVideoSocketWildcard(&useSelect);
+                        lastErrRebindMs = nowMs;
+                    }
+                    PltSleepMs(200);
+                    continue;
+                }
+            }
             Limelog("Video Receive: recvUdpSocket() failed: %d\n", (int)LastSocketError());
             ListenerCallbacks.connectionTerminated(LastSocketFail());
             break;
@@ -158,6 +219,8 @@ static void VideoReceiveThreadProc(void* context) {
             // Receive timed out; try again
             continue;
         }
+        errRecoverStartMs = 0;
+        lastErrRebindMs = 0;
 
         if (!receivedDataFromPeer) {
             receivedDataFromPeer = true;
@@ -416,4 +479,8 @@ int startVideoStream(void* rendererContext, int drFlags) {
 
 const RTP_VIDEO_STATS* LiGetRTPVideoStats(void) {
     return &rtpQueue.stats;
+}
+
+void videoStreamTakeFecReport(uint32_t* dataShards, uint32_t* parityShards, uint32_t* missingShards, uint16_t* unrecoveredBlocks) {
+    RtpvTakeFecReport(&rtpQueue, dataShards, parityShards, missingShards, unrecoveredBlocks);
 }

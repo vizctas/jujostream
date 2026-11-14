@@ -32,6 +32,10 @@ extern OPUS_MULTISTREAM_CONFIGURATION HighQualityOpusConfig;
 extern int AudioPacketDuration;
 extern bool AudioEncryptionEnabled;
 extern bool ReferenceFrameInvalidationSupported;
+extern bool RlFecReportSupported;
+extern bool RlClockSyncSupported;
+extern bool RlRoamingSupported;
+extern volatile uint32_t RoamGeneration;
 
 extern uint16_t RtspPortNumber;
 extern uint16_t ControlPortNumber;
@@ -140,6 +144,7 @@ void destroyVideoStream(void);
 void notifyKeyFrameReceived(void);
 int startVideoStream(void* rendererContext, int drFlags);
 void stopVideoStream(void);
+void videoStreamTakeFecReport(uint32_t* dataShards, uint32_t* parityShards, uint32_t* missingShards, uint16_t* unrecoveredBlocks);
 
 int initializeAudioStream(void);
 int notifyAudioPortNegotiationComplete(void);

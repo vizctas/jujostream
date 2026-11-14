@@ -17,6 +17,7 @@
 #include <flutter/event_channel.h>
 #include <flutter/standard_method_codec.h>
 #include <windows.h>
+#include <cstdint>
 #include <mutex>
 #include <memory>
 #include <deque>
@@ -45,6 +46,10 @@ public:
     void emitConnectionStatusUpdate(int status);
     void emitRumble(int controllerNumber, int lowFreq, int highFreq);
     void emitRumbleTriggers(int controllerNumber, int left, int right);
+    void emitControllerLED(int controllerNumber, int r, int g, int b);
+    void emitAdaptiveTriggers(
+        int controllerNumber, int eventFlags, int typeLeft, int typeRight,
+        const uint8_t *left, const uint8_t *right);
     void emitSetHdrMode(bool enabled);
     void emitStats(const flutter::EncodableMap &stats);
 

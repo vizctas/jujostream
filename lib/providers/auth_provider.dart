@@ -12,6 +12,9 @@ class AuthProvider extends ChangeNotifier {
   String? _photoUrl;
   bool _syncing = false;
   String? _cloudError;
+  List<CloudPendingInvite> _pendingInvites = const [];
+  bool _loadingInvites = false;
+  bool _disposed = false;
 
   bool get isSignedIn => _signedIn;
   String? get email => _email;
@@ -19,6 +22,8 @@ class AuthProvider extends ChangeNotifier {
   String? get photoUrl => _photoUrl;
   bool get isSyncing => _syncing;
   String? get cloudError => _cloudError;
+  List<CloudPendingInvite> get pendingInvites => _pendingInvites;
+  bool get isLoadingInvites => _loadingInvites;
 
   bool get isSupabaseSignedIn {
     try {
@@ -137,6 +142,7 @@ class AuthProvider extends ChangeNotifier {
     _email = null;
     _displayName = null;
     _photoUrl = null;
+    _pendingInvites = const [];
     notifyListeners();
   }
 
@@ -179,6 +185,7 @@ class AuthProvider extends ChangeNotifier {
     _email = null;
     _displayName = null;
     _photoUrl = null;
+    _pendingInvites = const [];
     notifyListeners();
   }
 
@@ -213,6 +220,8 @@ class AuthProvider extends ChangeNotifier {
           : await _sync.pullConfig();
       if (!ok) {
         _cloudError = _sync.lastError ?? 'Unknown error';
+      } else if (isSupabaseSignedIn) {
+        unawaited(refreshPendingInvites());
       }
       return ok;
     } catch (e) {
@@ -222,6 +231,48 @@ class AuthProvider extends ChangeNotifier {
       _syncing = false;
       notifyListeners();
     }
+  }
+
+  Future<void> refreshPendingInvites() async {
+    if (!isSupabaseSignedIn) {
+      if (_pendingInvites.isNotEmpty) {
+        _pendingInvites = const [];
+        if (!_disposed) notifyListeners();
+      }
+      return;
+    }
+    _loadingInvites = true;
+    if (!_disposed) notifyListeners();
+    try {
+      _pendingInvites = await _sync.fetchPendingInvites();
+    } finally {
+      _loadingInvites = false;
+      if (!_disposed) notifyListeners();
+    }
+  }
+
+  Future<bool> respondToPendingInvite(
+    CloudPendingInvite invite, {
+    required bool accept,
+  }) async {
+    _cloudError = null;
+    final ok = await _sync.respondToInvite(invite, accept: accept);
+    if (_disposed) return ok;
+    if (ok) {
+      _pendingInvites = _pendingInvites
+          .where((i) => i.inviteId != invite.inviteId)
+          .toList(growable: false);
+    } else {
+      _cloudError = _sync.lastError ?? 'Unknown error';
+    }
+    notifyListeners();
+    return ok;
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    super.dispose();
   }
 
   void _updateFromAuth() {

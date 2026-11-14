@@ -76,8 +76,33 @@ typedef struct _PACKET_HOLDER {
     } packet;
 } PACKET_HOLDER, *PPACKET_HOLDER;
 
+#define CONTROLLER_RELIABLE_SYNC_INTERVAL_MS 250
+
 static PLT_MUTEX batchedInputMutex;
 static PPACKET_HOLDER currentQueuedControllerPacket[MAX_GAMEPADS];
+static bool controllerStateInitialized[MAX_GAMEPADS];
+static int lastQueuedButtonFlags[MAX_GAMEPADS];
+static short lastQueuedActiveMask[MAX_GAMEPADS];
+static uint64_t lastReliableControllerSyncMs[MAX_GAMEPADS];
+
+static uint32_t selectControllerPacketFlags(short controllerNumber, short activeGamepadMask, int buttonFlags) {
+    uint64_t now;
+
+    if (!IS_SUNSHINE() || AppVersionQuad[0] < 5 || !encryptedControlStream ||
+        !(EncryptionFeaturesEnabled & SS_ENC_CONTROL_V2)) {
+        return ENET_PACKET_FLAG_RELIABLE;
+    }
+
+    now = PltGetMillis();
+    if (controllerStateInitialized[controllerNumber] &&
+        lastQueuedButtonFlags[controllerNumber] == buttonFlags &&
+        lastQueuedActiveMask[controllerNumber] == activeGamepadMask &&
+        (now - lastReliableControllerSyncMs[controllerNumber]) < CONTROLLER_RELIABLE_SYNC_INTERVAL_MS) {
+        return 0;
+    }
+
+    return ENET_PACKET_FLAG_RELIABLE;
+}
 static struct {
     float x, y, z;
     bool dirty; // Update ready to send (queued packet holder in packetQueue)
@@ -119,6 +144,11 @@ int initializeInputStream(void) {
     absCurrentPosX = absCurrentPosY = 0.5f;
 
     memset(currentGamepadSensorState, 0, sizeof(currentGamepadSensorState));
+    memset(currentQueuedControllerPacket, 0, sizeof(currentQueuedControllerPacket));
+    memset(controllerStateInitialized, 0, sizeof(controllerStateInitialized));
+    memset(lastQueuedButtonFlags, 0, sizeof(lastQueuedButtonFlags));
+    memset(lastQueuedActiveMask, 0, sizeof(lastQueuedActiveMask));
+    memset(lastReliableControllerSyncMs, 0, sizeof(lastReliableControllerSyncMs));
     memset(&currentRelativeMouseState, 0, sizeof(currentRelativeMouseState));
     memset(&currentAbsoluteMouseState, 0, sizeof(currentAbsoluteMouseState));
     PltCreateMutex(&batchedInputMutex);
@@ -691,6 +721,12 @@ int stopInputStream(void) {
     LbqSignalQueueDrain(&packetQueue);
     PltJoinThread(&inputSendThread);
 
+    memset(currentQueuedControllerPacket, 0, sizeof(currentQueuedControllerPacket));
+    memset(controllerStateInitialized, 0, sizeof(controllerStateInitialized));
+    memset(lastQueuedButtonFlags, 0, sizeof(lastQueuedButtonFlags));
+    memset(lastQueuedActiveMask, 0, sizeof(lastQueuedActiveMask));
+    memset(lastReliableControllerSyncMs, 0, sizeof(lastReliableControllerSyncMs));
+
     if (inputSock != INVALID_SOCKET) {
         shutdownTcpSocket(inputSock);
     }
@@ -1002,6 +1038,7 @@ static int sendControllerEventInternal(short controllerNumber, short activeGamep
     PPACKET_HOLDER holder;
     int err;
     bool enqueueHolder = false;
+    uint32_t packetFlags = ENET_PACKET_FLAG_RELIABLE;
 
     if (!initialized) {
         return -2;
@@ -1049,16 +1086,19 @@ static int sendControllerEventInternal(short controllerNumber, short activeGamep
         // We do not support batching with the legacy controller packet format
         LC_ASSERT(AppVersionQuad[0] > 3);
 
-        // If this new packet has different button flags, end the batch to ensure the
-        // host receives the exact axis values present at the time of the button press.
+        // If this new packet has different button flags or gamepad mask, end the batch to ensure
+        // the host receives the exact axis values present at the time of the transition.
         if (holder->packet.multiController.buttonFlags != LE16((short)buttonFlags) ||
-            holder->packet.multiController.buttonFlags2 != (IS_SUNSHINE() ? LE16((short)(buttonFlags >> 16)) : 0)) {
+            holder->packet.multiController.buttonFlags2 != (IS_SUNSHINE() ? LE16((short)(buttonFlags >> 16)) : 0) ||
+            holder->packet.multiController.activeGamepadMask != LE16(activeGamepadMask)) {
             // Pretend there wasn't a currently queued controller packet
             holder = NULL;
         }
     }
 
     if (!holder) {
+        packetFlags = selectControllerPacketFlags(controllerNumber, activeGamepadMask, buttonFlags);
+
         // Because we're not using the currently queued packet, it's safe
         // to unlock here without having to worry about the input thread
         // touching our packet holder behind our back.
@@ -1072,8 +1112,9 @@ static int sendControllerEventInternal(short controllerNumber, short activeGamep
         // Send each controller on a separate channel
         holder->channelId = CTRL_CHANNEL_GAMEPAD_BASE + controllerNumber;
 
-        // TODO: Send this as unreliable sequenced when we have a delayed reliable retransmission thread
-        holder->enetPacketFlags = ENET_PACKET_FLAG_RELIABLE;
+        // Analog-only updates use ENet unreliable sequenced when Control V2 explicit-seq
+        // encryption is negotiated; button/mask edges and periodic syncs remain reliable.
+        holder->enetPacketFlags = packetFlags;
 
         // Remember that we need to enqueue this holder since it's new
         enqueueHolder = true;
@@ -1147,7 +1188,17 @@ static int sendControllerEventInternal(short controllerNumber, short activeGamep
     if (enqueueHolder) {
         // Enqueue the new packet holder
         err = LbqOfferQueueItem(&packetQueue, holder, &holder->entry);
-        if (err != LBQ_SUCCESS) {
+        if (err == LBQ_SUCCESS) {
+            PltLockMutex(&batchedInputMutex);
+            controllerStateInitialized[controllerNumber] = true;
+            lastQueuedButtonFlags[controllerNumber] = buttonFlags;
+            lastQueuedActiveMask[controllerNumber] = activeGamepadMask;
+            if (packetFlags & ENET_PACKET_FLAG_RELIABLE) {
+                lastReliableControllerSyncMs[controllerNumber] = PltGetMillis();
+            }
+            PltUnlockMutex(&batchedInputMutex);
+        }
+        else {
             LC_ASSERT(err == LBQ_BOUND_EXCEEDED);
             Limelog("Input queue reached maximum size limit\n");
             freePacketHolder(holder);
@@ -1557,6 +1608,10 @@ int LiSendControllerMotionEvent(uint8_t controllerNumber, uint8_t motionType, fl
 
         // Send each controller on a separate channel specific to motion sensors
         holder->channelId = CTRL_CHANNEL_SENSOR_BASE + controllerNumber;
+        holder->enetPacketFlags = (IS_SUNSHINE() && AppVersionQuad[0] >= 5 && encryptedControlStream &&
+                                   (EncryptionFeaturesEnabled & SS_ENC_CONTROL_V2))
+                                      ? 0
+                                      : ENET_PACKET_FLAG_RELIABLE;
 
         holder->packet.controllerMotion.header.size = BE32(sizeof(SS_CONTROLLER_MOTION_PACKET) - sizeof(uint32_t));
         holder->packet.controllerMotion.header.magic = LE32(SS_CONTROLLER_MOTION_MAGIC);

@@ -55,6 +55,7 @@ public:
         uint64_t textureFrameNotifications = 0;
         uint64_t textureDescriptorCallbacks = 0;
         uint64_t textureNullDescriptorCallbacks = 0;
+        uint64_t vrrScanlineWaits = 0;
     };
     Stats getVideoStats() const;
     void startStatsEmitter();

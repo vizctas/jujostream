@@ -6,6 +6,7 @@
  */
 
 #include "moonlight_bridge_win.h"
+#include "turbo_input_client.h"
 #include <Limelight.h>
 #include <Limelight-internal.h>
 #include <enet/enet.h>
@@ -51,6 +52,61 @@ JujostreamWinCallbacks *moonlightWinGetCallbacks(void) {
 }
 
 static bool g_slowOpusDecoder = false;
+
+static char     g_turboHost[256] = {0};
+static int      g_turboUdpPort   = 0;
+static int      g_turboTcpPort   = 0;
+static uint32_t g_turboSessionId = 0;
+static char     g_turboKeyHex[96] = {0};
+
+static void turboWinOnRumble(uint16_t cn, uint16_t low, uint16_t high) {
+    if (g_winCallbacks.onRumble) g_winCallbacks.onRumble(cn, low, high);
+}
+static void turboWinOnRumbleTriggers(uint16_t cn, uint16_t lt, uint16_t rt) {
+    if (g_winCallbacks.onRumbleTriggers) g_winCallbacks.onRumbleTriggers(cn, lt, rt);
+}
+static void turboWinOnMotionState(uint16_t cn, uint8_t mt, uint16_t hz) {
+    if (g_winCallbacks.onSetMotionEventState) g_winCallbacks.onSetMotionEventState(cn, mt, hz);
+}
+static void turboWinOnLed(uint16_t cn, uint8_t r, uint8_t g, uint8_t b) {
+    if (g_winCallbacks.onSetControllerLED) g_winCallbacks.onSetControllerLED(cn, r, g, b);
+}
+static void turboWinOnAdaptiveTriggers(
+    uint16_t cn, uint8_t eventFlags, uint8_t typeLeft, uint8_t typeRight,
+    const uint8_t *left, const uint8_t *right) {
+    if (g_winCallbacks.onSetAdaptiveTriggers) {
+        g_winCallbacks.onSetAdaptiveTriggers(cn, eventFlags, typeLeft, typeRight, left, right);
+    }
+}
+
+void moonlightWinConfigureTurboInput(
+    int udpPort, int tcpPort, uint32_t sessionId, const char *keyHex) {
+    g_turboUdpPort   = udpPort;
+    g_turboTcpPort   = tcpPort;
+    g_turboSessionId = sessionId;
+    if (keyHex) {
+        snprintf(g_turboKeyHex, sizeof(g_turboKeyHex), "%s", keyHex);
+    } else {
+        g_turboKeyHex[0] = '\0';
+    }
+}
+
+void moonlightWinOnConnectionStarted(void) {
+    if (g_turboSessionId == 0 || g_turboHost[0] == '\0' || g_turboKeyHex[0] == '\0') {
+        return;
+    }
+    TurboFeedbackCallbacks fb = {
+        .onRumble              = turboWinOnRumble,
+        .onRumbleTriggers      = turboWinOnRumbleTriggers,
+        .onSetMotionEventState = turboWinOnMotionState,
+        .onSetControllerLED    = turboWinOnLed,
+        .onSetAdaptiveTriggers = turboWinOnAdaptiveTriggers,
+    };
+    const bool ok = turboClientStart(
+        g_turboHost, g_turboUdpPort, g_turboTcpPort, g_turboSessionId, g_turboKeyHex, &fb);
+    fprintf(stderr, "moonlight_bridge_win: turboClientStart ok=%d udp=%d tcp=%d sid=%u\n",
+            ok ? 1 : 0, g_turboUdpPort, g_turboTcpPort, (unsigned)g_turboSessionId);
+}
 
 /* -----------------------------------------------------------------------
  * Connection
@@ -106,6 +162,12 @@ int moonlightWinStartConnection(
             width, height, fps, bitrate,
             audioConfiguration, supportedVideoFormats);
 
+    if (address) {
+        snprintf(g_turboHost, sizeof(g_turboHost), "%s", address);
+    } else {
+        g_turboHost[0] = '\0';
+    }
+
     int ret = LiStartConnection(
         &serverInfo, &streamConfig,
         &BridgeWinConnCallbacks,
@@ -115,11 +177,18 @@ int moonlightWinStartConnection(
         NULL, 0
     );
 
+    if (ret != 0) {
+        turboClientStop();
+    }
+
     fprintf(stderr, "moonlight_bridge_win: LiStartConnection returned %d\n", ret);
     return ret;
 }
 
-void moonlightWinStopConnection(void)      { LiStopConnection(); }
+void moonlightWinStopConnection(void) {
+    turboClientStop();
+    LiStopConnection();
+}
 void moonlightWinInterruptConnection(void) { LiInterruptConnection(); }
 int  moonlightWinGetPendingVideoFrames(void)    { return LiGetPendingVideoFrames(); }
 int  moonlightWinGetPendingAudioDuration(void)  { return LiGetPendingAudioDuration(); }
@@ -158,11 +227,23 @@ int moonlightWinSendControllerInput(
     short cn, short agm, int bf, uint8_t lt, uint8_t rt,
     short lx, short ly, short rx, short ry)
 {
+    if (turboClientIsActive() &&
+        cn >= 0 && cn < 8 &&
+        turboClientSendGamepadState(
+            (uint8_t)cn, (uint16_t)agm, (uint32_t)bf, lt, rt, lx, ly, rx, ry, 0)) {
+        return 0;
+    }
     return LiSendMultiControllerEvent(cn, agm, bf, lt, rt, lx, ly, rx, ry);
 }
 int moonlightWinSendControllerArrival(
     short cn, short agm, uint8_t ct, short caps, int sbf)
 {
+    if (turboClientIsActive() &&
+        cn >= 0 && cn < 8 &&
+        turboClientSendGamepadArrival(
+            (uint8_t)cn, ct, (uint16_t)caps, (uint32_t)sbf)) {
+        return 0;
+    }
     return LiSendControllerArrivalEvent(
         (uint8_t)cn, (uint16_t)agm, ct, (uint32_t)sbf, (uint16_t)caps);
 }
@@ -179,4 +260,21 @@ int moonlightWinSendTouchEvent(uint8_t eventType, uint32_t pointerId,
                             pressureOrDistance,
                             contactAreaMajor, contactAreaMinor,
                             rotation);
+}
+
+int moonlightWinGetVrrClockSyncStats(int64_t *offsetUs, uint64_t *rttUs, uint32_t *sampleCount) {
+    return LiGetVrrClockSyncStats(offsetUs, rttUs, sampleCount) ? 1 : 0;
+}
+
+int moonlightWinTriggerRoam(void) {
+    return LiTriggerConnectionRoam() ? 1 : 0;
+}
+
+int moonlightWinGetRoamingStats(int *supported, uint32_t *migrations, uint64_t *lastMigrationUs) {
+    bool sup = false;
+    bool ok = LiGetRoamingStats(&sup, migrations, lastMigrationUs);
+    if (supported) {
+        *supported = sup ? 1 : 0;
+    }
+    return ok ? 1 : 0;
 }

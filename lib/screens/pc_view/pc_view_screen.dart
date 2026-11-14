@@ -31,6 +31,7 @@ import '../../widgets/tour_overlay.dart';
 import 'focus_mode_screen.dart';
 import 'cloud_badge.dart';
 import 'focusable_icon_button.dart';
+import 'pending_invites_section.dart';
 import 'server_health_loop.dart';
 import 'server_profile_images.dart';
 import 'server_tile_state.dart';
@@ -94,10 +95,14 @@ class PcViewScreen extends StatefulWidget {
 
   static void showAccountPicker(BuildContext context, AuthProvider auth) {
     final tp = context.read<ThemeProvider>();
+    if (auth.isSupabaseSignedIn) {
+      unawaited(auth.refreshPendingInvites());
+    }
 
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
+      isScrollControlled: true,
       builder: (ctx) {
         return _AccountPickerBottomSheet(auth: auth, theme: tp);
       },
@@ -113,6 +118,7 @@ class _PcViewScreenState extends State<PcViewScreen>
   final FocusNode _screenFocusNode = FocusNode(debugLabel: 'pc-view-screen');
   bool _focusRequested = false;
   bool _autoConnectAttempted = false;
+  bool _inviteBannerDismissed = false;
   final AsyncSingleFlight _computerEntryFlight = AsyncSingleFlight();
 
   final _iconFocusNodes = List.generate(
@@ -156,6 +162,10 @@ class _PcViewScreenState extends State<PcViewScreen>
       PcViewScreen.pendingTour.addListener(_onPendingTour);
       _scheduleAutoConnect();
       _startHealthLoop();
+      final auth = context.read<AuthProvider>();
+      if (auth.isSupabaseSignedIn) {
+        unawaited(auth.refreshPendingInvites());
+      }
     });
   }
 
@@ -413,14 +423,38 @@ class _PcViewScreenState extends State<PcViewScreen>
                       onNav: (dir) => _handleIconNav(2, dir, 4),
                     ),
                     const SizedBox(width: 4),
-                    FocusableIconButton(
-                      focusNode: _iconFocusNodes[3],
-                      icon: Icons.account_circle,
-                      tooltip: 'Account',
-                      color: iconColor,
-                      onPressed: () =>
-                          PcViewScreen.showAccountPicker(context, auth),
-                      onNav: (dir) => _handleIconNav(3, dir, 4),
+                    Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        FocusableIconButton(
+                          focusNode: _iconFocusNodes[3],
+                          icon: Icons.account_circle,
+                          tooltip: 'Account',
+                          color: iconColor,
+                          onPressed: () =>
+                              PcViewScreen.showAccountPicker(context, auth),
+                          onNav: (dir) => _handleIconNav(3, dir, 4),
+                        ),
+                        if (auth.pendingInvites.isNotEmpty)
+                          Positioned(
+                            top: 8,
+                            right: 8,
+                            child: IgnorePointer(
+                              child: Container(
+                                width: 9,
+                                height: 9,
+                                decoration: BoxDecoration(
+                                  color: Colors.tealAccent,
+                                  shape: BoxShape.circle,
+                                  border: Border.all(
+                                    color: tp.surface,
+                                    width: 1.5,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
                     ),
                   ],
                   const SizedBox(width: 8),
@@ -444,6 +478,10 @@ class _PcViewScreenState extends State<PcViewScreen>
                   children: [
                     if (provider.computers.isEmpty && provider.isDiscovering)
                       _buildDiscoveryBanner(),
+                    if (auth.isSupabaseSignedIn &&
+                        auth.pendingInvites.isNotEmpty &&
+                        !_inviteBannerDismissed)
+                      _buildPendingInvitesBanner(auth, tp),
                     Expanded(child: _buildComputerGrid(provider)),
 
                     if (_rearrangeMode) _buildRearrangeHintBanner(),
@@ -870,6 +908,64 @@ class _PcViewScreenState extends State<PcViewScreen>
     );
   }
 
+  Widget _buildPendingInvitesBanner(AuthProvider auth, ThemeProvider tp) {
+    final l = AppLocalizations.of(context);
+    final isLight = tp.colors.isLight;
+    final count = auth.pendingInvites.length;
+    return ExcludeFocus(
+      child: Material(
+        color: Colors.tealAccent.withValues(alpha: isLight ? 0.14 : 0.10),
+        child: InkWell(
+          onTap: () => PcViewScreen.showAccountPicker(context, auth),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            decoration: BoxDecoration(
+              border: Border(
+                bottom: BorderSide(
+                  color: Colors.tealAccent.withValues(alpha: 0.25),
+                  width: 1,
+                ),
+              ),
+            ),
+            child: Row(
+              children: [
+                const Icon(
+                  Icons.mail_outline_rounded,
+                  size: 16,
+                  color: Colors.tealAccent,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    '${l.coopInvitesCount(count)} · ${l.coopInvites}',
+                    style: TextStyle(
+                      color: isLight ? Colors.black87 : Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                IconButton(
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                  icon: Icon(
+                    Icons.close,
+                    size: 16,
+                    color: isLight ? Colors.black54 : Colors.white54,
+                  ),
+                  onPressed: () =>
+                      setState(() => _inviteBannerDismissed = true),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildComputerGrid(ComputerProvider provider) {
     final isTV = TvDetector.instance.isTV;
     final isLandscape =
@@ -881,6 +977,10 @@ class _PcViewScreenState extends State<PcViewScreen>
     final totalItems = provider.computers.length + 1;
     return RefreshIndicator(
       onRefresh: () async {
+        final auth = context.read<AuthProvider>();
+        if (auth.isSupabaseSignedIn) {
+          unawaited(auth.pullFromCloud());
+        }
         await provider.stopDiscovery();
         await provider.startDiscovery();
       },
@@ -1391,11 +1491,20 @@ class _ComputerCardState extends State<_ComputerCard> {
                     children: [
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          if (widget.computer.isCloud)
-                            const CloudBadge()
-                          else
-                            const SizedBox.shrink(),
+                          Expanded(
+                            child: Wrap(
+                              spacing: 6,
+                              runSpacing: 4,
+                              crossAxisAlignment: WrapCrossAlignment.center,
+                              children: [
+                                if (widget.computer.isCloud) const CloudBadge(),
+                                if (widget.computer.isCoopTemporary)
+                                  _CoopBadge(computer: widget.computer),
+                              ],
+                            ),
+                          ),
                           const Icon(
                             Icons.more_vert,
                             size: 20,
@@ -2301,6 +2410,53 @@ class _GoogleSignInButtonState extends State<_GoogleSignInButton> {
   }
 }
 
+class _CoopBadge extends StatelessWidget {
+  final ComputerDetails computer;
+  const _CoopBadge({required this.computer});
+
+  @override
+  Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
+    final expires = computer.coopExpiresAt;
+    final label = expires != null
+        ? '${l.coopGuestBadge} · ${l.coopRemainingShort(expires)}'
+        : l.coopGuestBadge;
+    return Semantics(
+      label: l.coopRoleLabel(computer.coopRole ?? 'coop_pad'),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+        decoration: BoxDecoration(
+          color: Colors.tealAccent.withValues(alpha: 0.16),
+          borderRadius: BorderRadius.circular(4),
+          border: Border.all(color: Colors.tealAccent.withValues(alpha: 0.38)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              computer.coopRole == 'viewer'
+                  ? Icons.visibility_outlined
+                  : Icons.sports_esports_rounded,
+              size: 12,
+              color: Colors.tealAccent,
+            ),
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: const TextStyle(
+                color: Colors.tealAccent,
+                fontSize: 10,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.5,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _AccountPickerBottomSheet extends StatelessWidget {
   final AuthProvider auth;
   final ThemeProvider theme;
@@ -2310,105 +2466,164 @@ class _AccountPickerBottomSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isLight = theme.colors.isLight;
-    return AnimatedContainer(
-      duration: MotionScope.of(context).dialogDuration,
-      curve: MotionScope.of(context).standardCurve,
-      decoration: BoxDecoration(
-        color: theme.surface,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      child: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 36,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: theme.muted.withValues(alpha: isLight ? 0.34 : 0.62),
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-              const SizedBox(height: 16),
-              _PickerItemTile(
-                icon: Icons.person_outline,
-                label: 'My Profile',
-                autofocus: true,
-                onTap: () {
-                  Navigator.pop(context);
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const ProfileScreen()),
-                  );
-                },
-              ),
-              _PickerItemTile(
-                icon: Icons.sync,
-                label: 'Sync Now',
-                onTap: () {
-                  Navigator.pop(context);
-                  PcViewScreen.doCloudSync(context, auth);
-                },
-              ),
-              Divider(
-                color: isLight ? Colors.black12 : Colors.white12,
-                height: 16,
-              ),
-              _PickerItemTile(
-                icon: Icons.logout,
-                label: 'Log Out',
-                color: Colors.redAccent,
-                onTap: () {
-                  Navigator.pop(context);
-                  showDialog(
-                    context: context,
-                    builder: (ctx2) => AlertDialog(
-                      backgroundColor: theme.surface,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
+    final maxHeight = MediaQuery.sizeOf(context).height * 0.78;
+    return AnimatedBuilder(
+      animation: auth,
+      builder: (context, _) => AnimatedContainer(
+        duration: MotionScope.of(context).dialogDuration,
+        curve: MotionScope.of(context).standardCurve,
+        decoration: BoxDecoration(
+          color: theme.surface,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        child: SafeArea(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxHeight: maxHeight),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 36,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: theme.muted.withValues(
+                        alpha: isLight ? 0.34 : 0.62,
                       ),
-                      title: Text(
-                        'Log Out?',
-                        style: TextStyle(
-                          color: isLight ? Colors.black87 : Colors.white,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      content: Text(
-                        'You will need to sign in again to sync.',
-                        style: TextStyle(
-                          color: isLight ? Colors.black54 : Colors.white70,
-                        ),
-                      ),
-                      actions: [
-                        TextButton(
-                          autofocus: true,
-                          onPressed: () => Navigator.pop(ctx2),
-                          child: Text(
-                            'Cancel',
-                            style: TextStyle(
-                              color: isLight ? Colors.black54 : Colors.white54,
-                            ),
-                          ),
-                        ),
-                        TextButton(
-                          onPressed: () {
-                            Navigator.pop(ctx2);
-                            auth.signOut();
-                          },
-                          child: const Text(
-                            'Log Out',
-                            style: TextStyle(color: Colors.redAccent),
-                          ),
-                        ),
-                      ],
+                      borderRadius: BorderRadius.circular(2),
                     ),
-                  );
-                },
+                  ),
+                  const SizedBox(height: 16),
+                  Flexible(
+                    child: SingleChildScrollView(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (auth.isSupabaseSignedIn &&
+                              (auth.isLoadingInvites ||
+                                  auth.pendingInvites.isNotEmpty)) ...[
+                            PendingInvitesSection(
+                              invites: auth.pendingInvites,
+                              isLoading: auth.isLoadingInvites,
+                              accent: theme.accent,
+                              isLight: isLight,
+                              onRespond: (invite, {required accept}) =>
+                                  auth.respondToPendingInvite(
+                                    invite,
+                                    accept: accept,
+                                  ),
+                              onResult: (invite, accepted, ok) {
+                                if (!context.mounted) return;
+                                final l = AppLocalizations.of(context);
+                                final msg = !ok
+                                    ? (auth.cloudError ?? l.coopInviteFailed)
+                                    : (accepted
+                                          ? l.coopInviteAccepted
+                                          : l.coopInviteDeclined);
+                                ScaffoldMessenger.maybeOf(
+                                  context,
+                                )?.showSnackBar(SnackBar(content: Text(msg)));
+                              },
+                            ),
+                            Divider(
+                              color: isLight ? Colors.black12 : Colors.white12,
+                              height: 16,
+                            ),
+                          ],
+                          _PickerItemTile(
+                            icon: Icons.person_outline,
+                            label: 'My Profile',
+                            autofocus: true,
+                            onTap: () {
+                              Navigator.pop(context);
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => const ProfileScreen(),
+                                ),
+                              );
+                            },
+                          ),
+                          _PickerItemTile(
+                            icon: Icons.sync,
+                            label: 'Sync Now',
+                            onTap: () {
+                              Navigator.pop(context);
+                              PcViewScreen.doCloudSync(context, auth);
+                            },
+                          ),
+                          Divider(
+                            color: isLight ? Colors.black12 : Colors.white12,
+                            height: 16,
+                          ),
+                          _PickerItemTile(
+                            icon: Icons.logout,
+                            label: 'Log Out',
+                            color: Colors.redAccent,
+                            onTap: () {
+                              Navigator.pop(context);
+                              showDialog(
+                                context: context,
+                                builder: (ctx2) => AlertDialog(
+                                  backgroundColor: theme.surface,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(16),
+                                  ),
+                                  title: Text(
+                                    'Log Out?',
+                                    style: TextStyle(
+                                      color: isLight
+                                          ? Colors.black87
+                                          : Colors.white,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                  content: Text(
+                                    'You will need to sign in again to sync.',
+                                    style: TextStyle(
+                                      color: isLight
+                                          ? Colors.black54
+                                          : Colors.white70,
+                                    ),
+                                  ),
+                                  actions: [
+                                    TextButton(
+                                      autofocus: true,
+                                      onPressed: () => Navigator.pop(ctx2),
+                                      child: Text(
+                                        'Cancel',
+                                        style: TextStyle(
+                                          color: isLight
+                                              ? Colors.black54
+                                              : Colors.white54,
+                                        ),
+                                      ),
+                                    ),
+                                    TextButton(
+                                      onPressed: () {
+                                        Navigator.pop(ctx2);
+                                        auth.signOut();
+                                      },
+                                      child: const Text(
+                                        'Log Out',
+                                        style: TextStyle(
+                                          color: Colors.redAccent,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
         ),
       ),

@@ -47,6 +47,10 @@ class StreamingPlatformChannel {
     bool enableVrr = false,
     bool directSubmit = false,
     bool lowLatencyFrameBalance = false,
+    int turboInputPort = 0,
+    int turboInputTcpPort = 0,
+    int turboInputSessionId = 0,
+    String turboInputKey = '',
   }) async {
     try {
       _lastStartStreamError = null;
@@ -78,6 +82,10 @@ class StreamingPlatformChannel {
         'enableVrr': enableVrr,
         'directSubmit': directSubmit,
         'lowLatencyFrameBalance': lowLatencyFrameBalance,
+        'turboInputPort': turboInputPort,
+        'turboInputTcpPort': turboInputTcpPort,
+        'turboInputSessionId': turboInputSessionId,
+        'turboInputKey': turboInputKey,
       });
       return result ?? false;
     } on PlatformException catch (e) {

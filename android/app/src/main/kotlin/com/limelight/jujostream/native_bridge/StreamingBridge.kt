@@ -18,6 +18,11 @@ object StreamingBridge {
 
     @JvmStatic external fun nativeInit()
 
+    @JvmStatic external fun nativeConfigureTurboInput(
+        udpPort: Int, tcpPort: Int, sessionId: Long, keyHex: String?
+    )
+    @JvmStatic external fun nativeGetTurboInputStats(): LongArray
+
     @JvmStatic external fun nativeStartConnection(
         address: String, appVersion: String, gfeVersion: String?,
         rtspSessionUrl: String?, serverCodecModeSupport: Int,
@@ -82,6 +87,9 @@ object StreamingBridge {
     @JvmStatic external fun nativeGetAudioRendererMetrics(): LongArray
     @JvmStatic external fun nativeGetStageName(stage: Int): String
     @JvmStatic external fun nativeGetEstimatedRttInfo(): Long
+    @JvmStatic external fun nativeGetVrrClockSyncStats(): LongArray?
+    @JvmStatic external fun nativeTriggerRoam(): Boolean
+    @JvmStatic external fun nativeGetRoamingStats(): LongArray?
 
     @JvmStatic fun onVideoSetup(videoFormat: Int, width: Int, height: Int, redrawRate: Int): Int {
         Log.i(TAG, "Video setup: ${width}x${height}@${redrawRate}, format=0x${videoFormat.toString(16)}")
@@ -140,12 +148,37 @@ object StreamingBridge {
         listener?.onSetControllerLED(controllerNumber, r, g, b)
     }
 
+    @JvmStatic fun onSetAdaptiveTriggers(
+        controllerNumber: Short,
+        eventFlags: Byte,
+        typeLeft: Byte,
+        typeRight: Byte,
+        left: ByteArray,
+        right: ByteArray
+    ) {
+        listener?.onSetAdaptiveTriggers(controllerNumber, eventFlags, typeLeft, typeRight, left, right)
+    }
+
     fun getEstimatedRtt(): Pair<Int, Int>? {
         val info = nativeGetEstimatedRttInfo()
         if (info == -1L) return null
         val rtt = (info shr 32).toInt()
         val variance = info.toInt()
         return Pair(rtt, variance)
+    }
+
+    /** Returns Triple(offsetUs, rttUs, sampleCount) or null if no 0x5537 sample yet. */
+    fun getVrrClockSyncStats(): Triple<Long, Long, Long>? {
+        val vals = nativeGetVrrClockSyncStats() ?: return null
+        if (vals.size < 3) return null
+        return Triple(vals[0], vals[1], vals[2])
+    }
+
+    /** Returns Triple(supported, migrations, lastMigrationUs) or null on failure. */
+    fun getRoamingStats(): Triple<Boolean, Long, Long>? {
+        val vals = nativeGetRoamingStats() ?: return null
+        if (vals.size < 3) return null
+        return Triple(vals[0] != 0L, vals[1], vals[2])
     }
 }
 
@@ -167,4 +200,12 @@ interface StreamingListener {
     fun onRumbleTriggers(controllerNumber: Short, leftTrigger: Short, rightTrigger: Short)
     fun onSetMotionEventState(controllerNumber: Short, motionType: Byte, reportRateHz: Short)
     fun onSetControllerLED(controllerNumber: Short, r: Byte, g: Byte, b: Byte)
+    fun onSetAdaptiveTriggers(
+        controllerNumber: Short,
+        eventFlags: Byte,
+        typeLeft: Byte,
+        typeRight: Byte,
+        left: ByteArray,
+        right: ByteArray
+    )
 }

@@ -64,12 +64,24 @@ public:
         uint64_t frameNotifications;
         uint64_t descriptorCallbacks;
         uint64_t nullDescriptorCallbacks;
+        uint64_t vrrScanlineWaits;
     };
+    void setVrrEnabled(bool enabled) { vrr_enabled_.store(enabled, std::memory_order_relaxed); }
     Stats stats() const;
 
 private:
     TextureBridge() = default;
     ~TextureBridge() { shutdown(); }
+    void initScanlineGuard(ID3D11Device *dev);
+    void closeScanlineGuard();
+    void waitIfTopScanline();
+
+    std::atomic<bool>     vrr_enabled_{false};
+    std::atomic<uint64_t> vrr_scanline_waits_{0};
+    void                 *kmt_gdi32_ = nullptr;
+    void                 *kmt_get_scanline_fn_ = nullptr;
+    void                 *kmt_close_adapter_fn_ = nullptr;
+    uint32_t              kmt_adapter_ = 0;
 
     bool initVideoProcessor(ID3D11Device *dev, int width, int height);
     const FlutterDesktopGpuSurfaceDescriptor *gpuCallback(size_t w, size_t h);

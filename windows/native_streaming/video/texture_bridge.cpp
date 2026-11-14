@@ -17,6 +17,25 @@
 namespace jujostream {
 namespace video {
 
+namespace {
+struct KmtOpenAdapterFromLuid {
+    LUID AdapterLuid;
+    UINT hAdapter;
+};
+struct KmtCloseAdapter {
+    UINT hAdapter;
+};
+struct KmtGetScanLine {
+    UINT hAdapter;
+    UINT VidPnSourceId;
+    BOOL InVerticalBlank;
+    UINT ScanLine;
+};
+using PfnKmtOpenAdapterFromLuid = LONG (WINAPI *)(KmtOpenAdapterFromLuid *);
+using PfnKmtCloseAdapter = LONG (WINAPI *)(const KmtCloseAdapter *);
+using PfnKmtGetScanLine = LONG (WINAPI *)(KmtGetScanLine *);
+}  // namespace
+
 // ---------------------------------------------------------------------------
 TextureBridge &TextureBridge::instance() {
     static TextureBridge inst;
@@ -40,12 +59,15 @@ bool TextureBridge::initialize(flutter::TextureRegistrar *registrar,
     frame_notifications_ = 0;
     descriptor_callbacks_ = 0;
     null_descriptor_callbacks_ = 0;
+    vrr_scanline_waits_ = 0;
 
     auto *dev = D3D11Device::instance().device();
     if (!dev) {
         fprintf(stderr, "TextureBridge: D3D11Device not ready\n");
         return false;
     }
+
+    initScanlineGuard(dev);
 
     // --- D3D11 video processor (NV12/P010 -> BGRA8) -------------------------
     if (!initVideoProcessor(dev, width, height)) {
@@ -249,6 +271,8 @@ void TextureBridge::onFrame(const DecodedFrame &frame) {
     // ID3D11Multithread protection serialises this against MFT decode calls.
     ctx->Flush();
 
+    waitIfTopScanline();
+
     // Signal Flutter that a new frame is available.
     // Flutter Desktop (Win32) documents MarkTextureFrameAvailable as
     // thread-safe — it internally posts to the raster thread queue.
@@ -266,7 +290,89 @@ TextureBridge::Stats TextureBridge::stats() const {
     s.frameNotifications = frame_notifications_.load();
     s.descriptorCallbacks = descriptor_callbacks_.load();
     s.nullDescriptorCallbacks = null_descriptor_callbacks_.load();
+    s.vrrScanlineWaits = vrr_scanline_waits_.load();
     return s;
+}
+
+void TextureBridge::initScanlineGuard(ID3D11Device *dev) {
+    closeScanlineGuard();
+    if (!dev) return;
+
+    HMODULE gdi = GetModuleHandleA("gdi32.dll");
+    if (!gdi) gdi = LoadLibraryA("gdi32.dll");
+    if (!gdi) return;
+
+    auto openFn = reinterpret_cast<PfnKmtOpenAdapterFromLuid>(
+        GetProcAddress(gdi, "D3DKMTOpenAdapterFromLuid"));
+    auto scanFn = reinterpret_cast<PfnKmtGetScanLine>(
+        GetProcAddress(gdi, "D3DKMTGetScanLine"));
+    auto closeFn = reinterpret_cast<PfnKmtCloseAdapter>(
+        GetProcAddress(gdi, "D3DKMTCloseAdapter"));
+    if (!openFn || !scanFn || !closeFn) return;
+
+    ComPtr<IDXGIDevice> dxgiDev;
+    ComPtr<IDXGIAdapter> adapter;
+    DXGI_ADAPTER_DESC desc = {};
+    if (FAILED(dev->QueryInterface(__uuidof(IDXGIDevice), (void **)&dxgiDev)) ||
+        FAILED(dxgiDev->GetAdapter(&adapter)) ||
+        FAILED(adapter->GetDesc(&desc))) {
+        return;
+    }
+
+    KmtOpenAdapterFromLuid openArgs = {};
+    openArgs.AdapterLuid = desc.AdapterLuid;
+    if (openFn(&openArgs) != 0 || openArgs.hAdapter == 0) {
+        return;
+    }
+
+    kmt_gdi32_ = gdi;
+    kmt_get_scanline_fn_ = reinterpret_cast<void *>(scanFn);
+    kmt_close_adapter_fn_ = reinterpret_cast<void *>(closeFn);
+    kmt_adapter_ = openArgs.hAdapter;
+}
+
+void TextureBridge::closeScanlineGuard() {
+    if (kmt_adapter_ != 0 && kmt_close_adapter_fn_ != nullptr) {
+        auto closeFn = reinterpret_cast<PfnKmtCloseAdapter>(kmt_close_adapter_fn_);
+        KmtCloseAdapter args{kmt_adapter_};
+        closeFn(&args);
+    }
+    kmt_adapter_ = 0;
+    kmt_get_scanline_fn_ = nullptr;
+    kmt_close_adapter_fn_ = nullptr;
+    kmt_gdi32_ = nullptr;
+}
+
+void TextureBridge::waitIfTopScanline() {
+    if (!vrr_enabled_.load(std::memory_order_relaxed) ||
+        kmt_adapter_ == 0 || kmt_get_scanline_fn_ == nullptr) {
+        return;
+    }
+    auto scanFn = reinterpret_cast<PfnKmtGetScanLine>(kmt_get_scanline_fn_);
+    KmtGetScanLine gs = {};
+    gs.hAdapter = kmt_adapter_;
+    gs.VidPnSourceId = 0;
+    if (scanFn(&gs) != 0 || gs.InVerticalBlank || gs.ScanLine >= 64) {
+        return;
+    }
+
+    LARGE_INTEGER freq = {}, start = {}, now = {};
+    QueryPerformanceFrequency(&freq);
+    QueryPerformanceCounter(&start);
+    const int64_t maxTicks = (freq.QuadPart * 1200) / 1000000;
+    vrr_scanline_waits_.fetch_add(1, std::memory_order_relaxed);
+    while (maxTicks > 0) {
+        SwitchToThread();
+        gs.InVerticalBlank = FALSE;
+        gs.ScanLine = 0;
+        if (scanFn(&gs) != 0 || gs.InVerticalBlank || gs.ScanLine >= 64) {
+            break;
+        }
+        QueryPerformanceCounter(&now);
+        if ((now.QuadPart - start.QuadPart) >= maxTicks) {
+            break;
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -276,6 +382,8 @@ void TextureBridge::shutdown() {
     if (initialized_ && texture_id_ >= 0 && registrar_) {
         registrar_->UnregisterTexture(texture_id_);
     }
+
+    closeScanlineGuard();
 
     vproc_.Reset();
     vpe_.Reset();

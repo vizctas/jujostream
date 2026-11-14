@@ -17,6 +17,7 @@ import '../../providers/computer_provider.dart';
 import '../../providers/settings_provider.dart';
 import '../../providers/theme_provider.dart';
 import '../../services/audio/ui_sound_service.dart';
+import '../../services/http_api/nv_http_client.dart';
 import '../../services/pro/pro_service.dart';
 import '../../services/telemetry/beta_telemetry_service.dart';
 import '../../services/tv/tv_detector.dart';
@@ -50,6 +51,10 @@ class GameStreamScreen extends StatefulWidget {
   final String readinessToken;
   final String readinessInitialState;
   final int readinessGeneration;
+  final int turboInputPort;
+  final int turboInputTcpPort;
+  final int turboInputSessionId;
+  final String turboInputKey;
 
   const GameStreamScreen({
     super.key,
@@ -64,6 +69,10 @@ class GameStreamScreen extends StatefulWidget {
     this.readinessToken = '',
     this.readinessInitialState = '',
     this.readinessGeneration = 0,
+    this.turboInputPort = 0,
+    this.turboInputTcpPort = 0,
+    this.turboInputSessionId = 0,
+    this.turboInputKey = '',
   });
 
   @override
@@ -95,6 +104,9 @@ class _GameStreamScreenState extends State<GameStreamScreen>
 
   bool _showQuitConfirm = false;
   int _quitConfirmSelection = 0;
+  bool _showCoopPlayers = false;
+  bool _coopLoading = false;
+  List<CoopSessionEntry> _coopSessions = const [];
   int _overlayRow = 0;
   int _overlayCol = 0;
   double _gamepadOpacity = 0.6;
@@ -541,6 +553,10 @@ class _GameStreamScreenState extends State<GameStreamScreen>
             enableVrr: cfg.enableVrr,
             directSubmit: useDirectSubmit,
             lowLatencyFrameBalance: cfg.lowLatencyFrameBalance,
+            turboInputPort: widget.turboInputPort,
+            turboInputTcpPort: widget.turboInputTcpPort,
+            turboInputSessionId: widget.turboInputSessionId,
+            turboInputKey: widget.turboInputKey,
           ).timeout(
             const Duration(seconds: 30),
             onTimeout: () {
@@ -582,7 +598,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
         if (!isCurrent()) return;
         if (physicalCount > 0) {
           _config = _config.copyWith(
-            controllerCount: physicalCount.clamp(1, 4),
+            controllerCount: physicalCount.clamp(1, 16),
           );
         }
 
@@ -1454,7 +1470,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
     setState(() {
       switch (direction) {
         case 'down':
-          _overlayRow = (_overlayRow + 1).clamp(0, 6);
+          _overlayRow = (_overlayRow + 1).clamp(0, 7);
           if (_overlayRow == 0) {
             _overlayCol = _overlayCol.clamp(0, 3);
           } else if (_overlayRow == 1) {
@@ -1463,7 +1479,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
             _overlayCol = 0;
           }
         case 'up':
-          _overlayRow = (_overlayRow - 1).clamp(0, 6);
+          _overlayRow = (_overlayRow - 1).clamp(0, 7);
           if (_overlayRow == 0) {
             _overlayCol = _overlayCol.clamp(0, 3);
           } else if (_overlayRow == 1) {
@@ -1501,6 +1517,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
     setState(() {
       _showOverlay = visible;
       _showSpecialKeys = false;
+      _showCoopPlayers = false;
       _showQuitConfirm =
           false; // always reset so quit-confirm doesn't persist across open/close cycles
       if (visible) {
@@ -1560,6 +1577,8 @@ class _GameStreamScreenState extends State<GameStreamScreen>
           if (mounted) _overlayFocusNode.requestFocus();
         });
       case 6:
+        _openCoopPlayersPanel();
+      case 7:
         _setOverlayVisible(false);
     }
   }
@@ -1574,7 +1593,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
       setState(() => _showGamepad = !_showGamepad);
     } else if (idx == 3 && _config.multiControllerEnabled) {
       setState(() {
-        final max = _config.controllerCount.clamp(1, 8);
+        final max = _config.controllerCount.clamp(1, 16);
         _activeControllerSlot = (_activeControllerSlot + 1) % max;
       });
     } else {
@@ -1960,6 +1979,13 @@ class _GameStreamScreenState extends State<GameStreamScreen>
             _overlayCol = 0;
           });
           _syncOverlayScrollToSelection();
+        } else if (_showCoopPlayers) {
+          setState(() {
+            _showCoopPlayers = false;
+            _overlayRow = 6;
+            _overlayCol = 0;
+          });
+          _syncOverlayScrollToSelection();
         } else {
           _setOverlayVisible(false);
         }
@@ -1975,10 +2001,10 @@ class _GameStreamScreenState extends State<GameStreamScreen>
         return KeyEventResult.handled;
       }
 
-      if (_showOverlay && !_showSpecialKeys) {
+      if (_showOverlay && !_showSpecialKeys && !_showCoopPlayers) {
         if (key == LogicalKeyboardKey.arrowDown) {
           setState(() {
-            _overlayRow = (_overlayRow + 1).clamp(0, 6);
+            _overlayRow = (_overlayRow + 1).clamp(0, 7);
 
             if (_overlayRow == 0) {
               _overlayCol = _overlayCol.clamp(0, 3);
@@ -1993,7 +2019,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
         }
         if (key == LogicalKeyboardKey.arrowUp) {
           setState(() {
-            _overlayRow = (_overlayRow - 1).clamp(0, 6);
+            _overlayRow = (_overlayRow - 1).clamp(0, 7);
             if (_overlayRow == 0) {
               _overlayCol = _overlayCol.clamp(0, 3);
             } else if (_overlayRow == 1) {
@@ -2560,6 +2586,12 @@ class _GameStreamScreenState extends State<GameStreamScreen>
           _overlayRow = 0;
           _overlayCol = 0;
         });
+      } else if (_showCoopPlayers) {
+        setState(() {
+          _showCoopPlayers = false;
+          _overlayRow = 6;
+          _overlayCol = 0;
+        });
       } else {
         _setOverlayVisible(false);
       }
@@ -2612,10 +2644,10 @@ class _GameStreamScreenState extends State<GameStreamScreen>
       return KeyEventResult.handled;
     }
 
-    if (!_showSpecialKeys) {
+    if (!_showSpecialKeys && !_showCoopPlayers) {
       if (key == LogicalKeyboardKey.arrowDown) {
         setState(() {
-          _overlayRow = (_overlayRow + 1).clamp(0, 6);
+          _overlayRow = (_overlayRow + 1).clamp(0, 7);
           if (_overlayRow == 0) {
             _overlayCol = _overlayCol.clamp(0, 3);
           } else if (_overlayRow == 1) {
@@ -2629,7 +2661,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
       }
       if (key == LogicalKeyboardKey.arrowUp) {
         setState(() {
-          _overlayRow = (_overlayRow - 1).clamp(0, 6);
+          _overlayRow = (_overlayRow - 1).clamp(0, 7);
           if (_overlayRow == 0) {
             _overlayCol = _overlayCol.clamp(0, 3);
           } else if (_overlayRow == 1) {
@@ -2716,6 +2748,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
         3 => headerH + qualityH + divH + togglesH + divH + tileH,
         4 => headerH + qualityH + divH + togglesH + divH + tileH * 2,
         5 => headerH + qualityH + divH + togglesH + divH + tileH * 3,
+        6 => headerH + qualityH + divH + togglesH + divH + tileH * 4,
         _ => maxScroll,
       };
       _overlayScrollController.animateTo(
@@ -2771,6 +2804,14 @@ class _GameStreamScreenState extends State<GameStreamScreen>
           });
           return;
         }
+        if (_showCoopPlayers) {
+          setState(() {
+            _showCoopPlayers = false;
+            _overlayRow = 6;
+            _overlayCol = 0;
+          });
+          return;
+        }
         if (_showQuitConfirm) {
           setState(() {
             _showQuitConfirm = false;
@@ -2814,6 +2855,8 @@ class _GameStreamScreenState extends State<GameStreamScreen>
                     ),
                     child: _showSpecialKeys
                         ? _buildSpecialKeysPanel()
+                        : _showCoopPlayers
+                        ? _buildCoopPlayersPanel()
                         : _showQuitConfirm
                         ? _buildQuitConfirmPanel()
                         : _buildQuickMenuPanel(),
@@ -3067,7 +3110,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
                 'P${_activeControllerSlot + 1}',
                 true,
                 () => setState(() {
-                  final max = _config.controllerCount.clamp(1, 8);
+                  final max = _config.controllerCount.clamp(1, 16);
                   _activeControllerSlot = (_activeControllerSlot + 1) % max;
                 }),
                 focused: _overlayRow == 1 && _overlayCol == 3,
@@ -3135,12 +3178,19 @@ class _GameStreamScreenState extends State<GameStreamScreen>
         ),
         const SizedBox(height: 4),
         buildMenuTile(
+          Icons.sports_esports,
+          AppLocalizations.of(context).coopPlayers,
+          _openCoopPlayersPanel,
+          focused: _overlayRow == 6,
+        ),
+        const SizedBox(height: 4),
+        buildMenuTile(
           Icons.close,
           AppLocalizations.of(context).closeMenu,
           () {
             _setOverlayVisible(false);
           },
-          focused: _overlayRow == 6,
+          focused: _overlayRow == 7,
         ),
         Padding(
           padding: const EdgeInsets.only(top: 8),
@@ -3391,6 +3441,201 @@ class _GameStreamScreenState extends State<GameStreamScreen>
     );
   }
 
+  Future<void> _openCoopPlayersPanel() async {
+    setState(() {
+      _showCoopPlayers = true;
+      _coopLoading = true;
+    });
+    final list = await context.read<AppListProvider>().getCoopSessions();
+    if (!mounted) return;
+    setState(() {
+      _coopSessions = list;
+      _coopLoading = false;
+    });
+  }
+
+  Future<void> _controlCoopPlayer(
+    String sessionId, {
+    String? role,
+    bool? paused,
+    bool? kick,
+  }) async {
+    setState(() => _coopLoading = true);
+    final updated = await context.read<AppListProvider>().controlCoopSession(
+      sessionId: sessionId,
+      role: role,
+      paused: paused,
+      kick: kick,
+    );
+    if (!mounted) return;
+    setState(() {
+      if (updated != null) _coopSessions = updated;
+      _coopLoading = false;
+    });
+  }
+
+  Widget _buildCoopPlayersPanel() {
+    final l = AppLocalizations.of(context);
+    return ExcludeFocus(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              IconButton(
+                icon: const Icon(Icons.arrow_back, color: Colors.white70),
+                onPressed: () => setState(() => _showCoopPlayers = false),
+              ),
+              Expanded(
+                child: Text(
+                  '${l.coopPlayers} (${_coopSessions.length})',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.refresh, color: Colors.white70, size: 18),
+                onPressed: _coopLoading ? null : _openCoopPlayersPanel,
+              ),
+            ],
+          ),
+          const Divider(color: Colors.white12, height: 8),
+          if (_coopLoading && _coopSessions.isEmpty)
+            const Padding(
+              padding: EdgeInsets.all(16),
+              child: Center(child: CircularProgressIndicator()),
+            )
+          else if (_coopSessions.isEmpty)
+            const Padding(
+              padding: EdgeInsets.all(12),
+              child: Text(
+                'No active Co-Op sessions reported by host.',
+                style: TextStyle(color: Colors.white60, fontSize: 12),
+                textAlign: TextAlign.center,
+              ),
+            )
+          else
+            for (final p in _coopSessions)
+              Container(
+                margin: const EdgeInsets.only(bottom: 6),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.06),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: p.isOwner
+                                ? Colors.amber.withValues(alpha: 0.25)
+                                : Colors.tealAccent.withValues(alpha: 0.2),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            p.isOwner ? 'P1 Owner' : 'P${p.assignedSlot + 1}',
+                            style: TextStyle(
+                              color: p.isOwner
+                                  ? Colors.amberAccent
+                                  : Colors.tealAccent,
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            p.displayName.isNotEmpty
+                                ? p.displayName
+                                : p.sessionId,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ),
+                        if (!p.isOwner) ...[
+                          IconButton(
+                            visualDensity: VisualDensity.compact,
+                            icon: Icon(
+                              p.paused ? Icons.play_arrow : Icons.pause,
+                              color: Colors.white70,
+                              size: 18,
+                            ),
+                            onPressed: _coopLoading
+                                ? null
+                                : () => _controlCoopPlayer(
+                                    p.sessionId,
+                                    paused: !p.paused,
+                                  ),
+                          ),
+                          IconButton(
+                            visualDensity: VisualDensity.compact,
+                            icon: const Icon(
+                              Icons.person_remove,
+                              color: Colors.redAccent,
+                              size: 18,
+                            ),
+                            onPressed: _coopLoading
+                                ? null
+                                : () =>
+                                    _controlCoopPlayer(p.sessionId, kick: true),
+                          ),
+                        ],
+                      ],
+                    ),
+                    if (!p.isOwner)
+                      Wrap(
+                        spacing: 6,
+                        children: [
+                          for (final r in const [
+                            ('viewer', 'Ver'),
+                            ('coop_pad', 'Mando'),
+                            ('coop_kbm', 'Mando+KBM'),
+                          ])
+                            ChoiceChip(
+                              label: Text(
+                                r.$2,
+                                style: const TextStyle(fontSize: 11),
+                              ),
+                              selected: p.role == r.$1,
+                              visualDensity: VisualDensity.compact,
+                              onSelected: _coopLoading
+                                  ? null
+                                  : (_) => _controlCoopPlayer(
+                                      p.sessionId,
+                                      role: r.$1,
+                                    ),
+                            ),
+                        ],
+                      ),
+                  ],
+                ),
+              ),
+          const SizedBox(height: 6),
+          buildMenuTile(
+            Icons.close,
+            l.closeMenu,
+            () => _setOverlayVisible(false),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildQuickFavPanel() {
     final favList = _quickFavIndices.toList();
     return Focus(
@@ -3508,7 +3753,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
     if (!_config.multiControllerEnabled) {
       return 1;
     }
-    final count = _config.controllerCount.clamp(1, 8);
+    final count = _config.controllerCount.clamp(1, 16);
     return (1 << count) - 1;
   }
 

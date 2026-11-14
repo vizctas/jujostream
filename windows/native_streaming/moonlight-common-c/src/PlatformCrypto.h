@@ -45,4 +45,21 @@ bool PltDecryptMessage(PPLT_CRYPTO_CONTEXT ctx, int algorithm, int flags,
                        unsigned char* inputData, int inputDataLength,
                        unsigned char* outputData, int* outputDataLength);
 
+bool PltEncryptAesEcbBlock(const unsigned char* key, int keyLength,
+                           const unsigned char* inputBlock, unsigned char* outputBlock);
+
+bool PltEncryptAesGcmAad(const unsigned char* key, int keyLength,
+                         const unsigned char* iv, int ivLength,
+                         const unsigned char* aad, int aadLength,
+                         const unsigned char* plaintext, int plaintextLength,
+                         unsigned char* tagOut, int tagLength,
+                         unsigned char* ciphertextOut);
+
+bool PltDecryptAesGcmAad(const unsigned char* key, int keyLength,
+                         const unsigned char* iv, int ivLength,
+                         const unsigned char* aad, int aadLength,
+                         const unsigned char* ciphertext, int ciphertextLength,
+                         const unsigned char* tag, int tagLength,
+                         unsigned char* plaintextOut);
+
 void PltGenerateRandomData(unsigned char* data, int length);

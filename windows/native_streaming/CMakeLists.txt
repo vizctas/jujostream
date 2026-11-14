@@ -83,19 +83,19 @@ target_compile_options(moonlight_common_c PRIVATE
 
 # OpenSSL — try manual deps/ path first, then find_package, then known install locations
 if(EXISTS "${DEPS_DIR}/openssl/include")
-    target_include_directories(moonlight_common_c PRIVATE "${DEPS_DIR}/openssl/include")
+    target_include_directories(moonlight_common_c PUBLIC "${DEPS_DIR}/openssl/include")
 else()
     find_package(OpenSSL QUIET)
     if(OPENSSL_FOUND)
-        target_include_directories(moonlight_common_c PRIVATE ${OPENSSL_INCLUDE_DIR})
+        target_include_directories(moonlight_common_c PUBLIC ${OPENSSL_INCLUDE_DIR})
     elseif(EXISTS "C:/Program Files/FireDaemon OpenSSL 3/include")
-        target_include_directories(moonlight_common_c PRIVATE "C:/Program Files/FireDaemon OpenSSL 3/include")
+        target_include_directories(moonlight_common_c PUBLIC "C:/Program Files/FireDaemon OpenSSL 3/include")
         set(OPENSSL_CHOCO_ROOT "C:/Program Files/FireDaemon OpenSSL 3")
     elseif(EXISTS "C:/Program Files/OpenSSL-Win64/include")
-        target_include_directories(moonlight_common_c PRIVATE "C:/Program Files/OpenSSL-Win64/include")
+        target_include_directories(moonlight_common_c PUBLIC "C:/Program Files/OpenSSL-Win64/include")
         set(OPENSSL_CHOCO_ROOT "C:/Program Files/OpenSSL-Win64")
     elseif(EXISTS "C:/Program Files/OpenSSL/include")
-        target_include_directories(moonlight_common_c PRIVATE "C:/Program Files/OpenSSL/include")
+        target_include_directories(moonlight_common_c PUBLIC "C:/Program Files/OpenSSL/include")
         set(OPENSSL_CHOCO_ROOT "C:/Program Files/OpenSSL")
     endif()
 endif()
@@ -115,22 +115,22 @@ target_link_libraries(moonlight_common_c PRIVATE
 
 # Link OpenSSL + Opus static libs if present
 if(EXISTS "${DEPS_DIR}/openssl/lib/libssl.lib")
-    target_link_libraries(moonlight_common_c PRIVATE
+    target_link_libraries(moonlight_common_c PUBLIC
         "${DEPS_DIR}/openssl/lib/libssl.lib"
         "${DEPS_DIR}/openssl/lib/libcrypto.lib"
     )
 elseif(EXISTS "${DEPS_DIR}/openssl/lib/ssl.lib")
-    target_link_libraries(moonlight_common_c PRIVATE
+    target_link_libraries(moonlight_common_c PUBLIC
         "${DEPS_DIR}/openssl/lib/ssl.lib"
         "${DEPS_DIR}/openssl/lib/crypto.lib"
     )
 elseif(OPENSSL_FOUND)
-    target_link_libraries(moonlight_common_c PRIVATE
+    target_link_libraries(moonlight_common_c PUBLIC
         ${OPENSSL_SSL_LIBRARY}
         ${OPENSSL_CRYPTO_LIBRARY}
     )
 elseif(DEFINED OPENSSL_CHOCO_ROOT)
-    target_link_libraries(moonlight_common_c PRIVATE
+    target_link_libraries(moonlight_common_c PUBLIC
         "${OPENSSL_CHOCO_ROOT}/lib/libssl.lib"
         "${OPENSSL_CHOCO_ROOT}/lib/libcrypto.lib"
     )
@@ -170,6 +170,7 @@ set(NATIVE_STREAMING_SOURCES
     input/wgi_handler.cpp
     input/combo_detector.cpp
     input/gamepad_method_handler.cpp
+    input/turbo_input_client.cpp
 )
 
 add_library(native_streaming STATIC ${NATIVE_STREAMING_SOURCES})

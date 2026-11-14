@@ -105,6 +105,10 @@ class GamepadChannel {
     await _invoke('setResponseCurve', {'curve': curve});
   }
 
+  static Future<void> setPollingRate(int hz) async {
+    await _invoke('setPollingRate', {'hz': hz});
+  }
+
   static Future<void> setTouchpadAsMouse(bool enabled) async {
     await _invoke('setTouchpadAsMouse', {'enabled': enabled});
   }

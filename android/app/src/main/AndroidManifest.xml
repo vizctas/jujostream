@@ -93,6 +93,8 @@
             </intent-filter>
         </service>
     </application>
+    <uses-feature android:name="android.hardware.usb.host" android:required="false"/>
+
     <queries>
         <intent>
             <action android:name="android.intent.action.MAIN"/>

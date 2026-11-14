@@ -10,6 +10,7 @@
 #include "../video/mft_decoder.h"
 #include "../video/texture_bridge.h"
 #include "../audio/wasapi_renderer.h"
+#include "../input/turbo_input_client.h"
 
 #include <string>
 #include <vector>
@@ -29,6 +30,14 @@ static int getInt(const flutter::EncodableMap &m, const std::string &key, int de
     if (it == m.end()) return def;
     if (auto *v = std::get_if<int32_t>(&it->second)) return *v;
     if (auto *v = std::get_if<int64_t>(&it->second)) return static_cast<int>(*v);
+    return def;
+}
+
+static uint32_t getUInt32(const flutter::EncodableMap &m, const std::string &key, uint32_t def = 0) {
+    auto it = m.find(flutter::EncodableValue(key));
+    if (it == m.end()) return def;
+    if (auto *v = std::get_if<int32_t>(&it->second)) return static_cast<uint32_t>(*v);
+    if (auto *v = std::get_if<int64_t>(&it->second)) return static_cast<uint32_t>(*v);
     return def;
 }
 
@@ -130,7 +139,12 @@ void MethodHandler::handleStartStream(const flutter::EncodableValue *args,
     int riKeyId             = getInt(m, "riKeyId", 0);
     int colorSpace          = getBool(m, "enableHdr", false)  ? 1 : 0;
     int colorRange          = getBool(m, "fullRange", false)   ? 1 : 0;
+    video::TextureBridge::instance().setVrrEnabled(getBool(m, "enableVrr", false));
     std::string audioConfig = getString(m, "audioConfig", "stereo");
+    int turboInputPort      = getInt(m, "turboInputPort", 0);
+    int turboInputTcpPort   = getInt(m, "turboInputTcpPort", 0);
+    uint32_t turboSessionId = getUInt32(m, "turboInputSessionId", 0);
+    std::string turboKeyHex = getString(m, "turboInputKey", "");
     int audioConfiguration  = (audioConfig == "surround51") ? 0x003F06CA :
                               (audioConfig == "surround71") ? 0x063F08CA : 0x000302CA;
 
@@ -181,12 +195,17 @@ void MethodHandler::handleStartStream(const flutter::EncodableValue *args,
     // Move result into shared_ptr so it can be captured by the lambda
     auto sharedResult = std::shared_ptr<flutter::MethodResult<flutter::EncodableValue>>(
         std::move(result));
+    const bool allowSlices =
+        (static_cast<int64_t>(width) * static_cast<int64_t>(height) >= 6220800LL) &&
+        (videoCodec != "AV1");
+    const int videoCapabilities = allowSlices ? (4 << 24) : 0;
 
     std::thread([
         host, appVersion, gfeVersion, rtspUrl,
         serverCodecMode, width, height, fps, bitrate,
-        audioConfiguration, supportedVideoFormats,
+        audioConfiguration, supportedVideoFormats, videoCapabilities,
         riAesKey, riAesIvVec, colorSpace, colorRange,
+        turboInputPort, turboInputTcpPort, turboSessionId, turboKeyHex,
         sharedResult
     ]() mutable {
         // MFT/COM requires apartment init on this new thread
@@ -194,6 +213,12 @@ void MethodHandler::handleStartStream(const flutter::EncodableValue *args,
 
         fprintf(stderr, "moonlight_startStream_thread: addr=%s %dx%d@%d bitrate=%d codec=0x%X\n",
                 host.c_str(), width, height, fps, bitrate, supportedVideoFormats);
+
+        moonlightWinConfigureTurboInput(
+            turboInputPort,
+            turboInputTcpPort,
+            turboSessionId,
+            turboKeyHex.empty() ? nullptr : turboKeyHex.c_str());
 
         int status = moonlightWinStartConnection(
             host.c_str(),
@@ -208,7 +233,7 @@ void MethodHandler::handleStartStream(const flutter::EncodableValue *args,
             supportedVideoFormats,
             fps * 100,
             riAesKey.data(), riAesIvVec.data(),
-            0,         // videoCapabilities
+            videoCapabilities,
             colorSpace, colorRange
         );
 
@@ -416,6 +441,26 @@ void MethodHandler::handleGetStats(
     stats[flutter::EncodableValue("textureFrameNotifications")] = flutter::EncodableValue((int64_t)vs.textureFrameNotifications);
     stats[flutter::EncodableValue("textureDescriptorCallbacks")] = flutter::EncodableValue((int64_t)vs.textureDescriptorCallbacks);
     stats[flutter::EncodableValue("textureNullDescriptorCallbacks")] = flutter::EncodableValue((int64_t)vs.textureNullDescriptorCallbacks);
+    stats[flutter::EncodableValue("vrrScanlineWaits")] = flutter::EncodableValue((int64_t)vs.vrrScanlineWaits);
+    {
+        int64_t vrrOffsetUs = 0;
+        uint64_t vrrRttUs = 0;
+        uint32_t vrrSamples = 0;
+        if (moonlightWinGetVrrClockSyncStats(&vrrOffsetUs, &vrrRttUs, &vrrSamples)) {
+            stats[flutter::EncodableValue("vrrClockOffsetUs")] = flutter::EncodableValue(vrrOffsetUs);
+            stats[flutter::EncodableValue("vrrClockRttUs")] = flutter::EncodableValue(static_cast<int64_t>(vrrRttUs));
+            stats[flutter::EncodableValue("vrrClockSamples")] = flutter::EncodableValue(static_cast<int64_t>(vrrSamples));
+        }
+    }
+    {
+        int roamSupported = 0;
+        uint32_t roamMigrations = 0;
+        uint64_t roamLastUs = 0;
+        moonlightWinGetRoamingStats(&roamSupported, &roamMigrations, &roamLastUs);
+        stats[flutter::EncodableValue("roamSupported")] = flutter::EncodableValue(roamSupported != 0);
+        stats[flutter::EncodableValue("roamMigrations")] = flutter::EncodableValue(static_cast<int64_t>(roamMigrations));
+        stats[flutter::EncodableValue("roamLastMigrationUs")] = flutter::EncodableValue(static_cast<int64_t>(roamLastUs));
+    }
     stats[flutter::EncodableValue("pendingAudioMs")]     = flutter::EncodableValue(
         moonlightWinGetPendingAudioDuration());
     auto audioStats = ar.stats();
@@ -425,6 +470,12 @@ void MethodHandler::handleGetStats(
     stats[flutter::EncodableValue("audioReinitCount")] = flutter::EncodableValue((int64_t)audioStats.reinitCount);
     stats[flutter::EncodableValue("audioChannels")] = flutter::EncodableValue(audioStats.channels);
     stats[flutter::EncodableValue("audioSampleRate")] = flutter::EncodableValue(audioStats.sampleRate);
+    auto turboStats = turboClientGetStats();
+    stats[flutter::EncodableValue("turboActive")] = flutter::EncodableValue(turboStats.active);
+    stats[flutter::EncodableValue("turboUsingTcp")] = flutter::EncodableValue(turboStats.usingTcp);
+    stats[flutter::EncodableValue("turboRttUs")] = flutter::EncodableValue(static_cast<int64_t>(turboStats.lastRttUs));
+    stats[flutter::EncodableValue("turboPacketsSent")] = flutter::EncodableValue(static_cast<int64_t>(turboStats.packetsSent));
+    stats[flutter::EncodableValue("turboPacketsRecv")] = flutter::EncodableValue(static_cast<int64_t>(turboStats.packetsRecv));
     result->Success(flutter::EncodableValue(stats));
 }
 

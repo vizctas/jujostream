@@ -192,6 +192,7 @@ static void BridgeWinAudioDecodeAndPlaySample(char *sampleData, int sampleLength
 /* --- Connection Listener Callbacks --- */
 
 static void BridgeWinConnectionStarted(void) {
+    moonlightWinOnConnectionStarted();
     JujostreamWinCallbacks *cbs = moonlightWinGetCallbacks();
     if (cbs->onConnectionStarted) cbs->onConnectionStarted();
 }
@@ -235,6 +236,11 @@ static void BridgeWinSetControllerLED(uint16_t cn, uint8_t r, uint8_t g, uint8_t
     JujostreamWinCallbacks *cbs = moonlightWinGetCallbacks();
     if (cbs->onSetControllerLED) cbs->onSetControllerLED(cn, r, g, b);
 }
+static void BridgeWinSetAdaptiveTriggers(
+    uint16_t cn, uint8_t eventFlags, uint8_t typeLeft, uint8_t typeRight, uint8_t *left, uint8_t *right) {
+    JujostreamWinCallbacks *cbs = moonlightWinGetCallbacks();
+    if (cbs->onSetAdaptiveTriggers) cbs->onSetAdaptiveTriggers(cn, eventFlags, typeLeft, typeRight, left, right);
+}
 static void BridgeWinLogMessage(const char *format, ...) {
     va_list va;
     va_start(va, format);
@@ -276,4 +282,5 @@ CONNECTION_LISTENER_CALLBACKS BridgeWinConnCallbacks = {
     .rumbleTriggers         = BridgeWinRumbleTriggers,
     .setMotionEventState    = BridgeWinSetMotionEventState,
     .setControllerLED       = BridgeWinSetControllerLED,
+    .setAdaptiveTriggers    = BridgeWinSetAdaptiveTriggers,
 };

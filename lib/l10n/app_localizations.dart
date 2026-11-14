@@ -284,6 +284,46 @@ class AppLocalizations {
     },
     'launchGame': {'en': 'Launch', 'es': 'Iniciar'},
     'resumeSession': {'en': 'Resume Session', 'es': 'Reanudar sesión'},
+    'joinCoopGamepad': {
+      'en': 'Join Co-Op (Gamepad)',
+      'es': 'Unirse Co-Op (Mando)',
+    },
+    'coopPlayers': {'en': 'Co-Op Players', 'es': 'Jugadores Co-Op'},
+    'coopPlayersSubtitle': {
+      'en': 'Manage slots & permissions',
+      'es': 'Gestionar slots y permisos',
+    },
+    'coopInvites': {
+      'en': 'Co-Op & Server Invites',
+      'es': 'Invitaciones Co-Op y Servidor',
+    },
+    'accept': {'en': 'Accept', 'es': 'Aceptar'},
+    'decline': {'en': 'Decline', 'es': 'Rechazar'},
+    'coopGuestBadge': {'en': 'CO-OP', 'es': 'CO-OP'},
+    'coopInviteTempTag': {'en': '4h Co-Op', 'es': 'Co-Op 4h'},
+    'coopInvitePermTag': {
+      'en': 'Server Share',
+      'es': 'Servidor compartido',
+    },
+    'coopRoleViewer': {'en': 'Viewer', 'es': 'Espectador'},
+    'coopRolePad': {'en': 'Gamepad', 'es': 'Mando'},
+    'coopRoleKbm': {'en': 'Gamepad + KBM', 'es': 'Mando + Teclado'},
+    'coopViewerOnly': {
+      'en': 'Viewer only — input disabled',
+      'es': 'Solo espectador — entrada desactivada',
+    },
+    'coopInviteAccepted': {
+      'en': 'Invite accepted — syncing server…',
+      'es': 'Invitación aceptada — sincronizando…',
+    },
+    'coopInviteDeclined': {
+      'en': 'Invite declined',
+      'es': 'Invitación rechazada',
+    },
+    'coopInviteFailed': {
+      'en': 'Could not respond to invite',
+      'es': 'No se pudo responder a la invitación',
+    },
     'currentlyRunning': {'en': 'Currently running', 'es': 'En ejecución'},
     'localLibrary': {'en': 'Local library', 'es': 'Biblioteca local'},
     'similarGames': {'en': 'Similar to this', 'es': 'Similar a este'},
@@ -1281,6 +1321,48 @@ class AppLocalizations {
   String get closeActiveSession => _s('closeActiveSession');
   String get launchGame => _s('launchGame');
   String get resumeSession => _s('resumeSession');
+  String get joinCoopGamepad => _s('joinCoopGamepad');
+  String get coopPlayers => _s('coopPlayers');
+  String get coopPlayersSubtitle => _s('coopPlayersSubtitle');
+  String get coopInvites => _s('coopInvites');
+  String get accept => _s('accept');
+  String get decline => _s('decline');
+  String get coopGuestBadge => _s('coopGuestBadge');
+  String get coopInviteTempTag => _s('coopInviteTempTag');
+  String get coopInvitePermTag => _s('coopInvitePermTag');
+  String get coopRoleViewer => _s('coopRoleViewer');
+  String get coopRolePad => _s('coopRolePad');
+  String get coopRoleKbm => _s('coopRoleKbm');
+  String get coopViewerOnly => _s('coopViewerOnly');
+  String get coopInviteAccepted => _s('coopInviteAccepted');
+  String get coopInviteDeclined => _s('coopInviteDeclined');
+  String get coopInviteFailed => _s('coopInviteFailed');
+  String coopRoleLabel(String role) => switch (role) {
+    'viewer' => coopRoleViewer,
+    'coop_kbm' => coopRoleKbm,
+    'coop_pad' => coopRolePad,
+    _ => role,
+  };
+  String coopInvitesCount(int count) => locale.languageCode == 'es'
+      ? '$count invitación${count == 1 ? '' : 'es'} pendiente${count == 1 ? '' : 's'}'
+      : '$count pending invite${count == 1 ? '' : 's'}';
+  String coopRemainingShort(DateTime expiresAt) {
+    final diff = expiresAt.toUtc().difference(DateTime.now().toUtc());
+    if (diff.inMinutes <= 0) return 'exp';
+    if (diff.inHours >= 1) return '${diff.inHours}h';
+    return '${diff.inMinutes}m';
+  }
+  String coopExpiresIn(DateTime expiresAt) {
+    final diff = expiresAt.toUtc().difference(DateTime.now().toUtc());
+    final es = locale.languageCode == 'es';
+    if (diff.inMinutes <= 0) return es ? 'Expirado' : 'Expired';
+    final hours = diff.inHours;
+    final mins = diff.inMinutes.remainder(60);
+    final span = hours >= 1
+        ? (mins > 0 ? '${hours}h ${mins}m' : '${hours}h')
+        : '${diff.inMinutes}m';
+    return es ? 'Expira en $span' : 'Expires in $span';
+  }
   String get currentlyRunning => _s('currentlyRunning');
   String get localLibrary => _s('localLibrary');
   String get similarGames => _s('similarGames');

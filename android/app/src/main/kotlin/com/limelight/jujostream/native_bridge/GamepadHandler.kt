@@ -234,10 +234,19 @@ class GamepadHandler(
     // Controller light requests are Binder-backed. A LightsSession owns one
     // Binder token and must remain open for the lifetime of its request. Keep
     // one session per input device instead of allocating one per LED packet.
+    data class AdaptiveTriggerState(
+        val eventFlags: Int,
+        val typeLeft: Int,
+        val typeRight: Int,
+        val left: ByteArray,
+        val right: ByteArray
+    )
+
     private val controllerFeedbackLock = Any()
     private val controllerLedThrottle = ControllerLedThrottle()
     private val controllerLightSessions = mutableMapOf<Int, AutoCloseable>()
     private val controllerLedRunnables = mutableMapOf<Int, Runnable>()
+    private val adaptiveTriggerStates = mutableMapOf<Int, AdaptiveTriggerState>()
     private var ledCallbackCount = 0L
     private var ledAppliedCount = 0L
 
@@ -254,6 +263,39 @@ class GamepadHandler(
     private val controllerVibrationSafe =
         ControllerRumblePolicy.inputVibrationSafe(Build.VERSION.SDK_INT, isTvDevice())
     private val controllerRumbleThrottle = ControllerLedThrottle(40_000_000L)
+
+    private val slotLock = Any()
+    private var usbSlotMask: Int = 0
+    private val usbDirectManager by lazy {
+        UsbDirectControllerManager(
+            context = context,
+            acquireSlot = { _, _ -> allocateUsbSlot() },
+            releaseSlot = { slot -> releaseUsbSlot(slot) },
+            activeMaskProvider = { getActiveControllerMask() },
+            onControllerChanged = {
+                mainHandler.post {
+                    if (isStreaming) {
+                        detectControllers()
+                    }
+                }
+            }
+        )
+    }
+
+    private fun allocateUsbSlot(): Int? = synchronized(slotLock) {
+        val used = currentControllers.toInt() or usbSlotMask
+        for (i in 0 until MAX_GAMEPADS) {
+            if ((used and (1 shl i)) == 0) {
+                usbSlotMask = usbSlotMask or (1 shl i)
+                return i
+            }
+        }
+        null
+    }
+
+    private fun releaseUsbSlot(slot: Int) = synchronized(slotLock) {
+        usbSlotMask = usbSlotMask and (1 shl slot).inv()
+    }
     private val requestedRumble = mutableMapOf<Int, Int>()
     private val rumbleRunnables = mutableMapOf<Int, Runnable>()
     // Controllers we left vibrating; only touched on the feedback thread.
@@ -341,14 +383,23 @@ class GamepadHandler(
                             ledCallbackCount = 0L
                             ledAppliedCount = 0L
                         }
+                        if (usbDriverEnabled) {
+                            usbDirectManager.setStreamingActive(true)
+                        } else {
+                            usbDirectManager.setStreamingActive(false)
+                        }
                         val count = detectControllers()
                         result.success(count)
                     } else {
+                        usbDirectManager.setStreamingActive(false)
                         stopMotionSensors()
                         releaseControllerFeedbackResources("stream inactive")
                         controllers.clear()
                         deviceSlots.clear()
-                        currentControllers = 0
+                        synchronized(slotLock) {
+                            currentControllers = 0
+                            usbSlotMask = 0
+                        }
                         prevMouseButtonState = 0
                         loggedTouchpadDevices.clear()
                         result.success(0)
@@ -455,8 +506,11 @@ class GamepadHandler(
                     usbBindAllEnabled = nextUsbBindAll
                     joyConEnabled = nextJoyCon
                     val count = when {
-                        isStreaming && topologyChanged -> detectControllers()
-                        isStreaming -> Integer.bitCount(currentControllers.toInt())
+                        isStreaming && topologyChanged -> {
+                            usbDirectManager.setStreamingActive(usbDriverEnabled)
+                            detectControllers()
+                        }
+                        isStreaming -> Integer.bitCount(getActiveControllerMask().toInt())
                         else -> countGamepads()
                     }
                     result.success(count)
@@ -616,14 +670,16 @@ class GamepadHandler(
         releaseControllerFeedbackResources("controller redetect", logSummary = false)
         controllers.clear()
         deviceSlots.clear()
-        currentControllers = 0
+        synchronized(slotLock) {
+            currentControllers = 0
+        }
 
         isDetecting = true
         for (id in InputDevice.getDeviceIds()) {
             val dev = InputDevice.getDevice(id) ?: continue
             if (isGamepadDevice(dev)) {
                 ensureController(id, dev)
-                if (Integer.bitCount(currentControllers.toInt()) >= MAX_GAMEPADS) break
+                if (Integer.bitCount(getActiveControllerMask().toInt()) >= MAX_GAMEPADS) break
             }
         }
         isDetecting = false
@@ -639,13 +695,15 @@ class GamepadHandler(
                 }
             }
         }
-        val uniqueControllers = Integer.bitCount(currentControllers.toInt())
-        Log.i(TAG, "Detected $uniqueControllers gamepad(s), mask=0x${currentControllers.toInt().toString(16)}")
+        val activeMask = getActiveControllerMask()
+        val uniqueControllers = Integer.bitCount(activeMask.toInt())
+        Log.i(TAG, "Detected $uniqueControllers gamepad(s), mask=0x${activeMask.toInt().toString(16)}")
         return uniqueControllers
     }
 
     private fun isGamepadDevice(dev: InputDevice): Boolean {
         if (GamepadDevicePolicy.isNonGamepadByName(dev.name)) return false
+        if (usbDirectManager.ownsDevice(dev.vendorId, dev.productId)) return false
 
         val joyConDevice = isJoyConDevice(dev)
         if (joyConDevice && !joyConEnabled) return false
@@ -1534,7 +1592,10 @@ class GamepadHandler(
         return Pair(outX, outY)
     }
 
-    fun handleRumble(controllerNumber: Int, lowFreqMotor: Int, highFreqMotor: Int) =
+    fun handleRumble(controllerNumber: Int, lowFreqMotor: Int, highFreqMotor: Int) {
+        if (rumbleEnabled && usbDirectManager.updateRumble(controllerNumber, lowFreqMotor, highFreqMotor)) {
+            return
+        }
         enqueueRumble(controllerNumber) {
             ControllerRumblePolicy.withMotors(
                 it,
@@ -1542,6 +1603,7 @@ class GamepadHandler(
                 ControllerRumblePolicy.quantize(highFreqMotor),
             )
         }
+    }
 
     fun handleRumbleTriggers(controllerNumber: Int, leftTrigger: Int, rightTrigger: Int) =
         enqueueRumble(controllerNumber) {
@@ -1724,7 +1786,9 @@ class GamepadHandler(
     }
 
     fun handleSetControllerLED(controllerNumber: Int, r: Int, g: Int, b: Int) {
-        if (!isStreaming || Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
+        if (!isStreaming) return
+        if (usbDirectManager.updateLed(controllerNumber, r, g, b)) return
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
 
         // A physical DualSense may expose multiple Android InputDevice nodes.
         // Select the node that actually owns an RGB light rather than relying
@@ -1752,6 +1816,41 @@ class GamepadHandler(
             controllerLedRunnables[deviceId] = task
         }
         mainHandler.postDelayed(task, schedule.delayMs)
+    }
+
+    fun handleSetAdaptiveTriggers(
+        controllerNumber: Int,
+        eventFlags: Int,
+        typeLeft: Int,
+        typeRight: Int,
+        left: ByteArray,
+        right: ByteArray
+    ) {
+        if (!isStreaming) return
+        val state = AdaptiveTriggerState(
+            eventFlags = eventFlags,
+            typeLeft = typeLeft,
+            typeRight = typeRight,
+            left = left.copyOf(10),
+            right = right.copyOf(10)
+        )
+        synchronized(controllerFeedbackLock) {
+            adaptiveTriggerStates[controllerNumber] = state
+        }
+        usbDirectManager.updateAdaptiveTriggers(
+            controllerNumber,
+            eventFlags,
+            typeLeft,
+            typeRight,
+            state.left,
+            state.right,
+        )
+    }
+
+    fun getAdaptiveTriggerState(controllerNumber: Int): AdaptiveTriggerState? {
+        return synchronized(controllerFeedbackLock) {
+            adaptiveTriggerStates[controllerNumber]
+        }
     }
 
     @android.annotation.TargetApi(Build.VERSION_CODES.S)
@@ -1829,6 +1928,7 @@ class GamepadHandler(
             controllerLedRunnables.clear()
             controllerLightSessions.clear()
             controllerLedThrottle.clearAll()
+            adaptiveTriggerStates.clear()
         }
         for (task in tasks) mainHandler.removeCallbacks(task)
         stopAllRumble()
@@ -1974,11 +2074,12 @@ class GamepadHandler(
         feedbackHandler.post { vibratingControllers.remove(deviceId) }
         val slot = deviceSlots[deviceId]
         if (slot != null) {
-
-            currentControllers = (currentControllers.toInt() and (1 shl slot).inv()).toShort()
+            synchronized(slotLock) {
+                currentControllers = (currentControllers.toInt() and (1 shl slot).inv()).toShort()
+            }
             controllers.remove(deviceId)
             deviceSlots.remove(deviceId)
-            Log.i(TAG, "Controller removed from slot $slot, mask=0x${currentControllers.toInt().toString(16)}")
+            Log.i(TAG, "Controller removed from slot $slot, mask=0x${getActiveControllerMask().toInt().toString(16)}")
             if (isStreaming) {
                 mainHandler.post {
                     methodChannel.invokeMethod("onControllerDisconnected", slot)
@@ -2002,7 +2103,9 @@ class GamepadHandler(
         }
     }
 
-    private fun getActiveControllerMask(): Short = currentControllers
+    private fun getActiveControllerMask(): Short = synchronized(slotLock) {
+        (currentControllers.toInt() or usbSlotMask).toShort()
+    }
 
     private fun refreshControllerArrivals() {
         if (!isStreaming) return
@@ -2250,11 +2353,14 @@ class GamepadHandler(
             }
 
             var slot = -1
-            for (i in 0 until MAX_GAMEPADS) {
-                if ((currentControllers.toInt() and (1 shl i)) == 0) {
-                    slot = i
-                    currentControllers = (currentControllers.toInt() or (1 shl i)).toShort()
-                    break
+            synchronized(slotLock) {
+                val used = currentControllers.toInt() or usbSlotMask
+                for (i in 0 until MAX_GAMEPADS) {
+                    if ((used and (1 shl i)) == 0) {
+                        slot = i
+                        currentControllers = (currentControllers.toInt() or (1 shl i)).toShort()
+                        break
+                    }
                 }
             }
             if (slot < 0) return
@@ -2680,6 +2786,7 @@ class GamepadHandler(
 
     fun dispose() {
         instance = null
+        usbDirectManager.dispose()
         stopMotionSensors()
         stopAllRumble()
         // quitSafely still runs the cancels stopAllRumble just posted.

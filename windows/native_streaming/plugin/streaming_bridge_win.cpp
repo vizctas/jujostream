@@ -94,6 +94,7 @@ StreamingBridgeWin::Stats StreamingBridgeWin::getVideoStats() const {
     s.textureFrameNotifications = ts.frameNotifications;
     s.textureDescriptorCallbacks = ts.descriptorCallbacks;
     s.textureNullDescriptorCallbacks = ts.nullDescriptorCallbacks;
+    s.vrrScanlineWaits = ts.vrrScanlineWaits;
     return s;
 }
 
@@ -278,7 +279,15 @@ static void onRumbleTriggers(uint16_t cn, uint16_t lt, uint16_t rt) {
 
 static void onSetMotionEventState(uint16_t /*cn*/, uint8_t /*mt*/, uint16_t /*hz*/) {}
 
-static void onSetControllerLED(uint16_t /*cn*/, uint8_t /*r*/, uint8_t /*g*/, uint8_t /*b*/) {}
+static void onSetControllerLED(uint16_t cn, uint8_t r, uint8_t g, uint8_t b) {
+    EventEmitter::instance().emitControllerLED(cn, r, g, b);
+}
+
+static void onSetAdaptiveTriggers(
+    uint16_t cn, uint8_t eventFlags, uint8_t typeLeft, uint8_t typeRight,
+    const uint8_t *left, const uint8_t *right) {
+    EventEmitter::instance().emitAdaptiveTriggers(cn, eventFlags, typeLeft, typeRight, left, right);
+}
 
 static void onSetHdrMode(bool enabled) {
     EventEmitter::instance().emitSetHdrMode(enabled);
@@ -306,6 +315,7 @@ void StreamingBridgeWin::registerCBridgeCallbacks() {
     cbs.onRumbleTriggers         = onRumbleTriggers;
     cbs.onSetMotionEventState    = onSetMotionEventState;
     cbs.onSetControllerLED       = onSetControllerLED;
+    cbs.onSetAdaptiveTriggers    = onSetAdaptiveTriggers;
     cbs.onSetHdrMode             = onSetHdrMode;
     moonlightWinRegisterCallbacks(&cbs);
     fprintf(stderr, "StreamingBridgeWin: all callbacks registered\n");
