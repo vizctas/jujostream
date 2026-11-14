@@ -2,6 +2,20 @@
 /// version. Add an entry with every release bump (kAppVersion); a version with
 /// no entry simply shows nothing.
 const Map<String, ({List<String> es, List<String> en})> kChangelog = {
+  '1.1.42': (
+    es: [
+      'Couch Co-Op por nube: bandeja de invitaciones Co-Op en tu lista de PCs para aceptar, emparejar e ingresar como Jugador 2-4 sin compartir tu contraseña.',
+      'Control Co-Op en sesión: panel in-game para ver jugadores conectados y expulsar o gestionar slots activos.',
+      'Turbo Input y DualSense USB directo: canal de entrada de ultra baja latencia y soporte HID USB directo para gatillos adaptativos y háptica DualSense.',
+      'Entrega de video adaptativa: control dinámico de FEC y mejoras de sincronización bajo pérdida de paquetes.',
+    ],
+    en: [
+      'Cloud Couch Co-Op: pending Co-Op invites inbox on your PC list to accept, auto-pair, and join as Player 2-4 without sharing credentials.',
+      'In-session Co-Op controls: live overlay sheet to inspect connected players and manage or kick active slots.',
+      'Turbo Input & direct USB DualSense: ultra-low-latency input channel and direct USB HID DualSense adaptive trigger and haptic support.',
+      'Adaptive video delivery: dynamic FEC control and packet-loss synchronization improvements.',
+    ],
+  ),
   '1.1.41': (
     es: [
       'Server Watchdog (Jujo Labs): valida CPU y RAM del servidor antes de iniciar y ofrece cerrar apps pesadas de segundo plano sin afectar el stream.',
