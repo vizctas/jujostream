@@ -11,6 +11,7 @@ import '../../models/computer_details.dart';
 import '../../models/nv_app.dart';
 import '../crypto/client_identity.dart';
 import '../discovery/mdns_hostname_resolver.dart';
+import '../network/wake_on_lan_service.dart';
 import 'game_art_file_service.dart';
 
 enum AppListFailure {
@@ -57,7 +58,11 @@ class NvHttpClient {
 
   String _baseUrl(String address, int port, {bool https = true}) {
     final scheme = https ? 'https' : 'http';
-    return '$scheme://$address:$port';
+    final clean = WakeOnLanService.cleanHost(address);
+    final host = clean.contains(':') && !clean.startsWith('[')
+        ? '[$clean]'
+        : clean;
+    return '$scheme://$host:$port';
   }
 
   /// Resolves a `.local` hostname to a real IP via mDNS before HTTP calls.
@@ -65,20 +70,21 @@ class NvHttpClient {
   /// Returns the resolved IP string, or the original [address] if not `.local`
   /// or if resolution fails (let the call fail naturally with a real error).
   Future<String> _resolveAddress(String address) async {
-    if (!address.toLowerCase().endsWith('.local')) return address;
+    final clean = WakeOnLanService.cleanHost(address);
+    if (!clean.toLowerCase().endsWith('.local')) return clean;
     try {
       final resolved = await _mdnsResolver.resolve(
-        address,
+        clean,
         timeout: const Duration(seconds: 2),
       );
       if (resolved.isNotEmpty) {
-        _log.d('mDNS pre-resolved $address → ${resolved.first.address}');
+        _log.d('mDNS pre-resolved $clean → ${resolved.first.address}');
         return resolved.first.address;
       }
     } catch (e) {
-      _log.w('mDNS pre-resolution failed for $address: $e');
+      _log.w('mDNS pre-resolution failed for $clean: $e');
     }
-    return address;
+    return clean;
   }
 
   Future<ComputerDetails?> getServerInfo(
@@ -220,12 +226,21 @@ class NvHttpClient {
 
     computer.name = extractXmlValue(xmlBody, 'hostname') ?? 'Unknown';
     computer.uuid = extractXmlValue(xmlBody, 'uniqueid') ?? '';
-    computer.macAddress = extractXmlValue(xmlBody, 'mac') ?? '';
+    final rawMac = (extractXmlValue(xmlBody, 'mac') ?? '').trim();
+    computer.macAddress = WakeOnLanService.isValidMac(rawMac) ? rawMac : '';
 
+    final cleanConnect = WakeOnLanService.cleanHost(connectAddress);
+    final rawLocalIp = WakeOnLanService.cleanHost(
+      extractXmlValue(xmlBody, 'LocalIP'),
+    );
     computer.localAddress =
-        extractXmlValue(xmlBody, 'LocalIP') ?? connectAddress;
-    computer.activeAddress = connectAddress;
-    computer.remoteAddress = extractXmlValue(xmlBody, 'ExternalIP') ?? '';
+        (rawLocalIp.isNotEmpty && rawLocalIp != '127.0.0.1')
+        ? rawLocalIp
+        : cleanConnect;
+    computer.activeAddress = cleanConnect;
+    computer.remoteAddress = WakeOnLanService.cleanHost(
+      extractXmlValue(xmlBody, 'ExternalIP'),
+    );
     computer.httpsPort =
         int.tryParse(extractXmlValue(xmlBody, 'HttpsPort') ?? '') ??
         defaultHttpsPort;

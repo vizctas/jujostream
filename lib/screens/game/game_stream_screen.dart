@@ -944,6 +944,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
       _error = detail;
       _reconnectMessage = null;
     });
+    unawaited(GamepadChannel.setStreamingActive(false));
     GamepadChannel.setOverlayVisible(false);
   }
 
@@ -1343,6 +1344,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
             ? 'Server closed the connection before the stream was established.'
             : 'Connection lost during startup (code $errorCode).';
       });
+      unawaited(GamepadChannel.setStreamingActive(false));
       GamepadChannel.setOverlayVisible(false);
       return;
     }
@@ -1896,7 +1898,8 @@ class _GameStreamScreenState extends State<GameStreamScreen>
       }
 
       if (k == LogicalKeyboardKey.gameButtonA ||
-          k == LogicalKeyboardKey.enter) {
+          k == LogicalKeyboardKey.enter ||
+          k == LogicalKeyboardKey.select) {
         if (_errorSelectedButton == 0) {
           if (_hostReadinessFailed) {
             unawaited(_retryHostFocus());

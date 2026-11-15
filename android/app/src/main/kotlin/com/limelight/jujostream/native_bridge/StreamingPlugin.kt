@@ -86,8 +86,10 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
 
     private var videoRenderer: VideoDecoderRenderer? = null
     private var audioRenderer: AudioRenderer? = null
-    private var surfaceProducer: TextureRegistry.SurfaceProducer? = null
+    private var textureEntry: TextureRegistry.SurfaceTextureEntry? = null
+    private var textureSurface: android.view.Surface? = null
     private var directSubmitActive = false
+    @Volatile private var videoVisible = false
     private var networkLock: StreamingNetworkLock? = null
 
     private var statsTimer: Timer? = null
@@ -221,9 +223,11 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
             "isDirectSubmitActive" -> result.success(directSubmitActive)
             "setVideoVisible" -> {
                 val visible = call.argument<Boolean>("visible") ?: false
+                videoVisible = visible
                 DirectSubmitViewFactory.setVideoVisible(
                     visible
                 )
+                videoRenderer?.setVideoVisible(visible)
                 Log.i(TAG, "LaunchPrivacy videoVisible=$visible directSubmit=$directSubmitActive")
                 result.success(null)
             }
@@ -300,7 +304,6 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
             else         -> VideoDecoderRenderer.FRAME_PACING_BALANCED
         }
 
-        val colorSpace = if (enableHdr) 1 else 0
         val colorRange = if (fullRange) 1 else 0
 
         val audioConfiguration = StreamConstants.audioConfigFor(audioConfig)
@@ -336,6 +339,8 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
             },
         )
         val effectiveCodec = codecDecision.effectiveCodec
+        val effectiveHdr = enableHdr && effectiveCodec != "H264"
+        val colorSpace = if (effectiveHdr) 1 else 0
         val decodersByMime = codecDecision.decodersByMime
         val supportedVideoFormats = codecDecision.supportedVideoFormats
         activeCodecName = effectiveCodec
@@ -359,7 +364,7 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
         } else lowLatencyFrameBalance
 
         val enableRfi = call.argument<Boolean>("enableRfi") ?: false
-        val effectiveMime = StreamConstants.mimeTypeForFormat(StreamConstants.videoFormatFor(effectiveCodec, enableHdr)) ?: ""
+        val effectiveMime = StreamConstants.mimeTypeForFormat(StreamConstants.videoFormatFor(effectiveCodec, effectiveHdr)) ?: ""
         val effectiveDecoder = decodersByMime[effectiveMime] ?: ""
         val videoCapabilities = RfiCompatibilityPolicy.capabilityMask(
             enableRfi = enableRfi,
@@ -369,7 +374,7 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
             hardware = Build.HARDWARE ?: "",
             board = Build.BOARD ?: "",
             sdkInt = Build.VERSION.SDK_INT,
-            isHdr = enableHdr,
+            isHdr = effectiveHdr,
         )
 
         Log.i(TAG, "═══ NATIVE STREAM CONFIG DIAGNOSTIC ═══")
@@ -378,7 +383,7 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
         Log.i(TAG, "Bitrate: $bitrate Kbps")
         Log.i(TAG, "Video Codec (arg): $videoCodec → resolved: $effectiveCodec")
         Log.i(TAG, "Video Format (resolved): 0x${supportedVideoFormats.toString(16)}")
-        Log.i(TAG, "HDR Enabled: $enableHdr, colorSpace=$colorSpace, colorRange=$colorRange")
+        Log.i(TAG, "HDR Enabled: $effectiveHdr (requested=$enableHdr), colorSpace=$colorSpace, colorRange=$colorRange")
         Log.i(TAG, "Frame Pacing: $framePacingStr → mode=$effectiveFramePacingMode (weakDevice=$weakDevice)")
         Log.i(TAG, "Audio Config (arg): $audioConfig")
         Log.i(TAG, "Audio Quality: $audioQuality (streamingRemotely=AUTO, audioFx=$enableAudioFx)")
@@ -410,12 +415,14 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
         directSubmitActive = directSurface != null
 
         if (directSurface == null) {
-            surfaceProducer = textureRegistry?.createSurfaceProducer()
-            if (surfaceProducer == null) {
-                result.error("TEXTURE_ERROR", "Failed to create surface producer", null)
+            textureEntry = textureRegistry?.createSurfaceTexture()
+            if (textureEntry == null) {
+                result.error("TEXTURE_ERROR", "Failed to create surface texture", null)
                 return
             }
-            surfaceProducer?.setSize(width, height)
+            val st = textureEntry!!.surfaceTexture()
+            st.setDefaultBufferSize(width, height)
+            textureSurface = android.view.Surface(st)
         }
 
         // Depth 1 leaves no slack at all: a single late packet starves the
@@ -429,9 +436,9 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
             frameQueueDepth.coerceIn(0, 6)
         }
         videoRenderer = VideoDecoderRenderer(
-            if (directSurface != null) null else surfaceProducer!!.surface,
+            if (directSurface != null) null else textureSurface,
             effectiveFramePacingMode,
-            enableHdr,
+            effectiveHdr,
             fullRange = fullRange,
             maxQueueDepth = effectiveQueueDepth,
             useChoreographerVsync = choreographerVsync,
@@ -439,7 +446,9 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
             externalSurface = directSurface,
             lowLatencyFrameBalance = effectiveLowLatencyFrameBalance,
             decodersByMime = decodersByMime,
-            isWeakDevice = weakDevice
+            isWeakDevice = weakDevice,
+            initialVideoVisible = videoVisible,
+            surfaceTexture = if (directSurface != null) null else textureEntry?.surfaceTexture()
         )
 
         if (enableVrr) {
@@ -650,7 +659,7 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
     }
 
     private fun handleGetTextureId(result: MethodChannel.Result) {
-        val id = surfaceProducer?.id()
+        val id = textureEntry?.id()
         if (id != null) {
             result.success(id)
         } else {
@@ -1140,8 +1149,10 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
         audioRenderer?.cleanup()
         audioRenderer = null
 
-        surfaceProducer?.release()
-        surfaceProducer = null
+        textureSurface?.release()
+        textureSurface = null
+        textureEntry?.release()
+        textureEntry = null
     }
 
     private fun setKeepScreenOn(on: Boolean) {

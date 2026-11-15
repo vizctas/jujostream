@@ -1,3 +1,5 @@
+import '../services/network/wake_on_lan_service.dart';
+
 class ComputerDetails {
   String uuid;
   String name;
@@ -27,6 +29,7 @@ class ComputerDetails {
   bool isCloud = false;
   String? coopRole;
   DateTime? coopExpiresAt;
+  DateTime? lastSeenAt;
 
   ComputerDetails({
     this.uuid = '',
@@ -56,6 +59,7 @@ class ComputerDetails {
     this.isCloud = false,
     this.coopRole,
     this.coopExpiresAt,
+    this.lastSeenAt,
   });
 
   Map<String, dynamic> toJson() => {
@@ -86,6 +90,8 @@ class ComputerDetails {
     if (coopRole != null) 'coopRole': coopRole,
     if (coopExpiresAt != null)
       'coopExpiresAt': coopExpiresAt!.toUtc().toIso8601String(),
+    if (lastSeenAt != null)
+      'lastSeenAt': lastSeenAt!.toUtc().toIso8601String(),
   };
 
   /// Reads an enum by index without throwing on an out-of-range value.
@@ -98,13 +104,21 @@ class ComputerDetails {
   factory ComputerDetails.fromJson(Map<String, dynamic> json) {
     final rawRole = json['coopRole']?.toString().trim();
     final rawExpires = json['coopExpiresAt']?.toString().trim();
+    final rawLastSeen = json['lastSeenAt']?.toString().trim();
+    final rawMac = json['macAddress']?.toString().trim() ?? '';
     return ComputerDetails(
       uuid: json['uuid'] ?? '',
       name: json['name'] ?? 'Unknown',
-      localAddress: json['localAddress'] ?? '',
-      remoteAddress: json['remoteAddress'] ?? '',
-      manualAddress: json['manualAddress'] ?? '',
-      macAddress: json['macAddress'] ?? '',
+      localAddress: WakeOnLanService.cleanHost(
+        json['localAddress']?.toString(),
+      ),
+      remoteAddress: WakeOnLanService.cleanHost(
+        json['remoteAddress']?.toString(),
+      ),
+      manualAddress: WakeOnLanService.cleanHost(
+        json['manualAddress']?.toString(),
+      ),
+      macAddress: WakeOnLanService.isValidMac(rawMac) ? rawMac : '',
       httpsPort: json['httpsPort'] ?? 47984,
       configHttpsPort: json['configHttpsPort'] ?? 0,
       externalPort: json['externalPort'] ?? 47989,
@@ -135,6 +149,9 @@ class ComputerDetails {
       coopExpiresAt: (rawExpires != null && rawExpires.isNotEmpty)
           ? DateTime.tryParse(rawExpires)?.toUtc()
           : null,
+      lastSeenAt: (rawLastSeen != null && rawLastSeen.isNotEmpty)
+          ? DateTime.tryParse(rawLastSeen)?.toUtc()
+          : null,
     );
   }
 
@@ -144,6 +161,10 @@ class ComputerDetails {
   bool get isCoopExpired =>
       coopExpiresAt != null &&
       !coopExpiresAt!.isAfter(DateTime.now().toUtc());
+  bool get isCloudRecentlySeen =>
+      lastSeenAt != null &&
+      DateTime.now().toUtc().difference(lastSeenAt!.toUtc()) <=
+          const Duration(minutes: 2);
 
   /// nvhttp HTTPS port, never zero. Cloud-synced records land here with
   /// `httpsPort = 0` until the first successful /serverinfo fills it in.

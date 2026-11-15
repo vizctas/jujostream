@@ -23,7 +23,9 @@ class VideoDecoderRenderer(
     private val externalSurface: Surface? = null,
     private val lowLatencyFrameBalance: Boolean = false,
     private val decodersByMime: Map<String, String> = emptyMap(),
-    private val isWeakDevice: Boolean = false
+    private val isWeakDevice: Boolean = false,
+    initialVideoVisible: Boolean = true,
+    private val surfaceTexture: android.graphics.SurfaceTexture? = null
 ) {
     companion object {
         private const val TAG = "VideoDecoder"
@@ -87,10 +89,43 @@ class VideoDecoderRenderer(
 
     private var decoderName = "unknown"
     private var activeRenderPath = "texture"
+    @Volatile private var videoVisible = initialVideoVisible
+    @Volatile private var hasUnconsumedSurfaceFrame = false
+    @Volatile private var lastObservedSurfaceTimestamp = 0L
+    @Volatile private var lastSubmittedRenderNs = 0L
+    private val mainHandler = android.os.Handler(Looper.getMainLooper())
     private var isMediaTekDecoder = false
     private var isExynosDecoder = false
     private var isQualcommDecoder = false
     private var isAmlogicDecoder = false
+
+    fun setVideoVisible(visible: Boolean) {
+        videoVisible = visible
+        if (!visible) {
+            hasUnconsumedSurfaceFrame = false
+        }
+    }
+
+    private fun shouldRenderToSurface(): Boolean {
+        return videoVisible || !activeRenderPath.startsWith("texture")
+    }
+
+    private fun needsSingleInFlightTextureGuard(): Boolean {
+        return isWeakDevice && activeRenderPath.startsWith("texture")
+    }
+
+    private fun isSurfaceReadyForNextFrame(): Boolean {
+        if (!shouldRenderToSurface()) return false
+        if (!needsSingleInFlightTextureGuard()) return true
+        val st = surfaceTexture ?: return true
+        if (!hasUnconsumedSurfaceFrame) return true
+        val currentTs = try { st.timestamp } catch (_: Exception) { return true }
+        if (currentTs != lastObservedSurfaceTimestamp) {
+            hasUnconsumedSurfaceFrame = false
+            return true
+        }
+        return false
+    }
 
     @Volatile private var startTimeNs = 0L
     private var zeroOutputWarningEmitted = false
@@ -285,7 +320,7 @@ class VideoDecoderRenderer(
                 totalFramesPresented++
                 lastPresentationNs = renderTimeNs
             },
-            null,
+            mainHandler,
         )
     }
 
@@ -551,6 +586,25 @@ class VideoDecoderRenderer(
                     }
                 }
 
+                if (needsSingleInFlightTextureGuard() && shouldRenderToSurface()) {
+                    val waitDeadlineNs = System.nanoTime() + 4_000_000L
+                    while (!isSurfaceReadyForNextFrame() && !stopping && !decoderRestarting) {
+                        if (System.nanoTime() >= waitDeadlineNs) break
+                        val idx = decoder.dequeueOutputBuffer(info, 500)
+                        when {
+                            idx >= 0 -> {
+                                decoder.releaseOutputBuffer(newestIndex, false)
+                                totalFramesDropped++
+                                updateDecodeLatency(newestPtsUs, rendered = false)
+                                newestIndex = idx
+                                newestPtsUs = info.presentationTimeUs
+                            }
+                            idx == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED ->
+                                Log.i(TAG, "Output format changed: ${decoder.outputFormat}")
+                        }
+                    }
+                }
+
                 presentLowLatencyFrame(decoder, newestIndex, newestPtsUs)
             } catch (e: InterruptedException) {
                 break
@@ -582,7 +636,7 @@ class VideoDecoderRenderer(
                     outIndex >= 0 -> {
 
                         val presentNs = info.presentationTimeUs * 1000L
-                        decoder.releaseOutputBuffer(outIndex, presentNs)
+                        releaseFrameToSurface(decoder, outIndex, presentNs)
                         totalFramesRendered++
                         updateDecodeLatency(info.presentationTimeUs)
                     }
@@ -614,7 +668,7 @@ class VideoDecoderRenderer(
                             totalFramesDropped++
                             updateDecodeLatency(info.presentationTimeUs, rendered = false)
                         } else {
-                            decoder.releaseOutputBuffer(outIndex, info.presentationTimeUs * 1000L)
+                            releaseFrameToSurface(decoder, outIndex, info.presentationTimeUs * 1000L)
                             totalFramesRendered++
                             updateDecodeLatency(info.presentationTimeUs)
                         }
@@ -637,7 +691,7 @@ class VideoDecoderRenderer(
                 val outIndex = decoder.dequeueOutputBuffer(info, 5000)
                 when {
                     outIndex >= 0 -> {
-                        decoder.releaseOutputBuffer(outIndex, true)
+                        releaseFrameToSurface(decoder, outIndex)
                         totalFramesRendered++
                         updateDecodeLatency(info.presentationTimeUs)
                     }
@@ -713,7 +767,7 @@ class VideoDecoderRenderer(
                                 consecutiveDrops = 0
                             }
                             val presentNs = info.presentationTimeUs * 1000L
-                            decoder.releaseOutputBuffer(outIndex, presentNs)
+                            releaseFrameToSurface(decoder, outIndex, presentNs)
                             totalFramesRendered++
                             updateDecodeLatency(info.presentationTimeUs)
                         }
@@ -788,7 +842,7 @@ class VideoDecoderRenderer(
 
         if (chosen != null) {
             try {
-                decoder.releaseOutputBuffer(chosen.bufferIndex, vsyncNanos)
+                releaseFrameToSurface(decoder, chosen.bufferIndex, vsyncNanos)
                 totalFramesRendered++
                 updateDecodeLatency(chosen.ptsUs)
             } catch (e: IllegalStateException) {
@@ -804,12 +858,31 @@ class VideoDecoderRenderer(
         if (rendered) lastRenderNs = nowNs
     }
 
-    private fun presentLowLatencyFrame(decoder: MediaCodec, bufferIndex: Int, ptsUs: Long) {
-        if (lowLatencyFrameBalance) {
-            decoder.releaseOutputBuffer(bufferIndex, lowLatencyPresentationTimeNs(ptsUs))
+    private fun releaseFrameToSurface(decoder: MediaCodec, bufferIndex: Int, presentNs: Long? = null) {
+        val nowNs = System.nanoTime()
+        if (!isSurfaceReadyForNextFrame()) {
+            decoder.releaseOutputBuffer(bufferIndex, false)
+            totalFramesPresented++
+            lastPresentationNs = nowNs
+            return
+        }
+        if (needsSingleInFlightTextureGuard() && surfaceTexture != null) {
+            val currentTs = try { surfaceTexture.timestamp } catch (_: Exception) { 0L }
+            lastObservedSurfaceTimestamp = currentTs
+            hasUnconsumedSurfaceFrame = true
+            val monotonicNs = maxOf(presentNs ?: nowNs, lastSubmittedRenderNs + 1_000L)
+            lastSubmittedRenderNs = monotonicNs
+            decoder.releaseOutputBuffer(bufferIndex, monotonicNs)
+        } else if (presentNs != null) {
+            decoder.releaseOutputBuffer(bufferIndex, presentNs)
         } else {
             decoder.releaseOutputBuffer(bufferIndex, true)
         }
+    }
+
+    private fun presentLowLatencyFrame(decoder: MediaCodec, bufferIndex: Int, ptsUs: Long) {
+        val presentNs = if (lowLatencyFrameBalance) lowLatencyPresentationTimeNs(ptsUs) else null
+        releaseFrameToSurface(decoder, bufferIndex, presentNs)
         totalFramesRendered++
         updateDecodeLatency(ptsUs)
     }
@@ -875,11 +948,35 @@ class VideoDecoderRenderer(
                     data.limit(length)
                     data.get(csdArray)
                     when (bufferType) {
-                        BUFFER_TYPE_VPS -> { synchronized(csdLock) { vpsBuffer = csdArray }; return DR_OK }
-                        BUFFER_TYPE_SPS -> { synchronized(csdLock) { spsBuffer = csdArray }; return DR_OK }
-                        BUFFER_TYPE_PPS -> { synchronized(csdLock) { ppsBuffer = csdArray }; return DR_OK }
+                        BUFFER_TYPE_VPS -> {
+                            synchronized(csdLock) {
+                                if (vpsBuffer == null || !vpsBuffer.contentEquals(csdArray)) {
+                                    vpsBuffer = csdArray
+                                    submittedCsd = false
+                                }
+                            }
+                            return DR_OK
+                        }
+                        BUFFER_TYPE_SPS -> {
+                            synchronized(csdLock) {
+                                if (spsBuffer == null || !spsBuffer.contentEquals(csdArray)) {
+                                    spsBuffer = csdArray
+                                    submittedCsd = false
+                                }
+                            }
+                            return DR_OK
+                        }
+                        BUFFER_TYPE_PPS -> {
+                            synchronized(csdLock) {
+                                if (ppsBuffer == null || !ppsBuffer.contentEquals(csdArray)) {
+                                    ppsBuffer = csdArray
+                                    submittedCsd = false
+                                }
+                            }
+                            return DR_OK
+                        }
                     }
-                } else if (requiresCodecConfigSubmission()) {
+                } else if (requiresCodecConfigSubmission() && !submittedCsd) {
                     if (!submitCsdBuffers()) return rejectPictureDecodeUnit(isPictureData)
                     submittedCsd = true
                 }

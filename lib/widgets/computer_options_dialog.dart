@@ -7,6 +7,7 @@ import '../l10n/app_localizations.dart';
 import '../models/computer_details.dart';
 import '../providers/auth_provider.dart';
 import '../providers/computer_provider.dart';
+import '../services/network/wake_on_lan_service.dart';
 import '../providers/settings_provider.dart';
 import '../providers/theme_provider.dart';
 import '../screens/settings/settings_screen.dart';
@@ -303,10 +304,16 @@ class ComputerOptionsDialog {
                               icon: Icons.power_settings_new,
                               iconColor: Colors.cyanAccent,
                               title: l.wakeOnLan,
-                              subtitle: computer.macAddress.isEmpty
+                              subtitle:
+                                  !WakeOnLanService.isValidMac(
+                                    computer.macAddress,
+                                  )
                                   ? l.macNotAvailable
                                   : computer.macAddress,
-                              onTap: computer.macAddress.isEmpty
+                              onTap:
+                                  !WakeOnLanService.isValidMac(
+                                    computer.macAddress,
+                                  )
                                   ? null
                                   : () {
                                       Navigator.pop(ctx);

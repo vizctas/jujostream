@@ -317,7 +317,7 @@ static bool vrrClockStateReady = false;
 #define RL_ROAM_TYPE_MIGRATED 4
 #define RL_ROAM_DIR_C2H 1
 #define RL_ROAM_DIR_H2C 2
-#define RL_ROAM_SILENCE_MS 2000
+#define RL_ROAM_SILENCE_MS 4000
 #define RL_ROAM_RETRY_MS 500
 #define RL_ROAM_RECOVERY_BUDGET_MS 12000
 
@@ -332,6 +332,7 @@ static uint8_t activeProbeNonce[8];
 static uint8_t activeChallenge[8];
 static bool roamInFlight = false;
 static bool roamHasChallenge = false;
+static bool roamSocketRebound = false;
 static volatile bool roamRequested = false;
 static bool disconnectInterceptCleared = false;
 static uint64_t lastControlRxMs = 0;
@@ -496,9 +497,16 @@ static void attemptControlRoamLocked(bool forceSocketRebind) {
         roamRecoveryStartMs = nowMs;
     }
     if (forceSocketRebind) {
-        rebindControlSocketWildcardLocked();
+        if (rebindControlSocketWildcardLocked()) {
+            roamSocketRebound = true;
+        }
     }
-    sendRoamProbeLocked(nowMs);
+    if (!sendRoamProbeLocked(nowMs) && !forceSocketRebind) {
+        if (rebindControlSocketWildcardLocked()) {
+            roamSocketRebound = true;
+            sendRoamProbeLocked(nowMs);
+        }
+    }
 }
 
 // Initializes the control stream
@@ -571,6 +579,7 @@ int initializeControlStream(void) {
     memset(activeChallenge, 0, sizeof(activeChallenge));
     roamInFlight = false;
     roamHasChallenge = false;
+    roamSocketRebound = false;
     roamRequested = false;
     disconnectInterceptCleared = false;
     lastControlRxMs = PltGetMillis();
@@ -1167,8 +1176,11 @@ static int controlInterceptCallback(ENetHost* host, ENetEvent* event) {
                         roamSilenceAttempts = 0;
                         lastControlRxMs = PltGetMillis();
                         lastRoamSuccessUs = PltGetMicroseconds();
-                        roamMigrations++;
-                        RoamGeneration++;
+                        if (roamSocketRebound) {
+                            roamSocketRebound = false;
+                            roamMigrations++;
+                            RoamGeneration++;
+                        }
                     }
                 }
             }
@@ -1188,6 +1200,14 @@ static int controlInterceptCallback(ENetHost* host, ENetEvent* event) {
                 event->type = ENET_EVENT_TYPE_NONE;
             }
             return 1;
+        }
+    }
+
+    if (host->receivedDataLength > 0) {
+        lastControlRxMs = PltGetMillis();
+        if (!roamInFlight) {
+            roamRecoveryStartMs = 0;
+            roamSilenceAttempts = 0;
         }
     }
 
@@ -1496,7 +1516,7 @@ static void controlReceiveThreadFunc(void* context) {
                         waitTimeMs = MIN(waitTimeMs, 100);
                     }
                     else if (isSilent) {
-                        bool shouldRebind = (roamSilenceAttempts == 0) || ((roamSilenceAttempts % 2) == 0);
+                        bool shouldRebind = (roamSilenceAttempts > 0);
                         roamSilenceAttempts++;
                         attemptControlRoamLocked(shouldRebind);
                         waitTimeMs = MIN(waitTimeMs, 100);

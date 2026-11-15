@@ -560,5 +560,85 @@ void main() {
         expect(mockHttpClient.upsertCalled, false);
       },
     );
+
+    test(
+      'pullConfigFromSupabase strips port from external_address, syncs mac_address, and pairs over WAN when LAN fails',
+      () async {
+        await Supabase.instance.client.auth.signInWithPassword(
+          email: 'user@test.com',
+          password: 'password123',
+        );
+
+        final requestedUrls = <String>[];
+        CloudSyncService.instance.pairingClientFactoryForTest = (_) =>
+            _WanFallbackPairingClient(requestedUrls);
+
+        final recentIso = DateTime.now().toUtc().toIso8601String();
+        mockHttpClient.dbRows = [
+          {
+            'id': 'cloud-wan-1',
+            'user_id': 'mock-user-uuid',
+            'server_uuid': 'july-uuid',
+            'server_url': 'https://192.168.3.30:47990',
+            'server_name': 'JulyTower',
+            'cert_fingerprint': 'CERT-FP-JULY',
+            'local_addresses': ['192.168.3.30'],
+            'external_address': '181.42.15.200:47990',
+            'mac_address': 'D8:BB:C1:12:34:56',
+            'last_seen_at': recentIso,
+            'is_default': true,
+          },
+        ];
+
+        final ok = await CloudSyncService.instance.pullConfigFromSupabase();
+        expect(ok, isTrue);
+
+        final prefs = await SharedPreferences.getInstance();
+        final saved = prefs.getStringList('saved_computers') ?? [];
+        expect(saved, hasLength(1));
+
+        final synced = ComputerDetails.fromJson(jsonDecode(saved.single));
+        expect(synced.remoteAddress, '181.42.15.200');
+        expect(synced.macAddress, 'D8:BB:C1:12:34:56');
+        expect(synced.configHttpsPort, 47990);
+        expect(synced.isCloudRecentlySeen, isTrue);
+
+        // Wait for async cloud pairing to fall back from LAN (192.168.3.30) to WAN (181.42.15.200)
+        ComputerDetails? paired;
+        for (var i = 0; i < 20; i++) {
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+          final list = prefs.getStringList('saved_computers') ?? const [];
+          if (list.isEmpty) continue;
+          paired = ComputerDetails.fromJson(jsonDecode(list.single));
+          if (paired.pairState == PairState.paired) break;
+        }
+        expect(paired?.pairState, PairState.paired);
+        expect(paired?.activeAddress, '181.42.15.200');
+        expect(
+          requestedUrls,
+          contains('https://181.42.15.200:47990/api/pair/cloud'),
+        );
+      },
+    );
   });
+}
+
+class _WanFallbackPairingClient extends http.BaseClient {
+  final List<String> requestedUrls;
+  _WanFallbackPairingClient(this.requestedUrls);
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    final url = request.url.toString();
+    requestedUrls.add(url);
+    if (url.contains('192.168.3.30')) {
+      throw Exception('LAN unreachable on mobile data');
+    }
+    return http.StreamedResponse(
+      Stream.value(utf8.encode('{"status":true,"clientUuid":"wan-paired"}')),
+      200,
+      headers: {'content-type': 'application/json'},
+      request: request,
+    );
+  }
 }

@@ -32,7 +32,7 @@ List<String> candidateAddresses(ComputerDetails computer) {
         computer.manualAddress,
         computer.remoteAddress,
       ]
-      .map((a) => a.trim())
+      .map((a) => WakeOnLanService.cleanHost(a))
       .where((a) => a.isNotEmpty)
       .where(seen.add)
       .toList(growable: false);
@@ -174,6 +174,9 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
   // 47989 fallback). At 2s a cold TLS handshake plus mDNS resolution blows
   // through it and two consecutive misses mark a healthy server offline.
   static const Duration _pollTimeout = Duration(seconds: 5);
+  static const Duration _fastCandidateTimeout = Duration(seconds: 2);
+  static const Duration _cloudRefreshInterval = Duration(seconds: 30);
+  DateTime? _lastCloudPullAt;
   bool _appInForeground = true;
 
   /// True while a game is streaming.
@@ -310,6 +313,10 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
 
     if (_appInForeground) {
       unawaited(startDiscovery());
+      if (_cloudSignedIn) {
+        _lastCloudPullAt = DateTime.now();
+        unawaited(CloudSyncService.instance.pullConfigFromSupabase());
+      }
       // Always restart the timer on resume — even if it was already running.
       // This prevents the "poll never checks back" bug where the timer was
       // cancelled but the state flag didn't change.
@@ -345,7 +352,16 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<void> _pollAll() async {
-    if (_computers.isEmpty || !_appInForeground || _streamingActive) return;
+    if (!_appInForeground || _streamingActive) return;
+    if (_cloudSignedIn) {
+      final now = DateTime.now();
+      if (_lastCloudPullAt == null ||
+          now.difference(_lastCloudPullAt!) >= _cloudRefreshInterval) {
+        _lastCloudPullAt = now;
+        unawaited(CloudSyncService.instance.pullConfigFromSupabase());
+      }
+    }
+    if (_computers.isEmpty) return;
     final snapshot = _computers
         .where((c) => !_pairingKeys.contains(_failKey(c)))
         .toList(growable: false);
@@ -387,7 +403,18 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
         try {
           final map = jsonDecode(entry) as Map<String, dynamic>;
           final computer = ComputerDetails.fromJson(map);
-          computer.state = knownStates[computer.uuid] ?? ComputerState.unknown;
+          final knownState = knownStates[computer.uuid];
+          if (knownState != null && knownState != ComputerState.unknown) {
+            computer.state = knownState;
+          } else if (computer.isCloud && computer.isCloudRecentlySeen) {
+            computer.state = ComputerState.online;
+            if (computer.activeAddress.isEmpty &&
+                computer.remoteAddress.isNotEmpty) {
+              computer.activeAddress = computer.remoteAddress;
+            }
+          } else {
+            computer.state = knownState ?? ComputerState.unknown;
+          }
 
           if (computer.pairState == PairState.paired &&
               computer.serverCert.isNotEmpty) {
@@ -454,6 +481,12 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
     _error = null;
     notifyListeners();
 
+    if (_cloudSignedIn) {
+      _lastCloudPullAt = DateTime.now();
+      unawaited(CloudSyncService.instance.pullConfigFromSupabase());
+    }
+    unawaited(_pollAll());
+
     try {
       await _discoveryService.startDiscovery();
       _isDiscovering = _discoveryService.isActive;
@@ -477,8 +510,12 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<void> sendWakeOnLan(ComputerDetails computer) async {
-    if (computer.macAddress.isEmpty) return;
-    await WakeOnLanService.send(computer.macAddress);
+    if (!WakeOnLanService.isValidMac(computer.macAddress)) return;
+    await WakeOnLanService.send(
+      computer.macAddress,
+      localAddress: computer.localAddress,
+      remoteAddress: computer.remoteAddress,
+    );
   }
 
   Future<bool> sendWakeOnLanWithFeedback(
@@ -487,12 +524,16 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
     Duration timeout = const Duration(seconds: 30),
     Duration pollInterval = const Duration(seconds: 2),
   }) async {
-    if (computer.macAddress.isEmpty) {
+    if (!WakeOnLanService.isValidMac(computer.macAddress)) {
       onStatus('No MAC address configured');
       return false;
     }
     onStatus('Sending magic packet…');
-    await WakeOnLanService.send(computer.macAddress);
+    await WakeOnLanService.send(
+      computer.macAddress,
+      localAddress: computer.localAddress,
+      remoteAddress: computer.remoteAddress,
+    );
 
     final dl = DateTime.now().add(timeout);
     int elapsed = 0;
@@ -501,20 +542,13 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
       elapsed += pollInterval.inSeconds;
       onStatus('Waiting for response… (${elapsed}s)');
       try {
-        final address = computer.activeAddress.isNotEmpty
-            ? computer.activeAddress
-            : computer.localAddress;
-        final info = await _httpClient.getServerInfoHttps(
-          address,
-          httpsPort: computer.httpsPort > 0
-              ? computer.httpsPort
-              : NvHttpClient.defaultHttpsPort,
-          httpPort: computer.externalPort > 0
-              ? computer.externalPort
-              : NvHttpClient.defaultHttpPort,
-          expectedServerCert: computer.serverCert,
+        await WakeOnLanService.send(
+          computer.macAddress,
+          localAddress: computer.localAddress,
+          remoteAddress: computer.remoteAddress,
         );
-        if (info != null) {
+        final state = await pollComputer(computer);
+        if (state == ComputerState.online) {
           onStatus('PC is online!');
           return true;
         }
@@ -587,13 +621,22 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
 
     // Walk every known address instead of only activeAddress. The first one
     // usually answers, so the common case is still a single request.
+    // When multiple candidates exist (e.g. LAN + WAN remoteAddress), use a
+    // fast timeout on earlier candidates so switching to mobile data reaches
+    // remoteAddress in ~2s instead of stalling 10-20s on unreachable LAN IPs.
+    final candidates = candidateAddresses(computer);
     ({ComputerDetails? info, bool certRejected})? result;
-    for (final address in candidateAddresses(computer)) {
+    for (var i = 0; i < candidates.length; i++) {
+      final address = candidates[i];
+      final isLastCandidate = i == candidates.length - 1;
+      final candidateTimeout = isLastCandidate
+          ? _pollTimeout
+          : _fastCandidateTimeout;
       final attempt = await _httpClient.fetchServerInfo(
         address,
         httpsPort: httpsPort,
         httpPort: httpPort,
-        timeout: _pollTimeout,
+        timeout: candidateTimeout,
         expectedServerCert: computer.serverCert,
       );
       result ??= attempt;
@@ -622,6 +665,20 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
       _pollFailCount[_failKey(computer)] = 0;
       _addOrUpdateComputer(serverInfo);
       return serverInfo.state;
+    }
+
+    if (computer.isCloud && _cloudSignedIn && computer.isCloudRecentlySeen) {
+      _pollFailCount[_failKey(computer)] = 0;
+      final cleanRemote = WakeOnLanService.cleanHost(computer.remoteAddress);
+      if (cleanRemote.isNotEmpty) {
+        computer.activeAddress = cleanRemote;
+      }
+      if (computer.state != ComputerState.online) {
+        computer.state = ComputerState.online;
+        _persistComputers();
+        notifyListeners();
+      }
+      return ComputerState.online;
     }
 
     final key = _failKey(computer);
@@ -949,10 +1006,11 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
   /// forever. Comparing this signature skips both when nothing moved.
   static String _stateSignature(ComputerDetails c) =>
       '${c.uuid}|${c.name}|${c.state}|${c.pairState}|${c.runningGameId}'
-      '|${c.activeAddress}|${c.localAddress}|${c.remoteAddress}'
+      '|${c.activeAddress}|${c.localAddress}|${c.remoteAddress}|${c.macAddress}'
       '|${c.httpsPort}|${c.configHttpsPort}|${c.externalPort}'
       '|${c.serverCert.length}|${c.pairStatusFromHttps}|${c.isCloud}'
-      '|${c.coopRole}|${c.coopExpiresAt?.millisecondsSinceEpoch}';
+      '|${c.coopRole}|${c.coopExpiresAt?.millisecondsSinceEpoch}'
+      '|${c.lastSeenAt?.millisecondsSinceEpoch}';
 
   void _addOrUpdateComputer(ComputerDetails computer) {
     // Match by UUID first (most reliable), then by localAddress or activeAddress.
@@ -968,6 +1026,10 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
               c.localAddress == computer.activeAddress) ||
           (c.activeAddress.isNotEmpty &&
               c.activeAddress == computer.localAddress) ||
+          (c.remoteAddress.isNotEmpty &&
+              (c.remoteAddress == computer.activeAddress ||
+                  c.remoteAddress == computer.localAddress ||
+                  c.remoteAddress == computer.remoteAddress)) ||
           // Match by cert fingerprint — handles cloud-synced servers that arrive
           // with a temporary Supabase row UUID before the real Sunshine uniqueid
           // is discovered via polling. Prevents duplicate "Not Paired" ghost cards.
@@ -984,6 +1046,20 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
       }
       if (computer.configHttpsPort == 0 && existing.configHttpsPort > 0) {
         computer.configHttpsPort = existing.configHttpsPort;
+      }
+      if (!WakeOnLanService.isValidMac(computer.macAddress) &&
+          WakeOnLanService.isValidMac(existing.macAddress)) {
+        computer.macAddress = existing.macAddress;
+      }
+      if (computer.lastSeenAt == null && existing.lastSeenAt != null) {
+        computer.lastSeenAt = existing.lastSeenAt;
+      }
+      // Preserve LAN localAddress when a WAN poll sets localAddress = remoteAddress
+      if (existing.localAddress.isNotEmpty &&
+          existing.remoteAddress.isNotEmpty &&
+          existing.localAddress != existing.remoteAddress &&
+          computer.localAddress == existing.remoteAddress) {
+        computer.localAddress = existing.localAddress;
       }
       // An HTTP-fallback poll carries no <ExternalIP> and no <HttpsPort>, so
       // without these a single degraded response wiped the remote address and
@@ -1129,10 +1205,8 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
       if (session == null) return false;
       final token = session.accessToken;
 
-      final address = computer.activeAddress.isNotEmpty
-          ? computer.activeAddress
-          : computer.localAddress;
-      final serverUrl = 'https://$address:${_configPort(computer)}';
+      final candidates = candidateAddresses(computer);
+      if (candidates.isEmpty) return false;
 
       final clientPem = ClientIdentity.certPem;
       if (clientPem.isEmpty || computer.serverCert.isEmpty) return false;
@@ -1144,8 +1218,6 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
         'deviceName': deviceName.isNotEmpty ? deviceName : 'Jujo.Stream Client',
       });
 
-      final uri = Uri.parse('$serverUrl/api/pair/cloud');
-
       // Use a clean HttpClient without presenting an untrusted client certificate during the TLS handshake.
       // The server companion will register the certificate passed in the JSON request body.
       final ioClient = ClientIdentity.createHttpClient(
@@ -1155,32 +1227,43 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
       final client = IOClient(ioClient);
 
       try {
-        final response = await client
-            .post(
-              uri,
-              headers: {
-                'Content-Type': 'application/json',
-                'Accept': 'application/json',
-              },
-              body: body,
-            )
-            .timeout(const Duration(seconds: 5));
+        final port = _configPort(computer);
+        for (final address in candidates) {
+          final formattedHost = address.contains(':') && !address.startsWith('[')
+              ? '[$address]'
+              : address;
+          final uri = Uri.parse('https://$formattedHost:$port/api/pair/cloud');
+          try {
+            final response = await client
+                .post(
+                  uri,
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                  },
+                  body: body,
+                )
+                .timeout(const Duration(seconds: 4));
 
-        if (response.statusCode == 200) {
-          final resBody = jsonDecode(response.body) as Map<String, dynamic>;
-          if (resBody['status'] == true) {
-            computer.pairState = PairState.paired;
-            computer.pairStatusFromHttps = true;
+            if (response.statusCode == 200) {
+              final resBody =
+                  jsonDecode(response.body) as Map<String, dynamic>;
+              if (resBody['status'] == true) {
+                computer.pairState = PairState.paired;
+                computer.pairStatusFromHttps = true;
+                computer.activeAddress = address;
 
-            final graceKey = computer.uuid.isNotEmpty
-                ? computer.uuid
-                : computer.localAddress;
-            _pairingCompletedAt[graceKey] = DateTime.now();
+                final graceKey = computer.uuid.isNotEmpty
+                    ? computer.uuid
+                    : computer.localAddress;
+                _pairingCompletedAt[graceKey] = DateTime.now();
 
-            _persistComputers();
-            notifyListeners();
-            return true;
-          }
+                _persistComputers();
+                notifyListeners();
+                return true;
+              }
+            }
+          } catch (_) {}
         }
       } finally {
         client.close();
