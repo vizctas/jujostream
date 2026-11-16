@@ -189,6 +189,13 @@ class NvHttpClient {
                 httpPort,
               );
               info.pairStatusFromHttps = true;
+              // Only the authenticated (HTTPS) reply carries this cert's real permissions.
+              info.hostPermission = int.tryParse(
+                RegExp(r'<Permission>(\d+)</Permission>')
+                        .firstMatch(response.body)
+                        ?.group(1) ??
+                    '',
+              );
               return (info: info, certRejected: false);
             }
           }
@@ -580,6 +587,7 @@ class NvHttpClient {
             riKey: serverRiKey,
             riKeyId: serverRiKeyId,
             sessionUrl: sessionUrl,
+            host: address,
           );
         } finally {
           client.close();
@@ -732,6 +740,7 @@ class NvHttpClient {
             riKey: serverRiKey,
             riKeyId: serverRiKeyId,
             sessionUrl: sessionUrl,
+            host: address,
           );
         } finally {
           client.close();
@@ -756,10 +765,12 @@ class NvHttpClient {
     required String riKey,
     required int riKeyId,
     String? sessionUrl,
+    String host = '',
   }) => LaunchResult.ok(
     riKey: riKey,
     riKeyId: riKeyId,
     sessionUrl: sessionUrl,
+    host: host,
     readinessVersion:
         int.tryParse(extractXmlValue(body, 'GameLaunchReadinessVersion') ?? '0') ??
         0,
@@ -1077,6 +1088,8 @@ class LaunchResult {
   final String riKey;
   final int riKeyId;
   final String? sessionUrl;
+  /// Address that answered /launch or /resume; the stream must connect to the same one.
+  final String host;
   final String error;
   final bool sessionClosedOnHost;
   final int readinessVersion;
@@ -1094,6 +1107,7 @@ class LaunchResult {
     this.riKey = '',
     this.riKeyId = 0,
     this.sessionUrl,
+    this.host = '',
     this.error = '',
     this.sessionClosedOnHost = false,
     this.readinessVersion = 0,
@@ -1111,6 +1125,7 @@ class LaunchResult {
     required String riKey,
     required int riKeyId,
     String? sessionUrl,
+    String host = '',
     int readinessVersion = 0,
     bool readinessRequired = false,
     String readinessToken = '',
@@ -1125,6 +1140,7 @@ class LaunchResult {
     riKey: riKey,
     riKeyId: riKeyId,
     sessionUrl: sessionUrl,
+    host: host,
     readinessVersion: readinessVersion,
     readinessRequired: readinessRequired,
     readinessToken: readinessToken,

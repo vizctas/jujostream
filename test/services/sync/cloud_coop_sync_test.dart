@@ -430,6 +430,59 @@ void main() {
       expect(kept.coopExpiresAt, isNull);
       expect(kept.isCoopTemporary, isFalse);
     });
+
+    test('derives nvhttp ports from a non-default server_url port base', () async {
+      final prefs = await SharedPreferences.getInstance();
+      // Existing entry still holds the default ports learned on the LAN.
+      await prefs.setStringList('saved_computers', [
+        jsonEncode(
+          ComputerDetails(
+            uuid: 'existing-uuid',
+            name: 'Moved PC',
+            localAddress: '192.168.1.70',
+            serverCert: 'MOVED-FP',
+            httpsPort: 47984,
+            externalPort: 47989,
+          ).toJson(),
+        ),
+      ]);
+      mockHttpClient.sharedRows = [
+        {
+          'server_url': 'https://192.168.1.70:49990',
+          'server_name': 'Moved PC',
+          'server_uuid': 'existing-uuid',
+          'cert_fingerprint': 'MOVED-FP',
+          'local_addresses': ['192.168.1.70'],
+          'external_address': '203.0.113.9:49990',
+          'role': 'admin',
+          'owner_email': 'host@test.com',
+        },
+        {
+          'server_url': 'https://192.168.1.71:50990',
+          'server_name': 'New PC',
+          'server_uuid': 'new-uuid',
+          'cert_fingerprint': 'NEW-FP',
+          'local_addresses': ['192.168.1.71'],
+          'role': 'admin',
+          'owner_email': 'host@test.com',
+        },
+      ];
+      CloudSyncService.instance.pairingClientFactoryForTest = (_) =>
+          _CountingPairingClient();
+
+      expect(await CloudSyncService.instance.pullConfigFromSupabase(), isTrue);
+
+      final byUuid = {
+        for (final raw in prefs.getStringList('saved_computers')!)
+          (ComputerDetails.fromJson(jsonDecode(raw))).uuid:
+              ComputerDetails.fromJson(jsonDecode(raw)),
+      };
+      expect(byUuid['existing-uuid']!.httpsPort, 49984);
+      expect(byUuid['existing-uuid']!.externalPort, 49989);
+      expect(byUuid['existing-uuid']!.configHttpsPort, 49990);
+      expect(byUuid['new-uuid']!.httpsPort, 50984);
+      expect(byUuid['new-uuid']!.externalPort, 50989);
+    });
   });
 
   group('PendingInvitesSection widget', () {

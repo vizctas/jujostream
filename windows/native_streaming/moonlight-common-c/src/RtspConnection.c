@@ -2,6 +2,7 @@
 #include "Rtsp.h"
 
 #define RTSP_CONNECT_TIMEOUT_SEC 10
+#define RTSP_CONNECT_ATTEMPT_TIMEOUT_SEC 2
 #define RTSP_RECEIVE_TIMEOUT_SEC 15
 #define RTSP_RETRY_DELAY_MS 500
 #define MAX_RTSP_RESPONSE_SIZE (1024 * 1024)
@@ -399,28 +400,28 @@ static bool transactRtspMessageTcp(PRTSP_MESSAGE request, PRTSP_MESSAGE response
     responseBuffer = NULL;
     connectRetries = 0;
 
-    // Retry up to 10 seconds if we receive ECONNREFUSED errors from the host PC.
-    // This can happen with GFE 3.22 when initially launching a session because it
-    // returns HTTP 200 OK for the /launch request before the RTSP handshake port
-    // is listening.
+    // Retry for up to RTSP_CONNECT_TIMEOUT_SEC in total. ECONNREFUSED happens with GFE 3.22 when
+    // /launch answers before the RTSP port listens. ETIMEDOUT happens over WAN paths (NAT/ALG/carrier)
+    // that silently drop a share of SYNs to the RTSP port; every handshake step opens a new TCP
+    // connection, so one dropped SYN used to cost the whole stream. Short attempts recover it.
+    uint64_t connectDeadlineMs = PltGetMillis() + RTSP_CONNECT_TIMEOUT_SEC * 1000;
     do {
-        sock = connectTcpSocket(&RemoteAddr, AddrLen, RtspPortNumber, RTSP_CONNECT_TIMEOUT_SEC);
-        if (sock == INVALID_SOCKET) {
-            *error = LastSocketError();
-            if (*error == ECONNREFUSED) {
-                // Try again after 500 ms on ECONNREFUSED
-                PltSleepMs(RTSP_RETRY_DELAY_MS);
-            }
-            else {
-                // Fail if we get some other error
-                break;
-            }
-        }
-        else {
-            // We successfully connected
+        sock = connectTcpSocket(&RemoteAddr, AddrLen, RtspPortNumber, RTSP_CONNECT_ATTEMPT_TIMEOUT_SEC);
+        if (sock != INVALID_SOCKET) {
             break;
         }
-    } while (connectRetries++ < (RTSP_CONNECT_TIMEOUT_SEC * 1000) / RTSP_RETRY_DELAY_MS && !ConnectionInterrupted);
+        *error = LastSocketError();
+        if (*error == ECONNREFUSED) {
+            PltSleepMs(RTSP_RETRY_DELAY_MS);
+        }
+        else if (*error != ETIMEDOUT) {
+            break;
+        }
+        connectRetries++;
+    } while (PltGetMillis() < connectDeadlineMs && !ConnectionInterrupted);
+    if (connectRetries > 0 && sock != INVALID_SOCKET) {
+        Limelog("RTSP connect succeeded after %d retries\n", connectRetries);
+    }
     if (sock == INVALID_SOCKET) {
         return ret;
     }

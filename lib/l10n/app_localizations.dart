@@ -150,6 +150,10 @@ class AppLocalizations {
     },
     'activeSession': {'en': 'Active Session', 'es': 'Sesión activa'},
     'quitSession': {'en': 'Quit Session', 'es': 'Cerrar sesión'},
+    'onlyOwnerCanLaunch': {
+      'en': 'Only the owner can start games',
+      'es': 'Solo el dueño puede iniciar juegos',
+    },
     'quitApp': {'en': 'Quit App?', 'es': '¿Cerrar app?'},
     'quitAppConfirm': {
       'en': 'This will terminate the running session on the server.',
@@ -1206,6 +1210,7 @@ class AppLocalizations {
   String get configureVibepollo => _s('configureVibepollo');
   String get activeSession => _s('activeSession');
   String get quitSession => _s('quitSession');
+  String get onlyOwnerCanLaunch => _s('onlyOwnerCanLaunch');
   String get quitApp => _s('quitApp');
   String get quitAppConfirm => _s('quitAppConfirm');
   String get quit => _s('quit');

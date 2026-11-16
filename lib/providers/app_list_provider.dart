@@ -1091,9 +1091,15 @@ class AppListProvider extends ChangeNotifier {
     required StreamConfiguration streamConfig,
     bool forceNewSession = false,
     String? coopRole,
+    ComputerDetails? computer,
   }) async {
     if (_currentComputer == null) {
       return LaunchResult.fail('No computer selected');
+    }
+    // The poller replaces ComputerDetails on every cycle; the copy cached at loadApps can carry an
+    // address from a network the device already left (Wi-Fi vs 4G). Prefer the caller's fresh one.
+    if (computer != null && computer.uuid == _currentComputer!.uuid) {
+      _currentComputer = computer;
     }
 
     final address = _currentComputer!.activeAddress.isNotEmpty

@@ -1341,7 +1341,7 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
             _openSearch();
           }, gamepadHint: 'R3'),
           const SizedBox(width: 4),
-          if (apps.any((a) => a.isRunning))
+          if (apps.any((a) => a.isRunning) && widget.computer.canLaunchApps)
             AccessibleAction(
               label: AppLocalizations.of(context).quitSession,
               tooltip: AppLocalizations.of(context).quitSession,
@@ -2644,25 +2644,30 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
                             _launchApp(app, coopRole: 'coop_pad');
                           },
                   ),
-                  _sheetOption(
-                    Icons.stop_rounded,
-                    AppLocalizations.of(ctx).quitSession,
-                    Colors.redAccent,
-                    () {
-                      Navigator.pop(ctx);
-                      _confirmQuitApp(context.read<AppListProvider>());
-                    },
-                    trailing: _hintChip('R1', ''),
-                  ),
+                  if (widget.computer.canLaunchApps)
+                    _sheetOption(
+                      Icons.stop_rounded,
+                      AppLocalizations.of(ctx).quitSession,
+                      Colors.redAccent,
+                      () {
+                        Navigator.pop(ctx);
+                        _confirmQuitApp(context.read<AppListProvider>());
+                      },
+                      trailing: _hintChip('R1', ''),
+                    ),
                 ] else ...[
                   _sheetOption(
                     Icons.play_circle_filled,
-                    AppLocalizations.of(ctx).launchGame,
+                    widget.computer.canLaunchApps
+                        ? AppLocalizations.of(ctx).launchGame
+                        : AppLocalizations.of(ctx).onlyOwnerCanLaunch,
                     _tp.accent,
-                    () {
-                      Navigator.pop(ctx);
-                      _launchApp(app);
-                    },
+                    widget.computer.canLaunchApps
+                        ? () {
+                            Navigator.pop(ctx);
+                            _launchApp(app);
+                          }
+                        : null,
                     autofocus: true,
                     trailing: _hintChip('X', ''),
                   ),
@@ -2850,6 +2855,13 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
     bool forceNewSession = false,
     String? coopRole,
   }) async {
+    // Guests may only join what is already running; the host would answer 403.
+    if (!widget.computer.canLaunchApps && !app.isRunning) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(AppLocalizations.of(context).onlyOwnerCanLaunch)),
+      );
+      return;
+    }
     // before navigation to stream screen. This prevents poster downloads
     unawaited(AchievementService.instance.unlock('first_launch'));
 
@@ -3055,6 +3067,11 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
         streamConfig: effectiveConfig,
         forceNewSession: forceNewSession,
         coopRole: effectiveCoopRole,
+        computer: context
+            .read<ComputerProvider>()
+            .computers
+            .where((c) => c.uuid == widget.computer.uuid)
+            .firstOrNull,
       );
     } catch (error) {
       if (mounted && startingOverlayVisible) {
@@ -3139,6 +3156,7 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
           riKey: launch.riKey,
           riKeyId: launch.riKeyId,
           rtspSessionUrl: launch.sessionUrl,
+          streamHost: launch.host,
           overrideConfig: effectiveConfig,
           readinessVersion: launch.readinessVersion,
           readinessRequired: launch.readinessRequired,
@@ -3300,6 +3318,10 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
 
   void _confirmQuitApp(AppListProvider provider) {
     final l = AppLocalizations.of(context);
+    if (!widget.computer.canLaunchApps) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(l.onlyOwnerCanLaunch)));
+      return;
+    }
     showDialog<void>(
       context: context,
       barrierDismissible: false,

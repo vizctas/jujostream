@@ -18,7 +18,6 @@ class WakeOnLanService {
 
   /// Strips scheme (`http://`, `https://`), path, and `:port` suffix from an
   /// IPv4 address, hostname, or bracketed IPv6 literal.
-  @visibleForTesting
   static String cleanHost(String? rawAddress) {
     if (rawAddress == null) return '';
     var s = rawAddress.trim();
@@ -51,7 +50,6 @@ class WakeOnLanService {
 
   /// Computes the `/24` directed broadcast (`a.b.c.255`) for a private/LAN IPv4
   /// address, or null if [rawAddress] is not a unicast IPv4 literal.
-  @visibleForTesting
   static String? subnetBroadcastForIp(String? rawAddress) {
     final host = cleanHost(rawAddress);
     if (host.isEmpty) return null;

@@ -1,6 +1,10 @@
 import '../services/network/wake_on_lan_service.dart';
 
 class ComputerDetails {
+  // crypto::PERM bits sent by the host (crypto.h).
+  static const _permView = 1 << 25;
+  static const _permLaunch = 1 << 26;
+
   String uuid;
   String name;
   String localAddress;
@@ -30,6 +34,8 @@ class ComputerDetails {
   String? coopRole;
   DateTime? coopExpiresAt;
   DateTime? lastSeenAt;
+  /// Host `PERM` bits from an HTTPS serverinfo; null when unknown (unpaired or HTTP).
+  int? hostPermission;
 
   ComputerDetails({
     this.uuid = '',
@@ -60,6 +66,7 @@ class ComputerDetails {
     this.coopRole,
     this.coopExpiresAt,
     this.lastSeenAt,
+    this.hostPermission,
   });
 
   Map<String, dynamic> toJson() => {
@@ -92,6 +99,7 @@ class ComputerDetails {
       'coopExpiresAt': coopExpiresAt!.toUtc().toIso8601String(),
     if (lastSeenAt != null)
       'lastSeenAt': lastSeenAt!.toUtc().toIso8601String(),
+    if (hostPermission != null) 'hostPermission': hostPermission,
   };
 
   /// Reads an enum by index without throwing on an out-of-range value.
@@ -152,12 +160,17 @@ class ComputerDetails {
       lastSeenAt: (rawLastSeen != null && rawLastSeen.isNotEmpty)
           ? DateTime.tryParse(rawLastSeen)?.toUtc()
           : null,
+      hostPermission: json['hostPermission'] is int ? json['hostPermission'] as int : null,
     );
   }
 
   bool get isReachable => state == ComputerState.online;
   bool get isPaired => pairState == PairState.paired;
   bool get isCoopTemporary => coopRole != null;
+  bool get canLaunchApps =>
+      hostPermission == null || (hostPermission! & _permLaunch) != 0;
+  bool get canViewStream =>
+      hostPermission == null || (hostPermission! & _permView) != 0;
   bool get isCoopExpired =>
       coopExpiresAt != null &&
       !coopExpiresAt!.isAfter(DateTime.now().toUtc());

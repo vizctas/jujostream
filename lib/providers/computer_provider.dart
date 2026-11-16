@@ -26,12 +26,26 @@ import '../services/crypto/client_identity.dart';
 /// and its raw IP.
 List<String> candidateAddresses(ComputerDetails computer) {
   final seen = <String>{};
-  return <String>[
-        computer.activeAddress,
-        computer.localAddress,
-        computer.manualAddress,
-        computer.remoteAddress,
-      ]
+  final cleanActive = WakeOnLanService.cleanHost(computer.activeAddress);
+  final cleanRemote = WakeOnLanService.cleanHost(computer.remoteAddress);
+  final activeIsRemote =
+      cleanActive.isNotEmpty &&
+      cleanRemote.isNotEmpty &&
+      cleanActive.toLowerCase() == cleanRemote.toLowerCase();
+  final ordered = activeIsRemote
+      ? <String>[
+          computer.localAddress,
+          computer.manualAddress,
+          computer.activeAddress,
+          computer.remoteAddress,
+        ]
+      : <String>[
+          computer.activeAddress,
+          computer.localAddress,
+          computer.manualAddress,
+          computer.remoteAddress,
+        ];
+  return ordered
       .map((a) => WakeOnLanService.cleanHost(a))
       .where((a) => a.isNotEmpty)
       .where(seen.add)
@@ -92,11 +106,17 @@ bool hasCloudSession() => isCloudSessionActive(
 /// established nVHTTP endpoint implemented by [PairingService].
 typedef UnpairRequest = Future<bool> Function(ComputerDetails computer);
 
+/// Test seam for asking an awake server to send a Wake-on-LAN packet on its
+/// LAN (`POST /api/wol`). Returns true once the relay accepted it.
+typedef WolRelayRequest =
+    Future<bool> Function(ComputerDetails relay, Map<String, Object> body);
+
 class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
   final DiscoveryService _discoveryService;
-  final NvHttpClient _httpClient = NvHttpClient();
+  final NvHttpClient _httpClient;
   final PairingService _pairingService = PairingService();
   final UnpairRequest? _unpairRequest;
+  final WolRelayRequest? _wolRelayRequest;
 
   final List<ComputerDetails> _computers = [];
   final Set<String> _lanDiscoveryKeys = {};
@@ -175,8 +195,6 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
   // through it and two consecutive misses mark a healthy server offline.
   static const Duration _pollTimeout = Duration(seconds: 5);
   static const Duration _fastCandidateTimeout = Duration(seconds: 2);
-  static const Duration _cloudRefreshInterval = Duration(seconds: 30);
-  DateTime? _lastCloudPullAt;
   bool _appInForeground = true;
 
   /// True while a game is streaming.
@@ -211,6 +229,16 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
   /// art URL embeds whichever address the last /applist resolved.
   String? _pinnedCertFor(String host, int port) {
     final h = host.toLowerCase();
+    // Prefer online servers matching activeAddress/localAddress first so two
+    // servers sharing the same WAN remoteAddress don't collide on art fetches.
+    for (final c in _computers) {
+      if (c.state != ComputerState.online) continue;
+      if (c.serverCert.trim().isEmpty || c.httpsPort != port) continue;
+      final addresses = [c.activeAddress, c.localAddress, c.manualAddress];
+      if (addresses.any((a) => a.trim().toLowerCase() == h)) {
+        return c.serverCert;
+      }
+    }
     for (final c in _computers) {
       if (c.serverCert.trim().isEmpty || c.httpsPort != port) continue;
       final addresses = [
@@ -292,8 +320,12 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
   ComputerProvider({
     DiscoveryService? discoveryService,
     UnpairRequest? unpairRequest,
+    NvHttpClient? httpClient,
+    WolRelayRequest? wolRelayRequest,
   }) : _discoveryService = discoveryService ?? DiscoveryService(),
-       _unpairRequest = unpairRequest {
+       _unpairRequest = unpairRequest,
+       _wolRelayRequest = wolRelayRequest,
+       _httpClient = httpClient ?? NvHttpClient() {
     WidgetsBinding.instance.addObserver(this);
     _loadPersistedComputers();
     // Let /appasset requests pin the paired server certificate before any
@@ -314,7 +346,6 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
     if (_appInForeground) {
       unawaited(startDiscovery());
       if (_cloudSignedIn) {
-        _lastCloudPullAt = DateTime.now();
         unawaited(CloudSyncService.instance.pullConfigFromSupabase());
       }
       // Always restart the timer on resume — even if it was already running.
@@ -353,14 +384,6 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
 
   Future<void> _pollAll() async {
     if (!_appInForeground || _streamingActive) return;
-    if (_cloudSignedIn) {
-      final now = DateTime.now();
-      if (_lastCloudPullAt == null ||
-          now.difference(_lastCloudPullAt!) >= _cloudRefreshInterval) {
-        _lastCloudPullAt = now;
-        unawaited(CloudSyncService.instance.pullConfigFromSupabase());
-      }
-    }
     if (_computers.isEmpty) return;
     final snapshot = _computers
         .where((c) => !_pairingKeys.contains(_failKey(c)))
@@ -399,26 +422,57 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
       // list back, losing those pairings for good. Now a bad entry costs only
       // itself, and a total failure leaves the previous list untouched.
       final loaded = <ComputerDetails>[];
+      int richnessScore(ComputerDetails c) =>
+          (c.pairState == PairState.paired ? 8 : 0) +
+          (c.serverCert.isNotEmpty ? 4 : 0) +
+          (WakeOnLanService.isValidMac(c.macAddress) ? 2 : 0) +
+          (c.localAddress.isNotEmpty && c.localAddress != c.remoteAddress
+              ? 1
+              : 0);
       for (final entry in jsonList) {
         try {
           final map = jsonDecode(entry) as Map<String, dynamic>;
           final computer = ComputerDetails.fromJson(map);
-          final knownState = knownStates[computer.uuid];
-          if (knownState != null && knownState != ComputerState.unknown) {
-            computer.state = knownState;
-          } else if (computer.isCloud && computer.isCloudRecentlySeen) {
-            computer.state = ComputerState.online;
-            if (computer.activeAddress.isEmpty &&
-                computer.remoteAddress.isNotEmpty) {
-              computer.activeAddress = computer.remoteAddress;
-            }
-          } else {
-            computer.state = knownState ?? ComputerState.unknown;
+          final uuidKey = computer.uuid.trim().toLowerCase();
+          final certKey = computer.serverCert.trim().toLowerCase();
+          final localKey = WakeOnLanService.cleanHost(
+            computer.localAddress,
+          ).toLowerCase();
+          var dupIdx = -1;
+          if (uuidKey.isNotEmpty) {
+            dupIdx = loaded.indexWhere(
+              (c) => c.uuid.trim().toLowerCase() == uuidKey,
+            );
           }
+          if (dupIdx < 0 && certKey.isNotEmpty) {
+            dupIdx = loaded.indexWhere(
+              (c) =>
+                  c.serverCert.trim().toLowerCase() == certKey &&
+                  !_hasConflictingIdentity(c, computer),
+            );
+          }
+          if (dupIdx < 0 &&
+              uuidKey.isEmpty &&
+              certKey.isEmpty &&
+              localKey.isNotEmpty) {
+            dupIdx = loaded.indexWhere(
+              (c) =>
+                  WakeOnLanService.cleanHost(c.localAddress).toLowerCase() ==
+                  localKey,
+            );
+          }
+          final knownState = knownStates[computer.uuid];
+          computer.state = knownState ?? ComputerState.unknown;
 
           if (computer.pairState == PairState.paired &&
               computer.serverCert.isNotEmpty) {
             computer.pairStatusFromHttps = true;
+          }
+          if (dupIdx >= 0) {
+            if (richnessScore(computer) > richnessScore(loaded[dupIdx])) {
+              loaded[dupIdx] = computer;
+            }
+            continue;
           }
           loaded.add(computer);
         } catch (e) {
@@ -426,6 +480,25 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
         }
       }
 
+      // Heal any cross-server activeAddress contamination where one server's
+      // activeAddress was set to another saved server's LAN localAddress.
+      for (final c in loaded) {
+        final otherLanIps = <String>{
+          for (final other in loaded)
+            if (!identical(other, c) && other.localAddress.isNotEmpty)
+              WakeOnLanService.cleanHost(other.localAddress).toLowerCase(),
+        };
+        final activeClean = WakeOnLanService.cleanHost(
+          c.activeAddress,
+        ).toLowerCase();
+        if (activeClean.isNotEmpty && otherLanIps.contains(activeClean)) {
+          c.activeAddress = c.localAddress;
+        }
+      }
+
+      debugPrint(
+        '[ComputerDiag] loaded raw=${jsonList.length} kept=${loaded.length}: ${loaded.map(_diag).join('; ')}',
+      );
       _computers
         ..clear()
         ..addAll(loaded);
@@ -482,7 +555,6 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
 
     if (_cloudSignedIn) {
-      _lastCloudPullAt = DateTime.now();
       unawaited(CloudSyncService.instance.pullConfigFromSupabase());
     }
     unawaited(_pollAll());
@@ -516,6 +588,78 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
       localAddress: computer.localAddress,
       remoteAddress: computer.remoteAddress,
     );
+    await _relayWakeOnLan(computer);
+  }
+
+  /// A magic packet sent from outside the LAN never reaches the target: the
+  /// router does not forward broadcasts and its WoL-ish UDP ports map to other
+  /// hosts. Ask an awake, paired server on the target's subnet to send it.
+  Future<void> _relayWakeOnLan(ComputerDetails target) async {
+    final broadcast = WakeOnLanService.subnetBroadcastForIp(
+      target.localAddress,
+    );
+    if (broadcast == null) return;
+    final relays = _computers
+        .where(
+          (c) =>
+              !identical(c, target) &&
+              c.uuid != target.uuid &&
+              c.state == ComputerState.online &&
+              c.serverCert.isNotEmpty &&
+              WakeOnLanService.subnetBroadcastForIp(c.localAddress) ==
+                  broadcast,
+        )
+        .toList();
+    final body = <String, Object>{
+      'mac': target.macAddress,
+      'broadcast': broadcast,
+      'port': 9,
+    };
+    for (final relay in relays) {
+      if (await (_wolRelayRequest ?? _postWolRelay)(relay, body)) return;
+    }
+  }
+
+  Future<bool> _postWolRelay(
+    ComputerDetails relay,
+    Map<String, Object> body,
+  ) async {
+    if (!SupabaseConfig.current.isConfigured) return false;
+    final session = Supabase.instance.client.auth.currentSession;
+    if (session == null) return false;
+    final client = IOClient(
+      ClientIdentity.createHttpClient(
+        expectedServerCert: relay.serverCert,
+        includeClientIdentity: false,
+      ),
+    );
+    try {
+      final port = _configPort(relay);
+      for (final address in candidateAddresses(relay)) {
+        final host = address.contains(':') && !address.startsWith('[')
+            ? '[$address]'
+            : address;
+        try {
+          final response = await client
+              .post(
+                Uri.parse('https://$host:$port/api/wol'),
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': 'Bearer ${session.accessToken}',
+                },
+                body: jsonEncode(body),
+              )
+              .timeout(const Duration(seconds: 4));
+          debugPrint('WoL relay via ${relay.name}@$host: ${response.statusCode}');
+          if (response.statusCode == 200) return true;
+        } catch (e) {
+          debugPrint('WoL relay via ${relay.name}@$host failed: $e');
+        }
+      }
+    } finally {
+      client.close();
+    }
+    return false;
   }
 
   Future<bool> sendWakeOnLanWithFeedback(
@@ -534,6 +678,7 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
       localAddress: computer.localAddress,
       remoteAddress: computer.remoteAddress,
     );
+    unawaited(_relayWakeOnLan(computer));
 
     final dl = DateTime.now().add(timeout);
     int elapsed = 0;
@@ -619,12 +764,42 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
         ? computer.httpsPort
         : NvHttpClient.defaultHttpsPort;
 
+    // Never probe another known server's LAN localAddress if activeAddress was
+    // previously contaminated.
+    final otherLocalIps = <String>{
+      for (final other in _computers)
+        if (!identical(other, computer) &&
+            _hasConflictingIdentity(other, computer) &&
+            other.localAddress.isNotEmpty)
+          WakeOnLanService.cleanHost(other.localAddress).toLowerCase(),
+    };
+    if (computer.activeAddress.isNotEmpty &&
+        otherLocalIps.contains(
+          WakeOnLanService.cleanHost(computer.activeAddress).toLowerCase(),
+        )) {
+      computer.activeAddress = computer.localAddress;
+    }
+
+    final localClean = WakeOnLanService.cleanHost(
+      computer.localAddress,
+    ).toLowerCase();
+    final manualClean = WakeOnLanService.cleanHost(
+      computer.manualAddress,
+    ).toLowerCase();
     // Walk every known address instead of only activeAddress. The first one
     // usually answers, so the common case is still a single request.
     // When multiple candidates exist (e.g. LAN + WAN remoteAddress), use a
     // fast timeout on earlier candidates so switching to mobile data reaches
     // remoteAddress in ~2s instead of stalling 10-20s on unreachable LAN IPs.
-    final candidates = candidateAddresses(computer);
+    // Never filter out computer.localAddress / manualAddress via otherLocalIps
+    // in case a stale entry previously inherited the same LAN IP.
+    final candidates = candidateAddresses(computer)
+        .where((addr) {
+          final lower = addr.toLowerCase();
+          if (lower == localClean || lower == manualClean) return true;
+          return !otherLocalIps.contains(lower);
+        })
+        .toList(growable: false);
     ({ComputerDetails? info, bool certRejected})? result;
     for (var i = 0; i < candidates.length; i++) {
       final address = candidates[i];
@@ -639,6 +814,35 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
         timeout: candidateTimeout,
         expectedServerCert: computer.serverCert,
       );
+      final info = attempt.info;
+      final isRemoteCandidate =
+          computer.remoteAddress.isNotEmpty &&
+          address.toLowerCase() ==
+              WakeOnLanService.cleanHost(computer.remoteAddress).toLowerCase() &&
+          address.toLowerCase() != localClean;
+      // Guard against multi-server NAT collisions: when two servers sit behind
+      // the same router (sharing remoteAddress), probing an offline server's
+      // remoteAddress reaches whichever server currently owns the UPnP port
+      // mapping. Reject any response belonging to a different known server.
+      if (info != null &&
+          (_hasConflictingIdentity(info, computer) ||
+              (isRemoteCandidate &&
+                  _matchesAnotherKnownServer(info, computer)))) {
+        continue;
+      }
+      if (attempt.certRejected &&
+          ((isRemoteCandidate &&
+                  (info == null ||
+                      (computer.uuid.isNotEmpty &&
+                          info.uuid.toLowerCase() !=
+                              computer.uuid.toLowerCase()))) ||
+              (info == null &&
+                  otherLocalIps.contains(address.toLowerCase())))) {
+        // Another server on the shared WAN IP or a contaminated LAN IP
+        // presented its own TLS cert on 47984 while HTTP 47989 is unmapped.
+        // Do not treat this as `computer` revoking our pairing.
+        continue;
+      }
       result ??= attempt;
       if (attempt.info != null || attempt.certRejected) {
         result = attempt;
@@ -667,20 +871,6 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
       return serverInfo.state;
     }
 
-    if (computer.isCloud && _cloudSignedIn && computer.isCloudRecentlySeen) {
-      _pollFailCount[_failKey(computer)] = 0;
-      final cleanRemote = WakeOnLanService.cleanHost(computer.remoteAddress);
-      if (cleanRemote.isNotEmpty) {
-        computer.activeAddress = cleanRemote;
-      }
-      if (computer.state != ComputerState.online) {
-        computer.state = ComputerState.online;
-        _persistComputers();
-        notifyListeners();
-      }
-      return ComputerState.online;
-    }
-
     final key = _failKey(computer);
     final count = (_pollFailCount[key] ?? 0) + 1;
     _pollFailCount[key] = count;
@@ -701,6 +891,9 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
 
   /// Forgets the pairing credentials of a server that no longer recognises us.
   void _clearStalePairing(ComputerDetails computer, ComputerDetails? fresh) {
+    debugPrint(
+      '[ComputerDiag] clearPairing ${_diag(computer)} fresh=${fresh == null ? '-' : _diag(fresh)}',
+    );
     for (final c in [computer, ?fresh]) {
       c.serverCert = '';
       c.pairState = PairState.notPaired;
@@ -1012,31 +1205,127 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
       '|${c.coopRole}|${c.coopExpiresAt?.millisecondsSinceEpoch}'
       '|${c.lastSeenAt?.millisecondsSinceEpoch}';
 
+  static bool _hasConflictingIdentity(ComputerDetails a, ComputerDetails b) {
+    final aUuid = a.uuid.trim().toLowerCase();
+    final bUuid = b.uuid.trim().toLowerCase();
+    final aCert = a.serverCert.trim().toLowerCase();
+    final bCert = b.serverCert.trim().toLowerCase();
+
+    if (aUuid.isNotEmpty && bUuid.isNotEmpty && aUuid != bUuid) {
+      // Allow matching if both share the exact same pinned server certificate
+      // (migrating a temporary cloud row id to the real Sunshine uniqueid).
+      if (aCert.isNotEmpty && bCert.isNotEmpty && aCert == bCert) {
+        return false;
+      }
+      return true;
+    }
+    if (aCert.isNotEmpty && bCert.isNotEmpty && aCert != bCert) {
+      if (aUuid.isNotEmpty && bUuid.isNotEmpty && aUuid == bUuid) {
+        return false;
+      }
+      return true;
+    }
+    return false;
+  }
+
+  bool _matchesAnotherKnownServer(
+    ComputerDetails info,
+    ComputerDetails target,
+  ) {
+    final infoUuid = info.uuid.trim().toLowerCase();
+    final infoCert = info.serverCert.trim().toLowerCase();
+    final targetUuid = target.uuid.trim().toLowerCase();
+    return _computers.any((other) {
+      // List reloads replace entries, so the poller may hold an equal but non-identical target.
+      if (identical(other, target) ||
+          (targetUuid.isNotEmpty && other.uuid.trim().toLowerCase() == targetUuid)) {
+        return false;
+      }
+      final otherUuid = other.uuid.trim().toLowerCase();
+      final otherCert = other.serverCert.trim().toLowerCase();
+      if (infoUuid.isNotEmpty && otherUuid.isNotEmpty && infoUuid == otherUuid) {
+        return true;
+      }
+      if (infoCert.isNotEmpty && otherCert.isNotEmpty && infoCert == otherCert) {
+        return true;
+      }
+      return false;
+    });
+  }
+
+  int _findExistingComputerIndex(ComputerDetails computer) {
+    // 1. Match by UUID across all known servers first.
+    final targetUuid = computer.uuid.trim().toLowerCase();
+    if (targetUuid.isNotEmpty) {
+      final byUuid = _computers.indexWhere(
+        (c) => c.uuid.trim().toLowerCase() == targetUuid,
+      );
+      if (byUuid >= 0) return byUuid;
+    }
+
+    // 2. Match by certificate fingerprint across all known servers second
+    // (handles cloud-synced servers that arrived with a row id before the real
+    // Sunshine uniqueid was discovered via polling).
+    final targetCert = computer.serverCert.trim().toLowerCase();
+    if (targetCert.isNotEmpty) {
+      final byCert = _computers.indexWhere(
+        (c) => c.serverCert.trim().toLowerCase() == targetCert,
+      );
+      if (byCert >= 0) return byCert;
+    }
+
+    // 3. Fall back to local/active address matching ONLY when identities do not
+    // conflict. Never match by remoteAddress: multiple servers on the same LAN
+    // share the same public WAN IP.
+    final targetLocal = WakeOnLanService.cleanHost(
+      computer.localAddress,
+    ).toLowerCase();
+    final targetActive = WakeOnLanService.cleanHost(
+      computer.activeAddress,
+    ).toLowerCase();
+    final targetRemote = WakeOnLanService.cleanHost(
+      computer.remoteAddress,
+    ).toLowerCase();
+    final effectiveTargetActive =
+        (targetActive.isNotEmpty && targetActive != targetRemote)
+        ? targetActive
+        : '';
+
+    return _computers.indexWhere((c) {
+      if (_hasConflictingIdentity(c, computer)) return false;
+      final cLocal = WakeOnLanService.cleanHost(c.localAddress).toLowerCase();
+      final cActive = WakeOnLanService.cleanHost(c.activeAddress).toLowerCase();
+      final cRemote = WakeOnLanService.cleanHost(c.remoteAddress).toLowerCase();
+      final effectiveCActive = (cActive.isNotEmpty && cActive != cRemote)
+          ? cActive
+          : '';
+      return (targetLocal.isNotEmpty && cLocal == targetLocal) ||
+          (effectiveTargetActive.isNotEmpty &&
+              effectiveCActive == effectiveTargetActive) ||
+          (effectiveTargetActive.isNotEmpty &&
+              cLocal == effectiveTargetActive) ||
+          (targetLocal.isNotEmpty && effectiveCActive == targetLocal);
+    });
+  }
+
+  // shortcut: diagnostic trace for dup-server / lost-pairing hunt (2026-11-15); remove once root-caused.
+  static String _diag(ComputerDetails c) {
+    final cert = c.serverCert.trim();
+    return '${c.name}|uuid=${c.uuid}|cert=${cert.isEmpty ? '-' : '${cert.length}:${cert.substring(0, cert.length < 8 ? cert.length : 8)}'}'
+        '|loc=${c.localAddress}|act=${c.activeAddress}|rem=${c.remoteAddress}|man=${c.manualAddress}'
+        '|pair=${c.pairState.name}|st=${c.state.name}|cloud=${c.isCloud}';
+  }
+
   void _addOrUpdateComputer(ComputerDetails computer) {
-    // Match by UUID first (most reliable), then by localAddress or activeAddress.
-    // On macOS, mDNS may discover the same server via different addresses
-    // (e.g., hostname.local vs raw IP), so we also check cross-address matches.
-    final existingIndex = _computers.indexWhere(
-      (c) =>
-          (c.uuid.isNotEmpty && c.uuid == computer.uuid) ||
-          c.localAddress == computer.localAddress ||
-          (c.activeAddress.isNotEmpty &&
-              c.activeAddress == computer.activeAddress) ||
-          (c.localAddress.isNotEmpty &&
-              c.localAddress == computer.activeAddress) ||
-          (c.activeAddress.isNotEmpty &&
-              c.activeAddress == computer.localAddress) ||
-          (c.remoteAddress.isNotEmpty &&
-              (c.remoteAddress == computer.activeAddress ||
-                  c.remoteAddress == computer.localAddress ||
-                  c.remoteAddress == computer.remoteAddress)) ||
-          // Match by cert fingerprint — handles cloud-synced servers that arrive
-          // with a temporary Supabase row UUID before the real Sunshine uniqueid
-          // is discovered via polling. Prevents duplicate "Not Paired" ghost cards.
-          (c.serverCert.isNotEmpty &&
-              computer.serverCert.isNotEmpty &&
-              c.serverCert.toLowerCase() == computer.serverCert.toLowerCase()),
-    );
+    final existingIndex = _findExistingComputerIndex(computer);
+    if (existingIndex >= 0 &&
+        computer.uuid.isNotEmpty &&
+        _computers[existingIndex].uuid.toLowerCase() !=
+            computer.uuid.toLowerCase()) {
+      debugPrint(
+        '[ComputerDiag] mergeAcrossUuid new=${_diag(computer)} into=${_diag(_computers[existingIndex])}',
+      );
+    }
 
     if (existingIndex >= 0) {
       final existing = _computers[existingIndex];
@@ -1134,7 +1423,13 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
             computer.serverCert = '';
           }
         }
-      } else if (computer.pairState == PairState.notPaired &&
+      }
+      // Only HTTPS reports this cert's permissions; an HTTP fallback must not reset them to "unknown".
+      if (!computer.pairStatusFromHttps && computer.hostPermission == null) {
+        computer.hostPermission = existing.hostPermission;
+      }
+      if (!computer.pairStatusFromHttps &&
+          computer.pairState == PairState.notPaired &&
           existing.pairState == PairState.paired &&
           existing.serverCert.isNotEmpty &&
           existing.pairStatusFromHttps) {
@@ -1161,6 +1456,9 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
         }
       }
     } else {
+      debugPrint(
+        '[ComputerDiag] addNew ${_diag(computer)} known=[${_computers.map(_diag).join('; ')}]\n${StackTrace.current.toString().split('\n').take(4).join(' <- ')}',
+      );
       _computers.add(computer);
       final key = _orderKey(computer);
       if (key.isNotEmpty && !_customOrder.contains(key)) {

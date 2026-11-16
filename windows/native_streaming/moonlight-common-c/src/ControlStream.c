@@ -1704,7 +1704,6 @@ static void controlReceiveThreadFunc(void* context) {
                         }
                     }
                 }
-                free(ctlHdr);
             }
             // Process client callbacks in a separate thread
             else if (needsAsyncCallback(ctlHdr->type)) {

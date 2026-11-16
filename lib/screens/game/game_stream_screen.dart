@@ -45,6 +45,8 @@ class GameStreamScreen extends StatefulWidget {
   final String riKey;
   final int riKeyId;
   final String? rtspSessionUrl;
+  /// Address that answered the launch; empty falls back to the computer's active/local address.
+  final String streamHost;
   final StreamConfiguration? overrideConfig;
   final int readinessVersion;
   final bool readinessRequired;
@@ -63,6 +65,7 @@ class GameStreamScreen extends StatefulWidget {
     this.riKey = '',
     this.riKeyId = 0,
     this.rtspSessionUrl,
+    this.streamHost = '',
     this.overrideConfig,
     this.readinessVersion = 0,
     this.readinessRequired = false,
@@ -474,7 +477,10 @@ class _GameStreamScreenState extends State<GameStreamScreen>
         _config = _config.resolveMatchDisplay(displayWidth, displayHeight);
       }
       final cfg = _config;
-      final address = widget.computer.activeAddress.isNotEmpty
+      // The computer object can be stale (e.g. a WAN address from before the device joined the LAN).
+      final address = widget.streamHost.isNotEmpty
+          ? widget.streamHost
+          : widget.computer.activeAddress.isNotEmpty
           ? widget.computer.activeAddress
           : widget.computer.localAddress;
 
@@ -3570,7 +3576,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
                             ),
                           ),
                         ),
-                        if (!p.isOwner) ...[
+                        if (!p.isOwner && widget.computer.canLaunchApps) ...[
                           IconButton(
                             visualDensity: VisualDensity.compact,
                             icon: Icon(
@@ -3600,7 +3606,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
                         ],
                       ],
                     ),
-                    if (!p.isOwner)
+                    if (!p.isOwner && widget.computer.canLaunchApps)
                       Wrap(
                         spacing: 6,
                         children: [

@@ -80,6 +80,16 @@ class _FocusModeScreenState extends State<FocusModeScreen>
     with WidgetsBindingObserver {
   final PageController _pageController = PageController(viewportFraction: 0.82);
   int _currentPage = 0;
+  String? _selectedServerKey;
+  bool _pendingPageSync = false;
+
+  static String _serverKey(ComputerDetails c) =>
+      c.uuid.isNotEmpty ? c.uuid : c.hostId;
+
+  static int _stableAssetIndex(ComputerDetails c, int fallback) {
+    final key = _serverKey(c);
+    return key.isEmpty ? fallback : key.hashCode & 0x7fffffff;
+  }
   bool _autoConnectAttempted = false;
   final AsyncSingleFlight _computerEntryFlight = AsyncSingleFlight();
 
@@ -349,12 +359,20 @@ class _FocusModeScreenState extends State<FocusModeScreen>
       return 2;
     }
 
-    final key = source.map((c) => '${c.uuid}:${rank(c)}').join('|');
+    final key = source.map((c) => '${_serverKey(c)}:${rank(c)}').join('|');
     final cached = _sortedCache;
     if (cached != null && key == _sortedCacheKey) return cached;
 
-    final sorted = List<ComputerDetails>.from(source)
-      ..sort((a, b) => rank(a).compareTo(rank(b)));
+    final indexed = List.generate(
+      source.length,
+      (i) => (idx: i, pc: source[i]),
+      growable: false,
+    );
+    indexed.sort((a, b) {
+      final r = rank(a.pc).compareTo(rank(b.pc));
+      return r != 0 ? r : a.idx.compareTo(b.idx);
+    });
+    final sorted = [for (final item in indexed) item.pc];
     _sortedCache = sorted;
     _sortedCacheKey = key;
     return sorted;
@@ -404,6 +422,36 @@ class _FocusModeScreenState extends State<FocusModeScreen>
         body: Consumer<ComputerProvider>(
           builder: (context, provider, _) {
             final computers = _sortedForDisplay(provider.computers);
+            if (computers.isEmpty) {
+              _selectedServerKey = null;
+              _currentPage = 0;
+            } else {
+              if (_selectedServerKey != null) {
+                final trackedIndex = computers.indexWhere(
+                  (c) => _serverKey(c) == _selectedServerKey,
+                );
+                if (trackedIndex >= 0 && trackedIndex != _currentPage) {
+                  _currentPage = trackedIndex;
+                  if (!_pendingPageSync) {
+                    _pendingPageSync = true;
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      _pendingPageSync = false;
+                      if (!mounted || !_pageController.hasClients) return;
+                      final target = _currentPage;
+                      if ((_pageController.page?.round() ?? -1) != target) {
+                        _pageController.jumpToPage(target);
+                      }
+                    });
+                  }
+                } else if (trackedIndex < 0) {
+                  _currentPage = _currentPage.clamp(0, computers.length - 1);
+                  _selectedServerKey = _serverKey(computers[_currentPage]);
+                }
+              } else {
+                _currentPage = _currentPage.clamp(0, computers.length - 1);
+                _selectedServerKey = _serverKey(computers[_currentPage]);
+              }
+            }
             final currentComputer =
                 computers.isNotEmpty && _currentPage < computers.length
                 ? computers[_currentPage]
@@ -465,7 +513,9 @@ class _FocusModeScreenState extends State<FocusModeScreen>
             );
             String? effectiveFilePath;
             String effectiveAsset = currentComputer != null
-                ? _focusDefaultAsset(_currentPage)
+                ? _focusDefaultAsset(
+                    _stableAssetIndex(currentComputer, _currentPage),
+                  )
                 : _focusDefaultAsset(0);
             if (resolvedWallpaper.isNotEmpty) {
               if (resolvedWallpaper.startsWith('asset:')) {
@@ -885,7 +935,17 @@ class _FocusModeScreenState extends State<FocusModeScreen>
         controller: _pageController,
         itemCount: computers.length,
         onPageChanged: (i) {
-          setState(() => _currentPage = i);
+          if (_currentPage == i &&
+              i < computers.length &&
+              _selectedServerKey == _serverKey(computers[i])) {
+            return;
+          }
+          setState(() {
+            _currentPage = i;
+            if (i >= 0 && i < computers.length) {
+              _selectedServerKey = _serverKey(computers[i]);
+            }
+          });
           UiSoundService.playUiMove();
           HapticFeedback.selectionClick();
         },
@@ -900,20 +960,24 @@ class _FocusModeScreenState extends State<FocusModeScreen>
             computer.hostId,
             hasOverride: hasOverride,
           );
+          final tileKey = ValueKey<String>(_serverKey(computer));
+          final artIndex = _stableAssetIndex(computer, index);
           if (layout == 'circular') {
             return _FocusServerCircle(
+              key: tileKey,
               computer: computer,
               bgPath: bgPath,
-              index: index,
+              index: artIndex,
               onTap: () => _onComputerTapped(computer),
               onLongPress: () => _showServerOptions(computer),
               isSelected: index == _currentPage && _pageViewHasFocus,
             );
           }
           return _FocusServerCard(
+            key: tileKey,
             computer: computer,
             bgPath: bgPath,
-            index: index,
+            index: artIndex,
             onTap: () => _onComputerTapped(computer),
             onLongPress: () => _showServerOptions(computer),
             isSelected: index == _currentPage && _pageViewHasFocus,
@@ -1090,6 +1154,7 @@ class _Wallpaper extends StatelessWidget {
         Image(
           image: ResizeImage(base, width: cacheWidth),
           fit: BoxFit.cover,
+          gaplessPlayback: true,
           errorBuilder: (_, _, _) => Container(color: fallbackColor),
         ),
         // Readability scrim (replaces the old sigma-40 blur).
@@ -1108,6 +1173,7 @@ class _FocusServerCard extends StatefulWidget {
   final bool isSelected;
 
   const _FocusServerCard({
+    super.key,
     required this.computer,
     this.bgPath,
     required this.index,
@@ -1465,6 +1531,7 @@ class _FocusServerCircle extends StatefulWidget {
   final bool isSelected;
 
   const _FocusServerCircle({
+    super.key,
     required this.computer,
     this.bgPath,
     required this.index,

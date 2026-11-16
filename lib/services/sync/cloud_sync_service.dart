@@ -686,17 +686,42 @@ class CloudSyncService {
             ? DateTime.tryParse(cloudMap['expires_at'].toString())?.toUtc()
             : null;
 
+        final serverUuid = (cloudMap['server_uuid'] as String?)?.trim() ?? '';
+
         int matchIdx = -1;
-        for (int i = 0; i < localComputers.length; i++) {
-          if (_doesMatch(localComputers[i], cloudMap)) {
-            matchIdx = i;
-            break;
+        if (serverUuid.isNotEmpty) {
+          for (int i = 0; i < localComputers.length; i++) {
+            if (localComputers[i].uuid.toLowerCase() ==
+                serverUuid.toLowerCase()) {
+              matchIdx = i;
+              break;
+            }
+          }
+        }
+        if (matchIdx < 0 && certFingerprint.trim().isNotEmpty) {
+          for (int i = 0; i < localComputers.length; i++) {
+            if (localComputers[i].serverCert.toLowerCase() ==
+                certFingerprint.trim().toLowerCase()) {
+              matchIdx = i;
+              break;
+            }
+          }
+        }
+        if (matchIdx < 0) {
+          for (int i = 0; i < localComputers.length; i++) {
+            if (_doesMatch(localComputers[i], cloudMap)) {
+              matchIdx = i;
+              break;
+            }
           }
         }
 
         if (matchIdx >= 0) {
           final local = localComputers[matchIdx];
           local.isCloud = true;
+          if (serverUuid.isNotEmpty) {
+            local.uuid = serverUuid;
+          }
           if (cloudName != null && cloudName.isNotEmpty) {
             local.name = cloudName;
           }
@@ -716,10 +741,24 @@ class CloudSyncService {
           }
           final localAddresses =
               cloudMap['local_addresses'] as List<dynamic>? ?? const [];
-          if (local.localAddress.isEmpty && localAddresses.isNotEmpty) {
-            local.localAddress = _getHostFromUrl(
-              localAddresses.first.toString(),
-            );
+          final cloudLanHosts = localAddresses
+              .map((e) => _getHostFromUrl(e.toString()))
+              .where((h) => h.isNotEmpty)
+              .toList();
+          if (cloudLanHosts.isNotEmpty) {
+            local.localAddress = cloudLanHosts.first;
+            final activeClean = _getHostFromUrl(
+              local.activeAddress,
+            ).toLowerCase();
+            final validForThisServer = <String>{
+              ...cloudLanHosts.map((h) => h.toLowerCase()),
+              if (cleanExternalHost.isNotEmpty) cleanExternalHost.toLowerCase(),
+              if (cloudHost.isNotEmpty) cloudHost.toLowerCase(),
+            };
+            if (activeClean.isEmpty ||
+                !validForThisServer.contains(activeClean)) {
+              local.activeAddress = cloudLanHosts.first;
+            }
           }
           // Not cloud `server_version`: that is the Jujo product version
           // (1.0.x); serverVersion is the GFE protocol appversion and a 1.x
@@ -731,6 +770,10 @@ class CloudSyncService {
               : externalConfigPort;
           if (resolvedConfigPort > 0) {
             local.configHttpsPort = resolvedConfigPort;
+            // Servers behind a shared NAT need distinct port bases; a WAN-only
+            // client never sees /serverinfo first, so derive nvhttp ports here.
+            local.httpsPort = resolvedConfigPort + _nvHttpsFromConfigOffset;
+            local.externalPort = resolvedConfigPort + _nvHttpFromConfigOffset;
           }
           if (!isCoop) {
             local.coopRole = null;
@@ -759,19 +802,23 @@ class CloudSyncService {
           // Prefer server_uuid (real Sunshine uniqueid) over Supabase row id.
           // Using the row id caused UUID mismatches during polling because
           // parseServerInfo sets uuid from the XML 'uniqueid' field.
-          final serverUuid = (cloudMap['server_uuid'] as String?)?.trim() ?? '';
+          final newConfigPort = cloudPort > 0 ? cloudPort : externalConfigPort;
           final computer = ComputerDetails(
             uuid: serverUuid.isNotEmpty ? serverUuid : (cloudMap['id'] ?? ''),
             name: cloudName ?? host,
             localAddress: localIp,
             manualAddress: isIp ? '' : host,
             macAddress: validCloudMac,
-            // cloudPort is the confighttp/web-API port from `server_url`, not
-            // the nvhttp HTTPS port. Assigning it to httpsPort sent /applist
-            // and /launch to the wrong port until the first successful poll.
-            // Leave it unset; /serverinfo reports the real one.
-            httpsPort: 0,
-            configHttpsPort: cloudPort > 0 ? cloudPort : externalConfigPort,
+            // cloudPort is the confighttp/web-API port (base+1); nvhttp sits at
+            // fixed offsets from it. Assigning cloudPort itself to httpsPort
+            // used to send /applist and /launch to the web-UI port.
+            httpsPort: newConfigPort > 0
+                ? newConfigPort + _nvHttpsFromConfigOffset
+                : 0,
+            externalPort: newConfigPort > 0
+                ? newConfigPort + _nvHttpFromConfigOffset
+                : _defaultConfigHttpsPort + _nvHttpFromConfigOffset,
+            configHttpsPort: newConfigPort,
             remoteAddress: cleanExternalHost,
             serverCert: certFingerprint,
             state: ComputerState.unknown,
@@ -833,6 +880,22 @@ class CloudSyncService {
         localComputers.removeWhere(staleCoopServers.contains);
       }
 
+      // Deduplicate by UUID / certificate fingerprint in case earlier builds
+      // persisted duplicate entries for the same server.
+      final deduped = <ComputerDetails>[];
+      final seenUuids = <String>{};
+      final seenCerts = <String>{};
+      for (final c in localComputers) {
+        final u = c.uuid.trim().toLowerCase();
+        final cert = c.serverCert.trim().toLowerCase();
+        if (u.isNotEmpty && !seenUuids.add(u)) continue;
+        if (cert.isNotEmpty && !seenCerts.add(cert)) continue;
+        deduped.add(c);
+      }
+      localComputers
+        ..clear()
+        ..addAll(deduped);
+
       final jsonList = localComputers
           .map((c) => jsonEncode(c.toJson()))
           .toList();
@@ -882,19 +945,27 @@ class CloudSyncService {
 
   bool _doesMatch(ComputerDetails local, Map<String, dynamic> cloud) {
     final cloudUuid = cloud['server_uuid']?.toString().trim() ?? '';
-    if (cloudUuid.isNotEmpty &&
-        local.uuid.isNotEmpty &&
-        local.uuid == cloudUuid) {
-      return true;
+    final String? cloudCert = cloud['cert_fingerprint']?.toString().trim();
+
+    if (cloudUuid.isNotEmpty && local.uuid.isNotEmpty) {
+      if (local.uuid.toLowerCase() == cloudUuid.toLowerCase()) {
+        return true;
+      }
+      // If both have certs and they match, allow migrating a legacy row-id UUID
+      // to the real Sunshine uniqueid; otherwise different UUIDs = different servers.
+      if (cloudCert != null &&
+          cloudCert.isNotEmpty &&
+          local.serverCert.isNotEmpty &&
+          local.serverCert.toLowerCase() == cloudCert.toLowerCase()) {
+        return true;
+      }
+      return false;
     }
 
-    final String? cloudCert = cloud['cert_fingerprint'];
     if (cloudCert != null &&
         cloudCert.isNotEmpty &&
         local.serverCert.isNotEmpty) {
-      if (local.serverCert.toLowerCase() == cloudCert.toLowerCase()) {
-        return true;
-      }
+      return local.serverCert.toLowerCase() == cloudCert.toLowerCase();
     }
 
     final String? serverUrl = cloud['server_url'];
@@ -902,7 +973,6 @@ class CloudSyncService {
       final cloudHost = _getHostFromUrl(serverUrl).toLowerCase();
       if (cloudHost.isNotEmpty) {
         if (local.localAddress.toLowerCase() == cloudHost ||
-            local.activeAddress.toLowerCase() == cloudHost ||
             local.manualAddress.toLowerCase() == cloudHost) {
           return true;
         }
@@ -916,23 +986,9 @@ class CloudSyncService {
         final cloudHost = _getHostFromUrl(addr.toString()).toLowerCase();
         if (cloudHost.isNotEmpty) {
           if (local.localAddress.toLowerCase() == cloudHost ||
-              local.activeAddress.toLowerCase() == cloudHost ||
               local.manualAddress.toLowerCase() == cloudHost) {
             return true;
           }
-        }
-      }
-    }
-
-    final String? externalAddr = cloud['external_address']?.toString();
-    if (externalAddr != null && externalAddr.isNotEmpty) {
-      final extHost = _getHostFromUrl(externalAddr).toLowerCase();
-      if (extHost.isNotEmpty) {
-        if (local.remoteAddress.toLowerCase() == extHost ||
-            local.activeAddress.toLowerCase() == extHost ||
-            local.manualAddress.toLowerCase() == extHost ||
-            local.localAddress.toLowerCase() == extHost) {
-          return true;
         }
       }
     }
@@ -956,6 +1012,9 @@ class CloudSyncService {
   /// The default used to be 47984 (nvhttp HTTPS); a port-less URL therefore
   /// sent every cloud-pair POST to nvhttp, where it could never succeed.
   static const _defaultConfigHttpsPort = 47990;
+  // Sunshine port layout: nvhttp HTTP = base, HTTPS = base-5, confighttp = base+1.
+  static const _nvHttpFromConfigOffset = -1;
+  static const _nvHttpsFromConfigOffset = -6;
 
   int _getPortFromUrl(String url) {
     final trimmed = url.trim();
@@ -979,9 +1038,9 @@ class CloudSyncService {
 
   String _preferredCloudPairHost(ComputerDetails computer) {
     for (final raw in <String>[
+      computer.localAddress,
       computer.activeAddress,
       computer.manualAddress,
-      computer.localAddress,
       computer.remoteAddress,
     ]) {
       final h = _getHostFromUrl(raw);
@@ -1004,12 +1063,11 @@ class CloudSyncService {
       }
     }
 
-    addUrl(primaryServerUrl);
     final port = _configPort(computer);
     for (final rawHost in <String>[
+      computer.localAddress,
       computer.activeAddress,
       computer.manualAddress,
-      computer.localAddress,
       computer.remoteAddress,
     ]) {
       final h = _getHostFromUrl(rawHost);
@@ -1017,6 +1075,7 @@ class CloudSyncService {
       final formattedHost = h.contains(':') && !h.startsWith('[') ? '[$h]' : h;
       addUrl('https://$formattedHost:$port');
     }
+    addUrl(primaryServerUrl);
     return out;
   }
 
@@ -1138,12 +1197,31 @@ class CloudSyncService {
         final stored = ComputerDetails.fromJson(
           jsonDecode(entry) as Map<String, dynamic>,
         );
-        final matches =
-            (computer.uuid.isNotEmpty && stored.uuid == computer.uuid) ||
-            (computer.localAddress.isNotEmpty &&
-                stored.localAddress == computer.localAddress) ||
-            (computer.remoteAddress.isNotEmpty &&
-                stored.remoteAddress == computer.remoteAddress);
+        final bool uuidMatches =
+            computer.uuid.isNotEmpty &&
+            stored.uuid.isNotEmpty &&
+            stored.uuid.toLowerCase() == computer.uuid.toLowerCase();
+        final bool uuidConflicts =
+            computer.uuid.isNotEmpty &&
+            stored.uuid.isNotEmpty &&
+            stored.uuid.toLowerCase() != computer.uuid.toLowerCase();
+        final bool certMatches =
+            computer.serverCert.isNotEmpty &&
+            stored.serverCert.isNotEmpty &&
+            stored.serverCert.toLowerCase() ==
+                computer.serverCert.toLowerCase();
+        final bool certConflicts =
+            computer.serverCert.isNotEmpty &&
+            stored.serverCert.isNotEmpty &&
+            stored.serverCert.toLowerCase() !=
+                computer.serverCert.toLowerCase();
+        final bool lanMatches =
+            !uuidConflicts &&
+            !certConflicts &&
+            computer.localAddress.isNotEmpty &&
+            stored.localAddress.toLowerCase() ==
+                computer.localAddress.toLowerCase();
+        final matches = uuidMatches || certMatches || lanMatches;
         if (matches) {
           stored.serverCert = computer.serverCert;
           stored.isCloud = computer.isCloud;
