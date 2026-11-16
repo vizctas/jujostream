@@ -2931,6 +2931,7 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
           status: watchdog,
           surface: _tp.surface,
           accent: _tp.accent,
+          hostName: widget.computer.name,
         );
         if (!mounted) {
           _abortPendingLaunch();

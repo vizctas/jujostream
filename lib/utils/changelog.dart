@@ -2,6 +2,18 @@
 /// version. Add an entry with every release bump (kAppVersion); a version with
 /// no entry simply shows nothing.
 const Map<String, ({List<String> es, List<String> en})> kChangelog = {
+  '1.1.44': (
+    es: [
+      'Menú en stream ajustable: elige la opacidad del panel (75% por defecto) y su color de fondo desde el mismo menú, con el D-pad.',
+      'Server Watchdog renovado: muestra cuánto se pasa la CPU o la RAM del umbral y deja listo "Cerrar e iniciar" para resolver con un solo botón.',
+      'Gamepad en pantalla por internet: corregido cuando hay varios servidores en la misma red.',
+    ],
+    en: [
+      'Adjustable in-stream menu: pick the panel opacity (75% by default) and background color right from the menu with the D-pad.',
+      'Refreshed Server Watchdog: shows how far CPU or RAM is over the limit and focuses "Close and launch" so one button resolves it.',
+      'On-screen gamepad over the internet: fixed when several servers share the same network.',
+    ],
+  ),
   '1.1.42': (
     es: [
       'Couch Co-Op por nube: bandeja de invitaciones Co-Op en tu lista de PCs para aceptar, emparejar e ingresar como Jugador 2-4 sin compartir tu contraseña.',

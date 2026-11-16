@@ -218,6 +218,8 @@ class AppLocalizations {
     'padMouse': {'en': 'Pad Mouse', 'es': 'Mouse con pad'},
     'keyboard': {'en': 'Keyboard', 'es': 'Teclado'},
     'closeMenu': {'en': 'Close Menu', 'es': 'Cerrar menú'},
+    'overlayOpacity': {'en': 'Menu opacity', 'es': 'Opacidad del menú'},
+    'overlayBackground': {'en': 'Background', 'es': 'Fondo'},
     'streamError': {
       'en': 'Failed to start streaming session',
       'es': 'Error al iniciar la sesión de streaming',
@@ -350,19 +352,10 @@ class AppLocalizations {
       'es':
           'Verifica CPU y RAM disponible en el servidor antes de iniciar y ofrece cerrar apps de alto consumo',
     },
-    'watchdogPressureTitle': {
-      'en': 'Host resources under heavy load',
-      'es': 'Servidor con alto consumo de recursos',
-    },
-    'watchdogPressureBody': {
-      'en':
-          'Closing safe heavy background apps frees CPU and RAM without affecting your stream or OS.',
-      'es':
-          'Cerrar aplicaciones de segundo plano libera CPU y RAM sin afectar el streaming ni el servidor.',
-    },
+    'watchdogLoadTitle': {'en': '{metric} at {pct}%', 'es': '{metric} al {pct}%'},
     'watchdogCloseAndLaunch': {
-      'en': 'Close & Launch',
-      'es': 'Cerrar e iniciar',
+      'en': 'Close {n} and launch',
+      'es': 'Cerrar {n} e iniciar',
     },
     'watchdogClosingAndLaunching': {
       'en': 'Closing apps…',
@@ -1252,6 +1245,8 @@ class AppLocalizations {
   String get padMouse => _s('padMouse');
   String get keyboard => _s('keyboard');
   String get closeMenu => _s('closeMenu');
+  String get overlayOpacity => _s('overlayOpacity');
+  String get overlayBackground => _s('overlayBackground');
   String get streamError => _s('streamError');
   String get pipPremiumHint => locale.languageCode == 'es'
       ? 'PiP requiere JUJO Pro'
@@ -1379,8 +1374,7 @@ class AppLocalizations {
   String get watchdogTitle => _s('watchdogTitle');
   String get watchdogToggleTitle => _s('watchdogToggleTitle');
   String get watchdogToggleSubtitle => _s('watchdogToggleSubtitle');
-  String get watchdogPressureTitle => _s('watchdogPressureTitle');
-  String get watchdogPressureBody => _s('watchdogPressureBody');
+  String get watchdogLoadTitle => _s('watchdogLoadTitle');
   String get watchdogCloseAndLaunch => _s('watchdogCloseAndLaunch');
   String get watchdogClosingAndLaunching => _s('watchdogClosingAndLaunching');
   String get watchdogLaunchAnyway => _s('watchdogLaunchAnyway');

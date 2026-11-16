@@ -78,6 +78,58 @@ Widget buildQuickToggle(
   );
 }
 
+/// A ◀ value ▶ row in the stream overlay, stepped with D-pad left/right.
+Widget buildStepperTile({
+  required String label,
+  required Widget value,
+  required String semanticValue,
+  required VoidCallback onPrev,
+  required VoidCallback onNext,
+  bool focused = false,
+}) {
+  final fg = focused ? Colors.white : Colors.white70;
+  return Semantics(
+    label: label,
+    value: semanticValue,
+    onIncrease: onNext,
+    onDecrease: onPrev,
+    child: AnimatedContainer(
+      duration: const Duration(milliseconds: 120),
+      padding: const EdgeInsets.only(left: 16),
+      decoration: BoxDecoration(
+        color: focused
+            ? Colors.white.withValues(alpha: 0.12)
+            : Colors.transparent,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: TextStyle(
+                color: fg,
+                fontWeight: focused ? FontWeight.w600 : FontWeight.w500,
+              ),
+            ),
+          ),
+          IconButton(
+            onPressed: onPrev,
+            icon: Icon(Icons.chevron_left_rounded, color: fg),
+            visualDensity: VisualDensity.compact,
+          ),
+          value,
+          IconButton(
+            onPressed: onNext,
+            icon: Icon(Icons.chevron_right_rounded, color: fg),
+            visualDensity: VisualDensity.compact,
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
 /// A menu tile used in the stream overlay action list.
 ///
 /// Shows an icon + label in a ListTile with focus highlight.

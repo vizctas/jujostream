@@ -410,6 +410,42 @@ class ThemeProvider extends ChangeNotifier {
     hasOverride: isServerScopeActive,
   );
 
+  static const _keyOverlayOpacity = 'stream_overlay_opacity';
+  static const _keyOverlayBg = 'stream_overlay_bg';
+  static const overlayBgChoices = ['theme', 'surface', 'black', 'accent'];
+
+  double get overlayOpacity =>
+      (_prefs.getDouble(_keyOverlayOpacity) ?? 0.75).clamp(0.40, 1.00);
+
+  String get overlayBgChoice {
+    final v = _prefs.getString(_keyOverlayBg);
+    return overlayBgChoices.contains(v) ? v! : 'theme';
+  }
+
+  Color overlaySwatch(String id) => switch (id) {
+    'surface' => surface,
+    'black' => Colors.black,
+    'accent' => Color.alphaBlend(accent.withValues(alpha: 0.22), Colors.black),
+    _ => background,
+  };
+
+  /// In-stream menu panel fill: chosen theme color at the user's opacity.
+  Color get overlayBackground =>
+      overlaySwatch(overlayBgChoice).withValues(alpha: overlayOpacity);
+
+  Future<void> setOverlayOpacity(double value) async {
+    final stepped = ((value * 20).round() / 20).clamp(0.40, 1.00);
+    await _prefs.setDouble(_keyOverlayOpacity, stepped);
+    notifyListeners();
+  }
+
+  Future<void> cycleOverlayBg(int delta) async {
+    final n = overlayBgChoices.length;
+    final i = overlayBgChoices.indexOf(overlayBgChoice);
+    await _prefs.setString(_keyOverlayBg, overlayBgChoices[(i + delta) % n]);
+    notifyListeners();
+  }
+
   Color get background => colors.background;
   Color get surface => colors.surface;
   Color get accent => colors.accent;

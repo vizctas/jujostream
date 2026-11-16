@@ -1478,7 +1478,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
     setState(() {
       switch (direction) {
         case 'down':
-          _overlayRow = (_overlayRow + 1).clamp(0, 7);
+          _overlayRow = (_overlayRow + 1).clamp(0, _overlayLastRow);
           if (_overlayRow == 0) {
             _overlayCol = _overlayCol.clamp(0, 3);
           } else if (_overlayRow == 1) {
@@ -1487,7 +1487,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
             _overlayCol = 0;
           }
         case 'up':
-          _overlayRow = (_overlayRow - 1).clamp(0, 7);
+          _overlayRow = (_overlayRow - 1).clamp(0, _overlayLastRow);
           if (_overlayRow == 0) {
             _overlayCol = _overlayCol.clamp(0, 3);
           } else if (_overlayRow == 1) {
@@ -1500,12 +1500,16 @@ class _GameStreamScreenState extends State<GameStreamScreen>
             _overlayCol = (_overlayCol - 1).clamp(0, 3);
           } else if (_overlayRow == 1) {
             _overlayCol = (_overlayCol - 1).clamp(0, _toggleCount - 1);
+          } else if (_overlayRow >= 8) {
+            _stepOverlayAppearance(-1);
           }
         case 'right':
           if (_overlayRow == 0) {
             _overlayCol = (_overlayCol + 1).clamp(0, 3);
           } else if (_overlayRow == 1) {
             _overlayCol = (_overlayCol + 1).clamp(0, _toggleCount - 1);
+          } else if (_overlayRow >= 8) {
+            _stepOverlayAppearance(1);
           }
       }
     });
@@ -1561,6 +1565,18 @@ class _GameStreamScreenState extends State<GameStreamScreen>
 
   int get _toggleCount => _config.multiControllerEnabled ? 7 : 6;
 
+  // Rows 8 (opacity) and 9 (background) are the appearance steppers.
+  static const _overlayLastRow = 9;
+
+  void _stepOverlayAppearance(int delta) {
+    final tp = context.read<ThemeProvider>();
+    if (_overlayRow == 8) {
+      tp.setOverlayOpacity(tp.overlayOpacity + delta * 0.05);
+    } else {
+      tp.cycleOverlayBg(delta);
+    }
+  }
+
   void _activateOverlayCurrentItem() {
     switch (_overlayRow) {
       case 0:
@@ -1588,6 +1604,9 @@ class _GameStreamScreenState extends State<GameStreamScreen>
         _openCoopPlayersPanel();
       case 7:
         _setOverlayVisible(false);
+      case 8:
+      case 9:
+        _stepOverlayAppearance(1);
     }
   }
 
@@ -2013,7 +2032,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
       if (_showOverlay && !_showSpecialKeys && !_showCoopPlayers) {
         if (key == LogicalKeyboardKey.arrowDown) {
           setState(() {
-            _overlayRow = (_overlayRow + 1).clamp(0, 7);
+            _overlayRow = (_overlayRow + 1).clamp(0, _overlayLastRow);
 
             if (_overlayRow == 0) {
               _overlayCol = _overlayCol.clamp(0, 3);
@@ -2028,7 +2047,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
         }
         if (key == LogicalKeyboardKey.arrowUp) {
           setState(() {
-            _overlayRow = (_overlayRow - 1).clamp(0, 7);
+            _overlayRow = (_overlayRow - 1).clamp(0, _overlayLastRow);
             if (_overlayRow == 0) {
               _overlayCol = _overlayCol.clamp(0, 3);
             } else if (_overlayRow == 1) {
@@ -2047,6 +2066,8 @@ class _GameStreamScreenState extends State<GameStreamScreen>
             setState(
               () => _overlayCol = (_overlayCol - 1).clamp(0, _toggleCount - 1),
             );
+          } else if (_overlayRow >= 8) {
+            _stepOverlayAppearance(-1);
           }
           return KeyEventResult.handled;
         }
@@ -2057,6 +2078,8 @@ class _GameStreamScreenState extends State<GameStreamScreen>
             setState(
               () => _overlayCol = (_overlayCol + 1).clamp(0, _toggleCount - 1),
             );
+          } else if (_overlayRow >= 8) {
+            _stepOverlayAppearance(1);
           }
           return KeyEventResult.handled;
         }
@@ -2656,7 +2679,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
     if (!_showSpecialKeys && !_showCoopPlayers) {
       if (key == LogicalKeyboardKey.arrowDown) {
         setState(() {
-          _overlayRow = (_overlayRow + 1).clamp(0, 7);
+          _overlayRow = (_overlayRow + 1).clamp(0, _overlayLastRow);
           if (_overlayRow == 0) {
             _overlayCol = _overlayCol.clamp(0, 3);
           } else if (_overlayRow == 1) {
@@ -2670,7 +2693,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
       }
       if (key == LogicalKeyboardKey.arrowUp) {
         setState(() {
-          _overlayRow = (_overlayRow - 1).clamp(0, 7);
+          _overlayRow = (_overlayRow - 1).clamp(0, _overlayLastRow);
           if (_overlayRow == 0) {
             _overlayCol = _overlayCol.clamp(0, 3);
           } else if (_overlayRow == 1) {
@@ -2689,6 +2712,8 @@ class _GameStreamScreenState extends State<GameStreamScreen>
           setState(
             () => _overlayCol = (_overlayCol - 1).clamp(0, _toggleCount - 1),
           );
+        } else if (_overlayRow >= 8) {
+          _stepOverlayAppearance(-1);
         }
         return KeyEventResult.handled;
       }
@@ -2699,6 +2724,8 @@ class _GameStreamScreenState extends State<GameStreamScreen>
           setState(
             () => _overlayCol = (_overlayCol + 1).clamp(0, _toggleCount - 1),
           );
+        } else if (_overlayRow >= 8) {
+          _stepOverlayAppearance(1);
         }
         return KeyEventResult.handled;
       }
@@ -2796,8 +2823,8 @@ class _GameStreamScreenState extends State<GameStreamScreen>
   }
 
   Widget _buildMenuOverlay() {
-    final tp = context.read<ThemeProvider>();
-    final bgColor = tp.background;
+    final tp = context.watch<ThemeProvider>();
+    final bgColor = tp.overlayBackground;
     final viewport = MediaQuery.sizeOf(context);
     final isLandscape =
         MediaQuery.orientationOf(context) == Orientation.landscape;
@@ -2831,7 +2858,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
         _setOverlayVisible(false);
       },
       child: Container(
-        color: Colors.black54,
+        color: Colors.black.withValues(alpha: 0.30),
         child: Center(
           child: Focus(
             focusNode: _overlayFocusNode,
@@ -3201,12 +3228,77 @@ class _GameStreamScreenState extends State<GameStreamScreen>
           },
           focused: _overlayRow == 7,
         ),
+        const SizedBox(height: 4),
+        const Divider(color: Colors.white12, height: 1),
+        const SizedBox(height: 4),
+        _buildAppearanceRows(),
         Padding(
           padding: const EdgeInsets.only(top: 8),
           child: Text(
             AppLocalizations.of(context).menuHint,
             style: TextStyle(color: Colors.white24, fontSize: 10),
             textAlign: TextAlign.center,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAppearanceRows() {
+    final l = AppLocalizations.of(context);
+    final tp = context.watch<ThemeProvider>();
+    final pct = '${(tp.overlayOpacity * 100).round()}%';
+    final chosen = tp.overlayBgChoice;
+    void step(int row, int delta) {
+      setState(() => _overlayRow = row);
+      _stepOverlayAppearance(delta);
+    }
+
+    return Column(
+      children: [
+        buildStepperTile(
+          label: l.overlayOpacity,
+          semanticValue: pct,
+          focused: _overlayRow == 8,
+          onPrev: () => step(8, -1),
+          onNext: () => step(8, 1),
+          value: SizedBox(
+            width: 44,
+            child: Text(
+              pct,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w600,
+                fontFeatures: [FontFeature.tabularFigures()],
+              ),
+            ),
+          ),
+        ),
+        buildStepperTile(
+          label: l.overlayBackground,
+          semanticValue: chosen,
+          focused: _overlayRow == 9,
+          onPrev: () => step(9, -1),
+          onNext: () => step(9, 1),
+          value: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (final id in ThemeProvider.overlayBgChoices)
+                Container(
+                  width: 16,
+                  height: 16,
+                  margin: const EdgeInsets.symmetric(horizontal: 3),
+                  decoration: BoxDecoration(
+                    color: tp.overlaySwatch(id),
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: id == chosen ? Colors.white : Colors.white24,
+                      width: id == chosen ? 2 : 1,
+                    ),
+                  ),
+                ),
+            ],
           ),
         ),
       ],

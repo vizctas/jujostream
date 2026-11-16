@@ -63,6 +63,7 @@ void main() {
                   status: sampleStatus,
                   surface: const Color(0xFF141824),
                   accent: const Color(0xFF00D4AA),
+                  hostName: 'JULYTOWER',
                 );
               },
               child: const Text('Open'),
@@ -74,15 +75,16 @@ void main() {
       await tester.tap(find.text('Open'));
       await tester.pumpAndSettle();
 
+      expect(find.text('JULYTOWER · RAM at 89%'), findsOneWidget);
       expect(find.text('Google Chrome'), findsOneWidget);
       expect(find.text('Custom Heavy App'), findsOneWidget);
-      expect(find.text('Close & Launch (1)'), findsOneWidget);
+      expect(find.text('Close 1 and launch'), findsOneWidget);
 
       await tester.tap(find.text('Custom Heavy App'));
       await tester.pumpAndSettle();
-      expect(find.text('Close & Launch (2)'), findsOneWidget);
+      expect(find.text('Close 2 and launch'), findsOneWidget);
 
-      await tester.tap(find.text('Close & Launch (2)'));
+      await tester.tap(find.text('Close 2 and launch'));
       await tester.pumpAndSettle();
 
       expect(result?.outcome, WatchdogDialogOutcome.closeAndLaunch);
@@ -217,7 +219,8 @@ void main() {
       find.text('No safe heavy background apps were found to close.'),
       findsOneWidget,
     );
-    expect(find.textContaining('Close & Launch'), findsNothing);
+    expect(find.text('CPU at 92%'), findsOneWidget);
+    expect(find.textContaining('and launch'), findsNothing);
 
     await tester.tap(find.text('Launch Anyway'));
     await tester.pumpAndSettle();
