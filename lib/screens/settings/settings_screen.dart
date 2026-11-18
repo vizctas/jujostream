@@ -321,13 +321,13 @@ class _SettingsScreenState extends State<SettingsScreen>
                           _section(_tr(context, 'Appearance', 'Apariencia')),
                           const AppearanceSettings(),
 
-                                _section(
-                                  _tr(
-                                    context,
-                                    'Launcher Appearance',
-                                    'Apariencia de inicio',
-                                  ),
-                                ),
+                          _section(
+                            _tr(
+                              context,
+                              'Launcher Appearance',
+                              'Apariencia de inicio',
+                            ),
+                          ),
                           _choiceTile(
                             context,
                             _tr(
@@ -2790,17 +2790,15 @@ class _SettingsScreenState extends State<SettingsScreen>
   Future<String?> _pickCustomWallpaperFile([String? serverHostId]) async {
     try {
       String? pickedPath;
-      if (io.Platform.isMacOS) {
-        const imageGroup = XTypeGroup(
-          label: 'Images',
-          extensions: ['jpg', 'jpeg', 'png', 'webp'],
+      if (io.Platform.isWindows || io.Platform.isLinux || io.Platform.isMacOS) {
+        const mediaGroup = XTypeGroup(
+          label: 'Images and videos',
+          extensions: ['jpg', 'jpeg', 'png', 'webp', 'mp4'],
         );
-        final result = await openFile(acceptedTypeGroups: [imageGroup]);
+        final result = await openFile(acceptedTypeGroups: [mediaGroup]);
         pickedPath = result?.path;
       } else {
-        final picked = await ImagePicker().pickImage(
-          source: ImageSource.gallery,
-        );
+        final picked = await ImagePicker().pickMedia();
         pickedPath = picked?.path;
       }
       if (pickedPath == null || pickedPath.isEmpty) return null;
@@ -2818,9 +2816,9 @@ class _SettingsScreenState extends State<SettingsScreen>
         p.join(bgDir.path, 'focus_wallpaper$suffix$ext'),
       );
       await io.File(pickedPath).copy(destFile.path);
-      // Evict any stale decoded copy of a previous custom wallpaper at the
-      // same path so the new image shows immediately.
-      FileImage(destFile).evict();
+      // Evict stale decoded image at same path; videos are handled by the
+      // video controller lifecycle.
+      if (!ext.toLowerCase().endsWith('.mp4')) FileImage(destFile).evict();
       return destFile.path;
     } catch (e) {
       debugPrint('[Settings] custom wallpaper pick failed: $e');

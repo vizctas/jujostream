@@ -42,6 +42,7 @@ import '../../widgets/mfa_bypassed_confirmation_dialog.dart';
 import '../../widgets/computer_entry_overlay.dart';
 import '../auth/cloud_auth_screen.dart';
 import '../../widgets/jujo_brand_title.dart';
+import '../../widgets/focus_wallpaper_video.dart';
 
 /// Preference key for Focus Mode toggle.
 const _kFocusModeEnabled = 'focus_mode_enabled';
@@ -512,11 +513,11 @@ class _FocusModeScreenState extends State<FocusModeScreen>
               hasOverride: currentHasOverride,
             );
             String? effectiveFilePath;
-            String effectiveAsset = currentComputer != null
-                ? _focusDefaultAsset(
-                    _stableAssetIndex(currentComputer, _currentPage),
-                  )
-                : _focusDefaultAsset(0);
+            String effectiveAsset = kFocusWallpaperAssets[
+                currentComputer != null
+                    ? _stableAssetIndex(currentComputer, _currentPage) %
+                          kFocusWallpaperAssets.length
+                    : 0];
             if (resolvedWallpaper.isNotEmpty) {
               if (resolvedWallpaper.startsWith('asset:')) {
                 effectiveAsset = resolvedWallpaper.substring(6);
@@ -529,12 +530,20 @@ class _FocusModeScreenState extends State<FocusModeScreen>
               fit: StackFit.expand,
               children: [
                 // ── Wallpaper ──
-                _Wallpaper(
-                  imagePath: effectiveFilePath,
-                  assetPath: effectiveAsset,
-                  fallbackColor: serverColors.background,
-                  cacheWidth: serverPerfMode ? 720 : 1920,
-                ),
+                if ((effectiveFilePath?.toLowerCase().endsWith('.mp4') ?? false) ||
+                    effectiveAsset.toLowerCase().endsWith('.mp4'))
+                  FocusWallpaperVideo(
+                    filePath: effectiveFilePath,
+                    assetPath: effectiveFilePath == null ? effectiveAsset : null,
+                    fallbackColor: serverColors.background,
+                  )
+                else
+                  _Wallpaper(
+                    imagePath: effectiveFilePath,
+                    assetPath: effectiveAsset,
+                    fallbackColor: serverColors.background,
+                    cacheWidth: serverPerfMode ? 720 : 1920,
+                  ),
 
                 // ── Particle or Wave overlay (background effect) ──
                 if (!serverReduceEffects)

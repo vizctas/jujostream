@@ -10,20 +10,23 @@ import '../themes/launcher_theme_registry.dart';
 
 /// Bundled Focus Mode wallpapers, selectable in Settings → Personalization and
 /// during onboarding. Stored in the focus_wallpaper pref as `asset:path`.
+/// Bundled looping Focus Mode videos, selectable in Settings and onboarding.
+/// Stored in the focus_wallpaper pref as `asset:path`.
 const kFocusWallpaperAssets = <String>[
-  'assets/images/focus/wallpaper_00.jpg',
-  'assets/images/focus/wallpaper_01.jpg',
-  'assets/images/focus/wallpaper_02.jpg',
-  'assets/images/focus/wallpaper_03.jpg',
-  'assets/images/focus/wallpaper_04.jpg',
-  'assets/images/focus/wallpaper_05.jpg',
-  'assets/images/focus/wallpaper_06.jpg',
-  'assets/images/focus/wallpaper_07.jpg',
-  'assets/images/focus/wallpaper_08.jpg',
-  'assets/images/focus/wallpaper_09.jpg',
-  'assets/images/focus/wallpaper_10.jpg',
-  'assets/images/focus/wallpaper_11.jpg',
+  'assets/images/focus/01-farol.mp4',
+  'assets/images/focus/02-tormenta.mp4',
+  'assets/images/focus/03-remolinos.mp4',
+  'assets/images/focus/05-atardecer.mp4',
 ];
+
+String _normalizeFocusWallpaper(String value) {
+  if (value.startsWith('asset:') &&
+      value.endsWith('.jpg') &&
+      (value.contains('/wallpaper_') || value.contains('/default_focus'))) {
+    return 'asset:${kFocusWallpaperAssets.first}';
+  }
+  return value;
+}
 
 class ThemeProvider extends ChangeNotifier {
   static const _keyTheme = 'app_theme';
@@ -229,9 +232,9 @@ class ThemeProvider extends ChangeNotifier {
   String focusWallpaperForServer(String? hostId, {required bool hasOverride}) {
     if (hasOverride && hostId != null && hostId.isNotEmpty) {
       final raw = _prefs.getString(_srvKey(_keyFocusWallpaper, hostId));
-      if (raw != null) return raw;
+      if (raw != null) return _normalizeFocusWallpaper(raw);
     }
-    return _focusWallpaper;
+    return _normalizeFocusWallpaper(_focusWallpaper);
   }
 
   String ambienceLayoutForServer(String? hostId, {required bool hasOverride}) {
@@ -371,8 +374,7 @@ class ThemeProvider extends ChangeNotifier {
   LauncherThemeId get launcherThemeId =>
       launcherThemeIdForServer(_serverHostId, hasOverride: isServerScopeActive);
 
-  LauncherTheme get launcherTheme =>
-      LauncherThemeRegistry.get(launcherThemeId);
+  LauncherTheme get launcherTheme => LauncherThemeRegistry.get(launcherThemeId);
 
   String get ambienceLayout =>
       ambienceLayoutForServer(_serverHostId, hasOverride: isServerScopeActive);

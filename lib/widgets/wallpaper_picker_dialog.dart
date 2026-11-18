@@ -30,9 +30,13 @@ class WallpaperGrid extends StatelessWidget {
   Widget build(BuildContext context) {
     final isEs = AppLocalizations.of(context).locale.languageCode == 'es';
     final entries = <(String value, String? asset, String? label)>[
-      ('', 'assets/images/focus/default_focus000.jpg',
-          isEs ? 'Predeterminado' : 'Default'),
-      for (final a in kFocusWallpaperAssets) ('asset:$a', a, null),
+      (
+        '',
+        'assets/images/focus/01-farol_preview.jpg',
+        isEs ? 'Predeterminado' : 'Default',
+      ),
+      for (final a in kFocusWallpaperAssets.skip(1))
+        ('asset:$a', a.replaceFirst('.mp4', '_preview.jpg'), null),
       if (showCustom) ('custom', null, isEs ? 'Personalizado…' : 'Custom…'),
     ];
 
@@ -97,8 +101,9 @@ class _WallpaperTileState extends State<_WallpaperTile> {
   Widget build(BuildContext context) {
     final borderColor = _focused
         ? widget.accent
-        : (widget.selected ? widget.accent.withValues(alpha: 0.6)
-                           : Colors.white12);
+        : (widget.selected
+              ? widget.accent.withValues(alpha: 0.6)
+              : Colors.white12);
     return Focus(
       autofocus: widget.autofocus,
       onFocusChange: (f) => setState(() => _focused = f),
@@ -118,10 +123,7 @@ class _WallpaperTileState extends State<_WallpaperTile> {
           duration: const Duration(milliseconds: 120),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(10),
-            border: Border.all(
-              color: borderColor,
-              width: _focused ? 3 : 2,
-            ),
+            border: Border.all(color: borderColor, width: _focused ? 3 : 2),
             boxShadow: _focused
                 ? [
                     BoxShadow(
@@ -141,8 +143,7 @@ class _WallpaperTileState extends State<_WallpaperTile> {
                     widget.asset!,
                     fit: BoxFit.cover,
                     cacheWidth: 320,
-                    errorBuilder: (_, _, _) =>
-                        Container(color: Colors.white10),
+                    errorBuilder: (_, _, _) => Container(color: Colors.white10),
                   )
                 else
                   Container(

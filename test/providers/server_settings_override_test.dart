@@ -228,7 +228,7 @@ void main() {
             'srv-1',
             hasOverride: settings.hasServerOverride('srv-1'),
           ),
-          'asset:assets/images/focus/default_focus002.jpg',
+          'asset:assets/images/focus/01-farol.mp4',
         );
         expect(
           tp.ambienceLayoutForServer(
@@ -258,7 +258,7 @@ void main() {
             'srv-2',
             hasOverride: settings.hasServerOverride('srv-2'),
           ),
-          'asset:assets/images/focus/default_focus000.jpg',
+          'asset:assets/images/focus/01-farol.mp4',
         );
         expect(
           tp.ambienceLayoutForServer(
