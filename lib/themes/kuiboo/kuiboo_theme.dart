@@ -12,8 +12,6 @@ import '../../services/audio/ui_sound_service.dart';
 import '../../widgets/news_carousel/stacked_news_sections.dart';
 import '../../widgets/game_backdrop_art.dart';
 import '../../widgets/poster_image.dart';
-import '../../widgets/trailer_modal.dart';
-import '../../services/metadata/steam_video_client.dart';
 import '../../services/preferences/launcher_preferences.dart';
 import '../../screens/app_view/app_view_presentation_settings_screen.dart';
 import '../launcher_theme.dart';
@@ -92,7 +90,7 @@ class KuibooTheme extends LauncherTheme {
   }
 }
 
-enum _View { carousel, detail, sections }
+enum _View { carousel, sections }
 
 class _Body extends StatefulWidget {
   final List<NvApp> apps;
@@ -147,8 +145,6 @@ class _BodyState extends State<_Body> {
   _View _view = _View.carousel;
   Timer? _bgDebounce;
   int? _bgAppId;
-  Timer? _idleTimer;
-  bool _isIdle = false;
 
   static const double _cw = 140, _ch = 80, _gap = 16;
   // Selected card size is viewport-driven; updated on every carousel layout.
@@ -167,7 +163,6 @@ class _BodyState extends State<_Body> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _scroll(false);
       _fn.requestFocus();
-      _resetIdleTimer();
     });
   }
 
@@ -192,25 +187,11 @@ class _BodyState extends State<_Body> {
     _vSc.dispose();
     _fn.dispose();
     _bgDebounce?.cancel();
-    _idleTimer?.cancel();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     super.dispose();
   }
 
   NvApp? get _sel => widget.apps.isNotEmpty ? widget.apps[_idx] : null;
-
-  bool get _videoPlaying =>
-      widget.videoWidget != null &&
-      widget.videoForAppId == _sel?.appId &&
-      _view == _View.detail;
-
-  void _resetIdleTimer() {
-    if (_isIdle) setState(() => _isIdle = false);
-    _idleTimer?.cancel();
-    _idleTimer = Timer(const Duration(seconds: 5), () {
-      if (mounted && _videoPlaying) setState(() => _isIdle = true);
-    });
-  }
 
   void _scroll([bool anim = true]) {
     if (_sc.positions.length != 1 || widget.apps.isEmpty) return;
@@ -232,7 +213,6 @@ class _BodyState extends State<_Body> {
   }
 
   void _move(int d) {
-    _resetIdleTimer();
     final n = (_idx + d).clamp(0, widget.apps.length - 1);
     if (n == _idx) return;
 
@@ -251,11 +231,10 @@ class _BodyState extends State<_Body> {
   }
 
   void _action() {
-    _resetIdleTimer();
     HapticFeedback.mediumImpact();
   }
 
-  // Kuiboo shows the trailer in carousel and detail; only sections hide it.
+  // Kuiboo shows the trailer in the carousel card; sections hide it.
   // The parent schedules the preview on true and disposes it on false.
   void _setView(_View v) {
     if (v == _view) return;
@@ -264,6 +243,26 @@ class _BodyState extends State<_Body> {
     if (wasVisible != (v != _View.sections)) {
       widget.onDetailViewChanged?.call(!wasVisible);
     }
+  }
+
+  void _enterSections() {
+    _setView(_View.sections);
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => _sectionsKey.currentState?.enterFromTop(),
+    );
+  }
+
+  void _exitSections() {
+    if (_vSc.hasClients) {
+      unawaited(
+        _vSc.animateTo(
+          0.0,
+          duration: const Duration(milliseconds: 260),
+          curve: Curves.easeOutCubic,
+        ),
+      );
+    }
+    _setView(_View.carousel);
   }
 
   @override
@@ -307,7 +306,7 @@ class _BodyState extends State<_Body> {
           }
           if (k == LogicalKeyboardKey.arrowDown) {
             _action();
-            _setView(_View.detail);
+            _enterSections();
             return KeyEventResult.handled;
           }
           if (k == LogicalKeyboardKey.gameButtonA ||
@@ -366,71 +365,11 @@ class _BodyState extends State<_Body> {
             return KeyEventResult.handled;
           }
         }
-        if (_view == _View.detail) {
-          if (k == LogicalKeyboardKey.arrowUp ||
-              k == LogicalKeyboardKey.gameButtonB ||
-              k == LogicalKeyboardKey.escape ||
-              k == LogicalKeyboardKey.goBack) {
-            _action();
-            _setView(_View.carousel);
-            return KeyEventResult.handled;
-          }
-          if (k == LogicalKeyboardKey.arrowDown) {
-            _action();
-            _setView(_View.sections);
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              _sectionsKey.currentState?.enterFromTop();
-            });
-            return KeyEventResult.handled;
-          }
-          if (k == LogicalKeyboardKey.arrowLeft) {
-            _move(-1);
-            return KeyEventResult.handled;
-          }
-          if (k == LogicalKeyboardKey.arrowRight) {
-            _move(1);
-            return KeyEventResult.handled;
-          }
-          if (k == LogicalKeyboardKey.gameButtonA ||
-              k == LogicalKeyboardKey.enter) {
-            _action();
-            if (s != null) widget.onAppSelected(s);
-            return KeyEventResult.handled;
-          }
-          if (k == LogicalKeyboardKey.gameButtonX) {
-            _action();
-            widget.onToggleView?.call();
-            return KeyEventResult.handled;
-          }
-          if (k == LogicalKeyboardKey.gameButtonY) {
-            _action();
-            if (s != null) widget.onAppDetails(s);
-            return KeyEventResult.handled;
-          }
-          if (k == LogicalKeyboardKey.gameButtonRight1) {
-            _action();
-            if (s != null) _openTrailer(s);
-            return KeyEventResult.handled;
-          }
-          if (k == LogicalKeyboardKey.gameButtonSelect) {
-            _action();
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => AppViewPresentationSettingsScreen(
-                  preferences: context.read<LauncherPreferences>(),
-                ),
-              ),
-            );
-            return KeyEventResult.handled;
-          }
-        }
         return KeyEventResult.ignored;
       },
       child: GestureDetector(
         behavior: HitTestBehavior.translucent,
         onHorizontalDragEnd: (details) {
-          _resetIdleTimer();
           final v = details.primaryVelocity ?? 0;
           if (v < -300) {
             _move(1);
@@ -439,49 +378,22 @@ class _BodyState extends State<_Body> {
           }
         },
         onVerticalDragEnd: (details) {
-          _resetIdleTimer();
           final v = details.primaryVelocity ?? 0;
-          if (v > 300) {
-            if (_view == _View.sections &&
-                _vSc.hasClients &&
-                _vSc.offset <= 24) {
-              _action();
-              unawaited(
-                _vSc.animateTo(
-                  0.0,
-                  duration: const Duration(milliseconds: 260),
-                  curve: Curves.easeOutCubic,
-                ),
-              );
-              _setView(_View.detail);
-            } else if (_view == _View.detail) {
-              _action();
-              _setView(_View.carousel);
-            } else if (_view == _View.carousel) {
-              _action();
-              _setView(_View.detail);
-            }
-          } else if (v < -300) {
-            if (_view == _View.carousel) {
-              _action();
-              _setView(_View.detail);
-            } else if (_view == _View.detail) {
-              _action();
-              _setView(_View.sections);
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                _sectionsKey.currentState?.enterFromTop();
-              });
-            }
+          if (v > 300 &&
+              _view == _View.sections &&
+              _vSc.hasClients &&
+              _vSc.offset <= 24) {
+            _action();
+            _exitSections();
+          } else if (v < -300 && _view == _View.carousel) {
+            _action();
+            _enterSections();
           }
         },
         child: Stack(
           fit: StackFit.expand,
           children: [
-            if (widget.videoWidget != null &&
-                widget.videoForAppId == bgApp?.appId &&
-                _view == _View.detail)
-              Positioned.fill(child: widget.videoWidget!)
-            else if (bgApp != null)
+            if (bgApp != null)
               Positioned.fill(
                 child: GameBackdropArt(
                   app: bgApp,
@@ -495,68 +407,51 @@ class _BodyState extends State<_Body> {
             else
               Positioned.fill(child: Container(color: tp.background)),
 
-            AnimatedOpacity(
-              opacity: _isIdle ? 0.15 : 1.0,
-              duration: MotionScope.of(context).backgroundDuration,
-              curve: MotionScope.of(context).tokens.stateCurve,
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  Positioned.fill(
-                    child: Container(
-                      color: Colors.black.withValues(alpha: 0.50),
-                    ),
-                  ),
-                  Positioned.fill(
-                    child: Container(
-                      decoration: const BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment(0, 0.2),
-                          end: Alignment.bottomCenter,
-                          colors: [Colors.transparent, Color(0xEE000000)],
-                        ),
+            Stack(
+              fit: StackFit.expand,
+              children: [
+                Positioned.fill(
+                  child: Container(color: Colors.black.withValues(alpha: 0.50)),
+                ),
+                Positioned.fill(
+                  child: Container(
+                    decoration: const BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment(0, 0.2),
+                        end: Alignment.bottomCenter,
+                        colors: [Colors.transparent, Color(0xEE000000)],
                       ),
                     ),
                   ),
-                  LayoutBuilder(
-                    builder: (context, constraints) {
-                      final vh = constraints.maxHeight;
-                      return SingleChildScrollView(
-                        controller: _vSc,
-                        physics: const ClampingScrollPhysics(),
-                        child: Column(
-                          children: [
-                            SizedBox(
-                              height: vh,
-                              child: AnimatedSwitcher(
-                                duration: MotionScope.of(
-                                  context,
-                                ).backgroundDuration,
-                                child: _view == _View.carousel
-                                    ? _carousel(tp, s, l)
-                                    : _detail(tp, s, l),
-                              ),
-                            ),
-                            StackedNewsSections(
-                              key: _sectionsKey,
-                              allApps: widget.allApps,
-                              apps: widget.apps,
-                              hasFocus: _view == _View.sections,
-                              parentScrollController: _vSc,
-                              onPlayApp: widget.onAppSelected,
-                              onAppDetails: widget.onAppDetails,
-                              onExitUp: () {
-                                _action();
-                                _setView(_View.detail);
-                              },
-                            ),
-                          ],
-                        ),
-                      );
-                    },
-                  ),
-                ],
-              ),
+                ),
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final vh = constraints.maxHeight;
+                    return SingleChildScrollView(
+                      controller: _vSc,
+                      physics: const ClampingScrollPhysics(),
+                      child: Column(
+                        children: [
+                          SizedBox(height: vh, child: _carousel(tp, s, l)),
+                          StackedNewsSections(
+                            key: _sectionsKey,
+                            allApps: widget.allApps,
+                            apps: widget.apps,
+                            hasFocus: _view == _View.sections,
+                            parentScrollController: _vSc,
+                            onPlayApp: widget.onAppSelected,
+                            onAppDetails: widget.onAppDetails,
+                            onExitUp: () {
+                              _action();
+                              _exitSections();
+                            },
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+              ],
             ),
           ],
         ),
@@ -939,335 +834,6 @@ class _BodyState extends State<_Body> {
           ),
         ],
       ],
-    );
-  }
-
-  Widget _detail(ThemeProvider tp, NvApp? s, AppLocalizations l) {
-    if (s == null) return const SizedBox.shrink();
-    final hasDesc = s.description != null && s.description!.isNotEmpty;
-    final isFav = widget.favoriteIds.contains(s.appId.toString());
-
-    return Column(
-      key: const ValueKey('d'),
-      children: [
-        const Spacer(flex: 7),
-
-        Padding(
-          padding: const EdgeInsets.fromLTRB(40, 0, 40, 40),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(8),
-                    child: SizedBox(
-                      width: 80,
-                      height: 45,
-                      child: s.posterUrl != null && s.posterUrl!.isNotEmpty
-                          ? PosterImage(
-                              url: s.posterUrl!,
-                              cacheKey: s.artCacheKey('poster'),
-                              fit: BoxFit.cover,
-                              memCacheWidth: 160,
-                              errorWidget: (_, _, _) => Container(
-                                color: tp.surface,
-                                child: Center(
-                                  child: Icon(
-                                    Icons.videogame_asset_outlined,
-                                    color: Colors.white24,
-                                    size: 18,
-                                  ),
-                                ),
-                              ),
-                            )
-                          : Container(
-                              color: tp.surface,
-                              child: Center(
-                                child: Icon(
-                                  Icons.videogame_asset_outlined,
-                                  color: Colors.white24,
-                                  size: 18,
-                                ),
-                              ),
-                            ),
-                    ),
-                  ),
-                  const SizedBox(width: 14),
-
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          s.appName,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 22,
-                            fontWeight: FontWeight.w800,
-                            height: 1.1,
-                            shadows: [
-                              Shadow(color: Colors.black87, blurRadius: 12),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-
-                        Wrap(
-                          spacing: 6,
-                          runSpacing: 4,
-                          children: [
-                            if (s.isRunning)
-                              _chip('● ${l.running}', Colors.greenAccent),
-                            if (isFav) _chip('★', Colors.amberAccent),
-                            if (s.isHdrSupported)
-                              _chip('HDR', tp.colors.accentLight),
-                            if (s.pluginName != null)
-                              _chip(s.pluginName!, tp.accentLight),
-                            ...s.metadataGenres
-                                .take(2)
-                                .map((g) => _chip(g, Colors.white38)),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 14),
-
-              SizedBox(
-                height: 100,
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Expanded(
-                      flex: 6,
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Expanded(
-                            child: GestureDetector(
-                              onTap: () {
-                                _action();
-                                widget.onAppSelected(s);
-                              },
-                              child: Container(
-                                width: double.infinity,
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 14,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: tp.accent,
-                                  borderRadius: BorderRadius.circular(10),
-                                  boxShadow: null,
-                                ),
-                                child: Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    const Icon(
-                                      Icons.play_arrow_rounded,
-                                      color: Colors.white,
-                                      size: 22,
-                                    ),
-                                    const SizedBox(width: 6),
-                                    Text(
-                                      s.isRunning ? l.resume : l.play,
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 15,
-                                        fontWeight: FontWeight.w800,
-                                        letterSpacing: 0.5,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-
-                          Row(
-                            children: [
-                              Expanded(
-                                child: _secondaryBtn(
-                                  Icons.library_books_outlined,
-                                  l.details,
-                                  tp.colors.accentLight,
-                                  () {
-                                    _action();
-                                    widget.onAppDetails(s);
-                                  },
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: _secondaryBtn(
-                                  Icons.tune_outlined,
-                                  l.options,
-                                  tp.colors.accentLight,
-                                  () {
-                                    _action();
-                                    widget.onAppDetails(s);
-                                  },
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: _secondaryBtn(
-                                  Icons.movie_outlined,
-                                  l.watchTrailer,
-                                  tp.colors.accentLight,
-                                  () {
-                                    _action();
-                                    _openTrailer(s);
-                                  },
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 20),
-
-                    Expanded(
-                      flex: 4,
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(12),
-                        child: Container(
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: Colors.black.withValues(alpha: 0.40),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: Colors.white.withValues(alpha: 0.10),
-                            ),
-                          ),
-                          child: hasDesc
-                              ? SingleChildScrollView(
-                                  child: Text(
-                                    s.description!.length > 280
-                                        ? '${s.description!.substring(0, 280)}…'
-                                        : s.description!,
-                                    style: const TextStyle(
-                                      color: Colors.white70,
-                                      fontSize: 12,
-                                      height: 1.7,
-                                    ),
-                                  ),
-                                )
-                              : Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Icon(
-                                      Icons.info_outline_rounded,
-                                      color: Colors.white24,
-                                      size: 18,
-                                    ),
-                                    const SizedBox(height: 8),
-                                    Text(
-                                      l.noDescription,
-                                      style: const TextStyle(
-                                        color: Colors.white30,
-                                        fontSize: 11,
-                                        height: 1.5,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  Future<void> _openTrailer(NvApp app) async {
-    int? steamId = app.steamAppId;
-    if (steamId == null) {
-      try {
-        steamId = await SteamVideoClient().searchAppId(app.appName);
-      } catch (_) {}
-    }
-    List<SteamMovie> movies = const [];
-    if (steamId != null && steamId > 0) {
-      try {
-        movies = await SteamVideoClient().getMovies(steamId);
-      } catch (_) {}
-    }
-    if (!mounted) return;
-    showDialog(
-      context: context,
-      barrierColor: Colors.black87,
-      builder: (_) => Dialog(
-        backgroundColor: Colors.transparent,
-        insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 40),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(20),
-          child: TrailerModal(
-            gameName: app.appName,
-            steamMovies: movies,
-            preferredSource: movies.isNotEmpty
-                ? TrailerSource.steam
-                : TrailerSource.youtube,
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _secondaryBtn(
-    IconData icon,
-    String label,
-    Color accent,
-    VoidCallback onTap,
-  ) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Stack(
-        children: [
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-            decoration: BoxDecoration(
-              color: accent.withValues(alpha: 0.10),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: accent.withValues(alpha: 0.22)),
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(icon, color: accent.withValues(alpha: 0.85), size: 15),
-                const SizedBox(width: 6),
-                Flexible(
-                  child: Text(
-                    label,
-                    style: TextStyle(
-                      color: accent.withValues(alpha: 0.85),
-                      fontSize: 10,
-                      fontWeight: FontWeight.w600,
-                    ),
-                    overflow: TextOverflow.ellipsis,
-                    maxLines: 1,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
     );
   }
 
