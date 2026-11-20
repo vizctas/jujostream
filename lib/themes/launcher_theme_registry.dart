@@ -1,6 +1,7 @@
 import 'launcher_theme.dart';
 import 'classic/classic_theme.dart';
 import 'backbone/backbone_theme.dart';
+import 'kuiboo/kuiboo_theme.dart';
 import 'ps5/ps5_theme.dart';
 import 'hero/hero_theme.dart';
 import 'big_screen/big_screen_theme.dart';
@@ -12,6 +13,7 @@ class LauncherThemeRegistry {
     LauncherThemeId.classic: ClassicTheme(),
     LauncherThemeId.bigScreen: BigScreenTheme(),
     LauncherThemeId.backbone: BackboneTheme(),
+    LauncherThemeId.kuiboo: KuibooTheme(),
     LauncherThemeId.ps5: Ps5Theme(),
     LauncherThemeId.hero: HeroTheme(),
   };
@@ -36,6 +38,7 @@ class LauncherThemeRegistry {
     return switch (id) {
       LauncherThemeId.classic => 'Classic',
       LauncherThemeId.backbone => 'Backbone',
+      LauncherThemeId.kuiboo => 'Kuiboo',
       LauncherThemeId.ps5 => 'PS5',
       LauncherThemeId.hero => 'Hero',
       LauncherThemeId.bigScreen => 'Big Screen',

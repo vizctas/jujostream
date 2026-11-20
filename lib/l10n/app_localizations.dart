@@ -811,6 +811,13 @@ class AppLocalizations {
       'es':
           'Carrusel vertical de pósters con vista grid. El layout original de JUJO.',
     },
+    'launcherThemeKuiboo': {'en': 'Kuiboo', 'es': 'Kuiboo'},
+    'launcherThemeKuibooDesc': {
+      'en':
+          'Large focused cards that play the trailer inside the card. Minimal HUD.',
+      'es':
+          'Tarjetas grandes al enfocar que reproducen el tráiler dentro de la tarjeta. HUD mínimo.',
+    },
     'launcherThemeBackbone': {'en': 'Backbone', 'es': 'Backbone'},
     'launcherThemeBackboneDesc': {
       'en':
@@ -1592,6 +1599,8 @@ class AppLocalizations {
   String get launcherThemeClassicDesc => _s('launcherThemeClassicDesc');
   String get launcherThemeBackbone => _s('launcherThemeBackbone');
   String get launcherThemeBackboneDesc => _s('launcherThemeBackboneDesc');
+  String get launcherThemeKuiboo => _s('launcherThemeKuiboo');
+  String get launcherThemeKuibooDesc => _s('launcherThemeKuibooDesc');
   String get launcherThemePs5 => _s('launcherThemePs5');
   String get launcherThemePs5Desc => _s('launcherThemePs5Desc');
   String get launcherThemeHero => _s('launcherThemeHero');

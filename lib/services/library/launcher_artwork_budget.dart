@@ -8,6 +8,7 @@ class LauncherArtworkBudget {
     return switch (theme) {
       LauncherThemeId.bigScreen => 320,
       LauncherThemeId.backbone => 340,
+      LauncherThemeId.kuiboo => 640,
       LauncherThemeId.ps5 => 240,
       LauncherThemeId.hero => 200,
       LauncherThemeId.classic => 300,
