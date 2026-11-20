@@ -66,7 +66,9 @@ class KuibooTheme extends LauncherTheme {
     return _Body(
       apps: sorted,
       allApps: allApps,
-      selectedIndex: 0,
+      selectedIndex: apps.isEmpty
+          ? 0
+          : sorted.indexOf(apps[selectedIndex.clamp(0, apps.length - 1)]),
       onAppSelected: onAppSelected,
       onAppDetails: onAppDetails,
       onIndexChanged: (i) {
@@ -151,6 +153,7 @@ class _BodyState extends State<_Body> {
   static const double _cw = 140, _ch = 80, _gap = 16;
   // Selected card size is viewport-driven; updated on every carousel layout.
   double _selW = 336, _selH = 189;
+  bool _animating = false;
 
   @override
   void initState() {
@@ -171,8 +174,15 @@ class _BodyState extends State<_Body> {
   @override
   void didUpdateWidget(covariant _Body o) {
     super.didUpdateWidget(o);
-    if (widget.apps.length != o.apps.length) {
-      _idx = _idx.clamp(0, (widget.apps.length - 1).clamp(0, 999999));
+    if (!identical(widget.apps, o.apps)) {
+      final id = o.apps.isEmpty
+          ? null
+          : o.apps[_idx.clamp(0, o.apps.length - 1)].appId;
+      final i = widget.apps.indexWhere((a) => a.appId == id);
+      _idx = (i >= 0 ? i : widget.selectedIndex).clamp(
+        0,
+        (widget.apps.length - 1).clamp(0, 999999),
+      );
     }
   }
 
@@ -203,20 +213,22 @@ class _BodyState extends State<_Body> {
   }
 
   void _scroll([bool anim = true]) {
-    if (!_sc.hasClients || widget.apps.isEmpty) return;
+    if (_sc.positions.length != 1 || widget.apps.isEmpty) return;
     // List is padded by half the viewport on both sides, so the selected
     // card's centre lands on the viewport centre at this offset.
     final off = (_idx * (_cw + _gap) + _selW / 2).clamp(
       0.0,
       _sc.position.maxScrollExtent,
     );
-    anim
-        ? _sc.animateTo(
-            off,
-            duration: MotionScope.read(context).focusDuration,
-            curve: MotionScope.read(context).standardCurve,
-          )
-        : _sc.jumpTo(off);
+    if (!anim) return _sc.jumpTo(off);
+    _animating = true;
+    _sc
+        .animateTo(
+          off,
+          duration: MotionScope.read(context).focusDuration,
+          curve: MotionScope.read(context).standardCurve,
+        )
+        .whenComplete(() => _animating = false);
   }
 
   void _move(int d) {
@@ -241,6 +253,17 @@ class _BodyState extends State<_Body> {
   void _action() {
     _resetIdleTimer();
     HapticFeedback.mediumImpact();
+  }
+
+  // Kuiboo shows the trailer in carousel and detail; only sections hide it.
+  // The parent schedules the preview on true and disposes it on false.
+  void _setView(_View v) {
+    if (v == _view) return;
+    final wasVisible = _view != _View.sections;
+    setState(() => _view = v);
+    if (wasVisible != (v != _View.sections)) {
+      widget.onDetailViewChanged?.call(!wasVisible);
+    }
   }
 
   @override
@@ -284,8 +307,7 @@ class _BodyState extends State<_Body> {
           }
           if (k == LogicalKeyboardKey.arrowDown) {
             _action();
-            setState(() => _view = _View.detail);
-            widget.onDetailViewChanged?.call(true);
+            _setView(_View.detail);
             return KeyEventResult.handled;
           }
           if (k == LogicalKeyboardKey.gameButtonA ||
@@ -350,13 +372,12 @@ class _BodyState extends State<_Body> {
               k == LogicalKeyboardKey.escape ||
               k == LogicalKeyboardKey.goBack) {
             _action();
-            setState(() => _view = _View.carousel);
-            widget.onDetailViewChanged?.call(false);
+            _setView(_View.carousel);
             return KeyEventResult.handled;
           }
           if (k == LogicalKeyboardKey.arrowDown) {
             _action();
-            setState(() => _view = _View.sections);
+            _setView(_View.sections);
             WidgetsBinding.instance.addPostFrameCallback((_) {
               _sectionsKey.currentState?.enterFromTop();
             });
@@ -432,24 +453,21 @@ class _BodyState extends State<_Body> {
                   curve: Curves.easeOutCubic,
                 ),
               );
-              setState(() => _view = _View.detail);
+              _setView(_View.detail);
             } else if (_view == _View.detail) {
               _action();
-              setState(() => _view = _View.carousel);
-              widget.onDetailViewChanged?.call(false);
+              _setView(_View.carousel);
             } else if (_view == _View.carousel) {
               _action();
-              setState(() => _view = _View.detail);
-              widget.onDetailViewChanged?.call(true);
+              _setView(_View.detail);
             }
           } else if (v < -300) {
             if (_view == _View.carousel) {
               _action();
-              setState(() => _view = _View.detail);
-              widget.onDetailViewChanged?.call(true);
+              _setView(_View.detail);
             } else if (_view == _View.detail) {
               _action();
-              setState(() => _view = _View.sections);
+              _setView(_View.sections);
               WidgetsBinding.instance.addPostFrameCallback((_) {
                 _sectionsKey.currentState?.enterFromTop();
               });
@@ -529,7 +547,7 @@ class _BodyState extends State<_Body> {
                               onAppDetails: widget.onAppDetails,
                               onExitUp: () {
                                 _action();
-                                setState(() => _view = _View.detail);
+                                _setView(_View.detail);
                               },
                             ),
                           ],
@@ -661,6 +679,9 @@ class _BodyState extends State<_Body> {
                 if (w * 9 / 16 > ah * 0.5) w = ah * 0.5 * 16 / 9;
                 _selW = w;
                 _selH = w * 9 / 16;
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (mounted && !_animating) _scroll(false);
+                });
                 final top = ((ah - _selH) / 2).clamp(0.0, ah);
                 final showTrailer =
                     widget.videoWidget != null && _view == _View.carousel;
@@ -674,6 +695,7 @@ class _BodyState extends State<_Body> {
                       child: ListView.builder(
                         controller: _sc,
                         scrollDirection: Axis.horizontal,
+                        physics: const NeverScrollableScrollPhysics(),
                         // Keep off-screen cards built so their posters are already
                         // decoded when fast D-pad movement arrives.
                         scrollCacheExtent: const ScrollCacheExtent.pixels(800),
