@@ -672,130 +672,152 @@ class _BodyState extends State<_Body> {
                       top: top,
                       height: _selH,
                       child: ListView.builder(
-              controller: _sc,
-              scrollDirection: Axis.horizontal,
-              // Keep off-screen cards built so their posters are already
-              // decoded when fast D-pad movement arrives.
-              scrollCacheExtent: const ScrollCacheExtent.pixels(800),
-              padding: EdgeInsets.symmetric(horizontal: vw / 2),
-              itemCount: widget.apps.length,
-              itemBuilder: (_, i) {
-                final a = widget.apps[i];
-                final sel = i == _idx;
-                final lp = context.read<LauncherPreferences>();
-                return GestureDetector(
-                  onTap: () {
-                    if (sel) {
-                      _action();
-                      widget.onAppSelected(a);
-                    } else {
-                      _move(i - _idx);
-                    }
-                  },
-                  child: AnimatedContainer(
-                    duration: MotionScope.of(context).focusDuration,
-                    curve: MotionScope.of(context).standardCurve,
-                    width: sel ? _selW : _cw,
-                    height: sel ? _selH : _ch,
-                    margin: EdgeInsets.only(
-                      right: _gap,
-                      top: sel ? 0 : (_selH - _ch),
-                    ),
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(lp.cardBorderRadius),
-                      border: Border.all(
-                        color: Colors.white.withValues(alpha: sel ? 0.0 : 0.10),
-                        width: 1,
-                      ),
-                      boxShadow: null,
-                    ),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(lp.cardBorderRadius),
-                      child: Stack(
-                        fit: StackFit.expand,
-                        children: [
-                          if (a.posterUrl != null && a.posterUrl!.isNotEmpty)
-                            PosterImage(
-                              url: a.posterUrl!,
-                              cacheKey: a.artCacheKey('poster'),
-                              fit: BoxFit.cover,
-                              memCacheWidth: sel ? 640 : 340,
-                              fadeInDuration: const Duration(milliseconds: 120),
-                              errorWidget: (_, _, _) => Container(
-                                color: tp.surface,
-                                child: Center(
-                                  child: Icon(
-                                    Icons.videogame_asset,
-                                    color: Colors.white12,
-                                    size: 20,
+                        controller: _sc,
+                        scrollDirection: Axis.horizontal,
+                        // Keep off-screen cards built so their posters are already
+                        // decoded when fast D-pad movement arrives.
+                        scrollCacheExtent: const ScrollCacheExtent.pixels(800),
+                        padding: EdgeInsets.symmetric(horizontal: vw / 2),
+                        itemCount: widget.apps.length,
+                        itemBuilder: (_, i) {
+                          final a = widget.apps[i];
+                          final sel = i == _idx;
+                          final lp = context.read<LauncherPreferences>();
+                          return GestureDetector(
+                            onTap: () {
+                              if (sel) {
+                                _action();
+                                widget.onAppSelected(a);
+                              } else {
+                                _move(i - _idx);
+                              }
+                            },
+                            child: AnimatedContainer(
+                              duration: MotionScope.of(context).focusDuration,
+                              curve: MotionScope.of(context).standardCurve,
+                              width: sel ? _selW : _cw,
+                              height: sel ? _selH : _ch,
+                              margin: EdgeInsets.only(
+                                right: _gap,
+                                top: sel ? 0 : (_selH - _ch),
+                              ),
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(
+                                  lp.cardBorderRadius,
+                                ),
+                                border: Border.all(
+                                  color: Colors.white.withValues(
+                                    alpha: sel ? 0.0 : 0.10,
                                   ),
+                                  width: 1,
+                                ),
+                                boxShadow: null,
+                              ),
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(
+                                  lp.cardBorderRadius,
+                                ),
+                                child: Stack(
+                                  fit: StackFit.expand,
+                                  children: [
+                                    if (a.posterUrl != null &&
+                                        a.posterUrl!.isNotEmpty)
+                                      PosterImage(
+                                        url: a.posterUrl!,
+                                        cacheKey: a.artCacheKey('poster'),
+                                        fit: BoxFit.cover,
+                                        memCacheWidth: sel ? 640 : 340,
+                                        fadeInDuration: const Duration(
+                                          milliseconds: 120,
+                                        ),
+                                        errorWidget: (_, _, _) => Container(
+                                          color: tp.surface,
+                                          child: Center(
+                                            child: Icon(
+                                              Icons.videogame_asset,
+                                              color: Colors.white12,
+                                              size: 20,
+                                            ),
+                                          ),
+                                        ),
+                                      )
+                                    else
+                                      Container(
+                                        color: tp.surface,
+                                        child: Center(
+                                          child: Text(
+                                            a.appName.length > 2
+                                                ? a.appName.substring(0, 2)
+                                                : a.appName,
+                                            style: TextStyle(
+                                              color: tp.accentLight,
+                                              fontSize: 14,
+                                              fontWeight: FontWeight.w800,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    if (sel &&
+                                        showTrailer &&
+                                        widget.videoForAppId == a.appId)
+                                      Positioned.fill(
+                                        child: TweenAnimationBuilder<double>(
+                                          tween: Tween(begin: 0, end: 1),
+                                          duration: MotionScope.of(
+                                            context,
+                                          ).focusDuration,
+                                          curve: MotionScope.of(
+                                            context,
+                                          ).standardCurve,
+                                          builder: (_, v, child) =>
+                                              Opacity(opacity: v, child: child),
+                                          child: widget.videoWidget!,
+                                        ),
+                                      ),
+                                    if (!sel)
+                                      Container(
+                                        color: Colors.black.withValues(
+                                          alpha: 0.30,
+                                        ),
+                                      ),
+                                    if (a.isRunning)
+                                      Positioned(
+                                        top: 3,
+                                        left: 3,
+                                        child: Container(
+                                          width: 6,
+                                          height: 6,
+                                          decoration: const BoxDecoration(
+                                            color: Colors.greenAccent,
+                                            shape: BoxShape.circle,
+                                          ),
+                                        ),
+                                      ),
+                                    if (widget.favoriteIds.contains(
+                                      a.appId.toString(),
+                                    ))
+                                      Positioned(
+                                        top: 3,
+                                        right: 3,
+                                        child: Icon(
+                                          Icons.star,
+                                          color: Colors.amberAccent,
+                                          size: 10,
+                                          shadows: [
+                                            Shadow(
+                                              color: Colors.black54,
+                                              blurRadius: 3,
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                  ],
                                 ),
                               ),
-                            )
-                          else
-                            Container(
-                              color: tp.surface,
-                              child: Center(
-                                child: Text(
-                                  a.appName.length > 2
-                                      ? a.appName.substring(0, 2)
-                                      : a.appName,
-                                  style: TextStyle(
-                                    color: tp.accentLight,
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                                ),
-                              ),
                             ),
-                          if (sel && showTrailer && widget.videoForAppId == a.appId)
-                            Positioned.fill(
-                              child: TweenAnimationBuilder<double>(
-                                tween: Tween(begin: 0, end: 1),
-                                duration: MotionScope.of(context).focusDuration,
-                                curve: MotionScope.of(context).standardCurve,
-                                builder: (_, v, child) =>
-                                    Opacity(opacity: v, child: child),
-                                child: widget.videoWidget!,
-                              ),
-                            ),
-                          if (!sel)
-                            Container(
-                              color: Colors.black.withValues(alpha: 0.30),
-                            ),
-                          if (a.isRunning)
-                            Positioned(
-                              top: 3,
-                              left: 3,
-                              child: Container(
-                                width: 6,
-                                height: 6,
-                                decoration: const BoxDecoration(
-                                  color: Colors.greenAccent,
-                                  shape: BoxShape.circle,
-                                ),
-                              ),
-                            ),
-                          if (widget.favoriteIds.contains(a.appId.toString()))
-                            Positioned(
-                              top: 3,
-                              right: 3,
-                              child: Icon(
-                                Icons.star,
-                                color: Colors.amberAccent,
-                                size: 10,
-                                shadows: [
-                                  Shadow(color: Colors.black54, blurRadius: 3),
-                                ],
-                              ),
-                            ),
-                        ],
+                          );
+                        },
                       ),
-                    ),
-                  ),
-                );
-              },
-            ),
                     ),
                     if (s != null)
                       Positioned(
@@ -1146,7 +1168,6 @@ class _BodyState extends State<_Body> {
             ],
           ),
         ),
-
       ],
     );
   }
@@ -1223,7 +1244,6 @@ class _BodyState extends State<_Body> {
               ],
             ),
           ),
-
         ],
       ),
     );
