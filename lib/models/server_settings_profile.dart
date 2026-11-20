@@ -186,6 +186,7 @@ class ServerSettingsProfile {
       'hero' => 'Hero',
       'bigScreen' => 'Big Screen',
       'backbone' => 'Backbone',
+      'kuiboo' => 'Kuiboo',
       _ => raw,
     };
   }

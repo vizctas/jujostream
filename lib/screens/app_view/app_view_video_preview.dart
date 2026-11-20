@@ -168,7 +168,9 @@ mixin _AppViewVideoPreviewMixin on _AppViewScreenBase {
     }
     debugPrint('[JUJO][video] scheduling for ${app.appName}');
     _videoDelayTimer = Timer(
-      Duration(seconds: pluginsProvider.videoDelaySeconds),
+      themeId == LauncherThemeId.kuiboo
+          ? const Duration(seconds: 2)
+          : Duration(seconds: pluginsProvider.videoDelaySeconds),
       () {
         _videoDelayTimer = null;
         if (!mounted) return;

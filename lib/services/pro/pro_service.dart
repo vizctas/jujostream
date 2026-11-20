@@ -117,6 +117,7 @@ class ProService extends ChangeNotifier {
     'classic',
     'ps5',
     'backbone',
+    'kuiboo',
     'bigScreen',
   };
 

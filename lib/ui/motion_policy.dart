@@ -114,6 +114,13 @@ class LauncherMotionProfile {
       directionalTravel: 4,
       artworkDepth: false,
     ),
+    LauncherThemeId.kuiboo => const LauncherMotionProfile(
+      personality: MotionPersonality.backbone,
+      focusScale: 1.018,
+      focusTravel: 3,
+      directionalTravel: 4,
+      artworkDepth: false,
+    ),
     LauncherThemeId.ps5 => const LauncherMotionProfile(
       personality: MotionPersonality.ps5,
       focusScale: 1.02,
