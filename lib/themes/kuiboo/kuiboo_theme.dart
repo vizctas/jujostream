@@ -570,264 +570,310 @@ class _BodyState extends State<_Body> {
               builder: (context, box) {
                 final vw = box.maxWidth;
                 final ah = box.maxHeight;
-                var w = (vw * 0.42).clamp(320.0, 720.0);
-                if (w * 9 / 16 > ah * 0.5) w = ah * 0.5 * 16 / 9;
+                final compact = ah < 360;
+                final titleSize = compact ? 20.0 : 24.0;
+                final titleBlockHeight = compact ? 100.0 : 112.0;
+                final compositionGap = compact ? 12.0 : 18.0;
+                final cardBudget = ah - titleBlockHeight - compositionGap;
+                final maxCardHeight = cardBudget <= 1
+                    ? 1.0
+                    : cardBudget.clamp(1.0, ah * 0.52);
+                var w = vw * 0.42;
+                if (w > 720) w = 720;
+                if (w * 9 / 16 > maxCardHeight) {
+                  w = maxCardHeight * 16 / 9;
+                }
                 _selW = w;
                 _selH = w * 9 / 16;
                 WidgetsBinding.instance.addPostFrameCallback((_) {
                   if (mounted && !_animating) _scroll(false);
                 });
-                final top = ((ah - _selH) / 2).clamp(0.0, ah);
                 final showTrailer =
                     widget.videoWidget != null && _view == _View.carousel;
-                return Stack(
-                  children: [
-                    Positioned(
-                      left: 0,
-                      right: 0,
-                      top: top,
-                      height: _selH,
-                      child: ListView.builder(
-                        controller: _sc,
-                        scrollDirection: Axis.horizontal,
-                        physics: const NeverScrollableScrollPhysics(),
-                        // Keep off-screen cards built so their posters are already
-                        // decoded when fast D-pad movement arrives.
-                        scrollCacheExtent: const ScrollCacheExtent.pixels(800),
-                        padding: EdgeInsets.symmetric(horizontal: vw / 2),
-                        itemCount: widget.apps.length,
-                        itemBuilder: (_, i) {
-                          final a = widget.apps[i];
-                          final sel = i == _idx;
-                          final lp = context.read<LauncherPreferences>();
-                          return GestureDetector(
-                            onTap: () {
-                              if (sel) {
-                                _action();
-                                widget.onAppSelected(a);
-                              } else {
-                                _move(i - _idx);
-                              }
-                            },
-                            child: AnimatedContainer(
-                              duration: MotionScope.of(context).focusDuration,
-                              curve: MotionScope.of(context).standardCurve,
-                              width: sel ? _selW : _cw,
-                              height: sel ? _selH : _ch,
-                              margin: EdgeInsets.only(
-                                right: _gap,
-                                top: sel ? 0 : (_selH - _ch),
-                              ),
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(
-                                  lp.cardBorderRadius,
-                                ),
-                                border: Border.all(
-                                  color: Colors.white.withValues(
-                                    alpha: sel ? 0.0 : 0.10,
-                                  ),
-                                  width: 1,
-                                ),
-                                boxShadow: null,
-                              ),
-                              child: ClipRRect(
-                                borderRadius: BorderRadius.circular(
-                                  lp.cardBorderRadius,
-                                ),
-                                child: Stack(
-                                  fit: StackFit.expand,
-                                  children: [
-                                    if (a.posterUrl != null &&
-                                        a.posterUrl!.isNotEmpty)
-                                      PosterImage(
-                                        url: a.posterUrl!,
-                                        cacheKey: a.artCacheKey('poster'),
-                                        fit: BoxFit.cover,
-                                        memCacheWidth: sel ? 640 : 340,
-                                        fadeInDuration: const Duration(
-                                          milliseconds: 120,
-                                        ),
-                                        errorWidget: (_, _, _) => Container(
-                                          color: tp.surface,
-                                          child: Center(
-                                            child: Icon(
-                                              Icons.videogame_asset,
-                                              color: Colors.white12,
-                                              size: 20,
-                                            ),
-                                          ),
-                                        ),
-                                      )
-                                    else
-                                      Container(
-                                        color: tp.surface,
-                                        child: Center(
-                                          child: Text(
-                                            a.appName.length > 2
-                                                ? a.appName.substring(0, 2)
-                                                : a.appName,
-                                            style: TextStyle(
-                                              color: tp.accentLight,
-                                              fontSize: 14,
-                                              fontWeight: FontWeight.w800,
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                    if (sel &&
-                                        showTrailer &&
-                                        widget.videoForAppId == a.appId)
-                                      Positioned.fill(
-                                        child: TweenAnimationBuilder<double>(
-                                          tween: Tween(begin: 0, end: 1),
-                                          duration: MotionScope.of(
-                                            context,
-                                          ).focusDuration,
-                                          curve: MotionScope.of(
-                                            context,
-                                          ).standardCurve,
-                                          builder: (_, v, child) =>
-                                              Opacity(opacity: v, child: child),
-                                          child: widget.videoWidget!,
-                                        ),
-                                      ),
-                                    if (!sel)
-                                      Container(
-                                        color: Colors.black.withValues(
-                                          alpha: 0.30,
-                                        ),
-                                      ),
-                                    if (a.isRunning)
-                                      Positioned(
-                                        top: 3,
-                                        left: 3,
-                                        child: Container(
-                                          width: 6,
-                                          height: 6,
-                                          decoration: const BoxDecoration(
-                                            color: Colors.greenAccent,
-                                            shape: BoxShape.circle,
-                                          ),
-                                        ),
-                                      ),
-                                    if (widget.favoriteIds.contains(
-                                      a.appId.toString(),
-                                    ))
-                                      Positioned(
-                                        top: 3,
-                                        right: 3,
-                                        child: Icon(
-                                          Icons.star,
-                                          color: Colors.amberAccent,
-                                          size: 10,
-                                          shadows: [
-                                            Shadow(
-                                              color: Colors.black54,
-                                              blurRadius: 3,
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-                    ),
-                    if (s != null)
-                      Positioned(
-                        left: 28,
-                        right: 28,
-                        top: top + _selH + 14,
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              s.appName,
-                              maxLines: 2,
-                              textAlign: TextAlign.center,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 24,
-                                fontWeight: FontWeight.w800,
-                                height: 1.05,
-                                shadows: [
-                                  Shadow(color: Colors.black87, blurRadius: 16),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(height: 6),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
+                final hasFilter =
+                    widget.activeFilterLabel != null &&
+                    widget.activeFilterLabel!.isNotEmpty &&
+                    widget.activeFilterLabel != l.all;
+                final chips = <String>[
+                  if (s != null && s.metadataGenres.isNotEmpty)
+                    s.metadataGenres.first,
+                  if (s?.pluginName?.isNotEmpty ?? false)
+                    _platform(s!.pluginName!),
+                  if (s != null && s.playtimeLabel.isNotEmpty) s.playtimeLabel,
+                  if (s?.isRunning ?? false) l.running,
+                ];
+                return Center(
+                  child: SizedBox(
+                    width: vw,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (s != null)
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 20),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                if (s.isRunning)
-                                  _chip('● ${l.running}', Colors.greenAccent),
-                                if (widget.favoriteIds.contains(
-                                  s.appId.toString(),
-                                )) ...[
-                                  if (s.isRunning) const SizedBox(width: 6),
-                                  const Icon(
-                                    Icons.star,
-                                    color: Colors.amberAccent,
-                                    size: 13,
-                                  ),
-                                ],
-                                if (s.metadataGenres.isNotEmpty) ...[
-                                  const SizedBox(width: 8),
-                                  Text(
-                                    s.metadataGenres.take(2).join(' · '),
-                                    style: const TextStyle(
-                                      color: Colors.white38,
-                                      fontSize: 10,
-                                    ),
-                                  ),
-                                ],
-                              ],
-                            ),
-                            if (widget.activeFilterLabel != null &&
-                                widget.activeFilterLabel!.isNotEmpty &&
-                                widget.activeFilterLabel != l.all)
-                              Padding(
-                                padding: const EdgeInsets.only(top: 6),
-                                child: GestureDetector(
-                                  onTap: () {
-                                    _action();
-                                    widget.onFilter?.call();
-                                  },
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(
-                                        Icons.filter_list,
-                                        color: tp.accent,
-                                        size: 13,
-                                      ),
-                                      const SizedBox(width: 4),
-                                      Text(
-                                        widget.activeFilterLabel!,
-                                        style: TextStyle(
-                                          color: tp.accent,
-                                          fontSize: 11,
-                                          fontWeight: FontWeight.w700,
-                                        ),
-                                      ),
-                                      const SizedBox(width: 4),
-                                      Icon(
-                                        Icons.close,
-                                        color: Colors.white38,
-                                        size: 11,
+                                Text(
+                                  s.appName,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: titleSize,
+                                    fontWeight: FontWeight.w800,
+                                    height: 1.05,
+                                    shadows: const [
+                                      Shadow(
+                                        color: Colors.black87,
+                                        blurRadius: 16,
                                       ),
                                     ],
                                   ),
                                 ),
+                                if (chips.isNotEmpty) ...[
+                                  const SizedBox(height: 8),
+                                  Wrap(
+                                    spacing: 6,
+                                    runSpacing: 6,
+                                    children: chips.map(_metaChip).toList(),
+                                  ),
+                                ],
+                                if (hasFilter)
+                                  Padding(
+                                    padding: const EdgeInsets.only(top: 6),
+                                    child: GestureDetector(
+                                      onTap: () {
+                                        _action();
+                                        widget.onFilter?.call();
+                                      },
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          const Icon(
+                                            Icons.filter_list,
+                                            color: Colors.white70,
+                                            size: 14,
+                                          ),
+                                          const SizedBox(width: 5),
+                                          Flexible(
+                                            child: Text(
+                                              widget.activeFilterLabel!,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: const TextStyle(
+                                                color: Colors.white70,
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                            ),
+                                          ),
+                                          const SizedBox(width: 5),
+                                          const Icon(
+                                            Icons.close,
+                                            color: Colors.white54,
+                                            size: 12,
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        SizedBox(height: compositionGap),
+                        // Title pins top-left; carousel centres in the rest.
+                        Expanded(
+                          child: Center(
+                            child: SizedBox(
+                              height: _selH,
+                              child: ListView.builder(
+                                controller: _sc,
+                                scrollDirection: Axis.horizontal,
+                                physics: const NeverScrollableScrollPhysics(),
+                                // Keep off-screen cards built so their posters are already
+                                // decoded when fast D-pad movement arrives.
+                                scrollCacheExtent:
+                                    const ScrollCacheExtent.pixels(800),
+                                padding: EdgeInsets.symmetric(
+                                  horizontal: vw / 2,
+                                ),
+                                itemCount: widget.apps.length,
+                                itemBuilder: (_, i) {
+                                  final a = widget.apps[i];
+                                  final sel = i == _idx;
+                                  final lp = context
+                                      .read<LauncherPreferences>();
+                                  return GestureDetector(
+                                    onTap: () {
+                                      if (sel) {
+                                        _action();
+                                        widget.onAppSelected(a);
+                                      } else {
+                                        _move(i - _idx);
+                                      }
+                                    },
+                                    child: AnimatedContainer(
+                                      key: sel
+                                          ? const ValueKey(
+                                              'kuiboo-focused-card',
+                                            )
+                                          : null,
+                                      duration: MotionScope.of(
+                                        context,
+                                      ).focusDuration,
+                                      curve: MotionScope.of(
+                                        context,
+                                      ).standardCurve,
+                                      width: sel ? _selW : _cw,
+                                      height: sel ? _selH : _ch,
+                                      margin: EdgeInsets.only(
+                                        right: _gap,
+                                        top: sel ? 0 : (_selH - _ch),
+                                      ),
+                                      decoration: BoxDecoration(
+                                        borderRadius: BorderRadius.circular(
+                                          lp.cardBorderRadius,
+                                        ),
+                                        border: Border.all(
+                                          color: Colors.white.withValues(
+                                            alpha: sel ? 0.0 : 0.10,
+                                          ),
+                                          width: 1,
+                                        ),
+                                        boxShadow: null,
+                                      ),
+                                      child: ClipRRect(
+                                        borderRadius: BorderRadius.circular(
+                                          lp.cardBorderRadius,
+                                        ),
+                                        child: Stack(
+                                          fit: StackFit.expand,
+                                          children: [
+                                            if (a.posterUrl != null &&
+                                                a.posterUrl!.isNotEmpty)
+                                              PosterImage(
+                                                url: a.posterUrl!,
+                                                cacheKey: a.artCacheKey(
+                                                  'poster',
+                                                ),
+                                                fit: BoxFit.cover,
+                                                memCacheWidth: sel ? 640 : 340,
+                                                fadeInDuration: const Duration(
+                                                  milliseconds: 120,
+                                                ),
+                                                errorWidget: (_, _, _) =>
+                                                    Container(
+                                                      color: tp.surface,
+                                                      child: Center(
+                                                        child: Icon(
+                                                          Icons.videogame_asset,
+                                                          color: Colors.white12,
+                                                          size: 20,
+                                                        ),
+                                                      ),
+                                                    ),
+                                              )
+                                            else
+                                              Container(
+                                                color: tp.surface,
+                                                child: Center(
+                                                  child: Text(
+                                                    a.appName.length > 2
+                                                        ? a.appName.substring(
+                                                            0,
+                                                            2,
+                                                          )
+                                                        : a.appName,
+                                                    style: TextStyle(
+                                                      color: tp.accentLight,
+                                                      fontSize: 14,
+                                                      fontWeight:
+                                                          FontWeight.w800,
+                                                    ),
+                                                  ),
+                                                ),
+                                              ),
+                                            if (sel &&
+                                                showTrailer &&
+                                                widget.videoForAppId == a.appId)
+                                              Positioned.fill(
+                                                child:
+                                                    TweenAnimationBuilder<
+                                                      double
+                                                    >(
+                                                      tween: Tween(
+                                                        begin: 0,
+                                                        end: 1,
+                                                      ),
+                                                      duration: MotionScope.of(
+                                                        context,
+                                                      ).focusDuration,
+                                                      curve: MotionScope.of(
+                                                        context,
+                                                      ).standardCurve,
+                                                      builder: (_, v, child) =>
+                                                          Opacity(
+                                                            opacity: v,
+                                                            child: child,
+                                                          ),
+                                                      child:
+                                                          widget.videoWidget!,
+                                                    ),
+                                              ),
+                                            if (!sel)
+                                              Container(
+                                                color: Colors.black.withValues(
+                                                  alpha: 0.30,
+                                                ),
+                                              ),
+                                            if (a.isRunning)
+                                              Positioned(
+                                                top: 3,
+                                                left: 3,
+                                                child: Container(
+                                                  width: 6,
+                                                  height: 6,
+                                                  decoration:
+                                                      const BoxDecoration(
+                                                        color:
+                                                            Colors.greenAccent,
+                                                        shape: BoxShape.circle,
+                                                      ),
+                                                ),
+                                              ),
+                                            if (widget.favoriteIds.contains(
+                                              a.appId.toString(),
+                                            ))
+                                              Positioned(
+                                                top: 3,
+                                                right: 3,
+                                                child: Icon(
+                                                  Icons.star,
+                                                  color: Colors.amberAccent,
+                                                  size: 10,
+                                                  shadows: [
+                                                    Shadow(
+                                                      color: Colors.black54,
+                                                      blurRadius: 3,
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  );
+                                },
                               ),
-                          ],
+                            ),
+                          ),
                         ),
-                      ),
-                  ],
+                      ],
+                    ),
+                  ),
                 );
               },
             ),
@@ -837,16 +883,33 @@ class _BodyState extends State<_Body> {
     );
   }
 
-  Widget _chip(String t, Color c) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+  // Quiet metadata pill: flat fill, no border, no accent colour.
+  Widget _metaChip(String t) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
     decoration: BoxDecoration(
-      color: c.withValues(alpha: 0.12),
-      borderRadius: BorderRadius.circular(5),
-      border: Border.all(color: c.withValues(alpha: 0.30)),
+      color: Colors.black.withValues(alpha: 0.38),
+      borderRadius: BorderRadius.circular(6),
     ),
     child: Text(
       t,
-      style: TextStyle(color: c, fontSize: 9, fontWeight: FontWeight.w700),
+      style: const TextStyle(
+        color: Color(0xE6FFFFFF),
+        fontSize: 12,
+        fontWeight: FontWeight.w500,
+        height: 1.2,
+      ),
     ),
   );
+
+  static String _platform(String plugin) {
+    final p = plugin.toLowerCase();
+    if (p.contains('steam')) return 'Steam';
+    if (p.contains('epic')) return 'Epic';
+    if (p.contains('gog')) return 'GOG';
+    if (p.contains('xbox') || p.contains('gamepass')) return 'Xbox';
+    if (p.contains('ubisoft') || p.contains('uplay')) return 'Ubisoft';
+    if (p.contains('battle') || p.contains('blizzard')) return 'Battle.net';
+    if (p.contains('origin') || p == 'ea' || p.startsWith('ea ')) return 'EA';
+    return plugin;
+  }
 }

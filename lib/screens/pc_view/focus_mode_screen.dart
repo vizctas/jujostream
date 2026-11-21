@@ -91,6 +91,7 @@ class _FocusModeScreenState extends State<FocusModeScreen>
     final key = _serverKey(c);
     return key.isEmpty ? fallback : key.hashCode & 0x7fffffff;
   }
+
   bool _autoConnectAttempted = false;
   final AsyncSingleFlight _computerEntryFlight = AsyncSingleFlight();
 
@@ -513,8 +514,8 @@ class _FocusModeScreenState extends State<FocusModeScreen>
               hasOverride: currentHasOverride,
             );
             String? effectiveFilePath;
-            String effectiveAsset = kFocusWallpaperAssets[
-                currentComputer != null
+            String effectiveAsset =
+                kFocusWallpaperAssets[currentComputer != null
                     ? _stableAssetIndex(currentComputer, _currentPage) %
                           kFocusWallpaperAssets.length
                     : 0];
@@ -530,11 +531,14 @@ class _FocusModeScreenState extends State<FocusModeScreen>
               fit: StackFit.expand,
               children: [
                 // ── Wallpaper ──
-                if ((effectiveFilePath?.toLowerCase().endsWith('.mp4') ?? false) ||
+                if ((effectiveFilePath?.toLowerCase().endsWith('.mp4') ??
+                        false) ||
                     effectiveAsset.toLowerCase().endsWith('.mp4'))
                   FocusWallpaperVideo(
                     filePath: effectiveFilePath,
-                    assetPath: effectiveFilePath == null ? effectiveAsset : null,
+                    assetPath: effectiveFilePath == null
+                        ? effectiveAsset
+                        : null,
                     fallbackColor: serverColors.background,
                   )
                 else
@@ -638,11 +642,7 @@ class _FocusModeScreenState extends State<FocusModeScreen>
 
   // ── App Bar ──
 
-  String _standbyTrackName(
-    ThemeProvider tp,
-    String? hostId,
-    bool hasOverride,
-  ) {
+  String _standbyTrackName(ThemeProvider tp, String? hostId, bool hasOverride) {
     final sound = tp.standbySoundForServer(hostId, hasOverride: hasOverride);
     if (sound == 'custom') {
       final name = tp.standbyCustomNameForServer(
@@ -1557,8 +1557,6 @@ class _FocusServerCircleState extends State<_FocusServerCircle>
     with TickerProviderStateMixin {
   late AnimationController _floatController;
   late Animation<double> _floatAnimation;
-  late AnimationController _glowController;
-  late Animation<double> _glowAnimation;
 
   @override
   void initState() {
@@ -1570,20 +1568,12 @@ class _FocusServerCircleState extends State<_FocusServerCircle>
     _floatAnimation = Tween<double>(begin: 0, end: 1).animate(
       CurvedAnimation(parent: _floatController, curve: Curves.easeInOutSine),
     );
-    _glowController = AnimationController(
-      duration: const Duration(milliseconds: 1800),
-      vsync: this,
-    );
-    _glowAnimation = Tween<double>(begin: 0.18, end: 0.40).animate(
-      CurvedAnimation(parent: _glowController, curve: Curves.easeInOut),
-    );
   }
 
   @override
   void didUpdateWidget(covariant _FocusServerCircle oldWidget) {
     super.didUpdateWidget(oldWidget);
     _syncAnimation();
-    if (oldWidget.isSelected != widget.isSelected) _syncGlow();
   }
 
   @override
@@ -1593,7 +1583,6 @@ class _FocusServerCircleState extends State<_FocusServerCircle>
     // post-frame callback for this on *every* rebuild, allocating a closure per
     // frame to re-check a value that changes about once a year.
     _syncAnimation();
-    _syncGlow();
   }
 
   void _syncAnimation() {
@@ -1606,19 +1595,9 @@ class _FocusServerCircleState extends State<_FocusServerCircle>
     }
   }
 
-  void _syncGlow() {
-    final allowed = MotionScope.read(context).allowSignatureMotion;
-    if (widget.isSelected && allowed) {
-      if (!_glowController.isAnimating) _glowController.repeat(reverse: true);
-    } else {
-      _glowController.stop();
-    }
-  }
-
   @override
   void dispose() {
     _floatController.dispose();
-    _glowController.dispose();
     super.dispose();
   }
 
@@ -1633,14 +1612,11 @@ class _FocusServerCircleState extends State<_FocusServerCircle>
       context,
       widget.computer,
       cloudSignedIn: cloudSignedIn,
-      // The circle encodes offline as red on its border rather than a grey
-      // status dot, so it overrides just that one colour.
-      offlineColor: Colors.redAccent,
     );
     final isOnline = state.isOnline;
     final isPaired = state.isPaired;
     final connectionStatus = state.connectionStatus;
-    final borderColor = state.statusColor;
+    final statusColor = state.statusColor;
     final actionText = state.actionText;
     final ipAddress = state.address;
     final reduceEffects = tp.reduceEffects;
@@ -1648,7 +1624,7 @@ class _FocusServerCircleState extends State<_FocusServerCircle>
     final isMacOS = io.Platform.isMacOS;
     final isAndroid = io.Platform.isAndroid;
     final circleSize = isMacOS ? 220.0 : (isAndroid ? 180.0 : 200.0);
-    final borderWidth = 3.5;
+    final borderWidth = widget.isSelected ? 1.5 : 1.0;
 
     return Center(
       child: AnimatedBuilder(
@@ -1676,39 +1652,28 @@ class _FocusServerCircleState extends State<_FocusServerCircle>
               mainAxisSize: MainAxisSize.min,
               children: [
                 // ── Circular server portrait ──
-                AnimatedBuilder(
-                  animation: _glowAnimation,
-                  builder: (context, child) {
-                    // Dynamic bloom: zero glow when unfocused,,
-                    // breathe animation only when focused/hovered.
-                    final glowAlpha = widget.isSelected
-                        ? _glowAnimation.value
-                        : 0.0;
-                    return Container(
-                      width: circleSize + borderWidth * 2,
-                      height: circleSize + borderWidth * 2,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: borderColor,
-                          width: borderWidth,
-                        ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: borderColor.withValues(alpha: 0.35),
-                            blurRadius: 24,
-                            spreadRadius: 2,
-                          ),
-                          BoxShadow(
-                            color: tp.accent.withValues(alpha: glowAlpha),
-                            blurRadius: widget.isSelected ? 18 : 0,
-                            spreadRadius: widget.isSelected ? 3 : 0,
-                          ),
-                        ],
+                // Neutral hairline frame; status lives in the dot by the name.
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 160),
+                  curve: Curves.easeOutCubic,
+                  width: circleSize + borderWidth * 2,
+                  height: circleSize + borderWidth * 2,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: (isLight ? Colors.black : Colors.white).withValues(
+                        alpha: widget.isSelected ? 0.55 : 0.12,
                       ),
-                      child: child,
-                    );
-                  },
+                      width: borderWidth,
+                    ),
+                    boxShadow: const [
+                      BoxShadow(
+                        color: Color(0x40000000),
+                        blurRadius: 18,
+                        offset: Offset(0, 6),
+                      ),
+                    ],
+                  ),
                   child: ClipOval(
                     child: SizedBox(
                       width: circleSize,
@@ -1790,19 +1755,35 @@ class _FocusServerCircleState extends State<_FocusServerCircle>
                   ),
                 ),
                 const SizedBox(height: 14),
-                // ── Server name ──
-                Text(
-                  widget.computer.name,
-                  style: TextStyle(
-                    color: isLight
-                        ? Colors.black87
-                        : Colors.white.withValues(alpha: 0.9),
-                    fontSize: 18,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 0.3,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+                // ── Server name + status dot ──
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 8,
+                      height: 8,
+                      decoration: BoxDecoration(
+                        color: statusColor,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Flexible(
+                      child: Text(
+                        widget.computer.name,
+                        style: TextStyle(
+                          color: isLight
+                              ? Colors.black87
+                              : Colors.white.withValues(alpha: 0.9),
+                          fontSize: 18,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.3,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
                 ),
                 // ── IP address ──
                 if (ipAddress.isNotEmpty) ...[
@@ -1925,34 +1906,34 @@ class _GamepadHintsRow extends StatelessWidget {
 
     return IdleFade(
       child: Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        if (isOnline) ...[
-          const GamepadHintIcon('X', size: 18, opacity: 0.70),
-          const SizedBox(width: 4),
-          Text(
-            settingsLabel,
-            style: const TextStyle(
-              color: Colors.white60,
-              fontSize: 11,
-              fontWeight: FontWeight.w400,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (isOnline) ...[
+            const GamepadHintIcon('X', size: 18, opacity: 0.70),
+            const SizedBox(width: 4),
+            Text(
+              settingsLabel,
+              style: const TextStyle(
+                color: Colors.white60,
+                fontSize: 11,
+                fontWeight: FontWeight.w400,
+              ),
             ),
-          ),
-          const SizedBox(width: 10),
-        ],
-        if (actionText.isNotEmpty) ...[
-          const GamepadHintIcon('A', size: 18, opacity: 0.70),
-          const SizedBox(width: 4),
-          Text(
-            actionText,
-            style: const TextStyle(
-              color: Colors.white60,
-              fontSize: 11,
-              fontWeight: FontWeight.w400,
+            const SizedBox(width: 10),
+          ],
+          if (actionText.isNotEmpty) ...[
+            const GamepadHintIcon('A', size: 18, opacity: 0.70),
+            const SizedBox(width: 4),
+            Text(
+              actionText,
+              style: const TextStyle(
+                color: Colors.white60,
+                fontSize: 11,
+                fontWeight: FontWeight.w400,
+              ),
             ),
-          ),
+          ],
         ],
-      ],
       ),
     );
   }
@@ -2412,30 +2393,35 @@ class _FocusModeMenuDialogState extends State<_FocusModeMenuDialog> {
                     ),
                     decoration: BoxDecoration(
                       color: tp.surface,
-                      borderRadius: BorderRadius.circular(24),
+                      borderRadius: BorderRadius.circular(20),
+                      // One neutral hairline + a soft offset shadow: the panel
+                      // reads as a raised surface, not a glowing frame.
+                      border: Border.all(
+                        color: isLight
+                            ? Colors.black.withValues(alpha: 0.08)
+                            : Colors.white.withValues(alpha: 0.07),
+                      ),
                       boxShadow: [
                         BoxShadow(
                           color: Colors.black.withValues(
-                            alpha: isLight ? 0.22 : 0.48,
+                            alpha: isLight ? 0.18 : 0.45,
                           ),
-                          blurRadius: 24,
-                          spreadRadius: 1,
-                          offset: const Offset(0, 8),
+                          blurRadius: 32,
+                          offset: const Offset(0, 12),
                         ),
                       ],
                     ),
                     child: ClipRRect(
-                      borderRadius: BorderRadius.circular(24),
+                      borderRadius: BorderRadius.circular(20),
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          SizedBox(height: compact ? 14 : 18),
+                          SizedBox(height: compact ? 8 : 10),
                           _FocusMenuTile(
                             order: 0,
                             focusNode: _tileNodes[0],
                             autofocus: true,
                             icon: Icons.grid_view_rounded,
-                            iconColor: tp.accent,
                             label: l.focusModeDisabled,
                             compact: compact,
                             onTap: () async {
@@ -2456,7 +2442,6 @@ class _FocusModeMenuDialogState extends State<_FocusModeMenuDialog> {
                             order: 1,
                             focusNode: _tileNodes[1],
                             icon: Icons.person_rounded,
-                            iconColor: Colors.blueAccent,
                             label: l.myProfile,
                             compact: compact,
                             onTap: () async {
@@ -2475,7 +2460,6 @@ class _FocusModeMenuDialogState extends State<_FocusModeMenuDialog> {
                             order: 2,
                             focusNode: _tileNodes[2],
                             icon: Icons.info_outline_rounded,
-                            iconColor: Colors.tealAccent,
                             label: l.aboutAndCredits,
                             compact: compact,
                             onTap: () async {
@@ -2490,7 +2474,7 @@ class _FocusModeMenuDialogState extends State<_FocusModeMenuDialog> {
                               }
                             },
                           ),
-                          SizedBox(height: compact ? 14 : 18),
+                          SizedBox(height: compact ? 8 : 10),
                         ],
                       ),
                     ),
@@ -2509,7 +2493,6 @@ class _FocusMenuTile extends StatefulWidget {
   final int order;
   final FocusNode? focusNode;
   final IconData icon;
-  final Color iconColor;
   final String label;
   final bool compact;
   final bool autofocus;
@@ -2518,7 +2501,6 @@ class _FocusMenuTile extends StatefulWidget {
   const _FocusMenuTile({
     required this.order,
     required this.icon,
-    required this.iconColor,
     required this.label,
     required this.onTap,
     this.focusNode,
@@ -2538,6 +2520,7 @@ class _FocusMenuTileState extends State<_FocusMenuTile> {
     final tp = context.watch<ThemeProvider>();
     final isLight = tp.colors.isLight;
     final compact = widget.compact;
+    final fg = isLight ? Colors.black : Colors.white;
 
     return FocusTraversalOrder(
       order: NumericFocusOrder(widget.order.toDouble()),
@@ -2568,77 +2551,56 @@ class _FocusMenuTileState extends State<_FocusMenuTile> {
           child: GestureDetector(
             onTap: widget.onTap,
             behavior: HitTestBehavior.opaque,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 140),
-            margin: EdgeInsets.fromLTRB(16, 0, 16, compact ? 6 : 8),
-            padding: EdgeInsets.symmetric(
-              horizontal: compact ? 12 : 14,
-              vertical: compact ? 9 : 11,
-            ),
-            decoration: BoxDecoration(
-              color: _focused
-                  ? Colors.white.withValues(alpha: isLight ? 0.55 : 0.12)
-                  : (isLight
-                        ? Colors.white.withValues(alpha: 0.92)
-                        : tp.background.withValues(alpha: 0.36)),
-              borderRadius: BorderRadius.circular(15),
-              // The border used to be identical in both states, so on a gamepad
-              // the only cue was a 12%-alpha fill shift — invisible across a
-              // room. Focus now reads as tonal step + accent border + glow, the
-              // same vocabulary the pc_view menu already used.
-              border: Border.all(
-                color: _focused
-                    ? tp.accent
-                    : (isLight ? Colors.black12 : Colors.white12),
-                width: _focused ? 1.6 : 1,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 140),
+              curve: Curves.easeOutCubic,
+              margin: EdgeInsets.symmetric(horizontal: 8, vertical: 1),
+              padding: EdgeInsets.symmetric(
+                horizontal: compact ? 12 : 14,
+                vertical: compact ? 11 : 13,
               ),
-              boxShadow: _focused
-                  ? [
-                      BoxShadow(
-                        color: tp.accent.withValues(alpha: 0.30),
-                        blurRadius: 16,
-                        spreadRadius: 1,
-                      ),
-                    ]
-                  : null,
-            ),
-            child: Row(
-              children: [
-                Container(
-                  width: compact ? 30 : 34,
-                  height: compact ? 30 : 34,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: widget.iconColor.withValues(alpha: 0.17),
-                  ),
-                  child: Icon(
-                    widget.icon,
-                    color: widget.iconColor,
-                    size: compact ? 17 : 18,
-                  ),
+              // Flat rows inside one panel. Focus is a neutral tonal step plus a
+              // hairline (no accent border, no glow) — still legible from the
+              // couch because text/icon also step up to full contrast.
+              decoration: BoxDecoration(
+                color: _focused
+                    ? fg.withValues(alpha: isLight ? 0.06 : 0.09)
+                    : null,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: _focused
+                      ? fg.withValues(alpha: isLight ? 0.10 : 0.14)
+                      : Colors.transparent,
                 ),
-                SizedBox(width: compact ? 10 : 11),
-                Expanded(
-                  child: Text(
-                    widget.label,
-                    style: TextStyle(
-                      color: isLight
-                          ? Colors.black87
-                          : Colors.white.withValues(alpha: 0.90),
-                      fontWeight: FontWeight.w700,
-                      fontSize: compact ? 12.5 : 13.5,
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    widget.icon,
+                    color: fg.withValues(alpha: _focused ? 0.92 : 0.60),
+                    size: compact ? 19 : 20,
+                  ),
+                  SizedBox(width: compact ? 12 : 14),
+                  Expanded(
+                    child: Text(
+                      widget.label,
+                      style: TextStyle(
+                        color: fg.withValues(alpha: _focused ? 0.96 : 0.82),
+                        fontWeight: FontWeight.w600,
+                        fontSize: compact ? 13 : 14,
+                        letterSpacing: 0.1,
+                      ),
                     ),
                   ),
-                ),
-                Icon(
-                  Icons.chevron_right,
-                  color: isLight ? Colors.black38 : Colors.white38,
-                  size: compact ? 18 : 20,
-                ),
-              ],
+                  Icon(
+                    Icons.chevron_right_rounded,
+                    color: fg.withValues(alpha: _focused ? 0.55 : 0.28),
+                    size: compact ? 18 : 20,
+                  ),
+                ],
+              ),
             ),
           ),
-        ),
         ),
       ),
     );
