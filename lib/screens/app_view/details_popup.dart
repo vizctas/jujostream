@@ -68,55 +68,64 @@ class _DetailsPopupTrailerState extends State<DetailsPopupTrailer> {
     if (_failed || widget.movies.isEmpty) return const SizedBox.shrink();
     final thumb = widget.movies.first.thumbnail;
     final c = _controller;
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(14),
-      child: AspectRatio(
-        aspectRatio: 16 / 9,
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            const ColoredBox(color: Color(0xFF0B1624)),
-            if (thumb != null)
-              Image.network(
-                thumb,
-                fit: BoxFit.cover,
-                errorBuilder: (_, _, _) => const SizedBox.shrink(),
-              ),
-            AnimatedOpacity(
-              opacity: _ready ? 1 : 0,
-              duration: const Duration(milliseconds: 280),
-              curve: Curves.easeOut,
-              child: (c != null && c.value.isInitialized)
-                  ? FittedBox(
-                      fit: BoxFit.cover,
-                      clipBehavior: Clip.hardEdge,
-                      child: SizedBox(
-                        width: c.value.size.width,
-                        height: c.value.size.height,
-                        child: VideoPlayer(c),
-                      ),
-                    )
-                  : const SizedBox.shrink(),
-            ),
-            const Positioned(
-              right: 10,
-              bottom: 10,
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: Color(0x99000000),
-                  shape: BoxShape.circle,
+    // Half the viewport at most: on a landscape phone a full-width 16:9
+    // trailer would fill the whole popup and push the game info off screen.
+    return Center(
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.sizeOf(context).height * 0.5,
+        ),
+        child: AspectRatio(
+          aspectRatio: 16 / 9,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(14),
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                const ColoredBox(color: Color(0xFF0B1624)),
+                if (thumb != null)
+                  Image.network(
+                    thumb,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, _, _) => const SizedBox.shrink(),
+                  ),
+                AnimatedOpacity(
+                  opacity: _ready ? 1 : 0,
+                  duration: const Duration(milliseconds: 280),
+                  curve: Curves.easeOut,
+                  child: (c != null && c.value.isInitialized)
+                      ? FittedBox(
+                          fit: BoxFit.cover,
+                          clipBehavior: Clip.hardEdge,
+                          child: SizedBox(
+                            width: c.value.size.width,
+                            height: c.value.size.height,
+                            child: VideoPlayer(c),
+                          ),
+                        )
+                      : const SizedBox.shrink(),
                 ),
-                child: Padding(
-                  padding: EdgeInsets.all(6),
-                  child: Icon(
-                    Icons.volume_off_rounded,
-                    size: 16,
-                    color: Colors.white70,
+                const Positioned(
+                  right: 10,
+                  bottom: 10,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: Color(0x99000000),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Padding(
+                      padding: EdgeInsets.all(6),
+                      child: Icon(
+                        Icons.volume_off_rounded,
+                        size: 16,
+                        color: Colors.white70,
+                      ),
+                    ),
                   ),
                 ),
-              ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );
