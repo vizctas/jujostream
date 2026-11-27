@@ -1228,210 +1228,104 @@ class _AppDetailsScreenState extends State<AppDetailsScreen> {
     );
   }
 
+  Widget _subLabel(String text) => Text(
+    text.toUpperCase(),
+    style: const TextStyle(
+      color: Color(0x8CFFFFFF),
+      fontSize: 11,
+      fontWeight: FontWeight.w600,
+      letterSpacing: 0.8,
+    ),
+  );
+
   Widget _buildPresetDeck() {
     final l = AppLocalizations.of(context);
-    return _card(
-      title: l.quickPresets,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            l.presetExplain,
-            style: const TextStyle(color: Colors.white70, height: 1.4),
+    final presets = [
+      (_GamePreset.balanced, l.balanced, l.balancedSub),
+      (_GamePreset.competitive, l.competitive, l.competitiveSub),
+      (_GamePreset.visualQuality, l.visualQuality, l.visualQualitySub),
+      (_GamePreset.handheld, l.handheld, l.handheldSub),
+    ];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _subLabel(l.quickPresets),
+        const SizedBox(height: 4),
+        Text(
+          l.presetExplain,
+          style: const TextStyle(
+            color: Color(0x99FFFFFF),
+            fontSize: 13,
+            height: 1.4,
           ),
-          const SizedBox(height: 14),
-          _presetButton(
-            preset: _GamePreset.balanced,
-            title: l.balanced,
-            subtitle: l.balancedSub,
-            onTap: () => _applyPreset(_GamePreset.balanced),
-            featured: true,
-          ),
-          const SizedBox(height: 10),
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final splitColumns = constraints.maxWidth >= 520;
-              final competitive = _presetButton(
-                preset: _GamePreset.competitive,
-                title: l.competitive,
-                subtitle: l.competitiveSub,
-                onTap: () => _applyPreset(_GamePreset.competitive),
-              );
-              final visualQuality = _presetButton(
-                preset: _GamePreset.visualQuality,
-                title: l.visualQuality,
-                subtitle: l.visualQualitySub,
-                onTap: () => _applyPreset(_GamePreset.visualQuality),
-              );
-
-              if (!splitColumns) {
-                return Column(
-                  children: [
-                    competitive,
-                    const SizedBox(height: 10),
-                    visualQuality,
-                  ],
-                );
-              }
-
-              return Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(child: competitive),
-                  const SizedBox(width: 10),
-                  Expanded(child: visualQuality),
-                ],
-              );
-            },
-          ),
-          const SizedBox(height: 10),
-          _presetButton(
-            preset: _GamePreset.handheld,
-            title: l.handheld,
-            subtitle: l.handheldSub,
-            onTap: () => _applyPreset(_GamePreset.handheld),
-          ),
-        ],
-      ),
+        ),
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 12,
+          runSpacing: 12,
+          children: [
+            for (final (preset, title, subtitle) in presets)
+              _presetTile(preset, title, subtitle),
+          ],
+        ),
+      ],
     );
   }
 
-  Widget _presetButton({
-    required _GamePreset preset,
-    required String title,
-    required String subtitle,
-    required VoidCallback onTap,
-    bool featured = false,
-  }) {
-    return Semantics(
-      button: true,
-      label: '$title. $subtitle',
-      onTap: onTap,
-      child: Focus(
-        onFocusChange: (f) {
-          if (f) {
-            Scrollable.ensureVisible(
-              context,
-              alignment: 0.5,
-              duration: const Duration(milliseconds: 250),
-              curve: Curves.easeOutCubic,
-            );
-          }
-        },
-        onKeyEvent: (_, event) {
-          if (event is! KeyDownEvent) return KeyEventResult.ignored;
-          final key = event.logicalKey;
-          if (key == LogicalKeyboardKey.enter ||
-              key == LogicalKeyboardKey.select ||
-              key == LogicalKeyboardKey.gameButtonA) {
-            onTap();
-            return KeyEventResult.handled;
-          }
-          return KeyEventResult.ignored;
-        },
-        child: Builder(
-          builder: (ctx) {
-            final hasFocus = Focus.of(ctx).hasFocus;
-            final tone = _presetTone(preset);
-            final base = Color.alphaBlend(
-              tone.withValues(alpha: featured ? 0.16 : 0.10),
-              _tp.surfaceVariant.withValues(alpha: 0.94),
-            );
-            final badges = _presetBadges(preset);
-            return GestureDetector(
-              onTap: onTap,
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 180),
-                width: double.infinity,
-                padding: EdgeInsets.all(featured ? 16 : 14),
-                transform: Matrix4.translationValues(0, hasFocus ? -2 : 0, 0),
-                decoration: BoxDecoration(
-                  color: base,
-                  borderRadius: BorderRadius.circular(featured ? 18 : 16),
-                  boxShadow: hasFocus
-                      ? [
-                          BoxShadow(
-                            color: tone.withValues(
-                              alpha: featured ? 0.18 : 0.12,
-                            ),
-                            blurRadius: featured ? 14 : 10,
-                            offset: const Offset(0, 4),
-                          ),
-                        ]
-                      : null,
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Container(
-                          width: featured ? 40 : 34,
-                          height: featured ? 40 : 34,
-                          decoration: BoxDecoration(
-                            color: tone.withValues(
-                              alpha: hasFocus ? 0.22 : 0.16,
-                            ),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          alignment: Alignment.center,
-                          child: Icon(
-                            _presetIcon(preset),
-                            color: Colors.white,
-                            size: featured ? 20 : 18,
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                title,
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w800,
-                                  fontSize: featured ? 15 : 14,
-                                ),
-                              ),
-                              const SizedBox(height: 3),
-                              Text(
-                                subtitle,
-                                style: TextStyle(
-                                  color: Colors.white.withValues(alpha: 0.70),
-                                  height: 1.35,
-                                  fontSize: featured ? 12.5 : 12,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        Icon(
-                          Icons.arrow_forward_rounded,
-                          color: hasFocus ? Colors.white : Colors.white38,
-                          size: featured ? 20 : 18,
-                        ),
-                      ],
+  /// Compact preset chip: same translucent surface and white focus ring as
+  /// the Media cards, so the settings read as part of the page.
+  Widget _presetTile(_GamePreset preset, String title, String subtitle) {
+    final specs = _presetBadges(preset).join(' · ');
+    return Tooltip(
+      message: subtitle,
+      child: DetailsTappable(
+        onTap: () => _applyPreset(preset),
+        semanticLabel: '$title. $subtitle. $specs',
+        builder: (context, focused) => AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          width: 196,
+          padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+          decoration: BoxDecoration(
+            color: focused ? const Color(0x29FFFFFF) : const Color(0x14FFFFFF),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: focused ? Colors.white : const Color(0x1FFFFFFF),
+              width: focused ? 2 : 1,
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  Icon(_presetIcon(preset), size: 18, color: Colors.white70),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
-                    const SizedBox(height: 12),
-                    Wrap(
-                      spacing: 6,
-                      runSpacing: 6,
-                      children: [
-                        for (final badge in badges)
-                          _presetBadge(
-                            label: badge,
-                            tone: tone,
-                            focused: hasFocus,
-                          ),
-                      ],
-                    ),
-                  ],
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(
+                specs,
+                style: const TextStyle(
+                  color: Color(0x99FFFFFF),
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
                 ),
               ),
-            );
-          },
+            ],
+          ),
         ),
       ),
     );
@@ -1450,19 +1344,6 @@ class _AppDetailsScreenState extends State<AppDetailsScreen> {
     }
   }
 
-  Color _presetTone(_GamePreset preset) {
-    switch (preset) {
-      case _GamePreset.competitive:
-        return _tp.secondary;
-      case _GamePreset.balanced:
-        return _tp.accent;
-      case _GamePreset.visualQuality:
-        return _tp.warm;
-      case _GamePreset.handheld:
-        return _tp.muted;
-    }
-  }
-
   List<String> _presetBadges(_GamePreset preset) {
     switch (preset) {
       case _GamePreset.competitive:
@@ -1476,121 +1357,66 @@ class _AppDetailsScreenState extends State<AppDetailsScreen> {
     }
   }
 
-  Widget _presetBadge({
-    required String label,
-    required Color tone,
-    required bool focused,
-  }) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-      decoration: BoxDecoration(
-        color: Color.alphaBlend(
-          tone.withValues(alpha: focused ? 0.16 : 0.10),
-          _tp.surface.withValues(alpha: 0.84),
-        ),
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-          color: Colors.white.withValues(alpha: focused ? 0.92 : 0.72),
-          fontSize: 11,
-          fontWeight: FontWeight.w600,
-          letterSpacing: 0.1,
-        ),
-      ),
-    );
-  }
-
   Widget _buildOverridesEditor() {
-    return _card(
-      title: AppLocalizations.of(context).perGameStreamProfile,
-      child: Theme(
-        data: Theme.of(context).copyWith(
-          listTileTheme: ListTileThemeData(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(10),
-            ),
+    final l = AppLocalizations.of(context);
+    final rows = <Widget>[
+      _FocusableSliderRow(
+        title: l.bitrate,
+        valueLabel: '${_bitrate ~/ 1000} Mbps',
+        value: _bitrate.toDouble(),
+        min: 1000,
+        max: 80000,
+        divisions: 79,
+        onChanged: (v) => setState(() => _bitrate = v.round()),
+      ),
+      _FocusableChoiceRow(
+        title: l.fpsLabel,
+        value: '$_fps FPS',
+        onTap: () => _pickFps(),
+      ),
+      _FocusableChoiceRow(
+        title: l.videoCodec,
+        value: _codecLabel(_codec),
+        onTap: () => _pickCodec(),
+      ),
+      _FocusableSwitchRow(
+        title: l.forceHdr,
+        value: _hdr,
+        onChanged: (v) => setState(() => _hdr = v),
+      ),
+      _FocusableSwitchRow(
+        title: l.showOnScreenControls,
+        value: _showGamepad,
+        onChanged: (v) => setState(() => _showGamepad = v),
+      ),
+      _FocusableSwitchRow(
+        title: l.ultraLowLatency,
+        value: _ultraLowLatency,
+        onChanged: (v) => setState(() => _ultraLowLatency = v),
+      ),
+      _FocusableSwitchRow(
+        title: l.performanceOverlayLabel,
+        value: _perfOverlay,
+        onChanged: (v) => setState(() => _perfOverlay = v),
+      ),
+    ];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _subLabel(l.perGameStreamProfile),
+        const SizedBox(height: 4),
+        ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 720),
+          child: Column(
+            children: [
+              for (final (i, row) in rows.indexed) ...[
+                if (i > 0) const Divider(height: 1, color: Color(0x14FFFFFF)),
+                row,
+              ],
+            ],
           ),
         ),
-        child: Column(
-          children: [
-            _FocusableSliderRow(
-              title: AppLocalizations.of(context).bitrate,
-              valueLabel: '${_bitrate ~/ 1000} Mbps',
-              value: _bitrate.toDouble(),
-              min: 1000,
-              max: 80000,
-              divisions: 79,
-              autofocus: true,
-              onChanged: (v) => setState(() => _bitrate = v.round()),
-            ),
-            _FocusableChoiceRow(
-              title: AppLocalizations.of(context).fpsLabel,
-              value: '$_fps FPS',
-              onTap: () => _pickFps(),
-            ),
-            _FocusableChoiceRow(
-              title: AppLocalizations.of(context).videoCodec,
-              value: _codecLabel(_codec),
-              onTap: () => _pickCodec(),
-            ),
-            _FocusableSwitchRow(
-              title: AppLocalizations.of(context).forceHdr,
-              value: _hdr,
-              onChanged: (v) => setState(() => _hdr = v),
-            ),
-            _FocusableSwitchRow(
-              title: AppLocalizations.of(context).showOnScreenControls,
-              value: _showGamepad,
-              onChanged: (v) => setState(() => _showGamepad = v),
-            ),
-            _FocusableSwitchRow(
-              title: AppLocalizations.of(context).ultraLowLatency,
-              value: _ultraLowLatency,
-              onChanged: (v) => setState(() => _ultraLowLatency = v),
-            ),
-            _FocusableSwitchRow(
-              title: AppLocalizations.of(context).performanceOverlayLabel,
-              value: _perfOverlay,
-              onChanged: (v) => setState(() => _perfOverlay = v),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _card({required String title, required Widget child}) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: _tp.surface.withValues(alpha: 0.80),
-        borderRadius: BorderRadius.circular(14),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.15),
-            blurRadius: 8,
-            offset: const Offset(0, 3),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            title,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 18,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-          const SizedBox(height: 14),
-          child,
-        ],
-      ),
+      ],
     );
   }
 
@@ -2066,7 +1892,6 @@ class _FocusableSliderRow extends StatefulWidget {
   final double max;
   final int divisions;
   final ValueChanged<double> onChanged;
-  final bool autofocus;
 
   const _FocusableSliderRow({
     required this.title,
@@ -2076,7 +1901,6 @@ class _FocusableSliderRow extends StatefulWidget {
     required this.max,
     required this.divisions,
     required this.onChanged,
-    this.autofocus = false,
   });
 
   @override
@@ -2140,7 +1964,6 @@ class _FocusableSliderRowState extends State<_FocusableSliderRow> {
         : Colors.transparent;
 
     return Focus(
-      autofocus: widget.autofocus,
       onFocusChange: (f) {
         setState(() {
           _focused = f;
