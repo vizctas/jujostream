@@ -108,9 +108,9 @@ void main() {
     );
   });
 
-  test('portrait phones keep landscape heroes, shown full width on top', () {
-    // S24 upright: 411x891. A cover zoom would keep 26%, but portrait never
-    // covers, so the hero must not fall back to the generic backdrop.
+  test('portrait phones keep landscape heroes as a full-screen wallpaper', () {
+    // S24 upright: 411x891. Cover keeps only 26% of the width, which is the
+    // intended wallpaper crop there, not a reason to fall back.
     expect(
       GameArtPolicy.isEligibleHeroForViewport(
         width: 1920,
@@ -127,7 +127,7 @@ void main() {
         viewportWidth: 411,
         viewportHeight: 891,
       ),
-      (fit: BoxFit.fitWidth, alignment: Alignment.topCenter),
+      (fit: BoxFit.cover, alignment: Alignment.center),
     );
   });
 
