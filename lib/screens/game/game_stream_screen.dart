@@ -23,6 +23,7 @@ import '../../services/telemetry/beta_telemetry_service.dart';
 import '../../services/tv/tv_detector.dart';
 import '../../services/input/gamepad_button_helper.dart';
 import '../../services/stream/image_load_throttle.dart';
+import '../../services/stream/connection_attempt_diagnostic.dart';
 import '../../ui/motion_policy.dart';
 import '../../widgets/launch_reveal_transition.dart';
 import '../../widgets/notification_mirror_overlay.dart';
@@ -45,6 +46,7 @@ class GameStreamScreen extends StatefulWidget {
   final String riKey;
   final int riKeyId;
   final String? rtspSessionUrl;
+
   /// Address that answered the launch; empty falls back to the computer's active/local address.
   final String streamHost;
   final StreamConfiguration? overrideConfig;
@@ -96,6 +98,11 @@ class _GameStreamScreenState extends State<GameStreamScreen>
   bool _isConnecting = true;
   bool _isConnected = false;
   String? _error;
+  final ConnectionAttemptRecorder _attemptRecorder = ConnectionAttemptRecorder(
+    writer: ConnectionAttemptDiagnosticStore.save,
+    onWriteError: (e) =>
+        debugPrint('Unable to persist local connection diagnostic: $e'),
+  );
   bool _showOverlay = false;
   bool _overlayTransitioning = false;
   bool _showPerfStats = false;
@@ -425,6 +432,15 @@ class _GameStreamScreenState extends State<GameStreamScreen>
     _streamStopped = false;
     _stopInFlight = false;
     _privacyGate.resetTransport();
+    bool diagnosticsEnabled;
+    try {
+      diagnosticsEnabled = await ConnectionAttemptDiagnosticStore.isEnabled();
+    } catch (_) {
+      diagnosticsEnabled = false;
+    }
+    if (!isCurrent()) return;
+    _attemptRecorder.enabled = diagnosticsEnabled;
+    _attemptRecorder.begin();
     _hostReadinessFailed = false;
     _revealInFlight = false;
     _lastLoggedReadinessGeneration = -1;
@@ -515,11 +531,8 @@ class _GameStreamScreenState extends State<GameStreamScreen>
       debugPrint('Audio Config: $audioStr (enum: ${cfg.audioConfig})');
       debugPrint('Audio Quality: ${cfg.audioQuality.name}');
       debugPrint('Scale Mode: ${cfg.scaleMode}');
-      debugPrint('Server: $address:${widget.computer.effectiveHttpsPort}');
       debugPrint('>>> ');
       BetaTelemetryService.event('stream_start_requested', {
-        'host': address,
-        'port': widget.computer.effectiveHttpsPort,
         'appId': widget.app.appId,
         'width': cfg.width,
         'height': cfg.height,
@@ -723,9 +736,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
         setState(() {
           _isConnecting = false;
           _showOverlay = false;
-          _error = detail == null || detail.isEmpty
-              ? AppLocalizations.of(context).streamError
-              : '${AppLocalizations.of(context).streamError}: $detail';
+          _error = _connectionFailureDetails(detail);
         });
         GamepadChannel.setOverlayVisible(false);
 
@@ -735,6 +746,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
       }
     } catch (e) {
       if (!isCurrent()) return;
+      _attemptRecorder.finishFailed();
       BetaTelemetryService.error(
         'stream_start_exception',
         e,
@@ -751,7 +763,8 @@ class _GameStreamScreenState extends State<GameStreamScreen>
       setState(() {
         _isConnecting = false;
         _showOverlay = false;
-        _error = '${AppLocalizations.of(context).connectionError}: $e';
+        _error =
+            '${AppLocalizations.of(context).connectionError}: $e${_attemptRecorder.current == null ? '' : '\n\n${_attemptRecorder.current!.format(isSpanish: Localizations.localeOf(context).languageCode == 'es')}'}';
       });
       GamepadChannel.setOverlayVisible(false);
 
@@ -1161,9 +1174,25 @@ class _GameStreamScreenState extends State<GameStreamScreen>
     return merged;
   }
 
+  void _recordConnectionAttemptEvent(Map<String, dynamic> event) {
+    _attemptRecorder.record(event);
+  }
+
+  String _connectionFailureDetails(String? detail) {
+    final language = Localizations.localeOf(context).languageCode;
+    final diagnosis = _attemptRecorder.current?.format(
+      isSpanish: language == 'es',
+    );
+    final error = detail == null || detail.isEmpty
+        ? AppLocalizations.of(context).streamError
+        : '${AppLocalizations.of(context).streamError}: $detail';
+    return diagnosis == null ? error : '$error\n\n$diagnosis';
+  }
+
   void _listenToStats() {
     _statsSubscription = StreamingPlatformChannel.statsStream.listen((event) {
       if (!mounted) return;
+      _recordConnectionAttemptEvent(event);
       final rendered = event['totalRendered'] ?? event['framesRendered'];
       if (rendered is num) {
         _latestFramesRendered = rendered.toInt();
@@ -1343,12 +1372,15 @@ class _GameStreamScreenState extends State<GameStreamScreen>
       debugPrint(
         'connectionTerminated($errorCode) during _isConnecting — treating as startup failure',
       );
+      _attemptRecorder.finishFailed();
       setState(() {
         _isConnecting = false;
         _showOverlay = false;
-        _error = errorCode == 0
-            ? 'Server closed the connection before the stream was established.'
-            : 'Connection lost during startup (code $errorCode).';
+        _error = _connectionFailureDetails(
+          errorCode == 0
+              ? 'Server closed the connection before the stream was established.'
+              : 'Connection lost during startup (code $errorCode).',
+        );
       });
       unawaited(GamepadChannel.setStreamingActive(false));
       GamepadChannel.setOverlayVisible(false);
@@ -3599,7 +3631,11 @@ class _GameStreamScreenState extends State<GameStreamScreen>
                 ),
               ),
               IconButton(
-                icon: const Icon(Icons.refresh, color: Colors.white70, size: 18),
+                icon: const Icon(
+                  Icons.refresh,
+                  color: Colors.white70,
+                  size: 18,
+                ),
                 onPressed: _coopLoading ? null : _openCoopPlayersPanel,
               ),
             ],
@@ -3692,8 +3728,10 @@ class _GameStreamScreenState extends State<GameStreamScreen>
                             ),
                             onPressed: _coopLoading
                                 ? null
-                                : () =>
-                                    _controlCoopPlayer(p.sessionId, kick: true),
+                                : () => _controlCoopPlayer(
+                                    p.sessionId,
+                                    kick: true,
+                                  ),
                           ),
                         ],
                       ],
