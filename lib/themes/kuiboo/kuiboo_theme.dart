@@ -718,6 +718,11 @@ class _BodyState extends State<_Body> {
                                           _move(i - _idx);
                                         }
                                       },
+                                      // Touch path to details (Y on a pad).
+                                      onLongPress: () {
+                                        _action();
+                                        widget.onAppDetails(a);
+                                      },
                                       child: AnimatedContainer(
                                         key: sel
                                             ? const ValueKey(

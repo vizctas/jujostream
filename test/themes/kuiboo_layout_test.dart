@@ -85,4 +85,51 @@ void main() {
       tester.view.resetDevicePixelRatio();
     });
   });
+
+  testWidgets('Kuiboo long press on a card opens details', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final themeProvider = await ThemeProvider.load();
+    final app = NvApp(appId: 7, appName: 'Absolum');
+    NvApp? opened;
+    tester.view.physicalSize = const Size(1280, 720);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider<ThemeProvider>.value(value: themeProvider),
+          ChangeNotifierProvider<LauncherPreferences>.value(
+            value: LauncherPreferences(),
+          ),
+        ],
+        child: MaterialApp(
+          localizationsDelegates: const [AppLocalizations.delegate],
+          supportedLocales: const [Locale('en')],
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => KuibooTheme().buildBody(
+                context: context,
+                apps: [app],
+                allApps: [app],
+                selectedIndex: 0,
+                onAppSelected: (_) {},
+                onAppDetails: (a) => opened = a,
+                onIndexChanged: (_) {},
+                activeSessionAppId: null,
+                isGridView: false,
+                favoriteIds: const {},
+                onToggleFavorite: (_) {},
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.longPress(find.byKey(const ValueKey('kuiboo-focused-card')));
+    expect(opened, same(app));
+  });
 }
