@@ -17,6 +17,11 @@ class NvApp {
 
   final List<String> metadataGenres;
 
+  /// Store metadata curated on the host (/applist); null when unset.
+  final String? developer;
+  final String? publisher;
+  final String? releaseDate;
+
   final String? pluginName;
 
   final String? serverUuid;
@@ -51,6 +56,9 @@ class NvApp {
     this.description,
     this.tags = const [],
     this.metadataGenres = const [],
+    this.developer,
+    this.publisher,
+    this.releaseDate,
     this.pluginName,
     this.serverUuid,
     this.steamVideoUrl,
@@ -132,6 +140,9 @@ class NvApp {
     String? description,
     List<String>? tags,
     List<String>? metadataGenres,
+    String? developer,
+    String? publisher,
+    String? releaseDate,
     String? pluginName,
     String? serverUuid,
     String? steamVideoUrl,
@@ -154,6 +165,9 @@ class NvApp {
       description: description ?? this.description,
       tags: tags ?? this.tags,
       metadataGenres: metadataGenres ?? this.metadataGenres,
+      developer: developer ?? this.developer,
+      publisher: publisher ?? this.publisher,
+      releaseDate: releaseDate ?? this.releaseDate,
       pluginName: pluginName ?? this.pluginName,
       serverUuid: serverUuid ?? this.serverUuid,
       steamVideoUrl: steamVideoUrl ?? this.steamVideoUrl,
@@ -199,6 +213,9 @@ class NvApp {
     if (description != null) 'description': description,
     if (tags.isNotEmpty) 'tags': tags,
     if (metadataGenres.isNotEmpty) 'metadataGenres': metadataGenres,
+    if (developer != null) 'developer': developer,
+    if (publisher != null) 'publisher': publisher,
+    if (releaseDate != null) 'releaseDate': releaseDate,
     if (pluginName != null) 'pluginName': pluginName,
     if (serverUuid != null) 'serverUuid': serverUuid,
     if (steamVideoUrl != null) 'steamVideoUrl': steamVideoUrl,
@@ -224,6 +241,9 @@ class NvApp {
       tags: (json['tags'] as List?)?.cast<String>() ?? const [],
       metadataGenres:
           (json['metadataGenres'] as List?)?.cast<String>() ?? const [],
+      developer: json['developer'],
+      publisher: json['publisher'],
+      releaseDate: json['releaseDate'],
       pluginName: json['pluginName'],
       serverUuid: json['serverUuid'],
       steamVideoUrl: json['steamVideoUrl'],
@@ -247,6 +267,9 @@ class NvApp {
     if (playtimeMinutes != other.playtimeMinutes) return false;
     if (lastPlayed != other.lastPlayed) return false;
     if (description != other.description) return false;
+    if (developer != other.developer) return false;
+    if (publisher != other.publisher) return false;
+    if (releaseDate != other.releaseDate) return false;
     if (pluginName != other.pluginName) return false;
     if (serverUuid != other.serverUuid) return false;
     if (steamVideoUrl != other.steamVideoUrl) return false;

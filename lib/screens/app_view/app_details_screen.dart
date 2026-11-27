@@ -545,7 +545,9 @@ class _AppDetailsScreenState extends State<AppDetailsScreen> {
     final desc = (app.description?.trim().isNotEmpty ?? false)
         ? app.description!.trim()
         : store?.shortDescription;
-    final year = RegExp(r'\d{4}').firstMatch(store?.releaseDate ?? '')?[0];
+    final year = RegExp(
+      r'\d{4}',
+    ).firstMatch(store?.releaseDate ?? app.releaseDate ?? '')?[0];
     final playtime = _ownedGameInfo?.playtimeMinutes ?? app.playtimeMinutes;
     final pct = store?.positivePercent;
     const metaStyle = TextStyle(
@@ -1079,19 +1081,22 @@ class _AppDetailsScreenState extends State<AppDetailsScreen> {
     ];
 
     final pct = store?.positivePercent;
+    String? pick(String? storeValue, String? hostValue) =>
+        (storeValue?.isNotEmpty ?? false)
+        ? storeValue
+        : (hostValue?.isNotEmpty ?? false)
+        ? hostValue
+        : null;
+    final releaseDate = pick(store?.releaseDate, widget.app.releaseDate);
+    final developer = pick(store?.developers.join(', '), widget.app.developer);
+    final publisher = pick(store?.publishers.join(', '), widget.app.publisher);
     final about = <Widget>[
-      if (store?.releaseDate?.isNotEmpty ?? false)
-        DetailsFact(label: l.releaseDate, value: store!.releaseDate!),
-      if (store?.developers.isNotEmpty ?? false)
-        DetailsFact(
-          label: l.developerLabel,
-          value: store!.developers.join(', '),
-        ),
-      if (store?.publishers.isNotEmpty ?? false)
-        DetailsFact(
-          label: _t('Distribuidora', 'Publisher'),
-          value: store!.publishers.join(', '),
-        ),
+      if (releaseDate != null)
+        DetailsFact(label: l.releaseDate, value: releaseDate),
+      if (developer != null)
+        DetailsFact(label: l.developerLabel, value: developer),
+      if (publisher != null)
+        DetailsFact(label: _t('Distribuidora', 'Publisher'), value: publisher),
       if (store?.reviewDescription?.isNotEmpty ?? false)
         DetailsFact(
           label: _t('Reseñas', 'Reviews'),

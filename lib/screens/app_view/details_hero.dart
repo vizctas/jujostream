@@ -116,6 +116,9 @@ class DetailsTappable extends StatefulWidget {
 
 class _DetailsTappableState extends State<DetailsTappable> {
   bool _focused = false;
+  // The page opens at the top: the autofocused control's first focus must
+  // not scroll it, later focus moves keep the control in view.
+  late bool _skipNextScroll = widget.autofocus;
 
   @override
   Widget build(BuildContext context) {
@@ -128,7 +131,9 @@ class _DetailsTappableState extends State<DetailsTappable> {
         canRequestFocus: widget.onTap != null,
         onFocusChange: (f) {
           setState(() => _focused = f);
-          if (f) {
+          if (f && _skipNextScroll) {
+            _skipNextScroll = false;
+          } else if (f) {
             Scrollable.ensureVisible(
               context,
               alignment: 0.5,

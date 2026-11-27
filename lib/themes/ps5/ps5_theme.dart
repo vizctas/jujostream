@@ -498,7 +498,7 @@ class _Ps5BodyState extends State<_Ps5Body> {
                               _buildIconStrip(tp, s),
                               Expanded(
                                 child: s != null
-                                    ? _buildBottomPanel(tp, s, l)
+                                    ? _buildBottomPanel(s, l)
                                     : const SizedBox.shrink(),
                               ),
                               if (context
@@ -843,174 +843,92 @@ class _Ps5BodyState extends State<_Ps5Body> {
     );
   }
 
-  /// Detail area under the icon strip. Left: title, chips and actions,
-  /// pinned to the bottom. Right: the description fills the column from the
-  /// strip down to the bottom edge, no card around it.
-  Widget _buildBottomPanel(ThemeProvider tp, NvApp s, AppLocalizations l) {
-    final isFav = widget.favoriteIds.contains(s.appId.toString());
-    final desc = s.description?.trim() ?? '';
-
+  /// Under the icon strip only Play/Resume and the more menu; the game
+  /// details live on the detail page.
+  Widget _buildBottomPanel(NvApp s, AppLocalizations l) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(40, 20, 40, 8),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+        crossAxisAlignment: CrossAxisAlignment.end,
         children: [
           Expanded(
             flex: 6,
-            child: Align(
-              alignment: Alignment.bottomLeft,
-              child: SingleChildScrollView(
-                physics: const NeverScrollableScrollPhysics(),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      s.appName,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 28,
-                        fontWeight: FontWeight.w900,
-                        height: 1.1,
-                        shadows: [
-                          Shadow(color: Colors.black87, blurRadius: 16),
+            child: Row(
+              children: [
+                Expanded(
+                  child: GestureDetector(
+                    onTap: () {
+                      _tap();
+                      widget.onAppSelected(s);
+                    },
+                    child: AnimatedContainer(
+                      duration: MotionScope.of(context).microDuration,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 32,
+                        vertical: 12,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.90),
+                        borderRadius: BorderRadius.circular(8),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.22),
+                            blurRadius: 12,
+                            offset: const Offset(0, 5),
+                          ),
                         ],
                       ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.only(top: 8),
-                      child: Wrap(
-                        spacing: 6,
-                        runSpacing: 4,
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        mainAxisSize: MainAxisSize.min,
                         children: [
-                          if (s.isRunning)
-                            _chip('● ${l.running}', Colors.greenAccent),
-                          if (isFav) _chip('★', Colors.amberAccent),
-                          if (s.pluginName != null)
-                            _chip(s.pluginName!, tp.accentLight),
-                          ...s.metadataGenres
-                              .take(2)
-                              .map((g) => _chip(g, Colors.white38)),
+                          Icon(
+                            Icons.play_arrow_rounded,
+                            color: Colors.black87,
+                            size: 20,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            s.isRunning ? l.resume : l.play,
+                            style: const TextStyle(
+                              color: Colors.black87,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
                         ],
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: GestureDetector(
-                            onTap: () {
-                              _tap();
-                              widget.onAppSelected(s);
-                            },
-                            child: AnimatedContainer(
-                              duration: MotionScope.of(context).microDuration,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 32,
-                                vertical: 12,
-                              ),
-                              decoration: BoxDecoration(
-                                color: Colors.white.withValues(alpha: 0.90),
-                                borderRadius: BorderRadius.circular(8),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withValues(alpha: 0.22),
-                                    blurRadius: 12,
-                                    offset: const Offset(0, 5),
-                                  ),
-                                ],
-                              ),
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(
-                                    Icons.play_arrow_rounded,
-                                    color: Colors.black87,
-                                    size: 20,
-                                  ),
-                                  const SizedBox(width: 6),
-                                  Text(
-                                    s.isRunning ? l.resume : l.play,
-                                    style: const TextStyle(
-                                      color: Colors.black87,
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.w800,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        GestureDetector(
-                          onTap: () => _showMoreMenu(s),
-                          child: AnimatedContainer(
-                            duration: MotionScope.of(context).microDuration,
-                            width: 44,
-                            height: 44,
-                            decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: 0.08),
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(
-                                color: Colors.white.withValues(alpha: 0.12),
-                                width: 1,
-                              ),
-                            ),
-                            child: const Center(
-                              child: Icon(
-                                Icons.more_horiz,
-                                color: Colors.white70,
-                                size: 20,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(width: 32),
-          Expanded(
-            flex: 4,
-            child: desc.isEmpty
-                ? Text(
-                    l.noDescription,
-                    style: const TextStyle(
-                      color: Colors.white38,
-                      fontSize: 12,
-                      height: 1.6,
-                    ),
-                  )
-                : ShaderMask(
-                    blendMode: BlendMode.dstIn,
-                    shaderCallback: (r) => const LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      stops: [0, 0.85, 1],
-                      colors: [Colors.white, Colors.white, Colors.transparent],
-                    ).createShader(r),
-                    child: SingleChildScrollView(
-                      child: Text(
-                        desc.length > 900 ? '${desc.substring(0, 900)}…' : desc,
-                        style: TextStyle(
-                          color: Colors.white.withValues(alpha: 0.78),
-                          fontSize: 13,
-                          height: 1.65,
-                          shadows: const [
-                            Shadow(color: Colors.black54, blurRadius: 8),
-                          ],
-                        ),
                       ),
                     ),
                   ),
+                ),
+                const SizedBox(width: 10),
+                GestureDetector(
+                  onTap: () => _showMoreMenu(s),
+                  child: AnimatedContainer(
+                    duration: MotionScope.of(context).microDuration,
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.12),
+                        width: 1,
+                      ),
+                    ),
+                    child: const Center(
+                      child: Icon(
+                        Icons.more_horiz,
+                        color: Colors.white70,
+                        size: 20,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
+          const Spacer(flex: 4),
         ],
       ),
     );
@@ -1094,18 +1012,6 @@ class _Ps5BodyState extends State<_Ps5Body> {
       ),
     );
   }
-
-  Widget _chip(String t, Color c) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-    decoration: BoxDecoration(
-      color: c.withValues(alpha: 0.15),
-      borderRadius: BorderRadius.circular(4),
-    ),
-    child: Text(
-      t,
-      style: TextStyle(color: c, fontSize: 9, fontWeight: FontWeight.w700),
-    ),
-  );
 
   Widget _hint(String badge, String label, {VoidCallback? onTap}) =>
       GestureDetector(

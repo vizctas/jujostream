@@ -423,9 +423,11 @@ class AppListProvider extends ChangeNotifier {
                 playniteId: previous.playniteId,
                 playtimeMinutes: previous.playtimeMinutes,
                 lastPlayed: previous.lastPlayed,
-                description: previous.description,
+                description: app.description ?? previous.description,
                 tags: previous.tags,
-                metadataGenres: previous.metadataGenres,
+                metadataGenres: app.metadataGenres.isNotEmpty
+                    ? app.metadataGenres
+                    : previous.metadataGenres,
                 pluginName: previous.pluginName,
                 steamVideoUrl: previous.steamVideoUrl,
                 steamVideoThumb: previous.steamVideoThumb,
@@ -470,9 +472,11 @@ class AppListProvider extends ChangeNotifier {
                 playniteId: prev.playniteId,
                 playtimeMinutes: prev.playtimeMinutes,
                 lastPlayed: prev.lastPlayed,
-                description: prev.description,
+                description: app.description ?? prev.description,
                 tags: prev.tags,
-                metadataGenres: prev.metadataGenres,
+                metadataGenres: app.metadataGenres.isNotEmpty
+                    ? app.metadataGenres
+                    : prev.metadataGenres,
                 pluginName: prev.pluginName,
                 steamVideoUrl: prev.steamVideoUrl,
                 steamVideoThumb: prev.steamVideoThumb,
@@ -786,8 +790,11 @@ class AppListProvider extends ChangeNotifier {
             screenshots: rawg.screenshotUrls,
           );
           return withArtwork.copyWith(
-            description: rawg.description.isNotEmpty ? rawg.description : null,
-            metadataGenres: rawg.genres,
+            // Host metadata (curated in Admin) wins; RAWG only fills gaps.
+            description: app.description == null && rawg.description.isNotEmpty
+                ? rawg.description
+                : null,
+            metadataGenres: app.metadataGenres.isEmpty ? rawg.genres : null,
             rawgClipUrl: rawg.clipUrl,
           );
         })
@@ -1048,8 +1055,11 @@ class AppListProvider extends ChangeNotifier {
       screenshots: rawg.screenshotUrls,
     );
     return withArtwork.copyWith(
-      description: rawg.description.isNotEmpty ? rawg.description : null,
-      metadataGenres: rawg.genres,
+      // Host metadata (curated in Admin) wins; RAWG only fills gaps.
+      description: app.description == null && rawg.description.isNotEmpty
+          ? rawg.description
+          : null,
+      metadataGenres: app.metadataGenres.isEmpty ? rawg.genres : null,
       rawgClipUrl: rawg.clipUrl,
     );
   }

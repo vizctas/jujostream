@@ -439,6 +439,16 @@ class NvHttpClient {
             isRunning: isRunning,
             isHdrSupported: isHdrSupported,
             serverUuid: serverUuid.isNotEmpty ? serverUuid : null,
+            description: _xmlText(extractXmlValue(appXml, 'Description')),
+            developer: _xmlText(extractXmlValue(appXml, 'Developer')),
+            publisher: _xmlText(extractXmlValue(appXml, 'Publisher')),
+            releaseDate: _xmlText(extractXmlValue(appXml, 'ReleaseDate')),
+            metadataGenres: [
+              for (final g
+                  in _xmlText(extractXmlValue(appXml, 'Genres'))?.split('|') ??
+                      const <String>[])
+                if (g.isNotEmpty) g,
+            ],
 
             posterUrl:
                 '$base/appasset'
@@ -941,6 +951,18 @@ class NvHttpClient {
     final regex = RegExp('<$tag>(.*?)</$tag>', dotAll: true);
     final match = regex.firstMatch(xml);
     return match?.group(1)?.trim();
+  }
+
+  /// Decodes the XML entities the host escapes; null for missing/empty values.
+  static String? _xmlText(String? raw) {
+    if (raw == null || raw.isEmpty) return null;
+    return raw
+        .replaceAll('&lt;', '<')
+        .replaceAll('&gt;', '>')
+        .replaceAll('&quot;', '"')
+        .replaceAll('&apos;', "'")
+        .replaceAll('&#39;', "'")
+        .replaceAll('&amp;', '&');
   }
 
   String _extractRootAttribute(String xml, String attribute) {
