@@ -25,8 +25,7 @@ import '../../services/database/app_override_service.dart';
 import '../../services/tv/tv_detector.dart';
 import '../../services/input/gamepad_button_helper.dart';
 import '../../widgets/trailer_modal.dart';
-import 'details_popup.dart';
-import '../../ui/accessible_action.dart';
+import 'details_hero.dart';
 
 enum AppDetailsAction { play, options }
 
@@ -42,10 +41,6 @@ class AppDetailsScreen extends StatefulWidget {
   final AchievementProgress? achievementProgress;
   final VoidCallback? onAddToCollection;
 
-  /// Rendered inside [detailsPopupRoute]: the frame owns the safe area and
-  /// a muted trailer leads the content.
-  final bool popup;
-
   const AppDetailsScreen({
     super.key,
     required this.app,
@@ -58,7 +53,6 @@ class AppDetailsScreen extends StatefulWidget {
     required this.onResetOverrides,
     this.achievementProgress,
     this.onAddToCollection,
-    this.popup = false,
   });
 
   @override
@@ -79,14 +73,11 @@ class _AppDetailsScreenState extends State<AppDetailsScreen> {
   late bool _favorite;
 
   String? _overrideName;
-  String? _overridePoster;
 
   String get _displayName => _overrideName ?? widget.app.appName;
-  String? get _displayPoster => _overridePoster ?? widget.app.posterUrl;
 
   AchievementProgress? _liveAchievements;
   String? _steamPersona;
-  bool _hasSteamApiKey = false;
 
   SteamGameStoreInfo? _storeInfo;
   SteamOwnedGame? _ownedGameInfo;
@@ -134,7 +125,6 @@ class _AppDetailsScreenState extends State<AppDetailsScreen> {
     if (!mounted) return;
     setState(() {
       _steamPersona = persona;
-      _hasSteamApiKey = apiKey != null && apiKey.isNotEmpty;
     });
     final steamAppId = await _resolveSteamAppId();
     if (steamAppId != null && apiKey != null && apiKey.isNotEmpty) {
@@ -308,75 +298,65 @@ class _AppDetailsScreenState extends State<AppDetailsScreen> {
     return KeyEventResult.ignored;
   }
 
+  bool _descExpanded = false;
+
+  bool get _trailersEnabled =>
+      context.watch<PluginsProvider>().isEnabled('game_video');
+
+  String _t(String es, String en) =>
+      AppLocalizations.of(context).locale.languageCode == 'es' ? es : en;
+
   @override
   Widget build(BuildContext context) {
     final isTV = TvDetector.instance.isTV;
+    final size = MediaQuery.sizeOf(context);
+    final wide = size.width >= 700;
+    final side = wide ? 40.0 : 20.0;
+    final heroWidth = wide
+        ? (size.width * 0.5).clamp(320.0, 620.0)
+        : size.width - side * 2;
     return Focus(
       skipTraversal: true,
       onKeyEvent: _handleKeyEvent,
       child: Scaffold(
-        backgroundColor: const Color(0xFF09111C),
+        backgroundColor: Colors.black,
         body: Stack(
           fit: StackFit.expand,
           children: [
             _buildBackdrop(),
+            // The art stays bright behind the hero and dims as the page
+            // scrolls into the sections, like a streaming app's title page.
+            IgnorePointer(
+              child: AnimatedBuilder(
+                animation: _scrollController,
+                builder: (_, _) {
+                  final offset = _scrollController.hasClients
+                      ? _scrollController.offset
+                      : 0.0;
+                  final a = (offset / (size.height * 0.8)).clamp(0.0, 0.85);
+                  return ColoredBox(color: Colors.black.withValues(alpha: a));
+                },
+              ),
+            ),
             SafeArea(
-              top: !widget.popup,
-              bottom: !widget.popup,
-              left: !widget.popup,
-              right: !widget.popup,
+              bottom: false,
               child: FocusTraversalGroup(
                 policy: WidgetOrderTraversalPolicy(),
-                child: Column(
-                  children: [
-                    _buildTopBar(),
-                    Expanded(
-                      child: SingleChildScrollView(
-                        controller: _scrollController,
-                        padding: const EdgeInsets.fromLTRB(20, 8, 20, 28),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            if (widget.popup &&
-                                _steamMovies.isNotEmpty &&
-                                context.watch<PluginsProvider>().isEnabled(
-                                  'game_video',
-                                )) ...[
-                              DetailsPopupTrailer(movies: _steamMovies),
-                              const SizedBox(height: 18),
-                            ],
-                            _buildHero(),
-                            const SizedBox(height: 18),
-                            _buildQuickActions(),
-                            if (context.watch<PluginsProvider>().isEnabled(
-                              'game_video',
-                            )) ...[
-                              const SizedBox(height: 10),
-                              _buildTrailerButton(),
-                            ],
-                            if (widget.app.screenshotUrls.isNotEmpty) ...[
-                              const SizedBox(height: 18),
-                              _buildScreenshotGallery(),
-                            ],
-                            const SizedBox(height: 18),
-                            _focusableCard(_buildSessionMeta()),
-                            if (_anySteamPluginEnabled) ...[
-                              const SizedBox(height: 18),
-                              _focusableCard(_buildSteamCard()),
-                            ],
-                            const SizedBox(height: 18),
-                            _buildPresetDeck(),
-                            const SizedBox(height: 18),
-                            _buildOverridesEditor(),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
+                child: SingleChildScrollView(
+                  controller: _scrollController,
+                  padding: EdgeInsets.fromLTRB(side, 4, side, isTV ? 72 : 36),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildTopBar(),
+                      SizedBox(height: wide ? size.height * 0.08 : 4),
+                      SizedBox(width: heroWidth, child: _buildHero(wide)),
+                      ..._buildSections(),
+                    ],
+                  ),
                 ),
               ),
             ),
-
             if (isTV)
               Positioned(
                 bottom: 0,
@@ -438,9 +418,6 @@ class _AppDetailsScreenState extends State<AppDetailsScreen> {
   }
 
   Widget _buildBackdrop() {
-    // Preserve the official composition and a predictable frame budget. The
-    // former full-screen sigma-36 blur required an off-screen render pass and
-    // obscured the artwork it was meant to support.
     return Stack(
       fit: StackFit.expand,
       children: [
@@ -448,20 +425,27 @@ class _AppDetailsScreenState extends State<AppDetailsScreen> {
           app: widget.app,
           heroCacheWidth: context.read<ThemeProvider>().backgroundArtCacheWidth,
           fallbackColor: const Color(0xFF0B1624),
-          heroBuilder: (context, selection, hero) => Stack(
-            fit: StackFit.expand,
-            children: [
-              hero,
-              Container(color: Colors.black.withValues(alpha: 0.62)),
-            ],
+        ),
+        if (_trailersEnabled && _steamMovies.isNotEmpty)
+          DetailsBackdropTrailer(movies: _steamMovies),
+        // Left scrim carries the text; the right side keeps the art.
+        const DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.centerLeft,
+              end: Alignment.centerRight,
+              stops: [0, 0.42, 0.85],
+              colors: [Color(0xF0000000), Color(0x99000000), Color(0x00000000)],
+            ),
           ),
         ),
-        Container(
-          decoration: const BoxDecoration(
+        const DecoratedBox(
+          decoration: BoxDecoration(
             gradient: LinearGradient(
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
-              colors: [Color(0x88000000), Color(0xF009111C)],
+              stops: [0, 0.3, 1],
+              colors: [Color(0x80000000), Color(0x00000000), Color(0xF2000000)],
             ),
           ),
         ),
@@ -470,251 +454,306 @@ class _AppDetailsScreenState extends State<AppDetailsScreen> {
   }
 
   Widget _buildTopBar() {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
-      child: Row(
-        children: [
-          IconButton(
-            onPressed: () => Navigator.pop(context),
-            icon: const Icon(Icons.arrow_back, color: Colors.white),
-          ),
-          const Spacer(),
-          TextButton.icon(
-            onPressed: _saving ? null : _saveOverrides,
-            icon: const Icon(Icons.save_outlined),
-            label: Text(AppLocalizations.of(context).save),
-          ),
-        ],
-      ),
+    return Row(
+      children: [
+        IconButton(
+          onPressed: () => Navigator.pop(context),
+          tooltip: AppLocalizations.of(context).back,
+          icon: const Icon(Icons.arrow_back, color: Colors.white),
+        ),
+        const Spacer(),
+        TextButton.icon(
+          onPressed: _saving ? null : _saveOverrides,
+          style: TextButton.styleFrom(foregroundColor: Colors.white),
+          icon: const Icon(Icons.save_outlined, size: 18),
+          label: Text(AppLocalizations.of(context).save),
+        ),
+      ],
     );
   }
 
-  /// Horizontal strip of extra images (screenshots/artwork) the host advertised.
-  Widget _buildScreenshotGallery() {
-    final shots = widget.app.screenshotUrls;
+  /// Store logo when Steam knows the game (streaming apps lead with the title
+  /// treatment); the name as type otherwise, in the same box so nothing jumps.
+  Widget _buildTitleArt(bool wide) {
+    final height = wide ? 110.0 : 72.0;
+    final title = Align(
+      alignment: Alignment.bottomLeft,
+      child: Text(
+        _displayName,
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          color: Colors.white,
+          fontSize: wide ? 42 : 30,
+          fontWeight: FontWeight.w900,
+          height: 1.02,
+          letterSpacing: -0.6,
+          shadows: const [Shadow(color: Colors.black54, blurRadius: 18)],
+        ),
+      ),
+    );
+    final id = _resolvedSteamAppId;
+    // A renamed game keeps the user's name; the store logo would undo it.
+    return SizedBox(
+      height: height,
+      child: id == null || _overrideName != null
+          ? title
+          : Image.network(
+              'https://cdn.cloudflare.steamstatic.com/steam/apps/$id/logo.png',
+              alignment: Alignment.bottomLeft,
+              fit: BoxFit.contain,
+              frameBuilder: (_, child, frame, sync) =>
+                  frame == null && !sync ? title : child,
+              errorBuilder: (_, _, _) => title,
+            ),
+    );
+  }
+
+  String _formatMinutes(int minutes) {
+    if (minutes < 60) return '$minutes min';
+    final h = minutes ~/ 60;
+    final m = minutes % 60;
+    return m == 0 ? '${h}h' : '${h}h ${m}m';
+  }
+
+  Widget _buildHero(bool wide) {
+    final l = AppLocalizations.of(context);
+    final app = widget.app;
+    final store = _storeInfo;
+    final genres = (store?.genres.isNotEmpty ?? false)
+        ? store!.genres
+        : app.metadataGenres.isNotEmpty
+        ? app.metadataGenres
+        : app.tags;
+    final desc = (app.description?.trim().isNotEmpty ?? false)
+        ? app.description!.trim()
+        : store?.shortDescription;
+    final year = RegExp(r'\d{4}').firstMatch(store?.releaseDate ?? '')?[0];
+    final playtime = _ownedGameInfo?.playtimeMinutes ?? app.playtimeMinutes;
+    final pct = store?.positivePercent;
+    const metaStyle = TextStyle(
+      color: Colors.white,
+      fontSize: 14,
+      fontWeight: FontWeight.w700,
+    );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          AppLocalizations.of(context).screenshots,
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 16,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-        const SizedBox(height: 10),
-        SizedBox(
-          height: 130,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            itemCount: shots.length,
-            separatorBuilder: (_, _) => const SizedBox(width: 10),
-            itemBuilder: (_, i) => ClipRRect(
-              borderRadius: BorderRadius.circular(10),
-              child: PosterImage(
-                url: shots[i],
-                cacheKey: widget.app.artCacheKey('shot', i),
-                width: 220,
-                height: 130,
-                fit: BoxFit.cover,
-                memCacheWidth: 440,
-                errorWidget: (_, _, _) =>
-                    Container(width: 220, height: 130, color: _tp.secondary),
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildHero() {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        ClipRRect(
-          borderRadius: BorderRadius.circular(18),
-          child: Hero(
-            tag: widget.heroTag,
-            child: SizedBox(
-              width: 140,
-              height: 188,
-              child:
-                  widget.app.posterUrl == null || widget.app.posterUrl!.isEmpty
-                  ? Container(
-                      color: _tp.secondary,
-                      child: const Icon(
-                        Icons.gamepad,
-                        color: Colors.white24,
-                        size: 48,
-                      ),
-                    )
-                  : PosterImage(
-                      url: _displayPoster ?? widget.app.posterUrl!,
-                      cacheKey: _displayPoster == null
-                          ? widget.app.artCacheKey('poster')
-                          : null,
-                      fit: BoxFit.cover,
-                      // Fixed 140x188 box; 2x for density.
-                      memCacheWidth: 300,
-                    ),
-            ),
-          ),
-        ),
-        const SizedBox(width: 16),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                _displayName,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 24,
-                  fontWeight: FontWeight.w900,
-                  height: 1.2,
-                ),
-              ),
-              const SizedBox(height: 6),
-
+        _buildTitleArt(wide),
+        const SizedBox(height: 14),
+        Wrap(
+          spacing: 14,
+          runSpacing: 6,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            if (app.isRunning)
               Row(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  _miniEditBtn(
-                    Icons.edit_outlined,
-                    AppLocalizations.of(context).editName,
-                    () => _showEditNameDialog(),
-                  ),
+                  const Icon(Icons.circle, size: 8, color: Colors.greenAccent),
                   const SizedBox(width: 6),
-                  _miniEditBtn(
-                    Icons.image_outlined,
-                    AppLocalizations.of(context).editPoster,
-                    () => _showEditPosterDialog(),
+                  Text(
+                    l.running,
+                    style: metaStyle.copyWith(color: Colors.greenAccent),
                   ),
                 ],
               ),
-              const SizedBox(height: 10),
-
-              _chip(
-                widget.app.isRunning
-                    ? AppLocalizations.of(context).running.toUpperCase()
-                    : AppLocalizations.of(context).readyStatus.toUpperCase(),
-                widget.app.isRunning ? Colors.greenAccent : Colors.white70,
-                tier: 1,
-              ),
-              const SizedBox(height: 10),
-
-              if (widget.app.tags.isNotEmpty) ...[
-                Wrap(
-                  spacing: 6,
-                  runSpacing: 6,
-                  children: widget.app.tags
-                      .take(5)
-                      .map(
-                        (t) => Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 7,
-                            vertical: 3,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.07),
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          child: Text(
-                            t,
-                            style: const TextStyle(
-                              color: Colors.white54,
-                              fontSize: 10,
-                            ),
-                          ),
-                        ),
-                      )
-                      .toList(),
+            if (year != null) Text(year, style: metaStyle),
+            if (playtime > 0) Text(_formatMinutes(playtime), style: metaStyle),
+            if (app.isHdrSupported)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(4),
+                  border: Border.all(color: Colors.white70),
                 ),
-                const SizedBox(height: 10),
-              ],
-
-              if (widget.app.description != null &&
-                  widget.app.description!.isNotEmpty)
-                Text(
-                  widget.app.description!,
-                  maxLines: 6,
-                  overflow: TextOverflow.ellipsis,
+                child: Text(
+                  l.hdrLabel,
                   style: const TextStyle(
                     color: Colors.white70,
-                    height: 1.5,
-                    fontSize: 13,
-                  ),
-                )
-              else
-                Text(
-                  AppLocalizations.of(context).noDescription,
-                  style: const TextStyle(
-                    color: Colors.white38,
-                    height: 1.4,
-                    fontSize: 12,
-                    fontStyle: FontStyle.italic,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
-
-              if (_favorite ||
-                  widget.app.isHdrSupported ||
-                  (widget.app.pluginName != null &&
-                      widget.app.pluginName!.isNotEmpty)) ...[
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 4,
-                  children: [
-                    if (_favorite)
-                      _chip(
-                        AppLocalizations.of(context).favorite.toUpperCase(),
-                        Colors.amberAccent,
-                        tier: 2,
+              ),
+            if (store?.metacriticScore != null)
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 4,
+                      vertical: 1,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF5C518),
+                      borderRadius: BorderRadius.circular(3),
+                    ),
+                    child: const Text(
+                      'MC',
+                      style: TextStyle(
+                        color: Colors.black,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w900,
                       ),
-                    if (widget.app.isHdrSupported)
-                      _chip(
-                        AppLocalizations.of(context).hdrLabel,
-                        Colors.cyanAccent,
-                        tier: 3,
-                      ),
-                    if (widget.app.pluginName != null &&
-                        widget.app.pluginName!.isNotEmpty)
-                      _chip(widget.app.pluginName!, Colors.white38, tier: 3),
-                  ],
-                ),
-              ],
-            ],
+                    ),
+                  ),
+                  const SizedBox(width: 5),
+                  Text(
+                    '${store!.metacriticScore}',
+                    style: metaStyle.copyWith(color: const Color(0xFFF5C518)),
+                  ),
+                ],
+              ),
+            if (pct != null)
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(
+                    Icons.thumb_up_alt_rounded,
+                    size: 14,
+                    color: Colors.white70,
+                  ),
+                  const SizedBox(width: 5),
+                  Text('${(pct * 100).round()}%', style: metaStyle),
+                ],
+              ),
+            if (_favorite)
+              const Icon(Icons.star_rounded, size: 18, color: Colors.amber),
+          ],
+        ),
+        if (genres.isNotEmpty) ...[
+          const SizedBox(height: 6),
+          Text(
+            genres.take(3).join('  •  '),
+            style: const TextStyle(
+              color: Color(0xB3FFFFFF),
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+            ),
           ),
+        ],
+        if (desc != null && desc.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          GestureDetector(
+            onTap: () => setState(() => _descExpanded = !_descExpanded),
+            child: AnimatedSize(
+              duration: const Duration(milliseconds: 200),
+              alignment: Alignment.topLeft,
+              child: Text(
+                desc,
+                maxLines: _descExpanded ? null : (wide ? 4 : 3),
+                overflow: _descExpanded
+                    ? TextOverflow.visible
+                    : TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Color(0xE6FFFFFF),
+                  fontSize: 14,
+                  height: 1.45,
+                ),
+              ),
+            ),
+          ),
+        ],
+        const SizedBox(height: 20),
+        Row(
+          children: [
+            Flexible(
+              child: SizedBox(
+                width: 400,
+                child: DetailsPlayPill(
+                  label: app.isRunning ? l.resume : l.play,
+                  onTap: () => Navigator.pop(context, AppDetailsAction.play),
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            DetailsCircleButton(
+              icon: _favorite ? Icons.star_rounded : Icons.star_outline_rounded,
+              label: _favorite ? l.unfav : l.fav,
+              activeColor: _favorite ? Colors.amber : null,
+              onTap: _toggleFavorite,
+            ),
+            if (_trailersEnabled) ...[
+              const SizedBox(width: 10),
+              DetailsCircleButton(
+                icon: Icons.movie_outlined,
+                label: l.watchTrailer,
+                onTap: _openTrailerModal,
+              ),
+            ],
+            const SizedBox(width: 10),
+            DetailsCircleButton(
+              icon: Icons.more_horiz_rounded,
+              label: l.options,
+              onTap: _showMoreActions,
+            ),
+          ],
         ),
       ],
     );
   }
 
-  Widget _miniEditBtn(IconData icon, String label, VoidCallback onTap) {
-    return AccessibleAction(
-      label: label,
-      tooltip: label,
-      onActivate: onTap,
-      borderRadius: BorderRadius.circular(6),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 14, color: _tp.accentLight),
-            const SizedBox(width: 5),
-            Text(
-              label,
-              style: const TextStyle(
-                color: Colors.white70,
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ],
-        ),
+  Future<void> _toggleFavorite() async {
+    await widget.onToggleFavorite();
+    if (mounted) setState(() => _favorite = !_favorite);
+  }
+
+  void _showMoreActions() {
+    final l = AppLocalizations.of(context);
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: const Color(0xFF12161F),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
+      builder: (ctx) {
+        var first = true;
+        Widget item(
+          IconData icon,
+          String label,
+          VoidCallback onTap, {
+          Color? color,
+        }) {
+          final autofocus = first;
+          first = false;
+          return ListTile(
+            autofocus: autofocus,
+            leading: Icon(icon, color: color ?? Colors.white70),
+            title: Text(label, style: TextStyle(color: color ?? Colors.white)),
+            onTap: () {
+              Navigator.pop(ctx);
+              onTap();
+            },
+          );
+        }
+
+        return SafeArea(
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (widget.app.isRunning)
+                  item(
+                    Icons.power_settings_new,
+                    l.closeSession,
+                    _closeSession,
+                    color: Colors.redAccent,
+                  ),
+                if (widget.onAddToCollection != null)
+                  item(
+                    Icons.playlist_add_rounded,
+                    l.addToCollection,
+                    widget.onAddToCollection!,
+                  ),
+                item(Icons.edit_outlined, l.editName, _showEditNameDialog),
+                item(Icons.image_outlined, l.editPoster, _showEditPosterDialog),
+                item(Icons.restart_alt, l.resetLabel, _resetOverrides),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -927,7 +966,6 @@ class _AppDetailsScreenState extends State<AppDetailsScreen> {
         result,
       );
       if (mounted) {
-        setState(() => _overridePoster = result);
         context.read<AppListProvider>().reapplyUserOverrides();
         ScaffoldMessenger.of(
           context,
@@ -966,7 +1004,6 @@ class _AppDetailsScreenState extends State<AppDetailsScreen> {
       );
 
       if (mounted) {
-        setState(() => _overridePoster = fileUri);
         context.read<AppListProvider>().reapplyUserOverrides();
         final l = AppLocalizations.of(context);
         ScaffoldMessenger.of(
@@ -982,452 +1019,191 @@ class _AppDetailsScreenState extends State<AppDetailsScreen> {
     }
   }
 
-  Widget _chip(String label, Color color, {int tier = 1}) {
-    switch (tier) {
-      case 2:
-        return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-          decoration: BoxDecoration(
-            color: color.withValues(alpha: 0.06),
-            borderRadius: BorderRadius.circular(999),
-            border: Border.all(color: color.withValues(alpha: 0.35)),
-          ),
-          child: Text(
-            label,
-            style: TextStyle(
-              color: color.withValues(alpha: 0.7),
-              fontWeight: FontWeight.w600,
-              fontSize: 10,
-              letterSpacing: 0.2,
-            ),
-          ),
-        );
-      case 3:
-        return Text(
-          label,
-          style: TextStyle(
-            color: color.withValues(alpha: 0.55),
-            fontWeight: FontWeight.w500,
-            fontSize: 10,
-            letterSpacing: 0.1,
-          ),
-        );
-      default:
-        return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-          decoration: BoxDecoration(
-            color: color.withValues(alpha: 0.16),
-            borderRadius: BorderRadius.circular(999),
-            border: Border.all(color: color.withValues(alpha: 0.55)),
-          ),
-          child: Text(
-            label,
-            style: TextStyle(
-              color: color,
-              fontWeight: FontWeight.w700,
-              fontSize: 10,
-              letterSpacing: 0.2,
-            ),
-          ),
-        );
-    }
-  }
-
-  Widget _buildQuickActions() {
+  List<Widget> _buildSections() {
     final l = AppLocalizations.of(context);
-    final isTV = TvDetector.instance.isTV;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        _FocusableActionBtn(
-          icon: Icons.play_arrow_rounded,
-          label: widget.app.isRunning ? l.resume : l.play,
-          gamepadHint: 'X',
-          backgroundColor: _tp.accent.withValues(alpha: 0.85),
-          borderColor: _tp.accent,
-          isPrimary: true,
-          isTV: isTV,
-          autofocus: true,
-          onTap: () => Navigator.pop(context, AppDetailsAction.play),
-        ),
-        const SizedBox(height: 8),
-
-        Row(
-          children: [
-            _compactBtn(
-              Icons.power_settings_new,
-              AppLocalizations.of(context).closeSession,
-              widget.app.isRunning ? Colors.redAccent : null,
-              widget.app.isRunning
-                  ? () async {
-                      final provider = context.read<AppListProvider>();
-                      await provider.quitApp();
-                      if (mounted) Navigator.pop(context);
-                    }
-                  : null, // If false, onTap is null (disabled)
-              gamepadHint: 'Y',
-            ),
-            _compactBtn(
-              _favorite ? Icons.star : Icons.star_outline,
-              _favorite ? l.unfav : l.fav,
-              _tp.accentLight,
-              () async {
-                await widget.onToggleFavorite();
-                if (!mounted) return;
-                setState(() => _favorite = !_favorite);
-              },
-              gamepadHint: 'RB',
-            ),
-            _compactBtn(
-              Icons.restart_alt,
-              l.resetLabel,
-              _tp.accentLight,
-              _resetOverrides,
-              gamepadHint: 'LB',
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-
-  Widget _compactBtn(
-    IconData icon,
-    String label,
-    Color? accent,
-    VoidCallback? onTap, {
-    String? gamepadHint,
-    bool autofocus = false,
-  }) {
-    final surfaceBase = _tp.surfaceVariant.withValues(alpha: 0.92);
-    final bg = accent != null
-        ? Color.alphaBlend(accent.withValues(alpha: 0.16), surfaceBase)
-        : surfaceBase;
-    final border = Colors.transparent;
-    final isTV = TvDetector.instance.isTV;
-    return Expanded(
-      child: _FocusableActionBtn(
-        icon: icon,
-        label: label,
-        gamepadHint: gamepadHint,
-        backgroundColor: bg,
-        borderColor: border,
-        isPrimary: false,
-        isTV: isTV,
-        autofocus: autofocus,
-        onTap: onTap,
-      ),
-    );
-  }
-
-  Widget _buildSessionMeta() {
-    final lastSession = _formatLastSession(widget.profile.lastSessionAt);
-    final launchCount = '${widget.profile.launchCount}';
-    final l = AppLocalizations.of(context);
-    final overridesLabel = widget.profile.hasOverrides
-        ? l.customProfile
-        : l.globalOnly;
-
-    final tiles = <Widget>[];
-    void addTile(String lbl, String val) {
-      if (tiles.isNotEmpty) {
-        tiles.add(const Divider(height: 1, color: Colors.white10));
-      }
-      tiles.add(_metaTile(lbl, val));
-    }
-
-    addTile(l.lastSessionLabel, lastSession);
-    addTile(l.launchCountLabel, launchCount);
-    addTile(l.overridesLabelMeta, overridesLabel);
-    if (_localPlaytimeSec > 0) {
-      addTile(
-        'Tiempo en JUJO',
-        SessionHistoryService.formatDuration(_localPlaytimeSec),
-      );
-    }
-
-    return _card(
-      title: l.sessionMetadata,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: tiles,
-      ),
-    );
-  }
-
-  Widget _buildSteamCard() {
     final app = widget.app;
-    final prog = _achievements;
-
-    final playtime = _ownedGameInfo?.playtimeMinutes ?? app.playtimeMinutes;
     final store = _storeInfo;
+    final prog = _achievements;
+    final trailers = _trailersEnabled
+        ? _steamMovies.take(6).toList()
+        : const [];
+    final shots = app.screenshotUrls;
 
-    String formatPlaytime(int minutes) {
-      if (minutes < 60) return '$minutes min';
-      final h = minutes ~/ 60;
-      final m = minutes % 60;
-      return m == 0 ? '${h}h' : '${h}h ${m}min';
-    }
+    final steamPlay = _ownedGameInfo?.playtimeMinutes ?? app.playtimeMinutes;
+    final recent = _ownedGameInfo?.playtimeRecentMinutes ?? 0;
+    final activity = <Widget>[
+      if (steamPlay > 0)
+        DetailsFact(label: l.timePlayed, value: _formatMinutes(steamPlay)),
+      if (recent > 0)
+        DetailsFact(label: l.last2Weeks, value: _formatMinutes(recent)),
+      DetailsFact(
+        label: l.lastSessionLabel,
+        value: _formatLastSession(widget.profile.lastSessionAt),
+      ),
+      DetailsFact(
+        label: l.launchCountLabel,
+        value: '${widget.profile.launchCount}',
+      ),
+      if (_localPlaytimeSec > 0)
+        DetailsFact(
+          label: _t('Tiempo en JUJO', 'Time in JUJO'),
+          value: SessionHistoryService.formatDuration(_localPlaytimeSec),
+        ),
+      if (prog != null)
+        DetailsFact(
+          label: _t('Logros', 'Achievements'),
+          value: '${prog.unlocked}/${prog.total} · ${prog.percent.round()}%',
+          valueColor: prog.isComplete ? Colors.amber : null,
+        ),
+      DetailsFact(
+        label: l.overridesLabelMeta,
+        value: widget.profile.hasOverrides ? l.customProfile : l.globalOnly,
+      ),
+    ];
 
-    String formatLastPlayed(String? dt) {
-      final sl = AppLocalizations.of(context);
-      if (dt == null || dt.isEmpty) return sl.never;
-      final parsed = DateTime.tryParse(dt);
-      if (parsed == null) return dt;
-      final diff = DateTime.now().difference(parsed);
-      if (diff.inDays == 0) return sl.todayLabel;
-      if (diff.inDays == 1) return sl.yesterdayLabel;
-      if (diff.inDays < 30) return sl.daysAgo(diff.inDays);
-      if (diff.inDays < 365) return sl.monthsAgo(diff.inDays ~/ 30);
-      return sl.yearsAgo(diff.inDays ~/ 365);
-    }
+    final pct = store?.positivePercent;
+    final about = <Widget>[
+      if (store?.releaseDate?.isNotEmpty ?? false)
+        DetailsFact(label: l.releaseDate, value: store!.releaseDate!),
+      if (store?.developers.isNotEmpty ?? false)
+        DetailsFact(
+          label: l.developerLabel,
+          value: store!.developers.join(', '),
+        ),
+      if (store?.publishers.isNotEmpty ?? false)
+        DetailsFact(
+          label: _t('Distribuidora', 'Publisher'),
+          value: store!.publishers.join(', '),
+        ),
+      if (store?.reviewDescription?.isNotEmpty ?? false)
+        DetailsFact(
+          label: _t('Reseñas', 'Reviews'),
+          value: pct == null
+              ? store!.reviewDescription!
+              : '${store!.reviewDescription} · ${(pct * 100).round()}%',
+          valueColor: pct == null
+              ? null
+              : pct >= 0.8
+              ? Colors.greenAccent
+              : pct >= 0.5
+              ? Colors.amberAccent
+              : Colors.redAccent,
+        ),
+      if (store?.metacriticScore != null)
+        DetailsFact(
+          label: l.metacriticLabel,
+          value: '${store!.metacriticScore}',
+        ),
+      if (app.pluginName?.isNotEmpty ?? false)
+        DetailsFact(label: _t('Origen', 'Source'), value: app.pluginName!),
+      if (_steamPersona?.isNotEmpty ?? false)
+        DetailsFact(label: l.accountLabel, value: _steamPersona!),
+    ];
 
-    return _card(
-      title: AppLocalizations.of(context).gameInformation,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          if (_steamPersona != null && _steamPersona!.isNotEmpty) ...[
-            Row(
+    Widget facts(List<Widget> children) =>
+        Wrap(spacing: 36, runSpacing: 18, children: children);
+
+    return [
+      if (trailers.isNotEmpty || shots.isNotEmpty)
+        DetailsSection(
+          title: _t('Multimedia', 'Media'),
+          child: SizedBox(
+            height: 135,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
               children: [
-                Image.asset(
-                  'assets/images/UI/steam/steam_icon.png',
-                  width: 16,
-                  height: 16,
-                  color: Colors.white38,
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  '${AppLocalizations.of(context).accountLabel}: $_steamPersona',
-                  style: const TextStyle(color: Colors.white70, fontSize: 13),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-          ],
-
-          if (playtime > 0)
-            _metaTile(
-              AppLocalizations.of(context).timePlayed,
-              formatPlaytime(playtime),
-            ),
-          if (playtime > 0 &&
-              _ownedGameInfo?.playtimeRecentMinutes != null &&
-              _ownedGameInfo!.playtimeRecentMinutes > 0) ...[
-            const Divider(height: 1, color: Colors.white10),
-            _metaTile(
-              AppLocalizations.of(context).last2Weeks,
-              formatPlaytime(_ownedGameInfo!.playtimeRecentMinutes),
-            ),
-          ],
-          if (playtime > 0 && app.lastPlayed != null)
-            const Divider(height: 1, color: Colors.white10),
-          if (app.lastPlayed != null)
-            _metaTile(
-              AppLocalizations.of(context).lastSessionLabel,
-              formatLastPlayed(app.lastPlayed),
-            ),
-
-          if (store != null) ...[
-            if (store.reviewDescription != null &&
-                store.reviewDescription!.isNotEmpty) ...[
-              const SizedBox(height: 10),
-              _buildReviewTile(store),
-            ],
-            if (store.genres.isNotEmpty) ...[
-              const SizedBox(height: 10),
-              _buildGenreChips(store.genres),
-            ],
-            if (store.releaseDate != null && store.releaseDate!.isNotEmpty) ...[
-              const Divider(height: 1, color: Colors.white10),
-              _metaTile(
-                AppLocalizations.of(context).releaseDate,
-                store.releaseDate!,
-              ),
-            ],
-            if (store.developers.isNotEmpty) ...[
-              const Divider(height: 1, color: Colors.white10),
-              _metaTile(
-                AppLocalizations.of(context).developerLabel,
-                store.developers.join(', '),
-              ),
-            ],
-            if (store.metacriticScore != null) ...[
-              const Divider(height: 1, color: Colors.white10),
-              _metaTile(
-                AppLocalizations.of(context).metacriticLabel,
-                '${store.metacriticScore}',
-              ),
-            ],
-          ],
-          if (_storeInfoLoading) ...[
-            const SizedBox(height: 12),
-            const Center(
-              child: SizedBox(
-                width: 18,
-                height: 18,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: Colors.white24,
-                ),
-              ),
-            ),
-          ],
-
-          if (!_hasSteamApiKey &&
-              playtime == 0 &&
-              prog == null &&
-              store == null) ...[
-            if (_steamPersona != null) const SizedBox(height: 4),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Icon(Icons.info_outline, size: 14, color: Colors.white30),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text(
-                    AppLocalizations.of(context).steamApiKeyHint,
-                    style: TextStyle(
-                      color: Colors.white38,
-                      fontSize: 11,
-                      height: 1.4,
+                for (final m in trailers)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 12),
+                    child: DetailsMediaCard(
+                      isVideo: true,
+                      caption: m.name,
+                      onTap: _openTrailerModal,
+                      image: m.thumbnail == null
+                          ? const SizedBox.shrink()
+                          : Image.network(
+                              m.thumbnail!,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, _, _) =>
+                                  const SizedBox.shrink(),
+                            ),
                     ),
                   ),
-                ),
-              ],
-            ),
-          ],
-
-          if (prog != null) ...[
-            const SizedBox(height: 12),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  AppLocalizations.of(
-                    context,
-                  ).achievementsProgress(prog.unlocked, prog.total),
-                  style: const TextStyle(color: Colors.white70, fontSize: 12),
-                ),
-                Text(
-                  '${prog.percent.round()}%',
-                  style: TextStyle(
-                    color: prog.isComplete
-                        ? Colors.amber
-                        : prog.inProgress
-                        ? Colors.cyanAccent
-                        : Colors.white38,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
+                for (var i = 0; i < shots.length; i++)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 12),
+                    child: DetailsMediaCard(
+                      onTap: () => _openScreenshot(i),
+                      image: PosterImage(
+                        url: shots[i],
+                        cacheKey: app.artCacheKey('shot', i),
+                        fit: BoxFit.cover,
+                        memCacheWidth: 480,
+                        errorWidget: (_, _, _) => const SizedBox.shrink(),
+                      ),
+                    ),
                   ),
-                ),
               ],
-            ),
-            const SizedBox(height: 6),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(4),
-              child: LinearProgressIndicator(
-                value: prog.percent / 100,
-                backgroundColor: Colors.white12,
-                valueColor: AlwaysStoppedAnimation<Color>(
-                  prog.isComplete
-                      ? Colors.amber
-                      : prog.inProgress
-                      ? Colors.cyanAccent
-                      : Colors.white24,
-                ),
-                minHeight: 6,
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  Widget _buildReviewTile(SteamGameStoreInfo store) {
-    final desc = store.reviewDescription ?? '';
-    final pct = store.positivePercent;
-    final total = store.totalReviews ?? 0;
-    final Color color;
-    if (pct != null && pct >= 0.80) {
-      color = Colors.greenAccent;
-    } else if (pct != null && pct >= 0.50) {
-      color = Colors.amberAccent;
-    } else {
-      color = Colors.redAccent;
-    }
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.05),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.white12),
-      ),
-      child: Row(
-        children: [
-          Icon(Icons.thumb_up_outlined, size: 14, color: color),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              desc,
-              style: TextStyle(
-                color: color,
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-              ),
             ),
           ),
-          if (pct != null)
-            Text(
-              '${(pct * 100).round()}%',
-              style: TextStyle(
-                color: color,
-                fontSize: 13,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-          if (total > 0) ...[
-            const SizedBox(width: 6),
-            Text(
-              '(${_compactNumber(total)})',
-              style: const TextStyle(color: Colors.white38, fontSize: 11),
-            ),
-          ],
-        ],
+        ),
+      DetailsSection(
+        title: _t('Tu actividad', 'Your activity'),
+        child: facts(activity),
       ),
-    );
+      if (about.isNotEmpty || _storeInfoLoading || _anySteamPluginEnabled)
+        DetailsSection(
+          title: l.gameInformation,
+          child: _storeInfoLoading && about.isEmpty
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white24,
+                  ),
+                )
+              : about.isEmpty
+              ? Text(
+                  l.steamApiKeyHint,
+                  style: const TextStyle(
+                    color: Colors.white54,
+                    fontSize: 12,
+                    height: 1.4,
+                  ),
+                )
+              : facts(about),
+        ),
+      DetailsSection(
+        title: _t('Ajustes de stream', 'Stream settings'),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _buildPresetDeck(),
+            const SizedBox(height: 18),
+            _buildOverridesEditor(),
+          ],
+        ),
+      ),
+    ];
   }
 
-  Widget _buildGenreChips(List<String> genres) {
-    return Wrap(
-      spacing: 6,
-      runSpacing: 6,
-      children: genres
-          .take(6)
-          .map(
-            (g) => Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: _tp.accent.withValues(alpha: 0.2),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: _tp.accent.withValues(alpha: 0.4)),
-              ),
-              child: Text(
-                g,
-                style: const TextStyle(color: Colors.white60, fontSize: 11),
-              ),
+  void _openScreenshot(int index) {
+    showDialog<void>(
+      context: context,
+      barrierColor: Colors.black87,
+      builder: (ctx) => GestureDetector(
+        onTap: () => Navigator.pop(ctx),
+        child: InteractiveViewer(
+          child: Center(
+            child: PosterImage(
+              url: widget.app.screenshotUrls[index],
+              cacheKey: widget.app.artCacheKey('shot', index),
+              fit: BoxFit.contain,
             ),
-          )
-          .toList(),
-    );
-  }
-
-  Widget _buildTrailerButton() {
-    return _FocusableTrailerButton(
-      label: AppLocalizations.of(context).watchTrailer,
-      onPressed: _openTrailerModal,
+          ),
+        ),
+      ),
     );
   }
 
@@ -1450,12 +1226,6 @@ class _AppDetailsScreenState extends State<AppDetailsScreen> {
         ),
       ),
     );
-  }
-
-  String _compactNumber(int n) {
-    if (n >= 1000000) return '${(n / 1000000).toStringAsFixed(1)}M';
-    if (n >= 1000) return '${(n / 1000).toStringAsFixed(1)}K';
-    return '$n';
   }
 
   Widget _buildPresetDeck() {
@@ -1732,34 +1502,6 @@ class _AppDetailsScreenState extends State<AppDetailsScreen> {
     );
   }
 
-  Widget _metaTile(String title, String value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            title,
-            style: const TextStyle(color: Colors.white38, fontSize: 12),
-          ),
-          const Spacer(),
-          const SizedBox(width: 16),
-          Flexible(
-            child: Text(
-              value,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-              ),
-              textAlign: TextAlign.end,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildOverridesEditor() {
     return _card(
       title: AppLocalizations.of(context).perGameStreamProfile,
@@ -1817,10 +1559,6 @@ class _AppDetailsScreenState extends State<AppDetailsScreen> {
         ),
       ),
     );
-  }
-
-  Widget _focusableCard(Widget card) {
-    return _FocusableCardWrapper(child: card);
   }
 
   Widget _card({required String title, required Widget child}) {
@@ -2108,178 +1846,6 @@ class _AppDetailsScreenState extends State<AppDetailsScreen> {
 
 enum _GamePreset { competitive, balanced, visualQuality, handheld }
 
-class _FocusableActionBtn extends StatefulWidget {
-  final IconData icon;
-  final String label;
-  final String? gamepadHint;
-  final Color backgroundColor;
-  final Color borderColor;
-  final bool isPrimary;
-  final bool isTV;
-  final bool autofocus;
-  final VoidCallback? onTap;
-
-  const _FocusableActionBtn({
-    required this.icon,
-    required this.label,
-    this.gamepadHint,
-    required this.backgroundColor,
-    required this.borderColor,
-    required this.isPrimary,
-    required this.isTV,
-    this.autofocus = false,
-    required this.onTap,
-  });
-
-  @override
-  State<_FocusableActionBtn> createState() => _FocusableActionBtnState();
-}
-
-class _FocusableActionBtnState extends State<_FocusableActionBtn> {
-  AppThemeColors get _tp => context.read<ThemeProvider>().colors;
-
-  bool _focused = false;
-  bool _pressed = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final targetScale = _pressed ? 0.97 : 1.0;
-    final iconColor = _focused
-        ? Colors.white
-        : widget.isPrimary
-        ? Colors.white70
-        : Colors.white54;
-    final labelColor = _focused
-        ? Colors.white
-        : widget.isPrimary
-        ? Colors.white
-        : Colors.white70;
-    final shadowTint = Color.alphaBlend(
-      _tp.background.withValues(alpha: widget.isPrimary ? 0.12 : 0.22),
-      widget.backgroundColor,
-    );
-    final gradientTop = Color.alphaBlend(
-      Colors.white.withValues(alpha: widget.isPrimary ? 0.10 : 0.06),
-      widget.backgroundColor,
-    );
-    final gradientBottom = Color.alphaBlend(
-      _tp.background.withValues(alpha: widget.isPrimary ? 0.12 : 0.18),
-      widget.backgroundColor,
-    );
-    final outlineColor = Color.alphaBlend(
-      widget.borderColor.withValues(alpha: _focused ? 0.68 : 0.42),
-      widget.backgroundColor,
-    );
-    return Semantics(
-      button: widget.onTap != null,
-      enabled: widget.onTap != null,
-      label: widget.label,
-      onTap: widget.onTap,
-      child: Focus(
-        autofocus: widget.autofocus,
-        onFocusChange: (f) {
-          setState(() => _focused = f);
-          if (f) {
-            Scrollable.ensureVisible(
-              context,
-              alignment: 0.5,
-              duration: const Duration(milliseconds: 250),
-              curve: Curves.easeOutCubic,
-            );
-          }
-        },
-        onKeyEvent: (_, event) {
-          if (widget.onTap == null) return KeyEventResult.ignored;
-          if (event is! KeyDownEvent) return KeyEventResult.ignored;
-          final key = event.logicalKey;
-          if (key == LogicalKeyboardKey.enter ||
-              key == LogicalKeyboardKey.select ||
-              key == LogicalKeyboardKey.gameButtonA) {
-            widget.onTap!();
-            return KeyEventResult.handled;
-          }
-          return KeyEventResult.ignored;
-        },
-        child: GestureDetector(
-          onTap: widget.onTap,
-          onTapDown: widget.onTap != null
-              ? (_) => setState(() => _pressed = true)
-              : null,
-          onTapUp: widget.onTap != null
-              ? (_) => setState(() => _pressed = false)
-              : null,
-          onTapCancel: widget.onTap != null
-              ? () => setState(() => _pressed = false)
-              : null,
-          child: AnimatedScale(
-            scale: targetScale,
-            duration: const Duration(milliseconds: 110),
-            curve: Curves.easeOutCubic,
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 180),
-              width: double.infinity,
-              margin: const EdgeInsets.symmetric(horizontal: 3),
-              padding: EdgeInsets.symmetric(vertical: widget.isTV ? 14 : 10),
-              transform: Matrix4.translationValues(0, _focused ? -2 : 0, 0),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [gradientTop, gradientBottom],
-                ),
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(
-                  color: outlineColor,
-                  width: _focused ? 1.4 : 1.0,
-                ),
-                boxShadow: _focused
-                    ? [
-                        BoxShadow(
-                          color: shadowTint.withValues(
-                            alpha: widget.isPrimary ? 0.24 : 0.12,
-                          ),
-                          blurRadius: widget.isPrimary ? 16 : 10,
-                          offset: const Offset(0, 4),
-                        ),
-                      ]
-                    : null,
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.all(8),
-                    child: Icon(
-                      widget.icon,
-                      color: iconColor,
-                      size: widget.isTV ? 26 : 20,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    widget.label,
-                    style: TextStyle(
-                      color: labelColor,
-                      fontSize: widget.isTV ? 13 : 11,
-                      fontWeight: widget.isPrimary
-                          ? FontWeight.w600
-                          : FontWeight.w500,
-                    ),
-                  ),
-                  if (widget.gamepadHint != null) ...[
-                    const SizedBox(height: 2),
-                    GamepadHintIcon(widget.gamepadHint!, size: 22),
-                  ],
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 class _FocusableChoiceRow extends StatefulWidget {
   final String title;
   final String value;
@@ -2426,115 +1992,6 @@ class _FocusableSwitchRowState extends State<_FocusableSwitchRow> {
           value: widget.value,
           activeThumbColor: _tp.accentLight,
           onChanged: widget.onChanged,
-        ),
-      ),
-    );
-  }
-}
-
-class _FocusableCardWrapper extends StatefulWidget {
-  final Widget child;
-  const _FocusableCardWrapper({required this.child});
-
-  @override
-  State<_FocusableCardWrapper> createState() => _FocusableCardWrapperState();
-}
-
-class _FocusableCardWrapperState extends State<_FocusableCardWrapper> {
-  bool _focused = false;
-
-  @override
-  Widget build(BuildContext context) {
-    return Focus(
-      onFocusChange: (f) {
-        setState(() => _focused = f);
-        if (f) {
-          Scrollable.ensureVisible(
-            context,
-            alignment: 0.4,
-            duration: const Duration(milliseconds: 260),
-            curve: Curves.easeOutCubic,
-          );
-        }
-      },
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 160),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(
-            color: _focused
-                ? Colors.white.withValues(alpha: 0.45)
-                : Colors.transparent,
-            width: 1.5,
-          ),
-        ),
-        child: widget.child,
-      ),
-    );
-  }
-}
-
-class _FocusableTrailerButton extends StatefulWidget {
-  final String label;
-  final VoidCallback onPressed;
-
-  const _FocusableTrailerButton({required this.label, required this.onPressed});
-
-  @override
-  State<_FocusableTrailerButton> createState() =>
-      _FocusableTrailerButtonState();
-}
-
-class _FocusableTrailerButtonState extends State<_FocusableTrailerButton> {
-  bool _focused = false;
-
-  @override
-  Widget build(BuildContext context) {
-    return Focus(
-      onFocusChange: (f) {
-        setState(() => _focused = f);
-        if (f) {
-          Scrollable.ensureVisible(
-            context,
-            alignment: 0.5,
-            duration: const Duration(milliseconds: 250),
-            curve: Curves.easeOutCubic,
-          );
-        }
-      },
-      onKeyEvent: (_, event) {
-        if (event is! KeyDownEvent) return KeyEventResult.ignored;
-        final key = event.logicalKey;
-        if (key == LogicalKeyboardKey.enter ||
-            key == LogicalKeyboardKey.select ||
-            key == LogicalKeyboardKey.gameButtonA) {
-          widget.onPressed();
-          return KeyEventResult.handled;
-        }
-        return KeyEventResult.ignored;
-      },
-      child: SizedBox(
-        width: double.infinity,
-        child: OutlinedButton.icon(
-          onPressed: widget.onPressed,
-          icon: const Icon(Icons.movie_outlined, size: 18),
-          label: Text(widget.label),
-          style: OutlinedButton.styleFrom(
-            foregroundColor: Colors.cyanAccent,
-            side: BorderSide(
-              color: _focused
-                  ? Colors.cyanAccent
-                  : Colors.cyanAccent.withValues(alpha: 0.5),
-              width: _focused ? 2.0 : 1.0,
-            ),
-            backgroundColor: _focused
-                ? Colors.cyanAccent.withValues(alpha: 0.08)
-                : Colors.transparent,
-            padding: const EdgeInsets.symmetric(vertical: 12),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(14),
-            ),
-          ),
         ),
       ),
     );
