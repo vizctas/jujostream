@@ -6,10 +6,18 @@ const Map<String, ({List<String> es, List<String> en})> kChangelog = {
     es: [
       'En el tema Kuiboo puedes ver el género, la plataforma y el tiempo de juego del título seleccionado sin abrir otra pantalla.',
       'Nueva página de detalle del juego, al estilo de las apps de streaming: el tráiler de fondo en silencio, el logo del juego, sus datos y sus tráileres.',
+      'Invitados por enlace: abre un enlace jujostream://invite o escribe el código en "Unirse con código" para entrar a una partida en curso.',
+      'Mientras juegas, aceptas o rechazas a los invitados desde un aviso que no pausa el juego, y desde el panel Co-Op activas la aceptación automática o compartes un enlace.',
+      'Los juegos que no son de Steam muestran la descripción, el estudio y la fecha que guardas en Admin.',
+      'Tema PS5 más limpio: abajo solo quedan Jugar y el menú.',
     ],
     en: [
       'In the Kuiboo theme, you can see the selected game’s genre, platform, and playtime without opening another screen.',
       'New game detail page in the style of streaming apps: the trailer plays muted in the background, with the game logo, its info and its trailers.',
+      'Guest links: open a jujostream://invite link or type the code in "Join with code" to join a running game.',
+      'While you play, accept or decline guests from a notice that never pauses the game; the Co-Op panel turns on auto-accept or shares a link.',
+      'Non-Steam games show the description, studio and date you keep in Admin.',
+      'Cleaner PS5 theme: only Play and the menu stay at the bottom.',
     ],
   ),
   '1.1.44': (
