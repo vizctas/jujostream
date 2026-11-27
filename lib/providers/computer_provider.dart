@@ -308,6 +308,7 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_primaryServerKey, uuid);
+    _pushPrimaryToCloud();
   }
 
   Future<void> clearPrimaryServer() async {
@@ -315,6 +316,15 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_primaryServerKey);
+    _pushPrimaryToCloud();
+  }
+
+  /// The startup pull restores the primary from the cloud profile's
+  /// is_default, so a local-only change would be undone on the next launch.
+  void _pushPrimaryToCloud() {
+    if (_cloudSignedIn) {
+      unawaited(CloudSyncService.instance.pushConfigToSupabase());
+    }
   }
 
   ComputerProvider({
