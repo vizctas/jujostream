@@ -14,12 +14,15 @@ import '../themes/launcher_theme_registry.dart';
 /// Stored in the focus_wallpaper pref as `asset:path`.
 const kFocusWallpaperAssets = <String>[
   'assets/images/focus/01-farol.mp4',
-  'assets/images/focus/02-tormenta.mp4',
   'assets/images/focus/03-remolinos.mp4',
   'assets/images/focus/05-atardecer.mp4',
 ];
 
 String _normalizeFocusWallpaper(String value) {
+  // 02-tormenta (rain) was retired; saved picks fall back to the default.
+  if (value == 'asset:assets/images/focus/02-tormenta.mp4') {
+    return 'asset:${kFocusWallpaperAssets.first}';
+  }
   if (value.startsWith('asset:') &&
       value.endsWith('.jpg') &&
       (value.contains('/wallpaper_') || value.contains('/default_focus'))) {
