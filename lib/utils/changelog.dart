@@ -5,11 +5,11 @@ const Map<String, ({List<String> es, List<String> en})> kChangelog = {
   '1.1.49': (
     es: [
       'En el tema Kuiboo puedes ver el género, la plataforma y el tiempo de juego del título seleccionado sin abrir otra pantalla.',
-      'El detalle de un juego se abre como ventana sobre la biblioteca, con el tráiler en silencio y en bucle.',
+      'Nueva página de detalle del juego, al estilo de las apps de streaming: el tráiler de fondo en silencio, el logo del juego, sus datos y sus tráileres.',
     ],
     en: [
       'In the Kuiboo theme, you can see the selected game’s genre, platform, and playtime without opening another screen.',
-      'Game details open as a popup over the library, with the trailer muted and looping.',
+      'New game detail page in the style of streaming apps: the trailer plays muted in the background, with the game logo, its info and its trailers.',
     ],
   ),
   '1.1.44': (
