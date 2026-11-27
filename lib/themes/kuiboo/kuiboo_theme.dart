@@ -683,190 +683,203 @@ class _BodyState extends State<_Body> {
                             ),
                           ),
                         SizedBox(height: compositionGap),
-                        // Title pins top-left; carousel centres in the rest.
+                        // Title pins top-left; carousel sits on the bottom
+                        // edge with a small breathing gap.
                         Expanded(
-                          child: Center(
-                            child: SizedBox(
-                              height: _selH,
-                              child: ListView.builder(
-                                controller: _sc,
-                                scrollDirection: Axis.horizontal,
-                                physics: const NeverScrollableScrollPhysics(),
-                                // Keep off-screen cards built so their posters are already
-                                // decoded when fast D-pad movement arrives.
-                                scrollCacheExtent:
-                                    const ScrollCacheExtent.pixels(800),
-                                padding: EdgeInsets.symmetric(
-                                  horizontal: vw / 2,
-                                ),
-                                itemCount: widget.apps.length,
-                                itemBuilder: (_, i) {
-                                  final a = widget.apps[i];
-                                  final sel = i == _idx;
-                                  final lp = context
-                                      .read<LauncherPreferences>();
-                                  return GestureDetector(
-                                    onTap: () {
-                                      if (sel) {
-                                        _action();
-                                        widget.onAppSelected(a);
-                                      } else {
-                                        _move(i - _idx);
-                                      }
-                                    },
-                                    child: AnimatedContainer(
-                                      key: sel
-                                          ? const ValueKey(
-                                              'kuiboo-focused-card',
-                                            )
-                                          : null,
-                                      duration: MotionScope.of(
-                                        context,
-                                      ).focusDuration,
-                                      curve: MotionScope.of(
-                                        context,
-                                      ).standardCurve,
-                                      width: sel ? _selW : _cw,
-                                      height: sel ? _selH : _ch,
-                                      margin: EdgeInsets.only(
-                                        right: _gap,
-                                        top: sel ? 0 : (_selH - _ch),
-                                      ),
-                                      decoration: BoxDecoration(
-                                        borderRadius: BorderRadius.circular(
-                                          lp.cardBorderRadius,
+                          child: Align(
+                            alignment: Alignment.bottomCenter,
+                            child: Padding(
+                              padding: const EdgeInsets.only(bottom: 12),
+                              child: SizedBox(
+                                height: _selH,
+                                child: ListView.builder(
+                                  controller: _sc,
+                                  scrollDirection: Axis.horizontal,
+                                  physics: const NeverScrollableScrollPhysics(),
+                                  // Keep off-screen cards built so their posters are already
+                                  // decoded when fast D-pad movement arrives.
+                                  scrollCacheExtent:
+                                      const ScrollCacheExtent.pixels(800),
+                                  padding: EdgeInsets.symmetric(
+                                    horizontal: vw / 2,
+                                  ),
+                                  itemCount: widget.apps.length,
+                                  itemBuilder: (_, i) {
+                                    final a = widget.apps[i];
+                                    final sel = i == _idx;
+                                    final lp = context
+                                        .read<LauncherPreferences>();
+                                    return GestureDetector(
+                                      onTap: () {
+                                        if (sel) {
+                                          _action();
+                                          widget.onAppSelected(a);
+                                        } else {
+                                          _move(i - _idx);
+                                        }
+                                      },
+                                      child: AnimatedContainer(
+                                        key: sel
+                                            ? const ValueKey(
+                                                'kuiboo-focused-card',
+                                              )
+                                            : null,
+                                        duration: MotionScope.of(
+                                          context,
+                                        ).focusDuration,
+                                        curve: MotionScope.of(
+                                          context,
+                                        ).standardCurve,
+                                        width: sel ? _selW : _cw,
+                                        height: sel ? _selH : _ch,
+                                        margin: EdgeInsets.only(
+                                          right: _gap,
+                                          top: sel ? 0 : (_selH - _ch),
                                         ),
-                                        border: Border.all(
-                                          color: Colors.white.withValues(
-                                            alpha: sel ? 0.0 : 0.10,
+                                        decoration: BoxDecoration(
+                                          borderRadius: BorderRadius.circular(
+                                            lp.cardBorderRadius,
                                           ),
-                                          width: 1,
+                                          border: Border.all(
+                                            color: Colors.white.withValues(
+                                              alpha: sel ? 0.0 : 0.10,
+                                            ),
+                                            width: 1,
+                                          ),
+                                          boxShadow: null,
                                         ),
-                                        boxShadow: null,
-                                      ),
-                                      child: ClipRRect(
-                                        borderRadius: BorderRadius.circular(
-                                          lp.cardBorderRadius,
-                                        ),
-                                        child: Stack(
-                                          fit: StackFit.expand,
-                                          children: [
-                                            if (a.posterUrl != null &&
-                                                a.posterUrl!.isNotEmpty)
-                                              PosterImage(
-                                                url: a.posterUrl!,
-                                                cacheKey: a.artCacheKey(
-                                                  'poster',
-                                                ),
-                                                fit: BoxFit.cover,
-                                                memCacheWidth: sel ? 640 : 340,
-                                                fadeInDuration: const Duration(
-                                                  milliseconds: 120,
-                                                ),
-                                                errorWidget: (_, _, _) =>
-                                                    Container(
-                                                      color: tp.surface,
-                                                      child: Center(
-                                                        child: Icon(
-                                                          Icons.videogame_asset,
-                                                          color: Colors.white12,
-                                                          size: 20,
+                                        child: ClipRRect(
+                                          borderRadius: BorderRadius.circular(
+                                            lp.cardBorderRadius,
+                                          ),
+                                          child: Stack(
+                                            fit: StackFit.expand,
+                                            children: [
+                                              if (a.posterUrl != null &&
+                                                  a.posterUrl!.isNotEmpty)
+                                                PosterImage(
+                                                  url: a.posterUrl!,
+                                                  cacheKey: a.artCacheKey(
+                                                    'poster',
+                                                  ),
+                                                  fit: BoxFit.cover,
+                                                  memCacheWidth: sel
+                                                      ? 640
+                                                      : 340,
+                                                  fadeInDuration:
+                                                      const Duration(
+                                                        milliseconds: 120,
+                                                      ),
+                                                  errorWidget: (_, _, _) =>
+                                                      Container(
+                                                        color: tp.surface,
+                                                        child: Center(
+                                                          child: Icon(
+                                                            Icons
+                                                                .videogame_asset,
+                                                            color:
+                                                                Colors.white12,
+                                                            size: 20,
+                                                          ),
                                                         ),
                                                       ),
-                                                    ),
-                                              )
-                                            else
-                                              Container(
-                                                color: tp.surface,
-                                                child: Center(
-                                                  child: Text(
-                                                    a.appName.length > 2
-                                                        ? a.appName.substring(
-                                                            0,
-                                                            2,
-                                                          )
-                                                        : a.appName,
-                                                    style: TextStyle(
-                                                      color: tp.accentLight,
-                                                      fontSize: 14,
-                                                      fontWeight:
-                                                          FontWeight.w800,
+                                                )
+                                              else
+                                                Container(
+                                                  color: tp.surface,
+                                                  child: Center(
+                                                    child: Text(
+                                                      a.appName.length > 2
+                                                          ? a.appName.substring(
+                                                              0,
+                                                              2,
+                                                            )
+                                                          : a.appName,
+                                                      style: TextStyle(
+                                                        color: tp.accentLight,
+                                                        fontSize: 14,
+                                                        fontWeight:
+                                                            FontWeight.w800,
+                                                      ),
                                                     ),
                                                   ),
                                                 ),
-                                              ),
-                                            if (sel &&
-                                                showTrailer &&
-                                                widget.videoForAppId == a.appId)
-                                              Positioned.fill(
-                                                child:
-                                                    TweenAnimationBuilder<
-                                                      double
-                                                    >(
-                                                      tween: Tween(
-                                                        begin: 0,
-                                                        end: 1,
-                                                      ),
-                                                      duration: MotionScope.of(
-                                                        context,
-                                                      ).focusDuration,
-                                                      curve: MotionScope.of(
-                                                        context,
-                                                      ).standardCurve,
-                                                      builder: (_, v, child) =>
-                                                          Opacity(
-                                                            opacity: v,
-                                                            child: child,
-                                                          ),
-                                                      child:
-                                                          widget.videoWidget!,
-                                                    ),
-                                              ),
-                                            if (!sel)
-                                              Container(
-                                                color: Colors.black.withValues(
-                                                  alpha: 0.30,
-                                                ),
-                                              ),
-                                            if (a.isRunning)
-                                              Positioned(
-                                                top: 3,
-                                                left: 3,
-                                                child: Container(
-                                                  width: 6,
-                                                  height: 6,
-                                                  decoration:
-                                                      const BoxDecoration(
-                                                        color:
-                                                            Colors.greenAccent,
-                                                        shape: BoxShape.circle,
+                                              if (sel &&
+                                                  showTrailer &&
+                                                  widget.videoForAppId ==
+                                                      a.appId)
+                                                Positioned.fill(
+                                                  child:
+                                                      TweenAnimationBuilder<
+                                                        double
+                                                      >(
+                                                        tween: Tween(
+                                                          begin: 0,
+                                                          end: 1,
+                                                        ),
+                                                        duration:
+                                                            MotionScope.of(
+                                                              context,
+                                                            ).focusDuration,
+                                                        curve: MotionScope.of(
+                                                          context,
+                                                        ).standardCurve,
+                                                        builder:
+                                                            (_, v, child) =>
+                                                                Opacity(
+                                                                  opacity: v,
+                                                                  child: child,
+                                                                ),
+                                                        child:
+                                                            widget.videoWidget!,
                                                       ),
                                                 ),
-                                              ),
-                                            if (widget.favoriteIds.contains(
-                                              a.appId.toString(),
-                                            ))
-                                              Positioned(
-                                                top: 3,
-                                                right: 3,
-                                                child: Icon(
-                                                  Icons.star,
-                                                  color: Colors.amberAccent,
-                                                  size: 10,
-                                                  shadows: [
-                                                    Shadow(
-                                                      color: Colors.black54,
-                                                      blurRadius: 3,
-                                                    ),
-                                                  ],
+                                              if (!sel)
+                                                Container(
+                                                  color: Colors.black
+                                                      .withValues(alpha: 0.30),
                                                 ),
-                                              ),
-                                          ],
+                                              if (a.isRunning)
+                                                Positioned(
+                                                  top: 3,
+                                                  left: 3,
+                                                  child: Container(
+                                                    width: 6,
+                                                    height: 6,
+                                                    decoration:
+                                                        const BoxDecoration(
+                                                          color: Colors
+                                                              .greenAccent,
+                                                          shape:
+                                                              BoxShape.circle,
+                                                        ),
+                                                  ),
+                                                ),
+                                              if (widget.favoriteIds.contains(
+                                                a.appId.toString(),
+                                              ))
+                                                Positioned(
+                                                  top: 3,
+                                                  right: 3,
+                                                  child: Icon(
+                                                    Icons.star,
+                                                    color: Colors.amberAccent,
+                                                    size: 10,
+                                                    shadows: [
+                                                      Shadow(
+                                                        color: Colors.black54,
+                                                        blurRadius: 3,
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ),
+                                            ],
+                                          ),
                                         ),
                                       ),
-                                    ),
-                                  );
-                                },
+                                    );
+                                  },
+                                ),
                               ),
                             ),
                           ),

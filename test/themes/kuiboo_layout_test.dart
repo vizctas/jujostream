@@ -72,6 +72,8 @@ void main() {
       expect(titleRect.left, lessThan(cardRect.left));
       expect(titleRect.top, lessThan(size.height / 3));
       expect(titleRect.bottom, lessThan(cardRect.top));
+      // Carousel sits on the bottom edge (small gap + hint bar), not centred.
+      expect(size.height - cardRect.bottom, lessThan(size.height * 0.12));
       expect(tester.takeException(), isNull);
     }
 
