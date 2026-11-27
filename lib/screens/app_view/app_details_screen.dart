@@ -449,6 +449,23 @@ class _AppDetailsScreenState extends State<AppDetailsScreen> {
             ),
           ),
         ),
+        // Narrow screens stack the text over the whole art, so the lower part
+        // (where the sections start) needs its own dark ground.
+        if (MediaQuery.sizeOf(context).width < 700)
+          const DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                stops: [0.25, 0.55, 1],
+                colors: [
+                  Color(0x00000000),
+                  Color(0xD9000000),
+                  Color(0xF7000000),
+                ],
+              ),
+            ),
+          ),
       ],
     );
   }
@@ -1260,13 +1277,24 @@ class _AppDetailsScreenState extends State<AppDetailsScreen> {
           ),
         ),
         const SizedBox(height: 12),
-        Wrap(
-          spacing: 12,
-          runSpacing: 12,
-          children: [
-            for (final (preset, title, subtitle) in presets)
-              _presetTile(preset, title, subtitle),
-          ],
+        // Four even columns (two on narrow screens), never a lone tile on its
+        // own row; capped so a TV doesn't stretch them into bars.
+        LayoutBuilder(
+          builder: (context, box) {
+            final cols = box.maxWidth >= 640 ? 4 : 2;
+            final width = ((box.maxWidth - 12 * (cols - 1)) / cols).clamp(
+              0.0,
+              240.0,
+            );
+            return Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: [
+                for (final (preset, title, subtitle) in presets)
+                  _presetTile(preset, title, subtitle, width),
+              ],
+            );
+          },
         ),
       ],
     );
@@ -1274,7 +1302,12 @@ class _AppDetailsScreenState extends State<AppDetailsScreen> {
 
   /// Compact preset chip: same translucent surface and white focus ring as
   /// the Media cards, so the settings read as part of the page.
-  Widget _presetTile(_GamePreset preset, String title, String subtitle) {
+  Widget _presetTile(
+    _GamePreset preset,
+    String title,
+    String subtitle,
+    double width,
+  ) {
     final specs = _presetBadges(preset).join(' · ');
     return Tooltip(
       message: subtitle,
@@ -1283,7 +1316,7 @@ class _AppDetailsScreenState extends State<AppDetailsScreen> {
         semanticLabel: '$title. $subtitle. $specs',
         builder: (context, focused) => AnimatedContainer(
           duration: const Duration(milliseconds: 160),
-          width: 196,
+          width: width,
           padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
           decoration: BoxDecoration(
             color: focused ? const Color(0x29FFFFFF) : const Color(0x14FFFFFF),
@@ -1981,7 +2014,7 @@ class _FocusableSliderRowState extends State<_FocusableSliderRow> {
       onKeyEvent: _onKey,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 150),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        padding: const EdgeInsets.symmetric(vertical: 8),
         decoration: BoxDecoration(
           color: _editing
               ? Colors.white.withValues(alpha: 0.08)
