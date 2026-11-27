@@ -151,7 +151,8 @@ class GameArtPolicy {
   /// Cover keeps composition when little is cropped. Heroes much wider than
   /// the viewport (Steam `library_hero` is 3.1:1) would lose ~40% to a cover
   /// zoom, so they render whole, pinned to the top, over the fallback colour.
-  /// Taller viewports (phones) always cover: a pillarboxed banner is worse.
+  /// Portrait viewports always take this path: a landscape hero would lose
+  /// most of its width to a cover zoom.
   static const coverMaxCrop = 0.20;
 
   static ({BoxFit fit, Alignment alignment}) heroFitFor({
@@ -178,6 +179,9 @@ class GameArtPolicy {
     required double viewportHeight,
   }) {
     if (!isEligibleHero(width: width, height: height)) return false;
+    // A portrait viewport never cover-crops landscape art: heroFitFor shows it
+    // full width at the top, so the crop budget below does not apply.
+    if (viewportHeight > viewportWidth) return true;
     return coverRetainedFraction(
           width: width,
           height: height,

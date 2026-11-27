@@ -1,3 +1,4 @@
+import 'package:flutter/painting.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:jujostream/models/nv_app.dart';
 import 'package:jujostream/services/metadata/game_art_policy.dart';
@@ -104,6 +105,29 @@ void main() {
         viewportHeight: 768,
       ),
       closeTo(0.75, 0.001),
+    );
+  });
+
+  test('portrait phones keep landscape heroes, shown full width on top', () {
+    // S24 upright: 411x891. A cover zoom would keep 26%, but portrait never
+    // covers, so the hero must not fall back to the generic backdrop.
+    expect(
+      GameArtPolicy.isEligibleHeroForViewport(
+        width: 1920,
+        height: 1080,
+        viewportWidth: 411,
+        viewportHeight: 891,
+      ),
+      isTrue,
+    );
+    expect(
+      GameArtPolicy.heroFitFor(
+        width: 1920,
+        height: 1080,
+        viewportWidth: 411,
+        viewportHeight: 891,
+      ),
+      (fit: BoxFit.fitWidth, alignment: Alignment.topCenter),
     );
   });
 
