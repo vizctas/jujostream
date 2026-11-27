@@ -11,6 +11,7 @@ import 'package:jujostream/providers/computer_provider.dart';
 import 'package:jujostream/screens/pc_view/pending_invites_section.dart';
 import 'package:jujostream/services/crypto/client_identity.dart';
 import 'package:jujostream/services/secure/secure_secret_store.dart';
+import 'package:jujostream/services/sync/guest_link.dart';
 import 'package:jujostream/services/sync/cloud_sync_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -56,6 +57,11 @@ class _MockCoopSupabaseHttpClient extends http.BaseClient {
   Map<String, dynamic> respondResult = {'success': true};
   String? lastRpcName;
   Map<String, dynamic>? lastRpcBody;
+  Object guestRpcResult = {'success': true};
+  List<Map<String, dynamic>> pendingGuestRows = [];
+  List<Map<String, dynamic>> guestRequestRows = [];
+  String? lastRestMethod;
+  String? lastRestQuery;
 
   @override
   Future<http.StreamedResponse> send(http.BaseRequest request) async {
@@ -95,6 +101,20 @@ class _MockCoopSupabaseHttpClient extends http.BaseClient {
       } else {
         responseBody = jsonEncode(serverInvites);
       }
+    } else if (path.contains('/rest/v1/rpc/pending_guest_requests')) {
+      responseBody = jsonEncode(pendingGuestRows);
+    } else if (path.contains('/rest/v1/rpc/redeem_guest_link') ||
+        path.contains('/rest/v1/rpc/create_guest_link') ||
+        path.contains('/rest/v1/rpc/respond_guest_request') ||
+        path.contains('/rest/v1/rpc/set_auto_accept_guests')) {
+      lastRpcName = path.split('/').last;
+      lastRpcBody = (jsonDecode((request as http.Request).body) as Map)
+          .cast<String, dynamic>();
+      responseBody = jsonEncode(guestRpcResult);
+    } else if (path.contains('/rest/v1/coop_session_invites')) {
+      lastRestMethod = request.method;
+      lastRestQuery = request.url.query;
+      responseBody = jsonEncode(guestRequestRows);
     } else if (path.contains('/rest/v1/rpc/respond_coop_invite') ||
         path.contains('/rest/v1/rpc/respond_server_invite')) {
       lastRpcName = path.split('/').last;
@@ -151,7 +171,12 @@ void main() {
       ..failCoopSharedRpc = false
       ..respondResult = {'success': true}
       ..lastRpcName = null
-      ..lastRpcBody = null;
+      ..lastRpcBody = null
+      ..guestRpcResult = {'success': true}
+      ..pendingGuestRows = []
+      ..guestRequestRows = []
+      ..lastRestMethod = null
+      ..lastRestQuery = null;
   });
 
   group('ComputerDetails Co-Op serialization', () {
@@ -482,6 +507,177 @@ void main() {
       expect(byUuid['existing-uuid']!.configHttpsPort, 49990);
       expect(byUuid['new-uuid']!.httpsPort, 50984);
       expect(byUuid['new-uuid']!.externalPort, 50989);
+    });
+  });
+
+  group('Guest links RPCs', () {
+    test('redeemGuestLink sends p_code and maps every outcome', () async {
+      mockHttpClient.guestRpcResult = {
+        'success': true,
+        'id': 'inv-1',
+        'status': 'requested',
+        'server_url': 'https://host.local:47990',
+        'server_name': 'Host Rig',
+        'role': 'coop_pad',
+        'expires_at': '2026-11-27T20:00:00Z',
+      };
+      final requested = await CloudSyncService.instance.redeemGuestLink(
+        'ABCDE-FGHJK',
+      );
+      expect(mockHttpClient.lastRpcName, 'redeem_guest_link');
+      expect(mockHttpClient.lastRpcBody, {'p_code': 'ABCDE-FGHJK'});
+      expect(requested.outcome, GuestRedeemOutcome.requested);
+      expect(requested.inviteId, 'inv-1');
+      expect(requested.serverName, 'Host Rig');
+
+      mockHttpClient.guestRpcResult = {'success': true, 'status': 'active'};
+      expect(
+        (await CloudSyncService.instance.redeemGuestLink('ABCDE-FGHJK')).outcome,
+        GuestRedeemOutcome.active,
+      );
+
+      for (final (error, outcome) in [
+        ('verify_email', GuestRedeemOutcome.verifyEmail),
+        ('invalid_or_expired', GuestRedeemOutcome.invalidOrExpired),
+        ('already_has_access', GuestRedeemOutcome.alreadyHasAccess),
+        ('boom', GuestRedeemOutcome.error),
+      ]) {
+        mockHttpClient.guestRpcResult = {'success': false, 'error': error};
+        expect(
+          (await CloudSyncService.instance.redeemGuestLink('ABCDE-FGHJK')).outcome,
+          outcome,
+        );
+      }
+    });
+
+    test('guest request status read and cancel target the invite row', () async {
+      mockHttpClient.guestRequestRows = [
+        {'status': 'declined'},
+      ];
+      expect(
+        await CloudSyncService.instance.guestRequestStatus('inv-1'),
+        'declined',
+      );
+      expect(mockHttpClient.lastRestQuery, contains('id=eq.inv-1'));
+
+      mockHttpClient.guestRequestRows = [];
+      expect(await CloudSyncService.instance.guestRequestStatus('inv-1'), isNull);
+
+      await CloudSyncService.instance.cancelGuestRequest('inv-1');
+      expect(mockHttpClient.lastRestMethod, 'DELETE');
+      expect(mockHttpClient.lastRestQuery, contains('id=eq.inv-1'));
+    });
+
+    test('manager RPCs send the documented parameters', () async {
+      mockHttpClient.pendingGuestRows = [
+        {
+          'id': 'req-1',
+          'server_url': 'https://host.local:47990',
+          'server_name': 'Host Rig',
+          'role': 'coop_pad',
+          'guest_email': 'amigo@test.com',
+          'expires_at': '2099-01-01T00:00:00Z',
+        },
+      ];
+      final pending = await CloudSyncService.instance.pendingGuestRequests();
+      expect(pending.single.id, 'req-1');
+      expect(pending.single.guestEmail, 'amigo@test.com');
+
+      expect(
+        await CloudSyncService.instance.respondGuestRequest('req-1', approve: true),
+        isTrue,
+      );
+      expect(mockHttpClient.lastRpcName, 'respond_guest_request');
+      expect(mockHttpClient.lastRpcBody, {
+        'p_invite_id': 'req-1',
+        'p_approve': true,
+      });
+
+      expect(
+        await CloudSyncService.instance.setAutoAcceptGuests('https://h:1', true),
+        isTrue,
+      );
+      expect(mockHttpClient.lastRpcName, 'set_auto_accept_guests');
+      expect(mockHttpClient.lastRpcBody, {
+        'p_server_url': 'https://h:1',
+        'p_enabled': true,
+      });
+
+      mockHttpClient.guestRpcResult = {
+        'success': true,
+        'id': 'link-1',
+        'code': 'ABCDE-FGHJK',
+        'expires_at': '2026-11-27T20:00:00Z',
+      };
+      final link = await CloudSyncService.instance.createGuestLink('https://h:1');
+      expect(mockHttpClient.lastRpcName, 'create_guest_link');
+      expect(mockHttpClient.lastRpcBody, {
+        'p_server_url': 'https://h:1',
+        'p_role': 'coop_pad',
+      });
+      expect(link!.code, 'ABCDE-FGHJK');
+
+      mockHttpClient.guestRpcResult = {'success': false, 'error': 'not_allowed'};
+      expect(await CloudSyncService.instance.createGuestLink('https://h:1'), isNull);
+      expect(
+        await CloudSyncService.instance.respondGuestRequest('req-1', approve: false),
+        isFalse,
+      );
+    });
+
+    test('pull marks own servers and co-owned servers as guest-managed', () async {
+      mockHttpClient.ownedRows = [
+        {
+          'id': 'row-own',
+          'user_id': 'mock-guest-uuid',
+          'server_url': 'https://192.168.1.80:47990',
+          'server_name': 'My PC',
+          'server_uuid': 'own-uuid',
+          'cert_fingerprint': 'OWN-FP',
+          'local_addresses': ['192.168.1.80'],
+          'auto_accept_guests': true,
+        },
+      ];
+      mockHttpClient.sharedRows = [
+        {
+          'server_url': 'https://192.168.1.81:47990',
+          'server_name': 'Co-owned PC',
+          'server_uuid': 'co-uuid',
+          'cert_fingerprint': 'CO-FP',
+          'local_addresses': ['192.168.1.81'],
+          'permissions': ['launch', 'guests'],
+          'auto_accept_guests': false,
+        },
+        {
+          'server_url': 'https://192.168.1.82:47990',
+          'server_name': 'Launch-only PC',
+          'server_uuid': 'launch-uuid',
+          'cert_fingerprint': 'LAUNCH-FP',
+          'local_addresses': ['192.168.1.82'],
+          'permissions': ['launch'],
+        },
+      ];
+      CloudSyncService.instance.pairingClientFactoryForTest = (_) =>
+          _CountingPairingClient();
+
+      expect(await CloudSyncService.instance.pullConfigFromSupabase(), isTrue);
+
+      final prefs = await SharedPreferences.getInstance();
+      final byUuid = {
+        for (final raw in prefs.getStringList('saved_computers')!)
+          ComputerDetails.fromJson(jsonDecode(raw)).uuid:
+              ComputerDetails.fromJson(jsonDecode(raw)),
+      };
+      final own = byUuid['own-uuid']!;
+      expect(own.managesGuests, isTrue);
+      expect(own.isCloudOwner, isTrue);
+      expect(own.autoAcceptGuests, isTrue);
+      expect(own.cloudServerUrl, 'https://192.168.1.80:47990');
+      final co = byUuid['co-uuid']!;
+      expect(co.managesGuests, isTrue);
+      expect(co.isCloudOwner, isFalse);
+      expect(co.permissions, ['launch', 'guests']);
+      expect(byUuid['launch-uuid']!.managesGuests, isFalse);
     });
   });
 

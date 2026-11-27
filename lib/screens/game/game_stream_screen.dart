@@ -5,6 +5,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../l10n/app_localizations.dart';
 import '../../models/computer_details.dart';
@@ -25,11 +26,15 @@ import '../../services/input/gamepad_button_helper.dart';
 import '../../services/stream/image_load_throttle.dart';
 import '../../services/stream/connection_attempt_diagnostic.dart';
 import '../../ui/motion_policy.dart';
+import '../../widgets/guest_request_toast.dart';
 import '../../widgets/launch_reveal_transition.dart';
 import '../../widgets/notification_mirror_overlay.dart';
 import '../../widgets/session_metrics_dialog.dart';
 import '../../widgets/launch_experience.dart';
 import '../../widgets/virtual_gamepad/virtual_gamepad_overlay.dart';
+import '../../services/sync/cloud_sync_service.dart';
+import '../../services/sync/guest_link.dart';
+import '../../services/sync/guest_request_poller.dart';
 import 'direct_touch_handler.dart';
 import 'dynamic_bitrate_controller.dart';
 import 'game_launch_privacy_gate.dart';
@@ -115,6 +120,11 @@ class _GameStreamScreenState extends State<GameStreamScreen>
   bool _showQuitConfirm = false;
   int _quitConfirmSelection = 0;
   bool _showCoopPlayers = false;
+  GuestRequestPoller? _guestPoller;
+  bool _guestToastFocused = false;
+  int _guestToastButton = 0;
+  late bool _autoAcceptGuests = widget.computer.autoAcceptGuests;
+  final FocusNode _guestToastFocusNode = FocusNode(debugLabel: 'guest-toast');
   bool _coopLoading = false;
   List<CoopSessionEntry> _coopSessions = const [];
   int _overlayRow = 0;
@@ -267,6 +277,7 @@ class _GameStreamScreenState extends State<GameStreamScreen>
     GamepadChannel.onPanicComboDetected = _onPanicComboDetected;
     GamepadChannel.onQuickFavComboDetected = _onQuickFavComboDetected;
 
+    _startGuestRequestPoller();
     unawaited(_startInitialStream());
     _listenToStats();
     _loadQuickFavIndices();
@@ -350,6 +361,8 @@ class _GameStreamScreenState extends State<GameStreamScreen>
     _streamFocusNode.dispose();
     _overlayFocusNode.dispose();
     _quickFavFocusNode.dispose();
+    _guestPoller?.stop();
+    _guestToastFocusNode.dispose();
     _overlayScrollController.dispose();
     _keyboardFocusNode.dispose();
     _keyboardController.dispose();
@@ -1447,6 +1460,10 @@ class _GameStreamScreenState extends State<GameStreamScreen>
   void _onQuickFavComboDetected() {
     if (!mounted) return;
     if (_showOverlay) return; // don't open while overlay is visible
+    if (_guestPoller?.queue.isNotEmpty ?? false) {
+      _guestToastFocused ? _releaseGuestToast() : _focusGuestToast();
+      return;
+    }
     setState(() {
       _showQuickFavPanel = !_showQuickFavPanel;
       if (_showQuickFavPanel) {
@@ -1487,6 +1504,13 @@ class _GameStreamScreenState extends State<GameStreamScreen>
           () =>
               _quickFavFocusIdx = (_quickFavFocusIdx - 1 + favCount) % favCount,
         );
+      }
+      return;
+    }
+
+    if (_guestToastFocused) {
+      if (direction == 'left' || direction == 'right') {
+        setState(() => _guestToastButton = direction == 'left' ? 0 : 1);
       }
       return;
     }
@@ -1652,8 +1676,8 @@ class _GameStreamScreenState extends State<GameStreamScreen>
       setState(() => _showGamepad = !_showGamepad);
     } else if (idx == 3 && _config.multiControllerEnabled) {
       setState(() {
-        final max = _config.controllerCount.clamp(1, 16);
-        _activeControllerSlot = (_activeControllerSlot + 1) % max;
+        _activeControllerSlot =
+            (_activeControllerSlot + 1) % _selectableControllers;
       });
     } else {
       final kbIdx = _config.multiControllerEnabled ? 4 : 3;
@@ -1796,6 +1820,13 @@ class _GameStreamScreenState extends State<GameStreamScreen>
                 _buildPerfOverlay(),
               if (_showQuickFavPanel && _isConnected && !_showOverlay)
                 _buildQuickFavPanel(),
+              if (_isConnected &&
+                  !_showOverlay &&
+                  (_guestPoller?.queue.isNotEmpty ?? false))
+                _buildGuestToast(
+                  _guestPoller!.queue.first,
+                  _guestPoller!.queue.length - 1,
+                ),
               if (_keyboardVisible) _buildHiddenKeyboardField(),
               const NotificationMirrorOverlay(
                 bottomOffset: 24,
@@ -3178,8 +3209,8 @@ class _GameStreamScreenState extends State<GameStreamScreen>
                 'P${_activeControllerSlot + 1}',
                 true,
                 () => setState(() {
-                  final max = _config.controllerCount.clamp(1, 16);
-                  _activeControllerSlot = (_activeControllerSlot + 1) % max;
+                  _activeControllerSlot =
+                      (_activeControllerSlot + 1) % _selectableControllers;
                 }),
                 focused: _overlayRow == 1 && _overlayCol == 3,
               ),
@@ -3574,6 +3605,130 @@ class _GameStreamScreenState extends State<GameStreamScreen>
     );
   }
 
+  void _startGuestRequestPoller() {
+    final computer = widget.computer;
+    if (!computer.managesGuests || computer.cloudServerUrl.isEmpty) return;
+    final sync = CloudSyncService.instance;
+    _guestPoller = GuestRequestPoller(
+      serverUrl: computer.cloudServerUrl,
+      fetch: sync.pendingGuestRequests,
+      respond: (id, approve) => sync.respondGuestRequest(id, approve: approve),
+      isActive: () => _isConnected && !_inBackground,
+      onChanged: () {
+        if (!mounted) return;
+        setState(() {});
+        if (_guestPoller!.queue.isEmpty && _guestToastFocused) {
+          _releaseGuestToast();
+        }
+      },
+    )..start();
+  }
+
+  /// Hands the gamepad to the guest toast (overlay mode: input stops going to
+  /// the game only while it is focused; the stream itself never pauses).
+  void _focusGuestToast() {
+    setState(() {
+      _guestToastFocused = true;
+      _guestToastButton = 0;
+    });
+    GamepadChannel.setOverlayVisible(true);
+    _guestToastFocusNode.requestFocus();
+  }
+
+  void _releaseGuestToast() {
+    setState(() => _guestToastFocused = false);
+    GamepadChannel.setOverlayVisible(false);
+    _streamFocusNode.requestFocus();
+  }
+
+  Future<void> _answerGuestRequest(bool approve) async {
+    final poller = _guestPoller;
+    final request = poller?.queue.firstOrNull;
+    if (poller == null || request == null) return;
+    await poller.answer(request, approve: approve);
+  }
+
+  KeyEventResult _onGuestToastKeyEvent(FocusNode node, KeyEvent event) {
+    if (event is! KeyDownEvent) return KeyEventResult.handled;
+    final key = event.logicalKey;
+    if (key == LogicalKeyboardKey.gameButtonB ||
+        key == LogicalKeyboardKey.escape ||
+        key == LogicalKeyboardKey.goBack) {
+      _releaseGuestToast();
+    } else if (key == LogicalKeyboardKey.arrowLeft) {
+      setState(() => _guestToastButton = 0);
+    } else if (key == LogicalKeyboardKey.arrowRight) {
+      setState(() => _guestToastButton = 1);
+    } else if (key == LogicalKeyboardKey.enter ||
+        key == LogicalKeyboardKey.gameButtonA ||
+        key == LogicalKeyboardKey.select) {
+      unawaited(_answerGuestRequest(_guestToastButton == 0));
+    }
+    return KeyEventResult.handled;
+  }
+
+  Widget _buildGuestToast(GuestRequest request, int queued) {
+    return Positioned(
+      top: 0,
+      right: 0,
+      child: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 320),
+            child: Focus(
+              focusNode: _guestToastFocusNode,
+              onKeyEvent: _onGuestToastKeyEvent,
+              child: GuestRequestToast(
+                request: request,
+                queued: queued,
+                focusedButton: _guestToastFocused ? _guestToastButton : null,
+                onAccept: () => _answerGuestRequest(true),
+                onDecline: () => _answerGuestRequest(false),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _setAutoAcceptGuests(bool enabled) async {
+    setState(() => _autoAcceptGuests = enabled);
+    final ok = await CloudSyncService.instance.setAutoAcceptGuests(
+      widget.computer.cloudServerUrl,
+      enabled,
+    );
+    if (!mounted) return;
+    if (ok) {
+      widget.computer.autoAcceptGuests = enabled;
+    } else {
+      setState(() => _autoAcceptGuests = !enabled);
+    }
+  }
+
+  Future<void> _shareGuestLink() async {
+    final link = await CloudSyncService.instance.createGuestLink(
+      widget.computer.cloudServerUrl,
+    );
+    if (!mounted) return;
+    if (link == null) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(content: Text(AppLocalizations.of(context).guestLinkFailed)),
+      );
+      return;
+    }
+    await SharePlus.instance.share(
+      ShareParams(
+        text: guestLinkShareText(
+          serverName: widget.computer.name,
+          code: link.code,
+          expiresAt: link.expiresAt,
+        ),
+      ),
+    );
+  }
+
   Future<void> _openCoopPlayersPanel() async {
     setState(() {
       _showCoopPlayers = true;
@@ -3764,6 +3919,19 @@ class _GameStreamScreenState extends State<GameStreamScreen>
                   ],
                 ),
               ),
+          if (widget.computer.managesGuests) ...[
+            SwitchListTile(
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              title: Text(
+                l.guestAutoAccept,
+                style: const TextStyle(color: Colors.white, fontSize: 13),
+              ),
+              value: _autoAcceptGuests,
+              onChanged: _setAutoAcceptGuests,
+            ),
+            buildMenuTile(Icons.link, l.guestInviteLink, _shareGuestLink),
+          ],
           const SizedBox(height: 6),
           buildMenuTile(
             Icons.close,
@@ -3888,12 +4056,17 @@ class _GameStreamScreenState extends State<GameStreamScreen>
     );
   }
 
+  /// A Co-Op guest only owns pad 0: the host remaps it to the guest's slot
+  /// and ignores any other controller number.
+  int get _selectableControllers => widget.computer.isCoopTemporary
+      ? 1
+      : _config.controllerCount.clamp(1, 16);
+
   int get _activeGamepadMask {
     if (!_config.multiControllerEnabled) {
       return 1;
     }
-    final count = _config.controllerCount.clamp(1, 16);
-    return (1 << count) - 1;
+    return (1 << _selectableControllers) - 1;
   }
 
   void _toggleKeyboard() {

@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import '../../l10n/app_localizations.dart';
 import '../../services/sync/cloud_sync_service.dart';
+import '../../services/sync/guest_link.dart';
 
 class PendingInvitesSection extends StatefulWidget {
   final List<CloudPendingInvite> invites;
@@ -14,6 +15,13 @@ class PendingInvitesSection extends StatefulWidget {
   final void Function(CloudPendingInvite invite, bool accepted, bool ok)?
   onResult;
 
+  /// My join request awaiting the host's approval.
+  final GuestRedeemResult? waiting;
+  final VoidCallback? onCancelWaiting;
+
+  /// Shows the "join with code" entry when set.
+  final Future<void> Function(String code)? onJoinWithCode;
+
   const PendingInvitesSection({
     super.key,
     required this.invites,
@@ -22,6 +30,9 @@ class PendingInvitesSection extends StatefulWidget {
     required this.isLight,
     required this.onRespond,
     this.onResult,
+    this.waiting,
+    this.onCancelWaiting,
+    this.onJoinWithCode,
   });
 
   @override
@@ -49,9 +60,45 @@ class _PendingInvitesSectionState extends State<PendingInvitesSection> {
     widget.onResult?.call(invite, accept, ok);
   }
 
+  Future<void> _joinWithCode() async {
+    final l = AppLocalizations.of(context);
+    final code = await showDialog<String>(
+      context: context,
+      builder: (ctx) {
+        final controller = TextEditingController();
+        return AlertDialog(
+          title: Text(l.guestJoinWithCode),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            textCapitalization: TextCapitalization.characters,
+            decoration: InputDecoration(hintText: l.guestCodeHint),
+            onSubmitted: (v) => Navigator.pop(ctx, v),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: Text(l.cancel),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, controller.text),
+              child: Text(l.guestJoinWithCode),
+            ),
+          ],
+        );
+      },
+    );
+    if (code != null && code.trim().isNotEmpty) {
+      await widget.onJoinWithCode?.call(code);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    if (!widget.isLoading && widget.invites.isEmpty) {
+    if (!widget.isLoading &&
+        widget.invites.isEmpty &&
+        widget.waiting == null &&
+        widget.onJoinWithCode == null) {
       return const SizedBox.shrink();
     }
     final l = AppLocalizations.of(context);
@@ -91,9 +138,26 @@ class _PendingInvitesSectionState extends State<PendingInvitesSection> {
                     color: widget.accent,
                   ),
                 ),
+              if (widget.onJoinWithCode != null) ...[
+                const SizedBox(width: 8),
+                _InviteButton(
+                  label: l.guestJoinWithCode,
+                  color: fg,
+                  fillColor: Colors.transparent,
+                  borderColor: widget.isLight ? Colors.black12 : Colors.white24,
+                  loading: false,
+                  onTap: _joinWithCode,
+                ),
+              ],
             ],
           ),
         ),
+        if (widget.waiting != null)
+          _WaitingCard(
+            waiting: widget.waiting!,
+            isLight: widget.isLight,
+            onCancel: widget.onCancelWaiting,
+          ),
         for (final invite in widget.invites)
           _InviteCard(
             invite: invite,
@@ -106,6 +170,77 @@ class _PendingInvitesSectionState extends State<PendingInvitesSection> {
             onDecline: () => _respond(invite, false),
           ),
       ],
+    );
+  }
+}
+
+class _WaitingCard extends StatelessWidget {
+  final GuestRedeemResult waiting;
+  final bool isLight;
+  final VoidCallback? onCancel;
+
+  const _WaitingCard({
+    required this.waiting,
+    required this.isLight,
+    required this.onCancel,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
+    final fg = isLight ? Colors.black87 : Colors.white;
+    final sub = isLight ? Colors.black54 : Colors.white60;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: isLight
+            ? Colors.black.withValues(alpha: 0.04)
+            : Colors.white.withValues(alpha: 0.05),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.tealAccent.withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        children: [
+          const SizedBox(
+            width: 16,
+            height: 16,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  waiting.serverName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: fg,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  l.guestWaiting,
+                  style: TextStyle(color: sub, fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          _InviteButton(
+            label: l.cancel,
+            color: sub,
+            fillColor: Colors.transparent,
+            borderColor: isLight ? Colors.black12 : Colors.white24,
+            loading: false,
+            onTap: onCancel,
+          ),
+        ],
+      ),
     );
   }
 }

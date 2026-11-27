@@ -33,7 +33,18 @@ class ComputerDetails {
   bool isCloud = false;
   String? coopRole;
   DateTime? coopExpiresAt;
+
+  /// True when the cloud profile is mine (I own this server).
+  bool isCloudOwner;
+
+  /// `server_url` of the cloud profile; guest RPCs are keyed by it.
+  String cloudServerUrl;
+
+  /// Co-owner permissions (`launch`, `guests`, `admin`) on a shared profile.
+  List<String> permissions;
+  bool autoAcceptGuests;
   DateTime? lastSeenAt;
+
   /// Host `PERM` bits from an HTTPS serverinfo; null when unknown (unpaired or HTTP).
   int? hostPermission;
 
@@ -65,6 +76,10 @@ class ComputerDetails {
     this.isCloud = false,
     this.coopRole,
     this.coopExpiresAt,
+    this.isCloudOwner = false,
+    this.cloudServerUrl = '',
+    this.permissions = const [],
+    this.autoAcceptGuests = false,
     this.lastSeenAt,
     this.hostPermission,
   });
@@ -97,6 +112,10 @@ class ComputerDetails {
     if (coopRole != null) 'coopRole': coopRole,
     if (coopExpiresAt != null)
       'coopExpiresAt': coopExpiresAt!.toUtc().toIso8601String(),
+    if (isCloudOwner) 'isCloudOwner': true,
+    if (cloudServerUrl.isNotEmpty) 'cloudServerUrl': cloudServerUrl,
+    if (permissions.isNotEmpty) 'permissions': permissions,
+    if (autoAcceptGuests) 'autoAcceptGuests': true,
     if (lastSeenAt != null)
       'lastSeenAt': lastSeenAt!.toUtc().toIso8601String(),
     if (hostPermission != null) 'hostPermission': hostPermission,
@@ -157,6 +176,12 @@ class ComputerDetails {
       coopExpiresAt: (rawExpires != null && rawExpires.isNotEmpty)
           ? DateTime.tryParse(rawExpires)?.toUtc()
           : null,
+      isCloudOwner: json['isCloudOwner'] == true,
+      cloudServerUrl: json['cloudServerUrl']?.toString() ?? '',
+      permissions: json['permissions'] is List
+          ? (json['permissions'] as List).map((e) => e.toString()).toList()
+          : const [],
+      autoAcceptGuests: json['autoAcceptGuests'] == true,
       lastSeenAt: (rawLastSeen != null && rawLastSeen.isNotEmpty)
           ? DateTime.tryParse(rawLastSeen)?.toUtc()
           : null,
@@ -167,6 +192,21 @@ class ComputerDetails {
   bool get isReachable => state == ComputerState.online;
   bool get isPaired => pairState == PairState.paired;
   bool get isCoopTemporary => coopRole != null;
+
+  /// I can approve and invite guests here: my own cloud server, or a shared
+  /// one where I was given the `guests` or `admin` permission.
+  bool get managesGuests =>
+      isCloudOwner ||
+      permissions.contains('guests') ||
+      permissions.contains('admin');
+
+  /// May use this server as a Wake-on-LAN relay: mine, `wake`/`admin` on a
+  /// shared one, or no permission data (older rows keep working).
+  bool get canRelayWake =>
+      isCloudOwner ||
+      permissions.isEmpty ||
+      permissions.contains('wake') ||
+      permissions.contains('admin');
   bool get canLaunchApps =>
       hostPermission == null || (hostPermission! & _permLaunch) != 0;
   bool get canViewStream =>

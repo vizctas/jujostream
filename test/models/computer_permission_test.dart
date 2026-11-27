@@ -67,4 +67,20 @@ void main() {
     expect(result.info!.pairStatusFromHttps, isTrue);
     expect(result.info!.hostPermission, perm);
   });
+
+  ComputerDetails shared(List<String> perms, {bool owner = false}) =>
+      ComputerDetails(uuid: 'u-2', name: 'Shared')
+        ..permissions = perms
+        ..isCloudOwner = owner;
+
+  test('canRelayWake: owner, wake/admin, or no permission data', () {
+    expect(shared(['launch'], owner: true).canRelayWake, isTrue);
+    expect(shared(['wake']).canRelayWake, isTrue);
+    expect(shared(['admin']).canRelayWake, isTrue);
+    expect(shared([]).canRelayWake, isTrue);
+  });
+
+  test('canRelayWake: shared without wake is refused', () {
+    expect(shared(['launch', 'guests', 'kbm']).canRelayWake, isFalse);
+  });
 }

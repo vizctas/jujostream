@@ -616,6 +616,7 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
               c.uuid != target.uuid &&
               c.state == ComputerState.online &&
               c.serverCert.isNotEmpty &&
+              c.canRelayWake &&
               WakeOnLanService.subnetBroadcastForIp(c.localAddress) ==
                   broadcast,
         )
@@ -1213,6 +1214,7 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
       '|${c.httpsPort}|${c.configHttpsPort}|${c.externalPort}'
       '|${c.serverCert.length}|${c.pairStatusFromHttps}|${c.isCloud}'
       '|${c.coopRole}|${c.coopExpiresAt?.millisecondsSinceEpoch}'
+      '|${c.isCloudOwner}|${c.cloudServerUrl}|${c.permissions.join(',')}|${c.autoAcceptGuests}'
       '|${c.lastSeenAt?.millisecondsSinceEpoch}';
 
   static bool _hasConflictingIdentity(ComputerDetails a, ComputerDetails b) {
@@ -1374,6 +1376,11 @@ class ComputerProvider extends ChangeNotifier with WidgetsBindingObserver {
       if (existing.isCloud) {
         computer.isCloud = true;
       }
+      computer
+        ..isCloudOwner = existing.isCloudOwner
+        ..cloudServerUrl = existing.cloudServerUrl
+        ..permissions = existing.permissions
+        ..autoAcceptGuests = existing.autoAcceptGuests;
       if (computer.coopRole == null && existing.coopRole != null) {
         computer.coopRole = existing.coopRole;
         computer.coopExpiresAt ??= existing.coopExpiresAt;

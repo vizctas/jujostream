@@ -40,6 +40,18 @@ class MainActivity : FlutterActivity() {
 
     private var pendingPermissionResult: MethodChannel.Result? = null
     private var isPairingActive = false
+    private var inviteChannel: MethodChannel? = null
+    private var initialInviteLink: String? = null
+
+    private fun inviteLink(intent: Intent?): String? {
+        val uri = intent?.data ?: return null
+        return if (uri.scheme == "jujostream" && uri.host == "invite") uri.toString() else null
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        inviteLink(intent)?.let { inviteChannel?.invokeMethod("onLink", it) }
+    }
     private fun ensureNotificationPermission() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
@@ -153,6 +165,18 @@ class MainActivity : FlutterActivity() {
                     else -> result.notImplemented()
                 }
             }
+
+        initialInviteLink = inviteLink(intent)
+        inviteChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.jujostream/invite_link").also {
+            it.setMethodCallHandler { call, result ->
+                if (call.method == "getInitialLink") {
+                    result.success(initialInviteLink)
+                    initialInviteLink = null
+                } else {
+                    result.notImplemented()
+                }
+            }
+        }
 
         AppUpdaterBridge.register(this, flutterEngine)
 

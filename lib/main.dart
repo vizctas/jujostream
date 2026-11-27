@@ -32,6 +32,7 @@ import 'platform_channels/gamepad_channel.dart';
 import 'services/tv/tv_detector.dart';
 import 'screens/pc_view/focus_mode_screen.dart';
 import 'screens/pc_view/pc_view_screen.dart';
+import 'widgets/guest_join_listener.dart';
 import 'widgets/tour_overlay.dart';
 import 'services/notifications/notification_service.dart';
 import 'services/notifications/notification_mirror_controller.dart';
@@ -227,7 +228,9 @@ class JujostreamApp extends StatelessWidget {
           ),
         );
       },
-      home: const TourOverlay(child: StartupGate()),
+      home: const GuestJoinListener(
+        child: TourOverlay(child: StartupGate()),
+      ),
       routes: {'/auth': (context) => const CloudAuthScreen()},
     );
   }

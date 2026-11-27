@@ -330,6 +330,19 @@ class AppLocalizations {
       'en': 'Could not respond to invite',
       'es': 'No se pudo responder a la invitación',
     },
+    'guestJoinWithCode': {'en': 'Join with code', 'es': 'Unirse con código'},
+    'guestCodeHint': {'en': 'Code (XXXXX-XXXXX)', 'es': 'Código (XXXXX-XXXXX)'},
+    'guestWaiting': {'en': 'Waiting for the host to accept…', 'es': 'Esperando que el anfitrión acepte…'},
+    'guestDeclined': {'en': 'The host declined your request', 'es': 'El anfitrión rechazó tu solicitud'},
+    'guestRequestExpired': {'en': 'The request expired', 'es': 'La solicitud expiró'},
+    'guestNeedSignIn': {'en': 'Sign in first; the code will be used afterwards', 'es': 'Inicia sesión primero; usaremos el código después'},
+    'guestVerifyEmail': {'en': 'Verify your email to join', 'es': 'Verifica tu correo para unirte'},
+    'guestInvalidCode': {'en': 'Invalid or expired code', 'es': 'Código inválido o vencido'},
+    'guestAlreadyHasAccess': {'en': 'You already have access to this server', 'es': 'Ya tienes acceso a este servidor'},
+    'guestJoinFailed': {'en': 'Could not join', 'es': 'No se pudo unir'},
+    'guestAutoAccept': {'en': 'Accept guests automatically', 'es': 'Aceptar invitados automáticamente'},
+    'guestInviteLink': {'en': 'Invite with link', 'es': 'Invitar con enlace'},
+    'guestLinkFailed': {'en': 'Could not create the link', 'es': 'No se pudo crear el enlace'},
     'currentlyRunning': {'en': 'Currently running', 'es': 'En ejecución'},
     'localLibrary': {'en': 'Local library', 'es': 'Biblioteca local'},
     'similarGames': {'en': 'Similar to this', 'es': 'Similar a este'},
@@ -1344,6 +1357,29 @@ class AppLocalizations {
   String get coopInviteAccepted => _s('coopInviteAccepted');
   String get coopInviteDeclined => _s('coopInviteDeclined');
   String get coopInviteFailed => _s('coopInviteFailed');
+  String get guestJoinWithCode => _s('guestJoinWithCode');
+  String get guestCodeHint => _s('guestCodeHint');
+  String get guestWaiting => _s('guestWaiting');
+  String get guestDeclined => _s('guestDeclined');
+  String get guestRequestExpired => _s('guestRequestExpired');
+  String get guestNeedSignIn => _s('guestNeedSignIn');
+  String get guestVerifyEmail => _s('guestVerifyEmail');
+  String get guestInvalidCode => _s('guestInvalidCode');
+  String get guestAlreadyHasAccess => _s('guestAlreadyHasAccess');
+  String get guestJoinFailed => _s('guestJoinFailed');
+  String get guestAutoAccept => _s('guestAutoAccept');
+  String get guestInviteLink => _s('guestInviteLink');
+  String get guestLinkFailed => _s('guestLinkFailed');
+  String guestAccepted(String server) => locale.languageCode == 'es'
+      ? 'Te aceptaron: ya puedes unirte a $server'
+      : 'You were accepted: you can now join $server';
+  String guestJoined(String server) => locale.languageCode == 'es'
+      ? 'Ya tienes acceso a $server'
+      : 'You now have access to $server';
+  String guestWantsToJoin(String email, String role) =>
+      locale.languageCode == 'es'
+      ? '$email quiere unirse · $role'
+      : '$email wants to join · $role';
   String coopRoleLabel(String role) => switch (role) {
     'viewer' => coopRoleViewer,
     'coop_kbm' => coopRoleKbm,

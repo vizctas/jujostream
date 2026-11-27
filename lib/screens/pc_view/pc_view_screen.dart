@@ -2500,14 +2500,15 @@ class _AccountPickerBottomSheet extends StatelessWidget {
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          if (auth.isSupabaseSignedIn &&
-                              (auth.isLoadingInvites ||
-                                  auth.pendingInvites.isNotEmpty)) ...[
+                          if (auth.isSupabaseSignedIn) ...[
                             PendingInvitesSection(
                               invites: auth.pendingInvites,
                               isLoading: auth.isLoadingInvites,
                               accent: theme.accent,
                               isLight: isLight,
+                              waiting: auth.waitingGuest,
+                              onCancelWaiting: auth.cancelWaitingGuest,
+                              onJoinWithCode: auth.redeemGuestCode,
                               onRespond: (invite, {required accept}) =>
                                   auth.respondToPendingInvite(
                                     invite,

@@ -4,6 +4,25 @@ import 'package:supabase_flutter/supabase_flutter.dart' hide AuthState;
 
 import '../services/auth/google_auth_service.dart';
 import '../services/sync/cloud_sync_service.dart';
+import '../services/sync/guest_link.dart';
+
+enum GuestJoinEventKind {
+  needSignIn,
+  joined,
+  accepted,
+  declined,
+  expired,
+  verifyEmail,
+  invalidCode,
+  alreadyHasAccess,
+  error,
+}
+
+class GuestJoinEvent {
+  final GuestJoinEventKind kind;
+  final String serverName;
+  const GuestJoinEvent(this.kind, [this.serverName = '']);
+}
 
 class AuthProvider extends ChangeNotifier {
   bool _signedIn = false;
@@ -15,6 +34,16 @@ class AuthProvider extends ChangeNotifier {
   List<CloudPendingInvite> _pendingInvites = const [];
   bool _loadingInvites = false;
   bool _disposed = false;
+  String? _savedGuestCode;
+  GuestRedeemResult? _waitingGuest;
+  Timer? _guestPoll;
+  final _guestEvents = StreamController<GuestJoinEvent>.broadcast();
+
+  /// Outcome messages for the UI (snackbars), also for deep-link joins.
+  Stream<GuestJoinEvent> get guestJoinEvents => _guestEvents.stream;
+
+  /// A join request waiting for the host's approval, if any.
+  GuestRedeemResult? get waitingGuest => _waitingGuest;
 
   bool get isSignedIn => _signedIn;
   String? get email => _email;
@@ -86,11 +115,12 @@ class AuthProvider extends ChangeNotifier {
         _cloudError = 'Por favor, confirma tu correo antes de iniciar sesión.';
         return false;
       }
-      
+
       _signedIn = true;
       _email = response.user?.email;
       _displayName = response.user?.email?.split('@').first;
       notifyListeners();
+      unawaited(_redeemSavedGuestCode());
       return true;
     } on AuthException catch (e) {
       _cloudError = e.message;
@@ -115,14 +145,14 @@ class AuthProvider extends ChangeNotifier {
         email: email,
         password: password,
       );
-      
+
       // Supabase returns a session if email confirmation is disabled,
       // or user object with unconfirmed email if confirmation is required.
       if (response.user == null) {
         _cloudError = 'Error al registrar la cuenta.';
         return false;
       }
-      
+
       return true;
     } on AuthException catch (e) {
       _cloudError = e.message;
@@ -143,6 +173,7 @@ class AuthProvider extends ChangeNotifier {
     _displayName = null;
     _photoUrl = null;
     _pendingInvites = const [];
+    _clearWaitingGuest();
     notifyListeners();
   }
 
@@ -222,6 +253,7 @@ class AuthProvider extends ChangeNotifier {
         _cloudError = _sync.lastError ?? 'Unknown error';
       } else if (isSupabaseSignedIn) {
         unawaited(refreshPendingInvites());
+        unawaited(_redeemSavedGuestCode());
       }
       return ok;
     } catch (e) {
@@ -269,8 +301,96 @@ class AuthProvider extends ChangeNotifier {
     return ok;
   }
 
+  /// Redeems a guest link/code. Signed out: keeps the code for after sign-in.
+  Future<void> redeemGuestCode(String raw) async {
+    final code = normalizeGuestCode(raw);
+    if (code == null) {
+      _guestEvents.add(const GuestJoinEvent(GuestJoinEventKind.invalidCode));
+      return;
+    }
+    if (!isSupabaseSignedIn) {
+      _savedGuestCode = code;
+      _guestEvents.add(const GuestJoinEvent(GuestJoinEventKind.needSignIn));
+      return;
+    }
+    final result = await _sync.redeemGuestLink(code);
+    switch (result.outcome) {
+      case GuestRedeemOutcome.active:
+        await pullFromCloud();
+        _guestEvents.add(
+          GuestJoinEvent(GuestJoinEventKind.joined, result.serverName),
+        );
+      case GuestRedeemOutcome.requested:
+        _waitingGuest = result;
+        _guestPoll?.cancel();
+        _guestPoll = Timer.periodic(
+          const Duration(seconds: 3),
+          (_) => _pollWaitingGuest(),
+        );
+        if (!_disposed) notifyListeners();
+      case GuestRedeemOutcome.verifyEmail:
+        _guestEvents.add(const GuestJoinEvent(GuestJoinEventKind.verifyEmail));
+      case GuestRedeemOutcome.invalidOrExpired:
+        _guestEvents.add(const GuestJoinEvent(GuestJoinEventKind.invalidCode));
+      case GuestRedeemOutcome.alreadyHasAccess:
+        _guestEvents.add(
+          const GuestJoinEvent(GuestJoinEventKind.alreadyHasAccess),
+        );
+      case GuestRedeemOutcome.error:
+        _guestEvents.add(const GuestJoinEvent(GuestJoinEventKind.error));
+    }
+  }
+
+  Future<void> _redeemSavedGuestCode() async {
+    final code = _savedGuestCode;
+    if (code == null) return;
+    _savedGuestCode = null;
+    await redeemGuestCode(code);
+  }
+
+  Future<void> cancelWaitingGuest() async {
+    final waiting = _waitingGuest;
+    if (waiting == null) return;
+    _clearWaitingGuest();
+    await _sync.cancelGuestRequest(waiting.inviteId);
+  }
+
+  void _clearWaitingGuest() {
+    _guestPoll?.cancel();
+    _guestPoll = null;
+    _waitingGuest = null;
+    if (!_disposed) notifyListeners();
+  }
+
+  Future<void> _pollWaitingGuest() async {
+    final waiting = _waitingGuest;
+    if (waiting == null) return;
+    GuestJoinEventKind? done;
+    try {
+      final status = await _sync.guestRequestStatus(waiting.inviteId);
+      if (_waitingGuest != waiting) return;
+      if (status == 'active') {
+        await pullFromCloud();
+        done = GuestJoinEventKind.accepted;
+      } else if (status == 'declined') {
+        done = GuestJoinEventKind.declined;
+      } else if (status == null ||
+          (waiting.expiresAt != null &&
+              !waiting.expiresAt!.isAfter(DateTime.now().toUtc()))) {
+        done = GuestJoinEventKind.expired;
+      }
+    } catch (_) {
+      return;
+    }
+    if (done == null || _waitingGuest != waiting) return;
+    _clearWaitingGuest();
+    _guestEvents.add(GuestJoinEvent(done, waiting.serverName));
+  }
+
   @override
   void dispose() {
+    _guestPoll?.cancel();
+    _guestEvents.close();
     _disposed = true;
     super.dispose();
   }

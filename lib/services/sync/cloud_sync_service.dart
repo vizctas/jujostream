@@ -14,6 +14,7 @@ import '../../models/computer_details.dart';
 import '../auth/google_auth_service.dart';
 import '../crypto/client_identity.dart';
 import '../network/wake_on_lan_service.dart';
+import 'guest_link.dart';
 
 /// Human-readable name this device registers under when pairing through the
 /// cloud.
@@ -572,6 +573,113 @@ class CloudSyncService {
     }
   }
 
+  static Map<String, dynamic>? _rpcMap(dynamic raw) {
+    if (raw is Map) return raw.cast<String, dynamic>();
+    if (raw is String && raw.trim().startsWith('{')) {
+      final decoded = jsonDecode(raw);
+      if (decoded is Map) return decoded.cast<String, dynamic>();
+    }
+    return null;
+  }
+
+  /// Redeems a guest link code. Never throws: failures map to `error`.
+  Future<GuestRedeemResult> redeemGuestLink(String code) async {
+    try {
+      final raw = await Supabase.instance.client.rpc(
+        'redeem_guest_link',
+        params: {'p_code': code},
+      );
+      final map = _rpcMap(raw);
+      return map == null
+          ? const GuestRedeemResult(GuestRedeemOutcome.error)
+          : GuestRedeemResult.fromRpc(map);
+    } catch (e) {
+      _log.w('redeemGuestLink failed: $e');
+      return const GuestRedeemResult(GuestRedeemOutcome.error);
+    }
+  }
+
+  /// Status of my own join request: `requested`, `active`, `declined`; null
+  /// once the row is gone (cancelled or purged).
+  Future<String?> guestRequestStatus(String inviteId) async {
+    final row = await Supabase.instance.client
+        .from('coop_session_invites')
+        .select('status')
+        .eq('id', inviteId)
+        .maybeSingle();
+    return row?['status']?.toString();
+  }
+
+  Future<void> cancelGuestRequest(String inviteId) async {
+    try {
+      await Supabase.instance.client
+          .from('coop_session_invites')
+          .delete()
+          .eq('id', inviteId);
+    } catch (e) {
+      _log.w('cancelGuestRequest failed: $e');
+    }
+  }
+
+  /// Join requests waiting on me as a manager (all my servers).
+  Future<List<GuestRequest>> pendingGuestRequests() async {
+    try {
+      final rows = await Supabase.instance.client.rpc('pending_guest_requests');
+      return [
+        if (rows is List)
+          for (final row in rows)
+            if (row is Map) GuestRequest.fromJson(row.cast<String, dynamic>()),
+      ].where((r) => r.id.isNotEmpty).toList();
+    } catch (e) {
+      _log.w('pendingGuestRequests failed: $e');
+      return const [];
+    }
+  }
+
+  Future<bool> respondGuestRequest(String inviteId, {required bool approve}) =>
+      _rpcSucceeded('respond_guest_request', {
+        'p_invite_id': inviteId,
+        'p_approve': approve,
+      });
+
+  Future<bool> setAutoAcceptGuests(String serverUrl, bool enabled) =>
+      _rpcSucceeded('set_auto_accept_guests', {
+        'p_server_url': serverUrl,
+        'p_enabled': enabled,
+      });
+
+  /// Creates a multi-use guest link; null when not allowed or on failure.
+  Future<({String code, DateTime expiresAt})?> createGuestLink(
+    String serverUrl, {
+    String role = 'coop_pad',
+  }) async {
+    try {
+      final raw = await Supabase.instance.client.rpc(
+        'create_guest_link',
+        params: {'p_server_url': serverUrl, 'p_role': role},
+      );
+      final map = _rpcMap(raw);
+      final expires = DateTime.tryParse('${map?['expires_at']}');
+      if (map?['success'] != true || map?['code'] == null || expires == null) {
+        return null;
+      }
+      return (code: map!['code'].toString(), expiresAt: expires);
+    } catch (e) {
+      _log.w('createGuestLink failed: $e');
+      return null;
+    }
+  }
+
+  Future<bool> _rpcSucceeded(String name, Map<String, dynamic> params) async {
+    try {
+      final raw = await Supabase.instance.client.rpc(name, params: params);
+      return _rpcMap(raw)?['success'] == true;
+    } catch (e) {
+      _log.w('$name failed: $e');
+      return false;
+    }
+  }
+
   Future<bool> pullConfigFromSupabase() async {
     lastError = null;
     final client = Supabase.instance.client;
@@ -621,7 +729,8 @@ class CloudSyncService {
         validCoopShared.add(map);
       }
 
-      final permanentProfiles = [...response as List<dynamic>, ...shared];
+      final ownedProfiles = response as List<dynamic>;
+      final permanentProfiles = [...ownedProfiles, ...shared];
       final cloudProfiles = [...permanentProfiles, ...validCoopShared];
 
       final prefs = await SharedPreferences.getInstance();
@@ -638,7 +747,11 @@ class CloudSyncService {
       String? primaryServerUuid = prefs.getString(_kPrimaryServerKey);
       final permanentMatched = Set<ComputerDetails>.identity();
 
-      void mergeProfile(Map<String, dynamic> cloudMap, {required bool isCoop}) {
+      void mergeProfile(
+        Map<String, dynamic> cloudMap, {
+        required bool isCoop,
+        bool owned = false,
+      }) {
         final String serverUrl = cloudMap['server_url'] ?? '';
         if (serverUrl.isEmpty) return;
 
@@ -687,6 +800,11 @@ class CloudSyncService {
             : null;
 
         final serverUuid = (cloudMap['server_uuid'] as String?)?.trim() ?? '';
+        final permissions = [
+          for (final p in cloudMap['permissions'] as List? ?? const [])
+            p.toString(),
+        ];
+        final autoAccept = cloudMap['auto_accept_guests'] == true;
 
         int matchIdx = -1;
         if (serverUuid.isNotEmpty) {
@@ -778,6 +896,10 @@ class CloudSyncService {
           if (!isCoop) {
             local.coopRole = null;
             local.coopExpiresAt = null;
+            local.isCloudOwner = owned;
+            local.cloudServerUrl = serverUrl;
+            local.permissions = permissions;
+            local.autoAcceptGuests = autoAccept;
             permanentMatched.add(local);
           } else if (!permanentMatched.contains(local)) {
             local.coopRole = coopRole;
@@ -826,6 +948,10 @@ class CloudSyncService {
             isCloud: true,
             coopRole: coopRole,
             coopExpiresAt: coopExpiresAt,
+            isCloudOwner: !isCoop && owned,
+            cloudServerUrl: isCoop ? '' : serverUrl,
+            permissions: isCoop ? const [] : permissions,
+            autoAcceptGuests: !isCoop && autoAccept,
             lastSeenAt: cloudLastSeen,
           );
 
@@ -840,7 +966,10 @@ class CloudSyncService {
         }
       }
 
-      for (final row in permanentProfiles) {
+      for (final row in ownedProfiles) {
+        mergeProfile(row as Map<String, dynamic>, isCoop: false, owned: true);
+      }
+      for (final row in shared) {
         mergeProfile(row as Map<String, dynamic>, isCoop: false);
       }
       for (final row in validCoopShared) {
@@ -873,6 +1002,8 @@ class CloudSyncService {
             }
           } else {
             local.isCloud = false;
+            local.isCloudOwner = false;
+            local.permissions = const [];
           }
         }
       }
