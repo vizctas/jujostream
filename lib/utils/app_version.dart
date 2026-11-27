@@ -1,3 +1,3 @@
-const String kAppVersion = '1.1.45';
-const int kAppBuildNumber = 46;
+const String kAppVersion = '1.1.49';
+const int kAppBuildNumber = 49;
 const String kAppVersionDisplay = 'v$kAppVersion - beta';

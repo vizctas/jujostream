@@ -25,9 +25,10 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
+          flutter-version: '3.44.4'
 
       - name: Install Flutter dependencies
-        run: flutter pub get
+        run: flutter pub get --enforce-lockfile
 
       # ── Android SDK components ──────────────────────────────────
       - name: Install Android SDK components

@@ -2,6 +2,16 @@
 /// version. Add an entry with every release bump (kAppVersion); a version with
 /// no entry simply shows nothing.
 const Map<String, ({List<String> es, List<String> en})> kChangelog = {
+  '1.1.49': (
+    es: [
+      'En el tema Kuiboo puedes ver el género, la plataforma y el tiempo de juego del título seleccionado sin abrir otra pantalla.',
+      'El detalle de un juego se abre como ventana sobre la biblioteca, con el tráiler en silencio y en bucle.',
+    ],
+    en: [
+      'In the Kuiboo theme, you can see the selected game’s genre, platform, and playtime without opening another screen.',
+      'Game details open as a popup over the library, with the trailer muted and looping.',
+    ],
+  ),
   '1.1.44': (
     es: [
       'Menú en stream ajustable: elige la opacidad del panel (75% por defecto) y su color de fondo desde el mismo menú, con el D-pad.',

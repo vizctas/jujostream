@@ -79,6 +79,7 @@ void main() {
 
     await render(const Size(1280, 720));
     await render(const Size(800, 420));
+    await render(const Size(832, 384)); // S24 landscape
     addTearDown(() {
       tester.view.resetPhysicalSize();
       tester.view.resetDevicePixelRatio();

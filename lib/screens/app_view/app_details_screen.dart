@@ -25,6 +25,7 @@ import '../../services/database/app_override_service.dart';
 import '../../services/tv/tv_detector.dart';
 import '../../services/input/gamepad_button_helper.dart';
 import '../../widgets/trailer_modal.dart';
+import 'details_popup.dart';
 import '../../ui/accessible_action.dart';
 
 enum AppDetailsAction { play, options }
@@ -41,6 +42,10 @@ class AppDetailsScreen extends StatefulWidget {
   final AchievementProgress? achievementProgress;
   final VoidCallback? onAddToCollection;
 
+  /// Rendered inside [detailsPopupRoute]: the frame owns the safe area and
+  /// a muted trailer leads the content.
+  final bool popup;
+
   const AppDetailsScreen({
     super.key,
     required this.app,
@@ -53,6 +58,7 @@ class AppDetailsScreen extends StatefulWidget {
     required this.onResetOverrides,
     this.achievementProgress,
     this.onAddToCollection,
+    this.popup = false,
   });
 
   @override
@@ -315,6 +321,10 @@ class _AppDetailsScreenState extends State<AppDetailsScreen> {
           children: [
             _buildBackdrop(),
             SafeArea(
+              top: !widget.popup,
+              bottom: !widget.popup,
+              left: !widget.popup,
+              right: !widget.popup,
               child: FocusTraversalGroup(
                 policy: WidgetOrderTraversalPolicy(),
                 child: Column(
@@ -327,6 +337,14 @@ class _AppDetailsScreenState extends State<AppDetailsScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
+                            if (widget.popup &&
+                                _steamMovies.isNotEmpty &&
+                                context.watch<PluginsProvider>().isEnabled(
+                                  'game_video',
+                                )) ...[
+                              DetailsPopupTrailer(movies: _steamMovies),
+                              const SizedBox(height: 18),
+                            ],
                             _buildHero(),
                             const SizedBox(height: 18),
                             _buildQuickActions(),

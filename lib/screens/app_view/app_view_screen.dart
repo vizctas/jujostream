@@ -29,6 +29,7 @@ import '../../services/preferences/game_preferences_store.dart';
 import '../../services/preferences/hidden_apps_store.dart';
 import '../../services/preferences/launcher_preferences.dart';
 import 'app_details_screen.dart';
+import 'details_popup.dart';
 import 'app_view_presentation_settings_screen.dart';
 import 'watchdog_dialogs.dart';
 import '../../services/audio/ui_sound_service.dart';
@@ -2799,8 +2800,9 @@ abstract class _AppViewScreenBase extends State<AppViewScreen>
     if (!mounted) return;
     final result = await Navigator.push<AppDetailsAction>(
       context,
-      MaterialPageRoute(
-        builder: (_) => AppDetailsScreen(
+      detailsPopupRoute<AppDetailsAction>(
+        AppDetailsScreen(
+          popup: true,
           app: app,
           heroTag: _heroTag(app),
           isFavorite: _favoriteAppIds.contains(app.appId),

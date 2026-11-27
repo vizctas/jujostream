@@ -1009,6 +1009,8 @@ class StreamingPlugin : FlutterPlugin, MethodChannel.MethodCallHandler,
                         "rttVarianceMs" to rttVarianceMs,
                         "totalRendered" to currentFrames,
                         "totalPresented" to currentPresented,
+                        "framesReceived" to currentReceived,
+                        "presentationTrackingAvailable" to renderer.presentationTrackingEnabled,
                         "totalDropped"  to currentDropped,
                     ))
                 }
